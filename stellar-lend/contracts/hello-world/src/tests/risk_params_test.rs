@@ -43,10 +43,10 @@ fn test_set_risk_params_success() {
 fn test_set_risk_params_unauthorized() {
     let (env, client, _admin) = setup_test();
     let not_admin = Address::generate(&env);
-    
+
     let result = client.try_set_risk_params(&not_admin, &Some(11_100), &None, &None, &None);
     match result {
-        Err(Ok(RiskManagementError::Unauthorized)) => {},
+        Err(Ok(RiskManagementError::Unauthorized)) => {}
         _ => panic!("Expected Unauthorized error, got {:?}", result),
     }
 }
@@ -54,12 +54,12 @@ fn test_set_risk_params_unauthorized() {
 #[test]
 fn test_set_risk_params_exceeds_change_limit() {
     let (_env, client, admin) = setup_test();
-    
+
     // Default is 11_000, 10% change max is 1_100, so new value <= 12_100
     // Try setting to 12_200, should fail with ParameterChangeTooLarge
     let result = client.try_set_risk_params(&admin, &Some(12_200), &None, &None, &None);
     match result {
-        Err(Ok(RiskManagementError::ParameterChangeTooLarge)) => {},
+        Err(Ok(RiskManagementError::ParameterChangeTooLarge)) => {}
         _ => panic!("Expected ParameterChangeTooLarge error, got {:?}", result),
     }
 }
@@ -67,14 +67,14 @@ fn test_set_risk_params_exceeds_change_limit() {
 #[test]
 fn test_set_risk_params_invalid_collateral_ratio() {
     let (_env, client, admin) = setup_test();
-    
+
     // Current min_collateral_ratio is 11_000
     // Try to set liquidation_threshold to 11_500, which is over min_cr
     // Fail with InvalidCollateralRatio
     // Note: 11_500 is within 10% change limit from 10_500 (1050 max change)
     let result = client.try_set_risk_params(&admin, &None, &Some(11_500), &None, &None);
     match result {
-        Err(Ok(RiskManagementError::InvalidCollateralRatio)) => {},
+        Err(Ok(RiskManagementError::InvalidCollateralRatio)) => {}
         _ => panic!("Expected InvalidCollateralRatio error, got {:?}", result),
     }
 }
