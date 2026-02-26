@@ -1,6 +1,23 @@
 use soroban_sdk::{Address, Env};
 use stellarlend_amm::{AmmError, AmmProtocolConfig, LiquidityParams, SwapParams};
 
+/// Initialize AMM settings (admin only)
+pub fn initialize_amm(
+    env: Env,
+    admin: Address,
+    default_slippage: i128,
+    max_slippage: i128,
+    auto_swap_threshold: i128,
+) -> Result<(), AmmError> {
+    stellarlend_amm::initialize_amm_settings(
+        &env,
+        admin,
+        default_slippage,
+        max_slippage,
+        auto_swap_threshold,
+    )
+}
+
 /// Set AMM pool configuration (admin only)
 pub fn set_amm_pool(
     env: Env,
@@ -52,22 +69,5 @@ pub fn amm_remove_liquidity(
         min_amount_a,
         min_amount_b,
         deadline,
-    )
-}
-
-/// Initialize AMM settings (admin only)
-pub fn initialize_amm(
-    env: Env,
-    admin: Address,
-    default_slippage: i128,
-    max_slippage: i128,
-    auto_swap_threshold: i128,
-) -> Result<(), AmmError> {
-    stellarlend_amm::initialize_amm_settings(
-        &env,
-        admin,
-        default_slippage,
-        max_slippage,
-        auto_swap_threshold,
     )
 }

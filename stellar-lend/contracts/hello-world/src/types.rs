@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Bytes, String, Symbol, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, String, Symbol, Vec, Val};
 
 // ========================================================================
 // Proposal Types
@@ -167,3 +167,17 @@ pub const DEFAULT_QUORUM_BPS: u32 = 4_000; // 40% default quorum
 pub const DEFAULT_VOTING_THRESHOLD: i128 = 5_000; // 50% default threshold
 pub const DEFAULT_TIMELOCK_DURATION: u64 = 7 * 24 * 60 * 60; // 7 days
 pub const DEFAULT_RECOVERY_PERIOD: u64 = 3 * 24 * 60 * 60; // 3 days
+
+// ========================================================================
+// Vote Type
+// ========================================================================
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct Vote {
+    pub voter: Address,
+    pub proposal_id: u64,
+    pub vote_type: VoteType,
+    pub voting_power: i128,
+    pub timestamp: u64,
+}

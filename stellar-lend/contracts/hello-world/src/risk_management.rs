@@ -125,6 +125,7 @@ pub fn initialize_risk_management(env: &Env, admin: Address) -> Result<(), RiskM
     }
 
     // Set admin
+    let admin_key = crate::storage::GovernanceDataKey::Admin;
     env.storage().persistent().set(&admin_key, &admin);
 
     // Initialize default risk config for pause switches

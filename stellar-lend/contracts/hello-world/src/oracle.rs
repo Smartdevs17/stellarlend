@@ -57,6 +57,12 @@ pub enum OracleDataKey {
     /// Address of the designated fallback oracle for an asset
     /// Value type: Address
     FallbackOracle(Address),
+    /// Primary oracle address for an asset
+    /// Value type: Address
+    PrimaryOracle(Address),
+    /// Fallback price feed for an asset
+    /// Value type: PriceFeed
+    FallbackFeed(Address),
     /// Transient price cache for improved gas efficiency
     /// Value type: CachedPrice
     PriceCache(Address),
