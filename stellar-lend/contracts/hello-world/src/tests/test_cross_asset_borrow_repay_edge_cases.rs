@@ -22,7 +22,7 @@ fn create_test_env() -> Env {
     env
 }
 
-fn setup_contract(env: &Env) -> (HelloContractClient, Address) {
+fn setup_contract(env: &Env) -> (HelloContractClient<'_>, Address) {
     let contract_id = env.register(HelloContract, ());
     let client = HelloContractClient::new(env, &contract_id);
     let admin = Address::generate(env);
