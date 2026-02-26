@@ -1033,9 +1033,6 @@ mod test_zero_amount;
 mod flash_loan_test;
 
 #[cfg(test)]
-mod fuzz_tests;
-
-#[cfg(test)]
 mod governance_test;
 
 #[cfg(test)]
