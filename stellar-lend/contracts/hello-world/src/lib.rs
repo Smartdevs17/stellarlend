@@ -23,6 +23,7 @@ pub mod recovery;
 pub mod repay;
 pub mod reserve;
 pub mod risk_management;
+pub mod config_snapshot;
 pub mod risk_params;
 pub mod storage;
 pub mod types;
@@ -34,6 +35,7 @@ mod tests;
 use crate::deposit::{AssetParams, DepositDataKey, ProtocolAnalytics};
 use crate::oracle::OracleConfig;
 use crate::risk_management::{RiskConfig, RiskManagementError};
+use crate::config_snapshot::{get_config_snapshot, ConfigSnapshot};
 
 use borrow::borrow_asset;
 use deposit::deposit_collateral;
@@ -378,6 +380,15 @@ impl HelloContract {
     /// Returns the current risk configuration or None if not initialized
     pub fn get_risk_config(env: Env) -> Option<RiskConfig> {
         risk_management::get_risk_config(&env)
+    }
+
+    /// Get a read-only configuration snapshot of the protocol
+    ///
+    /// # Returns
+    /// Returns Some(ConfigSnapshot) if initialized, None otherwise.
+    /// No authorization required - safe for any caller.
+    pub fn get_config_snapshot(env: Env) -> Option<ConfigSnapshot> {
+        get_config_snapshot(&env)
     }
 
     /// Get minimum collateral ratio
@@ -1529,6 +1540,8 @@ impl HelloContract {
     ) -> Result<AssetConfig, CrossAssetError> {
         get_asset_config_by_address(&env, asset)
     }
+
+    // ============================================================================
 
     /// Get proposal by ID
     pub fn gov_get_proposal(env: Env, proposal_id: u64) -> Option<Proposal> {
