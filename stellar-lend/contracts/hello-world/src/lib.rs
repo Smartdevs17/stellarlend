@@ -58,6 +58,7 @@ mod borrow;
 mod deposit;
 mod errors;
 mod events;
+mod governance;
 pub mod multisig;
 pub mod recovery;
 mod repay;
