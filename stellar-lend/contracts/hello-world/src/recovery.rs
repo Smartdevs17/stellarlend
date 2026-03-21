@@ -2,9 +2,10 @@
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::governance::{
-    emit_guardian_added_event, emit_guardian_removed_event, emit_recovery_approved_event,
-    emit_recovery_executed_event, emit_recovery_started_event, GovernanceDataKey, GovernanceError,
-    RecoveryRequest,
+    GovernanceDataKey, GovernanceError, RecoveryRequest,
+    emit_guardian_added_event, emit_guardian_removed_event,
+    emit_recovery_approved_event, emit_recovery_executed_event,
+    emit_recovery_started_event,
 };
 
 const DEFAULT_RECOVERY_PERIOD: u64 = 3 * 24 * 60 * 60;

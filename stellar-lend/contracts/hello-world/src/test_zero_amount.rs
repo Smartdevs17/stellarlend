@@ -31,9 +31,8 @@ fn setup() -> (Env, Address, HelloContractClient<'static>) {
     let client = HelloContractClient::new(&env, &contract_id);
     // SAFETY: client borrows env; we know env outlives this scope via leak.
     // This is only for tests — we leak env so the client reference is 'static.
-    let client = unsafe {
-        core::mem::transmute::<HelloContractClient<'_>, HelloContractClient<'static>>(client)
-    };
+    let client =
+        unsafe { core::mem::transmute::<HelloContractClient<'_>, HelloContractClient<'static>>(client) };
     (env, contract_id, client)
 }
 
@@ -117,10 +116,7 @@ fn test_zero_deposit_no_state_change() {
     assert!(result.is_err(), "Zero deposit should revert");
 
     let balance_after = collateral_balance(&env, &contract_id, &user);
-    assert_eq!(
-        balance_after, balance_before,
-        "Balance must not change after zero deposit"
-    );
+    assert_eq!(balance_after, balance_before, "Balance must not change after zero deposit");
 }
 
 #[test]
@@ -204,10 +200,7 @@ fn test_zero_withdraw_no_state_change() {
     assert!(result.is_err(), "Zero withdraw should revert");
 
     let balance_after = collateral_balance(&env, &contract_id, &user);
-    assert_eq!(
-        balance_after, balance_before,
-        "Balance must not change after zero withdraw"
-    );
+    assert_eq!(balance_after, balance_before, "Balance must not change after zero withdraw");
 }
 
 #[test]
@@ -248,10 +241,7 @@ fn test_zero_withdraw_between_valid_withdrawals() {
     client.withdraw_collateral(&user, &None, &300);
 
     let balance = collateral_balance(&env, &contract_id, &user);
-    assert_eq!(
-        balance, 500,
-        "Zero withdraw must not affect balance: 1000 - 200 - 300 = 500"
-    );
+    assert_eq!(balance, 500, "Zero withdraw must not affect balance: 1000 - 200 - 300 = 500");
 }
 
 // ============================================================================
@@ -300,10 +290,7 @@ fn test_zero_borrow_no_state_change() {
     assert!(result.is_err(), "Zero borrow should revert");
 
     let position_after = position_of(&env, &contract_id, &user).unwrap();
-    assert_eq!(
-        position_after.debt, 0,
-        "Debt must remain zero after zero borrow"
-    );
+    assert_eq!(position_after.debt, 0, "Debt must remain zero after zero borrow");
 }
 
 #[test]
@@ -325,10 +312,7 @@ fn test_zero_borrow_with_existing_debt() {
     assert!(result.is_err(), "Zero borrow should revert");
 
     let position_after = position_of(&env, &contract_id, &user).unwrap();
-    assert_eq!(
-        position_after.debt, position_before.debt,
-        "Debt must not change after zero borrow"
-    );
+    assert_eq!(position_after.debt, position_before.debt, "Debt must not change after zero borrow");
 }
 
 #[test]
@@ -351,10 +335,7 @@ fn test_zero_borrow_between_valid_borrows() {
     client.borrow_asset(&user, &None, &500);
 
     let position = position_of(&env, &contract_id, &user).unwrap();
-    assert_eq!(
-        position.debt, 1500,
-        "Zero borrow must not affect debt: 1000 + 500 = 1500"
-    );
+    assert_eq!(position.debt, 1500, "Zero borrow must not affect debt: 1000 + 500 = 1500");
 }
 
 // ============================================================================
@@ -433,10 +414,7 @@ fn test_zero_repay_no_state_change() {
     assert!(result.is_err(), "Zero repay should revert");
 
     let position_after = position_of(&env, &contract_id, &user).unwrap();
-    assert_eq!(
-        position_after.debt, position_before.debt,
-        "Debt must not change"
-    );
+    assert_eq!(position_after.debt, position_before.debt, "Debt must not change");
     assert_eq!(
         position_after.borrow_interest, position_before.borrow_interest,
         "Interest must not change"
@@ -545,10 +523,7 @@ fn test_liquidation_incentive_zero_amount() {
 
     // Zero liquidation amount → incentive should be 0
     let incentive = client.get_liquidation_incentive_amount(&0);
-    assert_eq!(
-        incentive, 0,
-        "Liquidation incentive for zero amount must be 0"
-    );
+    assert_eq!(incentive, 0, "Liquidation incentive for zero amount must be 0");
 }
 
 #[test]
@@ -563,10 +538,7 @@ fn test_min_collateral_ratio_zero_debt() {
 
     // Zero debt → collateral ratio check should pass (any collateral is sufficient)
     let result = client.try_require_min_collateral_ratio(&1000, &0);
-    assert!(
-        result.is_ok(),
-        "Zero debt should satisfy any collateral ratio requirement"
-    );
+    assert!(result.is_ok(), "Zero debt should satisfy any collateral ratio requirement");
 }
 
 #[test]
@@ -581,10 +553,7 @@ fn test_min_collateral_ratio_both_zero() {
 
     // Both zero → should pass (no debt to satisfy)
     let result = client.try_require_min_collateral_ratio(&0, &0);
-    assert!(
-        result.is_ok(),
-        "Both zero should satisfy collateral ratio (no debt)"
-    );
+    assert!(result.is_ok(), "Both zero should satisfy collateral ratio (no debt)");
 }
 
 // ============================================================================
@@ -607,10 +576,7 @@ fn test_zero_ops_do_not_affect_subsequent_valid_ops() {
 
     // Now do a valid deposit — should succeed without any state corruption
     let balance = client.deposit_collateral(&user, &None, &5000);
-    assert_eq!(
-        balance, 5000,
-        "Valid deposit must succeed after zero attempts"
-    );
+    assert_eq!(balance, 5000, "Valid deposit must succeed after zero attempts");
 
     // Valid borrow
     let debt = client.borrow_asset(&user, &None, &2000);
@@ -681,10 +647,7 @@ fn test_all_zero_operations_sequence() {
 
     // No state should exist for this user
     let position = position_of(&env, &contract_id, &user);
-    assert!(
-        position.is_none(),
-        "No position should exist after all-zero ops"
-    );
+    assert!(position.is_none(), "No position should exist after all-zero ops");
     assert_eq!(collateral_balance(&env, &contract_id, &user), 0);
 }
 

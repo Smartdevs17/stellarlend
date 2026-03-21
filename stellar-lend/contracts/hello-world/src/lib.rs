@@ -42,25 +42,28 @@ mod borrow;
 mod deposit;
 mod errors;
 mod events;
-pub mod multisig;
-pub mod recovery;
 mod repay;
 mod reserve;
 mod risk_management;
 mod risk_params;
 mod withdraw;
+pub mod recovery;
+pub mod multisig;
 
 use borrow::borrow_asset;
 use deposit::deposit_collateral;
 use repay::repay_debt;
 
 use risk_management::{
-    check_emergency_pause, initialize_risk_management, is_emergency_paused, is_operation_paused,
-    require_admin, set_pause_switch, set_pause_switches, RiskConfig, RiskManagementError,
+    initialize_risk_management, is_emergency_paused, is_operation_paused,
+    set_pause_switch, set_pause_switches, check_emergency_pause, require_admin,
+    RiskConfig, RiskManagementError,
 };
 use risk_params::{
-    can_be_liquidated, get_liquidation_incentive_amount, get_max_liquidatable_amount,
-    initialize_risk_params, require_min_collateral_ratio, RiskParamsError,
+    can_be_liquidated,
+    get_liquidation_incentive_amount, get_max_liquidatable_amount,
+    initialize_risk_params, require_min_collateral_ratio,
+    RiskParamsError
 };
 use withdraw::withdraw_collateral;
 
@@ -74,8 +77,8 @@ use analytics::{
 mod cross_asset;
 use cross_asset::{
     get_asset_config_by_address, get_asset_list, get_user_asset_position,
-    get_user_position_summary, initialize_asset, update_asset_config, update_asset_price,
-    AssetConfig, AssetKey, AssetPosition, CrossAssetError, UserPositionSummary,
+    get_user_position_summary, initialize_asset, update_asset_config,
+    update_asset_price, AssetConfig, AssetKey, AssetPosition, CrossAssetError, UserPositionSummary,
 };
 
 mod oracle;
@@ -272,87 +275,81 @@ impl HelloContract {
             liquidation_threshold,
             close_factor,
             liquidation_incentive,
-        )
-        .map_err(|e| match e {
-            RiskParamsError::ParameterChangeTooLarge => {
-                RiskManagementError::ParameterChangeTooLarge
-            }
+        ).map_err(|e| match e {
+            RiskParamsError::ParameterChangeTooLarge => RiskManagementError::ParameterChangeTooLarge,
             RiskParamsError::InvalidCollateralRatio => RiskManagementError::InvalidCollateralRatio,
-            RiskParamsError::InvalidLiquidationThreshold => {
-                RiskManagementError::InvalidLiquidationThreshold
-            }
+            RiskParamsError::InvalidLiquidationThreshold => RiskManagementError::InvalidLiquidationThreshold,
             RiskParamsError::InvalidCloseFactor => RiskManagementError::InvalidCloseFactor,
-            RiskParamsError::InvalidLiquidationIncentive => {
-                RiskManagementError::InvalidLiquidationIncentive
-            }
+            RiskParamsError::InvalidLiquidationIncentive => RiskManagementError::InvalidLiquidationIncentive,
             _ => RiskManagementError::InvalidParameter,
         })
     }
 
+
     pub fn set_guardians(
-        env: Env,
-        caller: Address,
-        guardians: soroban_sdk::Vec<Address>,
-        threshold: u32,
-    ) -> Result<(), governance::GovernanceError> {
-        recovery::set_guardians(&env, caller, guardians, threshold)
-    }
+    env: Env,
+    caller: Address,
+    guardians: soroban_sdk::Vec<Address>,
+    threshold: u32,
+) -> Result<(), governance::GovernanceError> {
+    recovery::set_guardians(&env, caller, guardians, threshold)
+}
 
-    pub fn start_recovery(
-        env: Env,
-        initiator: Address,
-        old_admin: Address,
-        new_admin: Address,
-    ) -> Result<(), governance::GovernanceError> {
-        recovery::start_recovery(&env, initiator, old_admin, new_admin)
-    }
+pub fn start_recovery(
+    env: Env,
+    initiator: Address,
+    old_admin: Address,
+    new_admin: Address,
+) -> Result<(), governance::GovernanceError> {
+    recovery::start_recovery(&env, initiator, old_admin, new_admin)
+}
 
-    pub fn approve_recovery(
-        env: Env,
-        approver: Address,
-    ) -> Result<(), governance::GovernanceError> {
-        recovery::approve_recovery(&env, approver)
-    }
+pub fn approve_recovery(
+    env: Env,
+    approver: Address,
+) -> Result<(), governance::GovernanceError> {
+    recovery::approve_recovery(&env, approver)
+}
 
-    pub fn execute_recovery(
-        env: Env,
-        executor: Address,
-    ) -> Result<(), governance::GovernanceError> {
-        recovery::execute_recovery(&env, executor)
-    }
+pub fn execute_recovery(
+    env: Env,
+    executor: Address,
+) -> Result<(), governance::GovernanceError> {
+    recovery::execute_recovery(&env, executor)
+}
 
-    pub fn ms_set_admins(
-        env: Env,
-        caller: Address,
-        admins: soroban_sdk::Vec<Address>,
-        threshold: u32,
-    ) -> Result<(), governance::GovernanceError> {
-        multisig::ms_set_admins(&env, caller, admins, threshold)
-    }
+pub fn ms_set_admins(
+    env: Env,
+    caller: Address,
+    admins: soroban_sdk::Vec<Address>,
+    threshold: u32,
+) -> Result<(), governance::GovernanceError> {
+    multisig::ms_set_admins(&env, caller, admins, threshold)
+}
 
-    pub fn ms_propose_set_min_cr(
-        env: Env,
-        proposer: Address,
-        new_ratio: i128,
-    ) -> Result<u64, governance::GovernanceError> {
-        multisig::ms_propose_set_min_cr(&env, proposer, new_ratio)
-    }
+pub fn ms_propose_set_min_cr(
+    env: Env,
+    proposer: Address,
+    new_ratio: i128,
+) -> Result<u64, governance::GovernanceError> {
+    multisig::ms_propose_set_min_cr(&env, proposer, new_ratio)
+}
 
-    pub fn ms_approve(
-        env: Env,
-        approver: Address,
-        proposal_id: u64,
-    ) -> Result<(), governance::GovernanceError> {
-        multisig::ms_approve(&env, approver, proposal_id)
-    }
+pub fn ms_approve(
+    env: Env,
+    approver: Address,
+    proposal_id: u64,
+) -> Result<(), governance::GovernanceError> {
+    multisig::ms_approve(&env, approver, proposal_id)
+}
 
-    pub fn ms_execute(
-        env: Env,
-        executor: Address,
-        proposal_id: u64,
-    ) -> Result<(), governance::GovernanceError> {
-        multisig::ms_execute(&env, executor, proposal_id)
-    }
+pub fn ms_execute(
+    env: Env,
+    executor: Address,
+    proposal_id: u64,
+) -> Result<(), governance::GovernanceError> {
+    multisig::ms_execute(&env, executor, proposal_id)
+}
 
     /// Set pause switch for an operation (admin only)
     ///
@@ -383,7 +380,11 @@ impl HelloContract {
     }
 
     /// Liquidate an undercollateralized position
-    pub fn liquidate(env: Env, caller: Address, paused: bool) -> Result<(), RiskManagementError> {
+    pub fn liquidate(
+        env: Env,
+        caller: Address,
+        paused: bool,
+    ) -> Result<(), RiskManagementError> {
         risk_management::set_emergency_pause(&env, caller, paused)
     }
 
@@ -400,8 +401,7 @@ impl HelloContract {
     /// # Returns
     /// Returns the minimum collateral ratio in basis points
     pub fn get_min_collateral_ratio(env: Env) -> Result<i128, RiskManagementError> {
-        risk_params::get_min_collateral_ratio(&env)
-            .map_err(|_| RiskManagementError::InvalidParameter)
+        risk_params::get_min_collateral_ratio(&env).map_err(|_| RiskManagementError::InvalidParameter)
     }
 
     /// Get liquidation threshold
@@ -409,8 +409,7 @@ impl HelloContract {
     /// # Returns
     /// Returns the liquidation threshold in basis points
     pub fn get_liquidation_threshold(env: Env) -> Result<i128, RiskManagementError> {
-        risk_params::get_liquidation_threshold(&env)
-            .map_err(|_| RiskManagementError::InvalidParameter)
+        risk_params::get_liquidation_threshold(&env).map_err(|_| RiskManagementError::InvalidParameter)
     }
 
     /// Get close factor
@@ -426,8 +425,7 @@ impl HelloContract {
     /// # Returns
     /// Returns the liquidation incentive in basis points
     pub fn get_liquidation_incentive(env: Env) -> Result<i128, RiskManagementError> {
-        risk_params::get_liquidation_incentive(&env)
-            .map_err(|_| RiskManagementError::InvalidParameter)
+        risk_params::get_liquidation_incentive(&env).map_err(|_| RiskManagementError::InvalidParameter)
     }
 
     /// Get current borrow rate (in basis points)
@@ -453,8 +451,7 @@ impl HelloContract {
         rate_ceiling: Option<i128>,
         spread: Option<i128>,
     ) -> Result<(), RiskManagementError> {
-        require_min_collateral_ratio(&env, collateral_value, debt_value)
-            .map_err(|_| RiskManagementError::InsufficientCollateralRatio)
+        require_min_collateral_ratio(&env, collateral_value, debt_value).map_err(|_| RiskManagementError::InsufficientCollateralRatio)
     }
 
     /// Check if position can be liquidated
@@ -470,8 +467,7 @@ impl HelloContract {
         collateral_value: i128,
         debt_value: i128,
     ) -> Result<bool, RiskManagementError> {
-        can_be_liquidated(&env, collateral_value, debt_value)
-            .map_err(|_| RiskManagementError::InvalidParameter)
+        can_be_liquidated(&env, collateral_value, debt_value).map_err(|_| RiskManagementError::InvalidParameter)
     }
 
     /// Manual emergency interest rate adjustment (admin only)
@@ -493,8 +489,7 @@ impl HelloContract {
         env: Env,
         liquidated_amount: i128,
     ) -> Result<i128, RiskManagementError> {
-        get_liquidation_incentive_amount(&env, liquidated_amount)
-            .map_err(|_| RiskManagementError::Overflow)
+        get_liquidation_incentive_amount(&env, liquidated_amount).map_err(|_| RiskManagementError::Overflow)
     }
 
     /// Refresh analytics for a user
@@ -503,26 +498,18 @@ impl HelloContract {
     }
 
     /// Claim accumulated protocol reserves (admin only)
-    pub fn claim_reserves(
-        env: Env,
-        caller: Address,
-        asset: Option<Address>,
-        to: Address,
-        amount: i128,
-    ) -> Result<(), RiskManagementError> {
+    pub fn claim_reserves(env: Env, caller: Address, asset: Option<Address>, to: Address, amount: i128) -> Result<(), RiskManagementError> {
         require_admin(&env, &caller)?;
-
+        
         let reserve_key = DepositDataKey::ProtocolReserve(asset.clone());
-        let mut reserve_balance = env
-            .storage()
-            .persistent()
+        let mut reserve_balance = env.storage().persistent()
             .get::<DepositDataKey, i128>(&reserve_key)
             .unwrap_or(0);
-
+            
         if amount > reserve_balance {
             return Err(RiskManagementError::InvalidParameter);
         }
-
+        
         if let Some(_asset_addr) = asset {
             #[cfg(not(test))]
             {
@@ -530,19 +517,16 @@ impl HelloContract {
                 token_client.transfer(&env.current_contract_address(), &to, &amount);
             }
         }
-
+        
         reserve_balance -= amount;
-        env.storage()
-            .persistent()
-            .set(&reserve_key, &reserve_balance);
+        env.storage().persistent().set(&reserve_key, &reserve_balance);
         Ok(())
     }
 
     /// Get current protocol reserve balance for an asset
     pub fn get_reserve_balance(env: Env, asset: Option<Address>) -> i128 {
         let reserve_key = DepositDataKey::ProtocolReserve(asset);
-        env.storage()
-            .persistent()
+        env.storage().persistent()
             .get::<DepositDataKey, i128>(&reserve_key)
             .unwrap_or(0)
     }
@@ -637,7 +621,11 @@ impl HelloContract {
     }
 
     /// Configure oracle parameters (admin only)
-    pub fn configure_oracle(env: Env, caller: Address, config: OracleConfig) {
+    pub fn configure_oracle(
+        env: Env,
+        caller: Address,
+        config: OracleConfig,
+    ) {
         oracle::configure_oracle(&env, caller, config).expect("Oracle error")
     }
 
@@ -663,11 +651,7 @@ impl HelloContract {
     }
 
     /// Get recent activity from analytics
-    pub fn get_recent_activity(
-        env: Env,
-        limit: u32,
-        offset: u32,
-    ) -> Result<Vec<crate::analytics::ActivityEntry>, crate::analytics::AnalyticsError> {
+    pub fn get_recent_activity(env: Env, limit: u32, offset: u32) -> Result<Vec<crate::analytics::ActivityEntry>, crate::analytics::AnalyticsError> {
         analytics::get_recent_activity(&env, limit, offset)
     }
 
@@ -683,30 +667,18 @@ impl HelloContract {
 
     /// Set risk management parameters (admin only)
     pub fn set_risk_params(
-        env: Env,
-        admin: Address,
+        env: Env, 
+        admin: Address, 
         min_collateral_ratio: Option<i128>,
         liquidation_threshold: Option<i128>,
         close_factor: Option<i128>,
         liquidation_incentive: Option<i128>,
     ) -> Result<(), RiskManagementError> {
-        risk_management::set_risk_params(
-            &env,
-            admin,
-            min_collateral_ratio,
-            liquidation_threshold,
-            close_factor,
-            liquidation_incentive,
-        )
+        risk_management::set_risk_params(&env, admin, min_collateral_ratio, liquidation_threshold, close_factor, liquidation_incentive)
     }
 
     /// Set a pause switch for an operation (admin only)
-    pub fn set_pause_switch(
-        env: Env,
-        admin: Address,
-        operation: Symbol,
-        paused: bool,
-    ) -> Result<(), RiskManagementError> {
+    pub fn set_pause_switch(env: Env, admin: Address, operation: Symbol, paused: bool) -> Result<(), RiskManagementError> {
         risk_management::set_pause_switch(&env, admin, operation, paused)
     }
 
@@ -721,26 +693,17 @@ impl HelloContract {
     }
 
     /// Set emergency pause (admin only)
-    pub fn set_emergency_pause(
-        env: Env,
-        admin: Address,
-        paused: bool,
-    ) -> Result<(), RiskManagementError> {
+    pub fn set_emergency_pause(env: Env, admin: Address, paused: bool) -> Result<(), RiskManagementError> {
         risk_management::set_emergency_pause(&env, admin, paused)
     }
 
     /// Get user analytics metrics
-    pub fn get_user_analytics(
-        env: Env,
-        user: Address,
-    ) -> Result<crate::analytics::UserMetrics, crate::analytics::AnalyticsError> {
+    pub fn get_user_analytics(env: Env, user: Address) -> Result<crate::analytics::UserMetrics, crate::analytics::AnalyticsError> {
         analytics::get_user_activity_summary(&env, &user)
     }
 
     /// Get protocol analytics metrics
-    pub fn get_protocol_analytics(
-        env: Env,
-    ) -> Result<crate::analytics::ProtocolMetrics, crate::analytics::AnalyticsError> {
+    pub fn get_protocol_analytics(env: Env) -> Result<crate::analytics::ProtocolMetrics, crate::analytics::AnalyticsError> {
         analytics::get_protocol_stats(&env)
     }
 
@@ -775,7 +738,7 @@ impl HelloContract {
         amm_swap(env, user, params)
     }
 
-    /// Register a bridge
+    /// Register a bridge 
     ///
     /// # Arguments
     /// * `caller` - Admin address for authorization
@@ -793,7 +756,7 @@ impl HelloContract {
     }
 
     /// Set bridge fee
-    ///
+    /// 
     /// # Arguments
     /// * `caller` - Admin address for authorization
     /// * `network_id` - ID of the remote network
@@ -1524,6 +1487,9 @@ impl HelloContract {
         bridge_withdraw(&env, user, network_id, asset, amount)
     }
 }
+
+#[cfg(test)]
+mod test;
 
 #[cfg(test)]
 mod test_reentrancy;

@@ -346,9 +346,7 @@ pub fn repay_flash_loan(
             .unwrap_or(0);
         env.storage().persistent().set(
             &reserve_key,
-            &(current_reserve
-                .checked_add(record.fee)
-                .ok_or(FlashLoanError::Overflow)?),
+            &(current_reserve.checked_add(record.fee).ok_or(FlashLoanError::Overflow)?),
         );
     }
 

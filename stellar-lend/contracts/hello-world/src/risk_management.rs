@@ -103,6 +103,8 @@ pub enum PauseOperation {
     All,
 }
 
+
+
 /// Initialize risk management system
 ///
 /// Sets up default risk parameters and admin address.
@@ -181,6 +183,8 @@ pub fn get_risk_config(env: &Env) -> Option<RiskConfig> {
         .persistent()
         .get::<RiskDataKey, RiskConfig>(&config_key)
 }
+
+
 
 /// Set pause switches (admin only)
 ///
@@ -339,6 +343,10 @@ pub fn check_emergency_pause(env: &Env) -> Result<(), RiskManagementError> {
     }
     Ok(())
 }
+
+
+
+
 
 /// Emit pause switch updated event
 fn emit_pause_switch_updated_event(env: &Env, caller: &Address, operation: &Symbol, paused: bool) {
