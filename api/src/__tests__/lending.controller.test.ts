@@ -32,13 +32,11 @@ describe('Lending Controller', () => {
 
       (StellarService as jest.Mock).mockImplementation(() => mockStellarService);
 
-      const response = await request(app)
-        .post('/api/lending/deposit')
-        .send({
-          userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-          amount: '1000000',
-          userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-        });
+      const response = await request(app).post('/api/lending/deposit').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '1000000',
+        userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+      });
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -46,23 +44,19 @@ describe('Lending Controller', () => {
     });
 
     it('should return 400 for invalid amount', async () => {
-      const response = await request(app)
-        .post('/api/lending/deposit')
-        .send({
-          userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-          amount: '0',
-          userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-        });
+      const response = await request(app).post('/api/lending/deposit').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '0',
+        userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+      });
 
       expect(response.status).toBe(400);
     });
 
     it('should return 400 for missing required fields', async () => {
-      const response = await request(app)
-        .post('/api/lending/deposit')
-        .send({
-          userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-        });
+      const response = await request(app).post('/api/lending/deposit').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+      });
 
       expect(response.status).toBe(400);
     });
@@ -88,13 +82,11 @@ describe('Lending Controller', () => {
 
       (StellarService as jest.Mock).mockImplementation(() => mockStellarService);
 
-      const response = await request(app)
-        .post('/api/lending/borrow')
-        .send({
-          userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-          amount: '500000',
-          userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-        });
+      const response = await request(app).post('/api/lending/borrow').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '500000',
+        userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+      });
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -110,13 +102,11 @@ describe('Lending Controller', () => {
 
       (StellarService as jest.Mock).mockImplementation(() => mockStellarService);
 
-      const response = await request(app)
-        .post('/api/lending/borrow')
-        .send({
-          userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-          amount: '500000',
-          userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-        });
+      const response = await request(app).post('/api/lending/borrow').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '500000',
+        userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+      });
 
       expect(response.status).toBe(400);
       expect(response.body.success).toBe(false);
@@ -143,13 +133,11 @@ describe('Lending Controller', () => {
 
       (StellarService as jest.Mock).mockImplementation(() => mockStellarService);
 
-      const response = await request(app)
-        .post('/api/lending/repay')
-        .send({
-          userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-          amount: '250000',
-          userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-        });
+      const response = await request(app).post('/api/lending/repay').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '250000',
+        userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+      });
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -176,13 +164,11 @@ describe('Lending Controller', () => {
 
       (StellarService as jest.Mock).mockImplementation(() => mockStellarService);
 
-      const response = await request(app)
-        .post('/api/lending/withdraw')
-        .send({
-          userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-          amount: '100000',
-          userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-        });
+      const response = await request(app).post('/api/lending/withdraw').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '100000',
+        userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+      });
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -198,13 +184,11 @@ describe('Lending Controller', () => {
 
       (StellarService as jest.Mock).mockImplementation(() => mockStellarService);
 
-      const response = await request(app)
-        .post('/api/lending/withdraw')
-        .send({
-          userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-          amount: '1000000',
-          userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-        });
+      const response = await request(app).post('/api/lending/withdraw').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '1000000',
+        userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+      });
 
       expect(response.status).toBe(400);
       expect(response.body.success).toBe(false);

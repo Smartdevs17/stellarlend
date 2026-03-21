@@ -76,7 +76,7 @@ export class StellarService {
       const account = await this.getAccount(userAddress);
 
       const contract = new Contract(this.contractId);
-      
+
       const params = [
         new Address(userAddress).toScVal(),
         assetAddress ? new Address(assetAddress).toScVal() : xdr.ScVal.scvVoid(),
@@ -114,7 +114,7 @@ export class StellarService {
       const account = await this.getAccount(userAddress);
 
       const contract = new Contract(this.contractId);
-      
+
       const params = [
         new Address(userAddress).toScVal(),
         assetAddress ? new Address(assetAddress).toScVal() : xdr.ScVal.scvVoid(),
@@ -152,7 +152,7 @@ export class StellarService {
       const account = await this.getAccount(userAddress);
 
       const contract = new Contract(this.contractId);
-      
+
       const params = [
         new Address(userAddress).toScVal(),
         assetAddress ? new Address(assetAddress).toScVal() : xdr.ScVal.scvVoid(),
@@ -190,7 +190,7 @@ export class StellarService {
       const account = await this.getAccount(userAddress);
 
       const contract = new Contract(this.contractId);
-      
+
       const params = [
         new Address(userAddress).toScVal(),
         assetAddress ? new Address(assetAddress).toScVal() : xdr.ScVal.scvVoid(),
@@ -224,7 +224,7 @@ export class StellarService {
     while (Date.now() - startTime < timeoutMs) {
       try {
         const response = await axios.get(`${this.horizonUrl}/transactions/${txHash}`);
-        
+
         if (response.data.successful) {
           return {
             success: true,
@@ -242,10 +242,10 @@ export class StellarService {
         }
       } catch (error: any) {
         if (error.response?.status === 404) {
-          await new Promise(resolve => setTimeout(resolve, pollInterval));
+          await new Promise((resolve) => setTimeout(resolve, pollInterval));
           continue;
         }
-        
+
         logger.error('Error monitoring transaction:', error);
         throw new InternalServerError('Failed to monitor transaction');
       }

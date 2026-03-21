@@ -256,7 +256,7 @@ describe('Configuration', () => {
         });
 
         it('should return undefined for unsupported asset', () => {
-            // @ts-ignore - Testing runtime behavior
+            // @ts-expect-error - Testing runtime behavior
             const mapping = getAssetMapping('UNKNOWN');
 
             expect(mapping).toBeUndefined();

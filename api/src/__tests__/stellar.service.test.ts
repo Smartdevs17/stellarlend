@@ -123,7 +123,7 @@ describe('StellarService', () => {
   describe('healthCheck', () => {
     it('should return healthy status for all services', async () => {
       mockedAxios.get.mockResolvedValue({ data: {} });
-      
+
       const mockSorobanServer = {
         getHealth: jest.fn().mockResolvedValue({}),
       };
@@ -137,7 +137,7 @@ describe('StellarService', () => {
 
     it('should return unhealthy status when services fail', async () => {
       mockedAxios.get.mockRejectedValue(new Error('Connection failed'));
-      
+
       const mockSorobanServer = {
         getHealth: jest.fn().mockRejectedValue(new Error('Connection failed')),
       };

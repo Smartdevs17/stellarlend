@@ -16,40 +16,38 @@ describe('API Integration Tests', () => {
       // 2. Borrow against collateral
       // 3. Repay borrowed amount
       // 4. Withdraw collateral
-      
+
       expect(true).toBe(true);
     });
   });
 
   describe('Error Handling', () => {
     it('should handle network errors gracefully', async () => {
-      const response = await request(app)
-        .post('/api/lending/deposit')
-        .send({
-          userAddress: 'invalid_address',
-          amount: '1000000',
-          userSecret: 'invalid_secret',
-        });
+      const response = await request(app).post('/api/lending/deposit').send({
+        userAddress: 'invalid_address',
+        amount: '1000000',
+        userSecret: 'invalid_secret',
+      });
 
       expect(response.status).toBe(400);
     });
 
     it('should handle rate limiting', async () => {
       // Make multiple requests to trigger rate limit
-      const requests = Array(10).fill(null).map(() =>
-        request(app)
-          .post('/api/lending/deposit')
-          .send({
+      const requests = Array(10)
+        .fill(null)
+        .map(() =>
+          request(app).post('/api/lending/deposit').send({
             userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
             amount: '1000000',
             userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
           })
-      );
+        );
 
       const responses = await Promise.all(requests);
-      
+
       // At least some requests should succeed (before rate limit)
-      expect(responses.some(r => r.status === 200 || r.status === 400)).toBe(true);
+      expect(responses.some((r) => r.status === 200 || r.status === 400)).toBe(true);
     });
   });
 
@@ -69,8 +67,8 @@ describe('API Integration Tests', () => {
       ];
 
       const responses = await Promise.all(requests);
-      
-      responses.forEach(response => {
+
+      responses.forEach((response) => {
         expect([200, 400, 500]).toContain(response.status);
       });
     });
@@ -78,26 +76,22 @@ describe('API Integration Tests', () => {
 
   describe('Edge Cases', () => {
     it('should reject extremely large amounts', async () => {
-      const response = await request(app)
-        .post('/api/lending/deposit')
-        .send({
-          userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-          amount: '999999999999999999999999999999',
-          userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-        });
+      const response = await request(app).post('/api/lending/deposit').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '999999999999999999999999999999',
+        userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+      });
 
       expect([400, 500]).toContain(response.status);
     });
 
     it('should handle missing optional fields', async () => {
-      const response = await request(app)
-        .post('/api/lending/deposit')
-        .send({
-          userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-          amount: '1000000',
-          userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-          // assetAddress is optional
-        });
+      const response = await request(app).post('/api/lending/deposit').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '1000000',
+        userSecret: 'SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        // assetAddress is optional
+      });
 
       expect([200, 400, 500]).toContain(response.status);
     });
