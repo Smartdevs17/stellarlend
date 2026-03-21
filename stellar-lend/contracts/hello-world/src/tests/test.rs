@@ -1,4 +1,3 @@
-
 /// Helper function to create a test environment
 fn create_test_env() -> Env {
     let env = Env::default();
@@ -5401,6 +5400,6 @@ fn test_monitoring_protocol_state_over_time() {
 /// Test monitoring risk level changes
 #[test]
 fn test_placeholder() {
-    // Legacy helper file. 
+    // Legacy helper file.
     // Actual tests are in specialized files like fees_test.rs.
 }

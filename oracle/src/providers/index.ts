@@ -1,4 +1,4 @@
-/** 
+/**
  * Exports all price provider implementations and factory functions.
  */
 
