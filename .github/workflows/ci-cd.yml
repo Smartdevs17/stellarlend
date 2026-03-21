@@ -1,18 +1,24 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "dev"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "dev"]
 
-env:
-  CARGO_TERM_COLOR: always
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  ci:
-    name: Clippy, Build, Test & Format
+  # ─────────────────────────────────────────────
+  # Smart Contracts (Rust / Soroban)
+  # ─────────────────────────────────────────────
+  contracts:
+    name: Contracts — Lint, Build, Test
     runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -23,14 +29,14 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
-      - name: Cache cargo registry
+      - name: Cache cargo registry & build
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             stellar-lend/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('stellar-lend/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
 
@@ -44,7 +50,7 @@ jobs:
           cd stellar-lend
           cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Build project
+      - name: Build
         run: |
           cd stellar-lend
           cargo build --verbose
@@ -54,13 +60,13 @@ jobs:
           cd stellar-lend
           cargo test --verbose
 
-      - name: Run cross-contract tests and generate report
+      - name: Run cross-contract tests
         run: |
           cd stellar-lend
-          cargo test --package hello-world --lib cross_contract_test --verbose -- --nocapture > cross_contract_test_report.txt
-          cat cross_contract_test_report.txt
+          cargo test --package hello-world --lib cross_contract_test --verbose -- --nocapture 2>&1 | tee cross_contract_test_report.txt
 
       - name: Upload test report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cross-contract-test-report
@@ -81,3 +87,127 @@ jobs:
         run: |
           cd stellar-lend
           cargo audit
+
+  # ─────────────────────────────────────────────
+  # API (TypeScript / Express / Jest)
+  # ─────────────────────────────────────────────
+  api:
+    name: API — Lint, Test, Build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20]
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npx prettier --check "src/**/*.ts"
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload coverage
+        if: always() && matrix.node-version == 20
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-coverage
+          path: api/coverage/
+
+  # ─────────────────────────────────────────────
+  # Oracle (TypeScript / Vitest)
+  # ─────────────────────────────────────────────
+  oracle:
+    name: Oracle — Lint, Test, Build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20]
+    defaults:
+      run:
+        working-directory: oracle
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: oracle/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npx prettier --check "src/**/*.ts" "tests/**/*.ts"
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run tests with coverage
+        if: matrix.node-version == 20
+        run: npm run test:coverage
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload coverage
+        if: always() && matrix.node-version == 20
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-coverage
+          path: oracle/coverage/
+
+  # ─────────────────────────────────────────────
+  # Quality Gate — all jobs must pass
+  # ─────────────────────────────────────────────
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    needs: [contracts, api, oracle]
+    if: always()
+    steps:
+      - name: Check all jobs passed
+        run: |
+          echo "Contracts: ${{ needs.contracts.result }}"
+          echo "API:       ${{ needs.api.result }}"
+          echo "Oracle:    ${{ needs.oracle.result }}"
+
+          if [[ "${{ needs.contracts.result }}" != "success" ]] || \
+             [[ "${{ needs.api.result }}" != "success" ]] || \
+             [[ "${{ needs.oracle.result }}" != "success" ]]; then
+            echo "::error::One or more quality checks failed. PR cannot be merged."
+            exit 1
+          fi
+
+          echo "✅ All quality checks passed!"

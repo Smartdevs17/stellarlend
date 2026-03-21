@@ -12,7 +12,9 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src/ tests/",
-    "format": "prettier --write 'src/**/*.ts' 'tests/**/*.ts'"
+    "format": "prettier --write 'src/**/*.ts' 'tests/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.ts' 'tests/**/*.ts'",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.0.0",
@@ -24,6 +26,8 @@
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
     "@vitest/coverage-v8": "^1.0.0",
     "eslint": "^8.55.0",
     "prettier": "^3.1.0",
