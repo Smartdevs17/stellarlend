@@ -30,7 +30,7 @@ describe('Config Validation', () => {
   it('should throw an error if JWT_SECRET is missing', () => {
     process.env.CONTRACT_ID = 'TEST_CONTRACT_ID';
     delete process.env.JWT_SECRET;
-    
+
     expect(() => {
       require('../config/index');
     }).toThrow('JWT_SECRET must be set to a strong secret (min 32 chars)');
@@ -39,7 +39,7 @@ describe('Config Validation', () => {
   it('should throw an error if JWT_SECRET is the default insecure value', () => {
     process.env.CONTRACT_ID = 'TEST_CONTRACT_ID';
     process.env.JWT_SECRET = 'default-secret-change-me';
-    
+
     expect(() => {
       require('../config/index');
     }).toThrow('JWT_SECRET must be set to a strong secret (min 32 chars)');
@@ -48,7 +48,7 @@ describe('Config Validation', () => {
   it('should throw an error if JWT_SECRET is too short', () => {
     process.env.CONTRACT_ID = 'TEST_CONTRACT_ID';
     process.env.JWT_SECRET = 'too-short';
-    
+
     expect(() => {
       require('../config/index');
     }).toThrow('JWT_SECRET must be set to a strong secret (min 32 chars)');
