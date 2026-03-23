@@ -116,6 +116,8 @@ use interest_rate::{
 };
 
 mod governance;
+mod types;
+mod storage;
 
 use storage::GuardianConfig;
 
@@ -266,23 +268,20 @@ impl HelloContract {
         liquidation_threshold: Option<i128>,
         close_factor: Option<i128>,
         liquidation_incentive: Option<i128>,
-    ) -> Result<(), RiskManagementError> {
+    ) -> Result<u64, RiskManagementError> {
         require_admin(&env, &caller)?;
         check_emergency_pause(&env)?;
-        risk_params::set_risk_params(
-            &env,
+        
+        let proposal_type = ProposalType::RiskParams(
             min_collateral_ratio,
             liquidation_threshold,
             close_factor,
             liquidation_incentive,
-        ).map_err(|e| match e {
-            RiskParamsError::ParameterChangeTooLarge => RiskManagementError::ParameterChangeTooLarge,
-            RiskParamsError::InvalidCollateralRatio => RiskManagementError::InvalidCollateralRatio,
-            RiskParamsError::InvalidLiquidationThreshold => RiskManagementError::InvalidLiquidationThreshold,
-            RiskParamsError::InvalidCloseFactor => RiskManagementError::InvalidCloseFactor,
-            RiskParamsError::InvalidLiquidationIncentive => RiskManagementError::InvalidLiquidationIncentive,
-            _ => RiskManagementError::InvalidParameter,
-        })
+        );
+        let description = String::from_str(&env, "Update risk parameters via timelock");
+        
+        governance::create_admin_proposal(&env, caller, proposal_type, description)
+            .map_err(|_| RiskManagementError::GovernanceRequired)
     }
 
 
@@ -349,6 +348,27 @@ pub fn ms_execute(
     proposal_id: u64,
 ) -> Result<(), governance::GovernanceError> {
     multisig::ms_execute(&env, executor, proposal_id)
+}
+
+pub fn ms_propose_risk_params(
+    env: Env,
+    proposer: Address,
+    min_collateral_ratio: Option<i128>,
+    liquidation_threshold: Option<i128>,
+    close_factor: Option<i128>,
+    liquidation_incentive: Option<i128>,
+    emergency: bool,
+) -> Result<u64, governance::GovernanceError> {
+    multisig::ms_propose_risk_params(&env, proposer, min_collateral_ratio, liquidation_threshold, close_factor, liquidation_incentive, emergency)
+}
+
+pub fn ms_propose_interest_rate(
+    env: Env,
+    proposer: Address,
+    params: crate::types::InterestRateParams,
+    emergency: bool,
+) -> Result<u64, governance::GovernanceError> {
+    multisig::ms_propose_interest_rate(&env, proposer, params, emergency)
 }
 
     /// Set pause switch for an operation (admin only)
@@ -450,8 +470,23 @@ pub fn ms_execute(
         rate_floor: Option<i128>,
         rate_ceiling: Option<i128>,
         spread: Option<i128>,
-    ) -> Result<(), RiskManagementError> {
-        require_min_collateral_ratio(&env, collateral_value, debt_value).map_err(|_| RiskManagementError::InsufficientCollateralRatio)
+    ) -> Result<u64, RiskManagementError> {
+        require_admin(&env, &admin)?;
+
+        let params = crate::types::InterestRateParams {
+            base_rate_bps: base_rate,
+            kink_utilization_bps: kink,
+            multiplier_bps: multiplier,
+            jump_multiplier_bps: jump_multiplier,
+            rate_floor_bps: rate_floor,
+            rate_ceiling_bps: rate_ceiling,
+            spread_bps: spread,
+        };
+        let proposal_type = ProposalType::InterestRateConfig(params);
+        let description = String::from_str(&env, "Update interest rate config via timelock");
+
+        governance::create_admin_proposal(&env, admin, proposal_type, description)
+            .map_err(|_| RiskManagementError::GovernanceRequired)
     }
 
     /// Check if position can be liquidated

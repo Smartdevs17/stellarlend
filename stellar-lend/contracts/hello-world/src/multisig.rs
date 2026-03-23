@@ -127,6 +127,47 @@ pub fn ms_propose_set_min_cr(
     Ok(proposal_id)
 }
 
+pub fn ms_propose_risk_params(
+    env: &Env,
+    proposer: Address,
+    mcr: Option<i128>,
+    lt: Option<i128>,
+    cf: Option<i128>,
+    li: Option<i128>,
+    emergency: bool,
+) -> Result<u64, GovernanceError> {
+    let proposal_type = ProposalType::RiskParams(mcr, lt, cf, li);
+    let description = soroban_sdk::String::from_str(env, "Update risk parameters");
+    
+    let proposal_id = if emergency {
+        crate::governance::create_emergency_proposal(env, proposer.clone(), proposal_type, description)?
+    } else {
+        crate::governance::create_proposal(env, proposer.clone(), proposal_type, description, None)?
+    };
+
+    approve_proposal(env, proposer, proposal_id)?;
+    Ok(proposal_id)
+}
+
+pub fn ms_propose_interest_rate(
+    env: &Env,
+    proposer: Address,
+    params: crate::types::InterestRateParams,
+    emergency: bool,
+) -> Result<u64, GovernanceError> {
+    let proposal_type = ProposalType::InterestRateConfig(params);
+    let description = soroban_sdk::String::from_str(env, "Update interest rate config");
+    
+    let proposal_id = if emergency {
+        crate::governance::create_emergency_proposal(env, proposer.clone(), proposal_type, description)?
+    } else {
+        crate::governance::create_proposal(env, proposer.clone(), proposal_type, description, None)?
+    };
+
+    approve_proposal(env, proposer, proposal_id)?;
+    Ok(proposal_id)
+}
+
 // ============================================================================
 // Approve
 // ============================================================================
