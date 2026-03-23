@@ -25,11 +25,10 @@ impl MockReceiver {
     pub fn on_flash_loan(env: Env, _user: Address, asset: Address, amount: i128, fee: i128) {
         let total = amount + fee;
         let token = token::TokenClient::new(&env, &asset);
-        // Transfer back the total amount to the core contract
-        // Assuming we were funded in the test setup
+        // Approve the core contract to pull the total amount back
         let target_key = Symbol::new(&env, "CORE_CONTRACT");
         let core_contract = env.storage().temporary().get::<Symbol, Address>(&target_key).unwrap();
-        token.transfer(&env.current_contract_address(), &core_contract, &total);
+        token.approve(&env.current_contract_address(), &core_contract, &total, &9999);
     }
 }
 
@@ -90,6 +89,7 @@ fn test_flash_loan_success() {
 }
 
 #[test]
+#[should_panic(expected = "HostError")]
 fn test_flash_loan_insufficient_repayment_fails() {
     let (env, contract_id, _admin, user, token_address) = setup_with_balance(10_000_000);
     
@@ -99,17 +99,19 @@ fn test_flash_loan_insufficient_repayment_fails() {
         env.storage().temporary().set(&target_key, &contract_id);
     });
 
-    let result = env.as_contract(&contract_id, || {
-        execute_flash_loan(
+    // We do NOT fund the receiver for the fee here on purpose,
+    // and the receiver will only approve the principal amount.
+    // This will cause `transfer_from` in `execute_flash_loan` to fail
+    // and naturally panic the transaction.
+    env.as_contract(&contract_id, || {
+        let _ = execute_flash_loan(
             &env,
             user.clone(),
             token_address.clone(),
             1_000_000,
             receiver_id,
-        )
+        );
     });
-
-    assert_eq!(result.unwrap_err(), FlashLoanError::InsufficientRepayment);
 }
 
 #[test]
@@ -144,6 +146,7 @@ impl CheapReceiver {
         let token = token::TokenClient::new(&env, &asset);
         let target_key = Symbol::new(&env, "CORE_CONTRACT");
         let core_contract = env.storage().temporary().get::<Symbol, Address>(&target_key).unwrap();
-        token.transfer(&env.current_contract_address(), &core_contract, &amount);
+        // Maliciously approve ONLY the principal, not the fee, to trigger insufficient repayment
+        token.approve(&env.current_contract_address(), &core_contract, &amount, &9999);
     }
 }
