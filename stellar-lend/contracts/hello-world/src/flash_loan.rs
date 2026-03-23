@@ -63,9 +63,12 @@ pub enum FlashLoanError {
 pub enum FlashLoanDataKey {
     /// Global flash loan configuration (fee, limits)
     FlashLoanConfig,
-    /// Active flash loan record for reentrancy protection
+    /// Active flash loan record for repayment tracking
     /// Key: (User Address, Asset Address)
     ActiveFlashLoan(Address, Address),
+    /// Reentrancy guard lock key for flash loans
+    /// Key: (User Address, Asset Address)
+    FlashLoanGuard(Address, Address),
     /// Pause switches for flash loan operations
     PauseSwitches,
 }
@@ -200,15 +203,13 @@ pub fn execute_flash_loan(
     }
 
     // 3. Initiate Guards (RAII)
-    // Both guards will automatically clear when execute_flash_loan finishes.
+    // The granular guard automatically clears when execute_flash_loan finishes.
     
-    // Global guard prevents any other contract operations during callback
-    let _global_guard = crate::reentrancy::ReentrancyGuard::new(env)
-        .map_err(|_| FlashLoanError::Reentrancy)?;
-
     // Granular guard prevents re-entry into flash loan for same user/asset
-    let loan_key: soroban_sdk::Val = FlashLoanDataKey::ActiveFlashLoan(user.clone(), asset.clone()).into_val(env);
-    let _granular_guard = crate::reentrancy::ReentrancyGuard::new_with_key(env, loan_key)
+    // Note: We intentionally do NOT use a global guard here because the callback
+    // MUST be allowed to call back into the protocol (e.g., to repay the loan).
+    let lock_key: soroban_sdk::Val = FlashLoanDataKey::FlashLoanGuard(user.clone(), asset.clone()).into_val(env);
+    let _granular_guard = crate::reentrancy::ReentrancyGuard::new_with_key(env, lock_key)
         .map_err(|_| FlashLoanError::Reentrancy)?;
 
     // Record the loan details for repay_flash_loan helper
@@ -237,14 +238,16 @@ pub fn execute_flash_loan(
         (user.clone(), asset.clone(), amount, fee).into_val(env),
     );
 
-    // 6. Repayment Verification
-    // This happens BEFORE the guard is dropped.
-    let final_balance = token_client.balance(&env.current_contract_address());
-    let expected_balance = initial_balance.checked_add(fee).ok_or(FlashLoanError::Overflow)?;
-    
-    if final_balance < expected_balance {
-        return Err(FlashLoanError::InsufficientRepayment);
-    }
+    // 6. Repayment via Transfer From
+    // Soroban blocks re-entry from the callback, so the callback cannot call `repay_flash_loan`.
+    // Instead, the callback must authorize the lending contract to pull the funds
+    // (principal + fee), and we execute the pull here after the callback returns.
+    token_client.transfer_from(
+        &env.current_contract_address(),
+        &callback,
+        &env.current_contract_address(),
+        &total_required,
+    );
 
     // 7. Credit fee to reserve
     if fee > 0 {
