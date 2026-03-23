@@ -12,25 +12,28 @@ describe('Validation Middleware', () => {
     });
 
     it('should reject zero amount', async () => {
-      const response = await request(app)
-        .get('/api/lending/prepare/deposit')
-        .send({ userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', amount: '0' });
+      const response = await request(app).get('/api/lending/prepare/deposit').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '0',
+      });
 
       expect(response.status).toBe(400);
     });
 
     it('should reject negative amount', async () => {
-      const response = await request(app)
-        .get('/api/lending/prepare/deposit')
-        .send({ userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', amount: '-1000' });
+      const response = await request(app).get('/api/lending/prepare/deposit').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '-1000',
+      });
 
       expect(response.status).toBe(400);
     });
 
     it('should reject invalid operation', async () => {
-      const response = await request(app)
-        .get('/api/lending/prepare/invalid_op')
-        .send({ userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', amount: '1000000' });
+      const response = await request(app).get('/api/lending/prepare/invalid_op').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '1000000',
+      });
 
       expect(response.status).toBe(400);
     });

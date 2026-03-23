@@ -38,9 +38,7 @@ describe('Lending Controller', () => {
     );
 
     it('should return 400 for invalid operation', async () => {
-      const response = await request(app)
-        .get('/api/lending/prepare/invalid_op')
-        .send(validBody);
+      const response = await request(app).get('/api/lending/prepare/invalid_op').send(validBody);
 
       expect(response.status).toBe(400);
     });

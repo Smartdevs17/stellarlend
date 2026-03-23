@@ -1,5 +1,4 @@
 import {
-  Networks,
   TransactionBuilder,
   Contract,
   xdr,
@@ -13,7 +12,7 @@ import axios from 'axios';
 import { config } from '../config';
 import logger from '../utils/logger';
 import { InternalServerError } from '../utils/errors';
-import { TransactionResponse, TransactionStatus, LendingOperation } from '../types';
+import { TransactionResponse, LendingOperation } from '../types';
 
 const CONTRACT_METHODS: Record<LendingOperation, string> = {
   deposit: 'deposit_collateral',
@@ -109,9 +108,19 @@ export class StellarService {
       try {
         const response = await axios.get(`${this.horizonUrl}/transactions/${txHash}`);
         if (response.data.successful) {
-          return { success: true, transactionHash: txHash, status: 'success', ledger: response.data.ledger };
+          return {
+            success: true,
+            transactionHash: txHash,
+            status: 'success',
+            ledger: response.data.ledger,
+          };
         }
-        return { success: false, transactionHash: txHash, status: 'failed', error: 'Transaction failed' };
+        return {
+          success: false,
+          transactionHash: txHash,
+          status: 'failed',
+          error: 'Transaction failed',
+        };
       } catch (error: any) {
         if (error.response?.status === 404) {
           await new Promise((resolve) => setTimeout(resolve, pollInterval));
@@ -122,7 +131,12 @@ export class StellarService {
       }
     }
 
-    return { success: false, transactionHash: txHash, status: 'pending', message: 'Transaction monitoring timeout' };
+    return {
+      success: false,
+      transactionHash: txHash,
+      status: 'pending',
+      message: 'Transaction monitoring timeout',
+    };
   }
 
   async healthCheck(): Promise<{ horizon: boolean; sorobanRpc: boolean }> {

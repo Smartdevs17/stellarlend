@@ -31,9 +31,10 @@ describe('API Integration Tests', () => {
 
   describe('Complete Lending Flow', () => {
     it('should handle complete lending lifecycle via prepare/submit', async () => {
-      const prepareRes = await request(app)
-        .get('/api/lending/prepare/deposit')
-        .send({ userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', amount: '10000000' });
+      const prepareRes = await request(app).get('/api/lending/prepare/deposit').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '10000000',
+      });
 
       expect(prepareRes.status).toBe(200);
       expect(prepareRes.body.unsignedXdr).toBe('unsigned_xdr');
@@ -49,9 +50,10 @@ describe('API Integration Tests', () => {
 
   describe('Error Handling', () => {
     it('should return 400 for invalid operation in prepare', async () => {
-      const response = await request(app)
-        .get('/api/lending/prepare/invalid_op')
-        .send({ userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', amount: '1000000' });
+      const response = await request(app).get('/api/lending/prepare/invalid_op').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '1000000',
+      });
 
       expect(response.status).toBe(400);
     });
@@ -60,13 +62,16 @@ describe('API Integration Tests', () => {
       const requests = Array(10)
         .fill(null)
         .map(() =>
-          request(app)
-            .get('/api/lending/prepare/deposit')
-            .send({ userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', amount: '1000000' })
+          request(app).get('/api/lending/prepare/deposit').send({
+            userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+            amount: '1000000',
+          })
         );
 
       const responses = await Promise.all(requests);
-      expect(responses.some((r) => r.status === 200 || r.status === 400 || r.status === 429)).toBe(true);
+      expect(responses.some((r) => r.status === 200 || r.status === 400 || r.status === 429)).toBe(
+        true
+      );
     });
   });
 
@@ -92,21 +97,20 @@ describe('API Integration Tests', () => {
 
   describe('Edge Cases', () => {
     it('should reject extremely large amounts', async () => {
-      const response = await request(app)
-        .get('/api/lending/prepare/deposit')
-        .send({
-          userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-          amount: '999999999999999999999999999999',
-        });
+      const response = await request(app).get('/api/lending/prepare/deposit').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '999999999999999999999999999999',
+      });
 
       // With mocked service, 200 is acceptable; without mock, 400/500 expected
       expect([200, 400, 500]).toContain(response.status);
     });
 
     it('should handle missing optional assetAddress', async () => {
-      const response = await request(app)
-        .get('/api/lending/prepare/deposit')
-        .send({ userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', amount: '1000000' });
+      const response = await request(app).get('/api/lending/prepare/deposit').send({
+        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        amount: '1000000',
+      });
 
       expect([200, 400, 500]).toContain(response.status);
     });
