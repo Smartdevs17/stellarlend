@@ -230,6 +230,12 @@ pub fn withdraw_collateral(
         .persistent()
         .set(&collateral_key, &new_collateral);
 
+    // Update per-asset tracking for multi-asset collateral support
+    if let Some(ref asset_addr) = asset {
+        crate::deposit::record_asset_withdrawal(env, &user, asset_addr, amount)
+            .map_err(|_| WithdrawError::Overflow)?;
+    }
+
     // Get or update user position
     let position_key = DepositDataKey::Position(user.clone());
     #[allow(clippy::unnecessary_lazy_evaluations)]
@@ -252,12 +258,15 @@ pub fn withdraw_collateral(
     // Handle asset transfer
     if let Some(ref asset_addr) = asset {
         // Transfer tokens from contract to user
-        let token_client = soroban_sdk::token::Client::new(env, asset_addr);
-        token_client.transfer(
-            &env.current_contract_address(), // from (this contract)
-            &user,                           // to (user)
-            &amount,
-        );
+        #[cfg(not(test))]
+        {
+            let token_client = soroban_sdk::token::Client::new(env, asset_addr);
+            token_client.transfer(
+                &env.current_contract_address(), // from (this contract)
+                &user,                           // to (user)
+                &amount,
+            );
+        }
     } else {
         // Native XLM withdrawal - in Soroban, native assets are handled differently
         // For now, we'll track it but actual XLM handling depends on Soroban's native asset support

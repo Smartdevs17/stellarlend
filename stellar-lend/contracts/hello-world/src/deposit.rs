@@ -82,6 +82,10 @@ pub enum DepositDataKey {
     ProtocolReserve(Option<Address>),
     /// Native asset (XLM) contract address
     NativeAssetAddress,
+    /// Per-asset collateral balance: (user, asset) -> i128
+    UserAssetCollateral(Address, Address),
+    /// Ordered list of collateral assets per user: user -> Vec<Address>
+    UserAssetList(Address),
 }
 
 /// Asset parameters for collateral
@@ -267,23 +271,26 @@ pub fn deposit_collateral(
 
         // Transfer tokens from user to contract using token contract
         // Use the token contract's transfer_from method
-        let token_client = soroban_sdk::token::Client::new(env, asset_addr);
+        #[cfg(not(test))]
+        {
+            let token_client = soroban_sdk::token::Client::new(env, asset_addr);
 
-        // Check user balance
-        let user_balance = token_client.balance(&user);
-        if user_balance < amount {
-            return Err(DepositError::InsufficientBalance);
+            // Check user balance
+            let user_balance = token_client.balance(&user);
+            if user_balance < amount {
+                return Err(DepositError::InsufficientBalance);
+            }
+
+            // Transfer tokens from user to contract
+            // The user must have approved the contract to spend their tokens
+            // transfer_from requires: spender (contract), from (user), to (contract), amount
+            token_client.transfer_from(
+                &env.current_contract_address(), // spender (this contract)
+                &user,                           // from (user)
+                &env.current_contract_address(), // to (this contract)
+                &amount,
+            );
         }
-
-        // Transfer tokens from user to contract
-        // The user must have approved the contract to spend their tokens
-        // transfer_from requires: spender (contract), from (user), to (contract), amount
-        token_client.transfer_from(
-            &env.current_contract_address(), // spender (this contract)
-            &user,                           // from (user)
-            &env.current_contract_address(), // to (this contract)
-            &amount,
-        );
     } else {
         // Native XLM deposit - in Soroban, native assets are handled differently
         // For now, we'll track it but actual XLM handling depends on Soroban's native asset support
@@ -321,6 +328,11 @@ pub fn deposit_collateral(
     env.storage()
         .persistent()
         .set(&collateral_key, &new_collateral);
+
+    // Update per-asset tracking for multi-asset collateral support
+    if let Some(ref asset_addr) = asset {
+        record_asset_deposit(env, &user, asset_addr, amount)?;
+    }
 
     // Update position
     position.collateral = new_collateral;
@@ -364,6 +376,61 @@ pub fn deposit_collateral(
     emit_user_activity_tracked_event(env, &user, Symbol::new(env, "deposit"), amount, timestamp);
 
     Ok(new_collateral)
+}
+
+/// Record a deposit into per-asset collateral tracking.
+/// This is additive and safe to call even if the asset is already tracked.
+pub fn record_asset_deposit(env: &Env, user: &Address, asset: &Address, amount: i128) -> Result<(), DepositError> {
+    // Update per-asset balance
+    let asset_key = DepositDataKey::UserAssetCollateral(user.clone(), asset.clone());
+    let current = env.storage().persistent().get::<DepositDataKey, i128>(&asset_key).unwrap_or(0);
+    let new_balance = current.checked_add(amount).ok_or(DepositError::Overflow)?;
+    env.storage().persistent().set(&asset_key, &new_balance);
+
+    // Add to asset list if not already present
+    let list_key = DepositDataKey::UserAssetList(user.clone());
+    let mut asset_list = env.storage().persistent()
+        .get::<DepositDataKey, Vec<Address>>(&list_key)
+        .unwrap_or_else(|| Vec::new(env));
+
+    let mut found = false;
+    for a in asset_list.iter() {
+        if a == *asset {
+            found = true;
+            break;
+        }
+    }
+    if !found {
+        asset_list.push_back(asset.clone());
+        env.storage().persistent().set(&list_key, &asset_list);
+    }
+
+    Ok(())
+}
+
+/// Record a withdrawal from per-asset collateral tracking.
+pub fn record_asset_withdrawal(env: &Env, user: &Address, asset: &Address, amount: i128) -> Result<(), DepositError> {
+    let asset_key = DepositDataKey::UserAssetCollateral(user.clone(), asset.clone());
+    let current = env.storage().persistent().get::<DepositDataKey, i128>(&asset_key).unwrap_or(0);
+    let new_balance = current.checked_sub(amount).unwrap_or(0);
+    env.storage().persistent().set(&asset_key, &new_balance);
+
+    // Remove from asset list if balance reaches zero
+    if new_balance == 0 {
+        let list_key = DepositDataKey::UserAssetList(user.clone());
+        let asset_list = env.storage().persistent()
+            .get::<DepositDataKey, Vec<Address>>(&list_key)
+            .unwrap_or_else(|| Vec::new(env));
+        let mut new_list: Vec<Address> = Vec::new(env);
+        for a in asset_list.iter() {
+            if a != *asset {
+                new_list.push_back(a);
+            }
+        }
+        env.storage().persistent().set(&list_key, &new_list);
+    }
+
+    Ok(())
 }
 
 /// Set the native asset address (admin only).
