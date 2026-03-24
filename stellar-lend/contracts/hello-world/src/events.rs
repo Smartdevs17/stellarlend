@@ -376,6 +376,45 @@ pub struct RecoveryExecutedEvent {
 }
 
 // ============================================================================
+// Treasury Events
+// ============================================================================
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct TreasurySetEvent {
+    pub admin: Address,
+    pub treasury: Address,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct ReservesClaimedEvent {
+    pub admin: Address,
+    pub asset: Option<Address>,
+    pub recipient: Address,
+    pub amount: i128,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct FeeConfigUpdatedEvent {
+    pub admin: Address,
+    pub interest_fee_bps: i128,
+    pub liquidation_fee_bps: i128,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct LiquidationFeeCollectedEvent {
+    pub asset: Option<Address>,
+    pub fee_amount: i128,
+    pub timestamp: u64,
+}
+
+// ============================================================================
 // Core Lending Emitter Helpers
 // ============================================================================
 
@@ -563,5 +602,25 @@ pub fn emit_recovery_approved(e: &Env, event: RecoveryApprovedEvent) {
 
 #[allow(dead_code)]
 pub fn emit_recovery_executed(e: &Env, event: RecoveryExecutedEvent) {
+    event.publish(e);
+}
+
+// ============================================================================
+// Treasury Emitter Helpers
+// ============================================================================
+
+pub fn emit_treasury_set(e: &Env, event: TreasurySetEvent) {
+    event.publish(e);
+}
+
+pub fn emit_reserves_claimed(e: &Env, event: ReservesClaimedEvent) {
+    event.publish(e);
+}
+
+pub fn emit_fee_config_updated(e: &Env, event: FeeConfigUpdatedEvent) {
+    event.publish(e);
+}
+
+pub fn emit_liquidation_fee_collected(e: &Env, event: LiquidationFeeCollectedEvent) {
     event.publish(e);
 }

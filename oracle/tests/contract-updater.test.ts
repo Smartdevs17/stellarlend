@@ -378,6 +378,47 @@ describe('ContractUpdater', () => {
       expect(result).toBeDefined();
       expect(result.asset).toBe('XLM');
     });
+
+    it('should throw timeout error if transaction is NOT_FOUND for too long', async () => {
+      const { SorobanRpc } = await import('@stellar/stellar-sdk');
+
+      // Create a specific updater with maxRetries: 1 to avoid long test runs
+      const timeoutUpdater = createContractUpdater({
+        ...mockConfig,
+        maxRetries: 1,
+      });
+
+      // Ensure simulation doesn't fail
+      vi.spyOn(SorobanRpc.Api, 'isSimulationError').mockReturnValue(false);
+      vi.spyOn(SorobanRpc.Api, 'isSimulationSuccess').mockReturnValue(true);
+
+      // Use fake timers
+      vi.useFakeTimers();
+
+      // Mock getTransaction to always return NOT_FOUND
+      const getTransactionMock = vi
+        .spyOn((timeoutUpdater as any).server, 'getTransaction')
+        .mockResolvedValue({
+          status: SorobanRpc.Api.GetTransactionStatus.NOT_FOUND,
+        } as any);
+
+      // Start the update
+      const updatePromise = timeoutUpdater.updatePrice('XLM', 150000n, Date.now());
+
+      // Advance timers for 30 poll attempts
+      // We use a loop to ensure each iteration's sleep is handled
+      for (let i = 0; i < 30; i++) {
+        await vi.advanceTimersByTimeAsync(1000);
+      }
+
+      const result = await updatePromise;
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Transaction polling timed out');
+      expect(getTransactionMock).toHaveBeenCalledTimes(31);
+
+      vi.useRealTimers();
+    }, 10000);
   });
 
   describe('configuration', () => {

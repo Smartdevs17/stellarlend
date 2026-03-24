@@ -6,7 +6,7 @@ import logger from '../utils/logger';
 export const prepare = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const operation = req.params.operation as LendingOperation;
-    const { userAddress, assetAddress, amount } = req.body;
+    const { userAddress, assetAddress, amount } = { ...req.query, ...req.body } as any;
 
     logger.info('Preparing unsigned transaction', { operation, userAddress, amount });
 

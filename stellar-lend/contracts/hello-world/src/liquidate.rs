@@ -21,7 +21,7 @@
 //! - Interest is accrued on the borrower's position before liquidation.
 
 #![allow(unused)]
-use crate::events::{emit_liquidation, LiquidationEvent};
+use crate::events::{emit_liquidation, emit_liquidation_fee_collected, LiquidationEvent, LiquidationFeeCollectedEvent};
 use soroban_sdk::{contracterror, Address, Env, IntoVal, Map, Symbol, Val, Vec};
 
 use crate::deposit::{
@@ -65,6 +65,8 @@ pub enum LiquidationError {
     PriceNotAvailable = 10,
     /// Liquidation would leave position undercollateralized
     InsufficientLiquidation = 11,
+    /// Reentrancy detected
+    Reentrancy = 12,
 }
 
 /// Annual interest rate in basis points (e.g., 500 = 5% per year)
@@ -210,6 +212,9 @@ pub fn liquidate(
     if debt_amount <= 0 {
         return Err(LiquidationError::InvalidAmount);
     }
+
+    // Check for reentrancy
+    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| LiquidationError::Reentrancy)?;
 
     // Check emergency pause
     if is_emergency_paused(env) {
@@ -361,6 +366,19 @@ pub fn liquidate(
         collateral_seized
     };
 
+    // Calculate protocol fee on the liquidation bonus (retained in ProtocolReserve)
+    let fee_config = crate::treasury::get_fee_config(env);
+    let protocol_liquidation_fee = incentive_amount
+        .checked_mul(fee_config.liquidation_fee_bps)
+        .ok_or(LiquidationError::Overflow)?
+        .checked_div(10000)
+        .ok_or(LiquidationError::Overflow)?;
+
+    // Liquidator receives seized collateral minus the protocol fee
+    let liquidator_collateral = actual_collateral_seized
+        .checked_sub(protocol_liquidation_fee)
+        .ok_or(LiquidationError::Overflow)?;
+
     // Check liquidator has sufficient balance to repay debt
     if let Some(ref debt_addr) = debt_asset {
         let token_client = soroban_sdk::token::Client::new(env, debt_addr);
@@ -388,14 +406,37 @@ pub fn liquidate(
             return Err(LiquidationError::InsufficientBalance);
         }
 
-        // Transfer collateral asset from contract to liquidator (with incentive)
+        // Transfer collateral to liquidator (seized amount minus protocol fee)
         token_client.transfer(
-            &env.current_contract_address(), // from (this contract)
-            &liquidator,                     // to (liquidator)
-            &actual_collateral_seized,
+            &env.current_contract_address(),
+            &liquidator,
+            &liquidator_collateral,
         );
     } else {
         // Native XLM handling - placeholder for now
+    }
+
+    // Credit protocol liquidation fee to protocol reserve
+    if protocol_liquidation_fee > 0 {
+        let reserve_key = DepositDataKey::ProtocolReserve(collateral_asset.clone());
+        let current_reserve = env
+            .storage()
+            .persistent()
+            .get::<DepositDataKey, i128>(&reserve_key)
+            .unwrap_or(0);
+        let new_reserve = current_reserve
+            .checked_add(protocol_liquidation_fee)
+            .ok_or(LiquidationError::Overflow)?;
+        env.storage().persistent().set(&reserve_key, &new_reserve);
+
+        emit_liquidation_fee_collected(
+            env,
+            LiquidationFeeCollectedEvent {
+                asset: collateral_asset.clone(),
+                fee_amount: protocol_liquidation_fee,
+                timestamp,
+            },
+        );
     }
 
     // Update borrower's debt (pay interest first, then principal)

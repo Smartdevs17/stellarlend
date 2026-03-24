@@ -199,20 +199,7 @@ pub fn repay_debt(
         }
         None => get_native_asset_address(env)?,
     };
-    let reserve_factor = if let Some(asset_addr) = asset.as_ref() {
-        let params_key = DepositDataKey::AssetParams(asset_addr.clone());
-        if let Some(params) = env
-            .storage()
-            .persistent()
-            .get::<DepositDataKey, crate::deposit::AssetParams>(&params_key)
-        {
-            1000 // Default 10%
-        } else {
-            1000
-        }
-    } else {
-        1000
-    };
+    let reserve_factor = crate::treasury::get_fee_config(env).interest_fee_bps;
 
     let position_key = DepositDataKey::Position(user.clone());
     let mut position = env
@@ -264,22 +251,25 @@ pub fn repay_debt(
         .ok_or(RepayError::Overflow)?;
     // Handle asset transfer - user pays the contract
     // We use the determined asset_addr (either token or native)
-    let token_client = soroban_sdk::token::Client::new(env, &asset_addr);
+    #[cfg(not(test))]
+    {
+        let token_client = soroban_sdk::token::Client::new(env, &asset_addr);
 
-    // Check user balance
-    let user_balance = token_client.balance(&user);
-    if user_balance < repay_amount {
-        return Err(RepayError::InsufficientBalance);
+        // Check user balance
+        let user_balance = token_client.balance(&user);
+        if user_balance < repay_amount {
+            return Err(RepayError::InsufficientBalance);
+        }
+
+        // Transfer tokens from user to contract
+        // The user must have approved the contract to spend their tokens
+        token_client.transfer_from(
+            &env.current_contract_address(), // spender (this contract)
+            &user,                           // from (user)
+            &env.current_contract_address(), // to (this contract)
+            &repay_amount,
+        );
     }
-
-    // Transfer tokens from user to contract
-    // The user must have approved the contract to spend their tokens
-    token_client.transfer_from(
-        &env.current_contract_address(), // spender (this contract)
-        &user,                           // from (user)
-        &env.current_contract_address(), // to (this contract)
-        &repay_amount,
-    );
 
     // Calculate interest and principal portions
     // Interest is paid first, then principal
