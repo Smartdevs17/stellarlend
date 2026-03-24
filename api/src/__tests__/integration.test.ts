@@ -291,3 +291,101 @@ describe('Concurrent Requests', () => {
     expect(statuses).toContain(429);
   });
 });
+
+// ─── 4. Edge Cases & Security Headers ────────────────────────────────────────
+
+describe('Edge Cases', () => {
+  it('rejects amount of zero', async () => {
+    const res = await request(app)
+      .get('/api/lending/prepare/deposit')
+      .query({ userAddress: VALID_ADDRESS, amount: '0' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/amount/i);
+  });
+
+  it('rejects negative amount', async () => {
+    const res = await request(app)
+      .get('/api/lending/prepare/deposit')
+      .query({ userAddress: VALID_ADDRESS, amount: '-500' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/amount/i);
+  });
+
+  it('accepts optional assetAddress when provided', async () => {
+    const res = await request(app)
+      .get('/api/lending/prepare/deposit')
+      .query({
+        userAddress: VALID_ADDRESS,
+        amount: VALID_AMOUNT,
+        assetAddress: VALID_ADDRESS,
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockStellarService.buildUnsignedTransaction).toHaveBeenCalledWith(
+      'deposit',
+      VALID_ADDRESS,
+      VALID_ADDRESS,
+      VALID_AMOUNT
+    );
+  });
+
+  it('works without optional assetAddress', async () => {
+    const res = await request(app)
+      .get('/api/lending/prepare/deposit')
+      .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT });
+
+    expect(res.status).toBe(200);
+    expect(mockStellarService.buildUnsignedTransaction).toHaveBeenCalledWith(
+      'deposit',
+      VALID_ADDRESS,
+      undefined,
+      VALID_AMOUNT
+    );
+  });
+
+  it('all four valid operations are accepted by prepare', async () => {
+    for (const op of ['deposit', 'borrow', 'repay', 'withdraw']) {
+      const res = await request(app)
+        .get(`/api/lending/prepare/${op}`)
+        .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT });
+
+      expect(res.status).toBe(200);
+      expect(res.body.operation).toBe(op);
+    }
+  });
+});
+
+describe('Security Headers', () => {
+  it('includes x-content-type-options header', async () => {
+    const res = await request(app).get('/api/health');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+  });
+
+  it('includes x-frame-options header', async () => {
+    const res = await request(app).get('/api/health');
+    expect(res.headers['x-frame-options']).toBeDefined();
+  });
+
+  it('includes strict-transport-security header', async () => {
+    const res = await request(app).get('/api/health');
+    expect(res.headers['strict-transport-security']).toMatch(/max-age/);
+  });
+
+  it('responds to OPTIONS preflight requests', async () => {
+    const res = await request(app).options('/api/lending/prepare/deposit');
+    expect([200, 204]).toContain(res.status);
+  });
+
+  it('health endpoint returns healthy status with correct shape', async () => {
+    const res = await request(app).get('/api/health');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      status: 'healthy',
+      services: { horizon: true, sorobanRpc: true },
+    });
+    expect(typeof res.body.timestamp).toBe('string');
+  });
+});
