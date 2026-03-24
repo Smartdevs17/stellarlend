@@ -188,9 +188,25 @@ export class ContractUpdater {
     const hash = response.hash;
     let getResponse = await this.server.getTransaction(hash);
 
-    while (getResponse.status === SorobanRpc.Api.GetTransactionStatus.NOT_FOUND) {
+    const MAX_POLL_ATTEMPTS = 30;
+    let attempts = 0;
+
+    while (
+      getResponse.status === SorobanRpc.Api.GetTransactionStatus.NOT_FOUND &&
+      attempts < MAX_POLL_ATTEMPTS
+    ) {
       await this.sleep(1000);
+      attempts++;
       getResponse = await this.server.getTransaction(hash);
+    }
+
+    if (attempts >= MAX_POLL_ATTEMPTS) {
+      logger.error('Transaction polling timed out', {
+        txHash: hash,
+        asset,
+        attempts,
+      });
+      throw new Error(`Transaction polling timed out after ${MAX_POLL_ATTEMPTS} attempts`);
     }
 
     if (getResponse.status === SorobanRpc.Api.GetTransactionStatus.FAILED) {
