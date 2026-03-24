@@ -1,7 +1,7 @@
 /**
  * Cache Service
  *
- * In-memory caching layer with TTL support.
+ * In-memory caching layer with TTL support and LRU eviction.
  * Supports Redis too.
  */
 
@@ -14,6 +14,8 @@ import { logger } from '../utils/logger.js';
 export interface CacheConfig {
   defaultTtlSeconds: number;
   maxEntries: number;
+  /** Fraction of entries to evict in a batch when at capacity (0 < x <= 1) */
+  evictBatchFraction: number;
   /** Redis URL (optional) */
   redisUrl?: string;
 }
@@ -24,16 +26,22 @@ export interface CacheConfig {
 const DEFAULT_CONFIG: CacheConfig = {
   defaultTtlSeconds: 30,
   maxEntries: 1000,
+  evictBatchFraction: 0.1,
 };
 
 /**
- * In-memory cache implementation
+ * In-memory LRU cache implementation.
+ *
+ * Access order is maintained by deleting and re-inserting keys into the Map
+ * on every read, so the Map's natural insertion order reflects LRU order
+ * (oldest = first entry, most-recently-used = last entry).
  */
 export class Cache {
   private config: CacheConfig;
   private store: Map<string, CacheEntry<unknown>> = new Map();
   private hits: number = 0;
   private misses: number = 0;
+  private evictions: number = 0;
 
   constructor(config: Partial<CacheConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -41,11 +49,13 @@ export class Cache {
     logger.info('Cache initialized', {
       defaultTtlSeconds: this.config.defaultTtlSeconds,
       maxEntries: this.config.maxEntries,
+      evictBatchFraction: this.config.evictBatchFraction,
     });
   }
 
   /**
-   * Get a value from cache
+   * Get a value from cache.
+   * Moves the accessed entry to the "most recently used" position.
    */
   get<T>(key: string): T | undefined {
     const entry = this.store.get(key) as CacheEntry<T> | undefined;
@@ -62,20 +72,27 @@ export class Cache {
       return undefined;
     }
 
+    // Refresh LRU position: delete then re-insert moves key to end of Map
+    this.store.delete(key);
+    this.store.set(key, entry);
+
     this.hits++;
     return entry.data;
   }
 
   /**
-   * Set a value in cache with optional TTL
+   * Set a value in cache with optional TTL.
+   * Performs LRU batch eviction when at capacity.
    */
   set<T>(key: string, value: T, ttlSeconds?: number): void {
     const ttl = ttlSeconds ?? this.config.defaultTtlSeconds;
     const now = Date.now();
 
-    // Evict oldest entries if at capacity
-    if (this.store.size >= this.config.maxEntries) {
-      this.evictOldest();
+    // If key already exists, remove it first so it gets a fresh LRU position
+    if (this.store.has(key)) {
+      this.store.delete(key);
+    } else if (this.store.size >= this.config.maxEntries) {
+      this.evictLRUBatch();
     }
 
     const entry: CacheEntry<T> = {
@@ -121,45 +138,64 @@ export class Cache {
   }
 
   /**
-   * Get cache statistics
+   * Get cache statistics including hit rate and eviction count.
    */
   getStats(): {
     size: number;
     hits: number;
     misses: number;
     hitRate: number;
+    evictions: number;
   } {
     const total = this.hits + this.misses;
+    const hitRate = total > 0 ? this.hits / total : 0;
+
+    logger.debug('Cache stats', {
+      size: this.store.size,
+      hits: this.hits,
+      misses: this.misses,
+      hitRate: hitRate.toFixed(4),
+      evictions: this.evictions,
+    });
+
     return {
       size: this.store.size,
       hits: this.hits,
       misses: this.misses,
-      hitRate: total > 0 ? this.hits / total : 0,
+      hitRate,
+      evictions: this.evictions,
     };
   }
 
   /**
-   * Evict oldest entries to make room
+   * Evict a batch of least-recently-used entries.
+   *
+   * The Map preserves insertion order and we refresh position on every get,
+   * so the first N keys are always the least recently used.
+   * Batch size = ceil(maxEntries * evictBatchFraction), minimum 1.
    */
-  private evictOldest(): void {
-    let oldestKey: string | undefined;
-    let oldestTime = Infinity;
+  private evictLRUBatch(): void {
+    const batchSize = Math.max(
+      1,
+      Math.ceil(this.config.maxEntries * this.config.evictBatchFraction),
+    );
 
-    for (const [key, entry] of this.store) {
-      if (entry.cachedAt < oldestTime) {
-        oldestTime = entry.cachedAt;
-        oldestKey = key;
-      }
+    let evicted = 0;
+    for (const key of this.store.keys()) {
+      if (evicted >= batchSize) break;
+      this.store.delete(key);
+      evicted++;
     }
 
-    if (oldestKey) {
-      this.store.delete(oldestKey);
-      logger.debug(`Evicted oldest cache entry: ${oldestKey}`);
-    }
+    this.evictions += evicted;
+    logger.debug(`LRU batch eviction: removed ${evicted} entries`, {
+      remaining: this.store.size,
+      totalEvictions: this.evictions,
+    });
   }
 
   /**
-   * Clean up expired entries periodicaly
+   * Clean up expired entries periodically
    */
   cleanup(): number {
     const now = Date.now();
