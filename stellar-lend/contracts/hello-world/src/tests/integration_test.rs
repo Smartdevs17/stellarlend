@@ -84,6 +84,58 @@ fn integration_full_flow_deposit_borrow_repay_withdraw() {
     assert_eq!(final_position.collateral, deposit_amount - withdraw_amount);
 }
 
+/// Borrowing above max collateral ratio must fail.
+#[test]
+#[should_panic(expected = "HostError")]
+fn integration_borrow_too_much_fails() {
+    let (_env, _contract_id, client, _admin, user, _native_asset) =
+        crate::tests::test_helpers::setup_env_with_native_asset();
+
+    client.deposit_collateral(&user, &None, &10_000);
+    // At default 150% min collateral ratio, max borrow is 6_666 for 10_000 collateral.
+    client.borrow_asset(&user, &None, &7_000);
+}
+
+/// Withdrawing all collateral while debt remains must fail.
+#[test]
+#[should_panic(expected = "HostError")]
+fn integration_withdraw_all_while_in_debt_fails() {
+    let (_env, _contract_id, client, _admin, user, _native_asset) =
+        crate::tests::test_helpers::setup_env_with_native_asset();
+
+    client.deposit_collateral(&user, &None, &10_000);
+    client.borrow_asset(&user, &None, &3_000);
+
+    // Debt is still outstanding, so full withdrawal should violate collateral ratio.
+    client.withdraw_collateral(&user, &None, &10_000);
+}
+
+/// Exact repay of outstanding principal should allow full withdrawal.
+#[test]
+fn integration_exact_repay_then_withdraw_all() {
+    let (env, contract_id, client, _admin, user, native_asset) =
+        crate::tests::test_helpers::setup_env_with_native_asset();
+    let token_client = soroban_sdk::token::StellarAssetClient::new(&env, &native_asset);
+
+    token_client.mint(&user, &5_000);
+    token_client.approve(&user, &contract_id, &5_000, &(env.ledger().sequence() + 100));
+
+    client.deposit_collateral(&user, &None, &10_000);
+    client.borrow_asset(&user, &None, &2_000);
+
+    let (remaining, _interest, principal_paid) = client.repay_debt(&user, &None, &2_000);
+    assert_eq!(remaining, 0);
+    assert_eq!(principal_paid, 2_000);
+
+    let balance_after_withdraw = client.withdraw_collateral(&user, &None, &10_000);
+    assert_eq!(balance_after_withdraw, 0);
+    assert_eq!(get_collateral_balance(&env, &contract_id, &user), 0);
+
+    let final_position = get_user_position(&env, &contract_id, &user).unwrap();
+    assert_eq!(final_position.collateral, 0);
+    assert_eq!(final_position.debt, 0);
+}
+
 /// Liquidation path: set up undercollateralized position, then liquidate.
 /// Uses direct storage setup for a position below liquidation threshold, then calls liquidate.
 #[test]

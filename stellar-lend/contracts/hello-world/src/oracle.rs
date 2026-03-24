@@ -69,8 +69,6 @@ pub enum OracleDataKey {
     OracleConfig,
     /// Pause switches specifically for oracle updates: Map<Symbol, bool>
     PauseSwitches,
-    PrimaryOracle(Address),
-    FallbackFeed(Address),
 }
 
 /// Price feed data structure
