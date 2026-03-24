@@ -248,6 +248,61 @@ describe('StellarService', () => {
       expect(result.success).toBe(false);
       expect(result.status).toBe('failed');
     });
+
+    it('retries on transient 5xx errors with exponential backoff and then succeeds', async () => {
+      jest.useFakeTimers();
+      let callCount = 0;
+      mockedAxios.post.mockImplementation(() => {
+        callCount++;
+        if (callCount < 3) {
+          return mockAxiosReject({ status: 502, data: { detail: 'Bad gateway' }, message: 'Bad gateway' });
+        }
+        return Promise.resolve({
+          data: { hash: 'tx_hash_abc', ledger: 777, successful: true },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: { url: '' },
+        } as any);
+      });
+
+      const promise = service.submitTransaction('mock_tx_xdr');
+      // Advance timers enough times to pass the two backoff waits
+      await jest.runOnlyPendingTimersAsync();
+      await jest.runOnlyPendingTimersAsync();
+
+      const result = await promise;
+      expect(result).toMatchObject({ success: true, transactionHash: 'tx_hash_abc', ledger: 777 });
+      expect(mockedAxios.post).toHaveBeenCalledTimes(3);
+      jest.useRealTimers();
+    });
+
+    it('does not retry on 4xx client errors (e.g., 401)', async () => {
+      mockedAxios.post.mockImplementation(() =>
+        mockAxiosReject({ status: 401, data: { detail: 'Unauthorized' }, message: 'Unauthorized' })
+      );
+      const result = await service.submitTransaction('mock_tx_xdr');
+      expect(result.success).toBe(false);
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops after max retries on persistent 5xx errors and returns failure', async () => {
+      jest.useFakeTimers();
+      mockedAxios.post.mockImplementation(() =>
+        mockAxiosReject({ status: 503, data: { detail: 'Service Unavailable' }, message: 'Service Unavailable' })
+      );
+
+      const promise = service.submitTransaction('mock_tx_xdr');
+      // Flush all pending timers that correspond to backoff waits
+      // Default maxRetries in config is 3, so there will be 3 waits.
+      await jest.runAllTimersAsync();
+
+      const result = await promise;
+      expect(result.success).toBe(false);
+      // Called maxRetries + 1 attempts (initial + 3 retries) = 4 by default
+      expect(mockedAxios.post.mock.calls.length).toBeGreaterThanOrEqual(4);
+      jest.useRealTimers();
+    });
   });
 
   // -----------------------------------------------------------------------

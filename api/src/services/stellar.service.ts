@@ -83,23 +83,78 @@ export class StellarService {
   }
 
   async submitTransaction(txXdr: string): Promise<TransactionResponse> {
-    try {
-      const response = await axios.post(`${this.horizonUrl}/transactions`, { tx: txXdr });
-      const data = response.data as { hash: string; ledger: number };
-      return {
-        success: true,
-        transactionHash: data.hash,
-        status: 'success',
-        ledger: data.ledger,
-      };
-    } catch (error: any) {
-      logger.error('Transaction submission failed:', error);
-      return {
-        success: false,
-        status: 'failed',
-        error: error.response?.data?.extras?.result_codes || error.message,
-      };
+    const {
+      request: {
+        maxRetries,
+        retryInitialDelayMs,
+        retryMaxDelayMs,
+        timeout,
+      },
+    } = config;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await axios.post(
+          `${this.horizonUrl}/transactions`,
+          { tx: txXdr },
+          { timeout }
+        );
+        const data = response.data as { hash: string; ledger: number };
+        return {
+          success: true,
+          transactionHash: data.hash,
+          status: 'success',
+          ledger: data.ledger,
+        };
+      } catch (error: any) {
+        const status = error?.response?.status as number | undefined;
+        const isClientError = typeof status === 'number' && status >= 400 && status < 500;
+        const isRetryable =
+          // Network error (no response) is retryable
+          !error?.response ||
+          // 5xx server errors are retryable
+          (typeof status === 'number' && status >= 500);
+
+        // Immediately fail on non-retryable 4xx errors
+        if (isClientError && status !== 429) {
+          logger.error('Transaction submission failed (non-retryable):', error);
+          return {
+            success: false,
+            status: 'failed',
+            error: error.response?.data?.extras?.result_codes || error.message,
+          };
+        }
+
+        // If we've exhausted retries or it's not retryable, return failure
+        if (attempt === maxRetries || !isRetryable) {
+          logger.error('Transaction submission failed (final):', error);
+          return {
+            success: false,
+            status: 'failed',
+            error: error.response?.data?.extras?.result_codes || error.message,
+          };
+        }
+
+        // Exponential backoff with cap
+        const backoff = Math.min(
+          retryInitialDelayMs * Math.pow(2, attempt),
+          retryMaxDelayMs
+        );
+        logger.warn(
+          `Submit transaction attempt ${attempt + 1} failed${
+            status ? ` (status ${status})` : ''
+          }. Retrying in ${backoff} ms...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, backoff));
+      }
     }
+
+    // Fallback — should be unreachable because loop returns
+    return {
+      success: false,
+      status: 'failed',
+      error: 'Unknown submission error',
+    };
   }
 
   async monitorTransaction(

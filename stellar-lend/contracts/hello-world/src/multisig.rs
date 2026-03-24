@@ -1,12 +1,11 @@
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::GovernanceError;
-use crate::storage::GovernanceDataKey;
-use crate::types::{MultisigConfig, Proposal, ProposalStatus, ProposalType};
+use crate::types::{MultisigConfig, Proposal, ProposalType};
 
 use crate::governance::{
-    approve_proposal, execute_proposal, get_multisig_config, set_multisig_config,
-    get_proposal, get_proposal_approvals,
+    approve_proposal, execute_proposal, get_multisig_config, get_proposal, get_proposal_approvals,
+    set_multisig_config,
 };
 
 pub fn ms_set_admins(
@@ -64,19 +63,11 @@ pub fn ms_propose_set_min_cr(
     Ok(proposal_id)
 }
 
-pub fn ms_approve(
-    env: &Env,
-    approver: Address,
-    proposal_id: u64,
-) -> Result<(), GovernanceError> {
+pub fn ms_approve(env: &Env, approver: Address, proposal_id: u64) -> Result<(), GovernanceError> {
     approve_proposal(env, approver, proposal_id)
 }
 
-pub fn ms_execute(
-    env: &Env,
-    executor: Address,
-    proposal_id: u64,
-) -> Result<(), GovernanceError> {
+pub fn ms_execute(env: &Env, executor: Address, proposal_id: u64) -> Result<(), GovernanceError> {
     execute_proposal(env, executor, proposal_id)
 }
 

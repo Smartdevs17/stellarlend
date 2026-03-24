@@ -7,14 +7,9 @@
 //! - Callback validation
 //! - RAII guard behavior (no leak on failure)
 
-#![cfg(test)]
+use soroban_sdk::{contract, contractimpl, testutils::Address as _, token, Address, Env, Symbol};
 
-use soroban_sdk::{contract, contractimpl, testutils::Address as _, token, Address, Env, Map, Symbol, IntoVal};
-
-use crate::flash_loan::{
-    execute_flash_loan, repay_flash_loan, set_flash_loan_config, set_flash_loan_fee,
-    FlashLoanConfig, FlashLoanDataKey, FlashLoanError,
-};
+use crate::flash_loan::{execute_flash_loan, set_flash_loan_config, FlashLoanConfig};
 use crate::HelloContract;
 
 #[contract]
@@ -27,8 +22,17 @@ impl MockReceiver {
         let token = token::TokenClient::new(&env, &asset);
         // Approve the core contract to pull the total amount back
         let target_key = Symbol::new(&env, "CORE_CONTRACT");
-        let core_contract = env.storage().temporary().get::<Symbol, Address>(&target_key).unwrap();
-        token.approve(&env.current_contract_address(), &core_contract, &total, &9999);
+        let core_contract = env
+            .storage()
+            .temporary()
+            .get::<Symbol, Address>(&target_key)
+            .unwrap();
+        token.approve(
+            &env.current_contract_address(),
+            &core_contract,
+            &total,
+            &9999,
+        );
     }
 }
 
@@ -62,7 +66,7 @@ fn setup_with_balance(balance: i128) -> (Env, Address, Address, Address, Address
 #[test]
 fn test_flash_loan_success() {
     let (env, contract_id, _admin, user, token_address) = setup_with_balance(10_000_000);
-    
+
     // Setup receiver
     let receiver_id = env.register(MockReceiver, ());
     let target_key = Symbol::new(&env, "CORE_CONTRACT");
@@ -92,7 +96,7 @@ fn test_flash_loan_success() {
 #[should_panic(expected = "HostError")]
 fn test_flash_loan_insufficient_repayment_fails() {
     let (env, contract_id, _admin, user, token_address) = setup_with_balance(10_000_000);
-    
+
     let receiver_id = env.register(CheapReceiver, ());
     let target_key = Symbol::new(&env, "CORE_CONTRACT");
     env.as_contract(&receiver_id, || {
@@ -131,9 +135,7 @@ fn test_set_flash_loan_config_admin_only() {
     assert!(res.is_ok());
 
     // User should fail
-    let res = env.as_contract(&contract_id, || {
-        set_flash_loan_config(&env, user, config)
-    });
+    let res = env.as_contract(&contract_id, || set_flash_loan_config(&env, user, config));
     assert!(res.is_err());
 }
 
@@ -145,8 +147,17 @@ impl CheapReceiver {
     pub fn on_flash_loan(env: Env, _user: Address, asset: Address, amount: i128, _fee: i128) {
         let token = token::TokenClient::new(&env, &asset);
         let target_key = Symbol::new(&env, "CORE_CONTRACT");
-        let core_contract = env.storage().temporary().get::<Symbol, Address>(&target_key).unwrap();
+        let core_contract = env
+            .storage()
+            .temporary()
+            .get::<Symbol, Address>(&target_key)
+            .unwrap();
         // Maliciously approve ONLY the principal, not the fee, to trigger insufficient repayment
-        token.approve(&env.current_contract_address(), &core_contract, &amount, &9999);
+        token.approve(
+            &env.current_contract_address(),
+            &core_contract,
+            &amount,
+            &9999,
+        );
     }
 }

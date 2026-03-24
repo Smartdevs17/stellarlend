@@ -135,7 +135,8 @@ fn calculate_flash_loan_fee(env: &Env, amount: i128) -> Result<i128, FlashLoanEr
 
 /// Check if flash loan is active
 fn is_flash_loan_active(env: &Env, user: &Address, asset: &Address) -> bool {
-    let loan_key: soroban_sdk::Val = FlashLoanDataKey::ActiveFlashLoan(user.clone(), asset.clone()).into_val(env);
+    let loan_key: soroban_sdk::Val =
+        FlashLoanDataKey::ActiveFlashLoan(user.clone(), asset.clone()).into_val(env);
     env.storage().temporary().has(&loan_key)
 }
 
@@ -148,7 +149,8 @@ fn record_flash_loan(
     fee: i128,
     callback: &Address,
 ) {
-    let loan_key: soroban_sdk::Val = FlashLoanDataKey::ActiveFlashLoan(user.clone(), asset.clone()).into_val(env);
+    let loan_key: soroban_sdk::Val =
+        FlashLoanDataKey::ActiveFlashLoan(user.clone(), asset.clone()).into_val(env);
     let record = FlashLoanRecord {
         amount,
         fee,
@@ -160,7 +162,8 @@ fn record_flash_loan(
 
 /// Clear flash loan record
 fn clear_flash_loan(env: &Env, user: &Address, asset: &Address) {
-    let loan_key: soroban_sdk::Val = FlashLoanDataKey::ActiveFlashLoan(user.clone(), asset.clone()).into_val(env);
+    let loan_key: soroban_sdk::Val =
+        FlashLoanDataKey::ActiveFlashLoan(user.clone(), asset.clone()).into_val(env);
     env.storage().temporary().remove(&loan_key);
 }
 
@@ -186,8 +189,15 @@ pub fn execute_flash_loan(
     }
 
     let pause_map_key = FlashLoanDataKey::PauseSwitches;
-    if let Some(pause_map) = env.storage().persistent().get::<FlashLoanDataKey, Map<Symbol, bool>>(&pause_map_key) {
-        if pause_map.get(Symbol::new(env, "pause_flash_loan")).unwrap_or(false) {
+    if let Some(pause_map) = env
+        .storage()
+        .persistent()
+        .get::<FlashLoanDataKey, Map<Symbol, bool>>(&pause_map_key)
+    {
+        if pause_map
+            .get(Symbol::new(env, "pause_flash_loan"))
+            .unwrap_or(false)
+        {
             return Err(FlashLoanError::FlashLoanPaused);
         }
     }
@@ -204,11 +214,12 @@ pub fn execute_flash_loan(
 
     // 3. Initiate Guards (RAII)
     // The granular guard automatically clears when execute_flash_loan finishes.
-    
+
     // Granular guard prevents re-entry into flash loan for same user/asset
     // Note: We intentionally do NOT use a global guard here because the callback
     // MUST be allowed to call back into the protocol (e.g., to repay the loan).
-    let lock_key: soroban_sdk::Val = FlashLoanDataKey::FlashLoanGuard(user.clone(), asset.clone()).into_val(env);
+    let lock_key: soroban_sdk::Val =
+        FlashLoanDataKey::FlashLoanGuard(user.clone(), asset.clone()).into_val(env);
     let _granular_guard = crate::reentrancy::ReentrancyGuard::new_with_key(env, lock_key)
         .map_err(|_| FlashLoanError::Reentrancy)?;
 
@@ -252,8 +263,14 @@ pub fn execute_flash_loan(
     // 7. Credit fee to reserve
     if fee > 0 {
         let reserve_key = DepositDataKey::ProtocolReserve(Some(asset.clone()));
-        let current_reserve = env.storage().persistent().get::<DepositDataKey, i128>(&reserve_key).unwrap_or(0);
-        let new_reserve = current_reserve.checked_add(fee).ok_or(FlashLoanError::Overflow)?;
+        let current_reserve = env
+            .storage()
+            .persistent()
+            .get::<DepositDataKey, i128>(&reserve_key)
+            .unwrap_or(0);
+        let new_reserve = current_reserve
+            .checked_add(fee)
+            .ok_or(FlashLoanError::Overflow)?;
         env.storage().persistent().set(&reserve_key, &new_reserve);
     }
 
@@ -274,17 +291,24 @@ pub fn repay_flash_loan(
     asset: Address,
     amount: i128,
 ) -> Result<(), FlashLoanError> {
-    let loan_key: soroban_sdk::Val = FlashLoanDataKey::ActiveFlashLoan(user.clone(), asset.clone()).into_val(env);
-    let record = env.storage().temporary().get::<Val, FlashLoanRecord>(&loan_key)
+    let loan_key: soroban_sdk::Val =
+        FlashLoanDataKey::ActiveFlashLoan(user.clone(), asset.clone()).into_val(env);
+    let record = env
+        .storage()
+        .temporary()
+        .get::<Val, FlashLoanRecord>(&loan_key)
         .ok_or(FlashLoanError::NotRepaid)?;
 
-    let total_required = record.amount.checked_add(record.fee).ok_or(FlashLoanError::Overflow)?;
+    let total_required = record
+        .amount
+        .checked_add(record.fee)
+        .ok_or(FlashLoanError::Overflow)?;
     if amount < total_required {
         return Err(FlashLoanError::InsufficientRepayment);
     }
 
     let token_client = soroban_sdk::token::Client::new(env, &asset);
-    
+
     // Transfer funds from user back to contract
     token_client.transfer_from(
         &env.current_contract_address(),
@@ -334,7 +358,7 @@ pub fn set_flash_loan_fee(env: &Env, caller: Address, fee_bps: i128) -> Result<(
 
     let mut config = get_flash_loan_config(env);
     config.fee_bps = fee_bps;
-    
+
     let config_key = FlashLoanDataKey::FlashLoanConfig;
     env.storage().persistent().set(&config_key, &config);
     Ok(())

@@ -1,6 +1,7 @@
 pub use crate::events::VaultDepositEvent;
 
 /// Backward-compatible name for vault deposit events (see [`VaultDepositEvent`]).
+#[allow(dead_code)]
 pub type DepositEvent = VaultDepositEvent;
 
 use crate::pause::{self, PauseType};

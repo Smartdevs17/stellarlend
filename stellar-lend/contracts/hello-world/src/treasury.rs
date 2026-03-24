@@ -92,11 +92,7 @@ pub fn default_fee_config() -> TreasuryFeeConfig {
 /// * `env` - The Soroban environment
 /// * `caller` - Must be the protocol admin
 /// * `treasury` - The new treasury address
-pub fn set_treasury(
-    env: &Env,
-    caller: Address,
-    treasury: Address,
-) -> Result<(), TreasuryError> {
+pub fn set_treasury(env: &Env, caller: Address, treasury: Address) -> Result<(), TreasuryError> {
     caller.require_auth();
     crate::admin::require_admin(env, &caller).map_err(|_| TreasuryError::Unauthorized)?;
 
