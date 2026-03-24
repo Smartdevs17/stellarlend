@@ -116,6 +116,7 @@ fn test_get_liquidation_incentive_amount() {
 // - Min collateral ratio must be >= liquidation threshold.
 // - Close factor in [0, 100%], liquidation incentive in [0, 50%].
 
+use soroban_sdk::Symbol;
 
 // =============================================================================
 // HELPERS

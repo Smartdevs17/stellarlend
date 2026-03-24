@@ -135,7 +135,7 @@ pub fn initialize_risk_management(env: &Env, admin: Address) -> Result<(), RiskM
     }
 
     // Set admin
-    env.storage().persistent().set(&admin_key, &admin);
+    env.storage().persistent().set(&RiskDataKey::Admin, &admin);
 
     let risk_params = crate::risk_params::get_risk_params(env).unwrap_or(crate::risk_params::RiskParams {
         min_collateral_ratio: 11_000,
