@@ -23,6 +23,7 @@ pub mod risk_management;
 pub mod risk_params;
 pub mod storage;
 pub mod types;
+pub mod treasury;
 pub mod withdraw;
 
 #[cfg(test)]
@@ -136,6 +137,58 @@ impl HelloContract {
     pub fn require_min_collateral_ratio(env: Env, collateral_value: i128, debt_value: i128) -> Result<(), risk_params::RiskParamsError> {
         risk_params::require_min_collateral_ratio(&env, collateral_value, debt_value)
     }
+
+    // -------------------------------------------------------------------------
+    // Treasury & Fee Management
+    // -------------------------------------------------------------------------
+
+    /// Set the protocol treasury address (admin-only)
+    pub fn set_treasury(env: Env, caller: Address, treasury: Address) -> Result<(), treasury::TreasuryError> {
+        treasury::set_treasury(&env, caller, treasury)
+    }
+
+    /// Return the configured treasury address
+    pub fn get_treasury(env: Env) -> Option<Address> {
+        treasury::get_treasury(&env)
+    }
+
+    /// Return accumulated protocol reserves for the given asset
+    pub fn get_reserve_balance(env: Env, asset: Option<Address>) -> i128 {
+        treasury::get_reserve_balance(&env, asset)
+    }
+
+    /// Withdraw protocol reserves to a recipient (admin-only)
+    pub fn claim_reserves(
+        env: Env,
+        caller: Address,
+        asset: Option<Address>,
+        recipient: Address,
+        amount: i128,
+    ) -> Result<(), treasury::TreasuryError> {
+        treasury::claim_reserves(&env, caller, asset, recipient, amount)
+    }
+
+    /// Update protocol fee percentages (admin-only)
+    pub fn set_fee_config(
+        env: Env,
+        caller: Address,
+        interest_fee_bps: i128,
+        liquidation_fee_bps: i128,
+    ) -> Result<(), treasury::TreasuryError> {
+        treasury::set_fee_config(
+            &env,
+            caller,
+            treasury::TreasuryFeeConfig {
+                interest_fee_bps,
+                liquidation_fee_bps,
+            },
+        )
+    }
+
+    /// Return the current fee configuration
+    pub fn get_fee_config(env: Env) -> treasury::TreasuryFeeConfig {
+        treasury::get_fee_config(&env)
+    }
 }
 
 #[cfg(test)]
@@ -144,3 +197,5 @@ mod test_reentrancy;
 mod test_zero_amount;
 #[cfg(test)]
 mod flash_loan_test;
+#[cfg(test)]
+mod treasury_test;
