@@ -13,6 +13,7 @@ pub mod flash_loan;
 pub mod governance;
 pub mod interest_rate;
 pub mod liquidate;
+pub mod multi_collateral;
 pub mod multisig;
 pub mod oracle;
 pub mod recovery;
@@ -136,6 +137,27 @@ impl HelloContract {
     pub fn require_min_collateral_ratio(env: Env, collateral_value: i128, debt_value: i128) -> Result<(), risk_params::RiskParamsError> {
         risk_params::require_min_collateral_ratio(&env, collateral_value, debt_value)
     }
+
+    // -------------------------------------------------------------------------
+    // Multi-Asset Collateral
+    // -------------------------------------------------------------------------
+
+    /// Return the collateral balance for a specific (user, asset) pair
+    pub fn get_user_asset_collateral(env: Env, user: Address, asset: Address) -> i128 {
+        multi_collateral::get_user_asset_collateral(&env, &user, &asset)
+    }
+
+    /// Return the list of assets in which the user currently holds collateral
+    pub fn get_user_asset_list(env: Env, user: Address) -> Vec<Address> {
+        multi_collateral::get_user_asset_list(&env, &user)
+    }
+
+    /// Return the oracle-weighted total collateral value across all of the
+    /// user's deposited assets (collateral factors applied per asset).
+    /// Returns 0 for legacy single-asset users.
+    pub fn get_user_total_collateral_value(env: Env, user: Address) -> i128 {
+        multi_collateral::calculate_total_collateral_value(&env, &user).unwrap_or(0)
+    }
 }
 
 #[cfg(test)]
@@ -144,3 +166,5 @@ mod test_reentrancy;
 mod test_zero_amount;
 #[cfg(test)]
 mod flash_loan_test;
+#[cfg(test)]
+mod multi_collateral_test;
