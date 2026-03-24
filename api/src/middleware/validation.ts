@@ -25,7 +25,11 @@ export const amountValidation = [
     .withMessage('Amount must be greater than 0'),
 ];
 
-export const prepareValidation = [
+/**
+ * Factory function to create lending validation middleware
+ * Allows for future customization per operation if needed
+ */
+const createLendingValidation = () => [
   param('operation')
     .isIn(VALID_OPERATIONS)
     .withMessage(`Operation must be one of: ${VALID_OPERATIONS.join(', ')}`),
@@ -43,13 +47,15 @@ export const prepareValidation = [
   validateRequest,
 ];
 
+export const prepareValidation = createLendingValidation();
+
 export const submitValidation = [
   body('signedXdr').isString().notEmpty().withMessage('signedXdr is required'),
   validateRequest,
 ];
 
 // Kept for backward compatibility — deprecated, will be removed in v2
-export const depositValidation = prepareValidation;
-export const borrowValidation = prepareValidation;
-export const repayValidation = prepareValidation;
-export const withdrawValidation = prepareValidation;
+export const depositValidation = createLendingValidation();
+export const borrowValidation = createLendingValidation();
+export const repayValidation = createLendingValidation();
+export const withdrawValidation = createLendingValidation();
