@@ -42,8 +42,10 @@ mod bridge;
 // mod tests;
 
 use crate::deposit::DepositDataKey;
+use crate::deposit::Position;
 use crate::risk_management::RiskManagementError;
 use crate::interest_rate::InterestRateError;
+use crate::analytics::AnalyticsError;
 
 // ─── Admin helper ─────────────────────────────────────────────────────────────
 
@@ -226,6 +228,16 @@ impl HelloContract {
     /// Return the current fee configuration
     pub fn get_fee_config(env: Env) -> treasury::TreasuryFeeConfig {
         treasury::get_fee_config(&env)
+    }
+
+    /// Read-only user health factor query (collateral/debt in basis points).
+    pub fn get_health_factor(env: Env, user: Address) -> Result<i128, AnalyticsError> {
+        analytics::calculate_health_factor(&env, &user)
+    }
+
+    /// Read-only user position query.
+    pub fn get_user_position(env: Env, user: Address) -> Result<Position, AnalyticsError> {
+        analytics::get_user_position_summary(&env, &user)
     }
 }
 
