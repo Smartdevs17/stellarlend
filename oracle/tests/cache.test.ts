@@ -153,8 +153,8 @@ describe('Cache', () => {
 
   describe('LRU eviction', () => {
     it('should evict least recently used entry first (single eviction)', () => {
-      // maxEntries=3, batch fraction=1/3 => ceil(1)=1 eviction
-      cache = createCache({ maxEntries: 3, evictBatchFraction: 0.34 });
+      // maxEntries=3, batch fraction=0.1 => ceil(3*0.1)=ceil(0.3)=1 eviction
+      cache = createCache({ maxEntries: 3, evictBatchFraction: 0.1 });
 
       cache.set('first', 1);
       cache.set('second', 2);
@@ -213,7 +213,8 @@ describe('Cache', () => {
     });
 
     it('should update LRU order when a key is overwritten', () => {
-      cache = createCache({ maxEntries: 3, evictBatchFraction: 0.34 });
+      // maxEntries=3, fraction=0.1 => ceil(0.3)=1 eviction per batch
+      cache = createCache({ maxEntries: 3, evictBatchFraction: 0.1 });
 
       cache.set('a', 1);
       cache.set('b', 2);
