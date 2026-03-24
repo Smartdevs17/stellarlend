@@ -126,3 +126,102 @@ describe('Complete Deposit Flow', () => {
     expect(submitRes.body.transactionHash).toBe('abc123txhash');
   });
 });
+
+// ─── 2. Error Handling ────────────────────────────────────────────────────────
+
+describe('Error Handling', () => {
+  it('returns 400 for an invalid operation name', async () => {
+    const res = await request(app)
+      .get('/api/lending/prepare/invalid_op')
+      .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('message');
+  });
+
+  it('returns 400 when userAddress is missing', async () => {
+    const res = await request(app)
+      .get('/api/lending/prepare/deposit')
+      .query({ amount: VALID_AMOUNT });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/address/i);
+  });
+
+  it('returns 400 when amount is missing', async () => {
+    const res = await request(app)
+      .get('/api/lending/prepare/deposit')
+      .query({ userAddress: VALID_ADDRESS });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/amount/i);
+  });
+
+  it('returns 400 when userAddress is not a valid Stellar key', async () => {
+    const res = await request(app)
+      .get('/api/lending/prepare/deposit')
+      .query({ userAddress: 'NOT_A_STELLAR_ADDRESS', amount: VALID_AMOUNT });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/stellar address/i);
+  });
+
+  it('returns 400 when signedXdr is missing on submit', async () => {
+    const res = await request(app).post('/api/lending/submit').send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/signedXdr/i);
+  });
+
+  it('returns 400 when submit receives malformed JSON', async () => {
+    const res = await request(app)
+      .post('/api/lending/submit')
+      .set('Content-Type', 'application/json')
+      .send('{ bad json }');
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when stellar service fails to build transaction', async () => {
+    mockStellarService.buildUnsignedTransaction.mockRejectedValueOnce(
+      new Error('Stellar network error')
+    );
+
+    const res = await request(app)
+      .get('/api/lending/prepare/deposit')
+      .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT });
+
+    expect(res.status).toBe(500);
+    expect(res.body).toHaveProperty('message');
+  });
+
+  it('returns 400 from submit when submitTransaction reports failure', async () => {
+    mockStellarService.submitTransaction.mockResolvedValueOnce({
+      success: false,
+      status: 'failed',
+      error: 'tx_bad_seq',
+    });
+
+    const res = await request(app)
+      .post('/api/lending/submit')
+      .send({ signedXdr: 'bad_xdr' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error).toBe('tx_bad_seq');
+  });
+
+  it('health endpoint returns 503 when services are down', async () => {
+    mockStellarService.healthCheck.mockResolvedValueOnce({
+      horizon: false,
+      sorobanRpc: false,
+    });
+
+    const res = await request(app).get('/api/health');
+
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe('unhealthy');
+    expect(res.body.services.horizon).toBe(false);
+    expect(res.body.services.sorobanRpc).toBe(false);
+  });
+});
