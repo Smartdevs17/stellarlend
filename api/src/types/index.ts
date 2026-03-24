@@ -73,3 +73,35 @@ export enum TransactionStatus {
   FAILED = 'failed',
   NOT_FOUND = 'not_found',
 }
+
+// ─── WebSocket Types ───────────────────────────────────────────────────────────
+
+export interface PriceData {
+  asset: string;
+  price: number;
+  timestamp: number;
+}
+
+export interface WsSubscribeMessage {
+  type: 'subscribe';
+  /** Asset symbols to subscribe to, e.g. ["XLM","BTC"] or ["*"] for all */
+  assets: string[];
+}
+
+export interface WsUnsubscribeMessage {
+  type: 'unsubscribe';
+  assets: string[];
+}
+
+export interface WsPingMessage {
+  type: 'ping';
+}
+
+export type ClientMessage = WsSubscribeMessage | WsUnsubscribeMessage | WsPingMessage;
+
+export type ServerMessage =
+  | { type: 'price_update'; asset: string; price: number; timestamp: number }
+  | { type: 'subscribed'; assets: string[] }
+  | { type: 'unsubscribed'; assets: string[] }
+  | { type: 'pong' }
+  | { type: 'error'; message: string };
