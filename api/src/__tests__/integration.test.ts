@@ -152,15 +152,13 @@ describe('API Integration Tests', () => {
       // Re-require app or mock config if necessary, but here we try setting env
       // Note: This test might require the app to be re-initialized if config is static
       // For this specific codebase, let's see if we can trigger it.
-      
+
       // Since we can't easily re-initialize 'app' without side effects in this test file,
       // we'll focus on verifying the HSTS header which is always active now.
       // To fully test redirection, we'd ideally have a way to inject config.
-      
-      const response = await request(app)
-        .get('/api/health')
-        .set('x-forwarded-proto', 'http');
-      
+
+      const response = await request(app).get('/api/health').set('x-forwarded-proto', 'http');
+
       // In development (default), it should NOT redirect
       expect(response.status).toBe(200);
     });

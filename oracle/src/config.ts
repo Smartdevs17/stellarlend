@@ -184,7 +184,9 @@ export function maskSecret(key: string): string {
  * Returns a safe (redacted) version of the config for logging.
  * Strips adminSecretKey entirely.
  */
-export function getSafeConfig(config: OracleServiceConfig): Omit<OracleServiceConfig, 'adminSecretKey'> & { adminSecretKey: string } {
+export function getSafeConfig(
+  config: OracleServiceConfig
+): Omit<OracleServiceConfig, 'adminSecretKey'> & { adminSecretKey: string } {
   return {
     ...config,
     adminSecretKey: maskSecret(config.adminSecretKey),
