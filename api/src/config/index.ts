@@ -40,4 +40,12 @@ export const config = {
     retryInitialDelayMs: parseInt(process.env.RETRY_INITIAL_DELAY_MS || '1000', 10),
     retryMaxDelayMs: parseInt(process.env.RETRY_MAX_DELAY_MS || '10000', 10),
   },
+  ws: {
+    /** Milliseconds between price poll cycles (default 30 s) */
+    priceUpdateIntervalMs: parseInt(process.env.WS_PRICE_UPDATE_INTERVAL_MS || '30000', 10),
+    /** Milliseconds between heartbeat pings (default 30 s) */
+    heartbeatIntervalMs: parseInt(process.env.WS_HEARTBEAT_INTERVAL_MS || '30000', 10),
+    /** Optional oracle service base URL for price data (e.g. http://localhost:4000) */
+    oracleApiUrl: process.env.ORACLE_API_URL || '',
+  },
 };
