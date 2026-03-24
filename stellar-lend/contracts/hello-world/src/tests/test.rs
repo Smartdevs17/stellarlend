@@ -1,3 +1,7 @@
+use soroban_sdk::{testutils::Address as _, Address, Env, Symbol, Vec};
+use crate::{HelloContract, HelloContractClient};
+use crate::deposit::{DepositDataKey, ProtocolAnalytics};
+use crate::types::{Position, UserAnalytics};
 
 /// Helper function to create a test environment
 fn create_test_env() -> Env {
@@ -46,7 +50,7 @@ fn set_asset_params(
     collateral_factor: i128,
     max_deposit: i128,
 ) {
-    use deposit::AssetParams;
+    use crate::deposit::AssetParams;
     let params = AssetParams {
         deposit_enabled,
         collateral_factor,

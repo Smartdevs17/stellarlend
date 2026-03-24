@@ -81,6 +81,14 @@ pub enum RiskDataKey {
 pub struct RiskConfig {
     /// Pause switches for different operations
     pub pause_switches: Map<Symbol, bool>,
+    /// Minimum collateral ratio (in basis points)
+    pub min_collateral_ratio: i128,
+    /// Liquidation threshold (in basis points)
+    pub liquidation_threshold: i128,
+    /// Close factor (in basis points)
+    pub close_factor: i128,
+    /// Liquidation incentive (in basis points)
+    pub liquidation_incentive: i128,
     /// Last update timestamp
     pub last_update: u64,
 }
@@ -129,9 +137,21 @@ pub fn initialize_risk_management(env: &Env, admin: Address) -> Result<(), RiskM
     // Set admin
     env.storage().persistent().set(&RiskDataKey::Admin, &admin);
 
+    let risk_params = crate::risk_params::get_risk_params(env).unwrap_or(crate::risk_params::RiskParams {
+        min_collateral_ratio: 11_000,
+        liquidation_threshold: 10_500,
+        close_factor: 5_000,
+        liquidation_incentive: 1_000,
+        last_update: env.ledger().timestamp(),
+    });
+
     // Initialize default risk config for pause switches
     let default_config = RiskConfig {
         pause_switches: create_default_pause_switches(env),
+        min_collateral_ratio: risk_params.min_collateral_ratio,
+        liquidation_threshold: risk_params.liquidation_threshold,
+        close_factor: risk_params.close_factor,
+        liquidation_incentive: risk_params.liquidation_incentive,
         last_update: env.ledger().timestamp(),
     };
 
@@ -179,9 +199,17 @@ pub fn require_admin(env: &Env, caller: &Address) -> Result<(), RiskManagementEr
 /// Get current risk configuration
 pub fn get_risk_config(env: &Env) -> Option<RiskConfig> {
     let config_key = RiskDataKey::RiskConfig;
-    env.storage()
-        .persistent()
-        .get::<RiskDataKey, RiskConfig>(&config_key)
+    let mut config = env.storage().persistent().get::<RiskDataKey, RiskConfig>(&config_key)?;
+
+    if let Some(params) = crate::risk_params::get_risk_params(env) {
+        config.min_collateral_ratio = params.min_collateral_ratio;
+        config.liquidation_threshold = params.liquidation_threshold;
+        config.close_factor = params.close_factor;
+        config.liquidation_incentive = params.liquidation_incentive;
+        config.last_update = params.last_update;
+    }
+
+    Some(config)
 }
 
 
