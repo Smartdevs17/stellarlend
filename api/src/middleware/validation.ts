@@ -1,6 +1,7 @@
-import { body, param, validationResult } from 'express-validator';
+import { body, param, validationResult, check } from 'express-validator';
 import { Request, Response, NextFunction } from 'express';
 import { ValidationError } from '../utils/errors';
+import { StrKey } from '@stellar/stellar-sdk';
 
 const VALID_OPERATIONS = ['deposit', 'borrow', 'repay', 'withdraw'];
 
@@ -16,23 +17,29 @@ export const validateRequest = (req: Request, res: Response, next: NextFunction)
   next();
 };
 
-const amountValidation = body('amount')
-  .isString()
-  .notEmpty()
-  .withMessage('Amount is required')
-  .custom((value) => {
-    const num = BigInt(value);
-    return num > 0n;
-  })
-  .withMessage('Amount must be greater than zero');
+export const amountValidation = [
+  check('amount')
+    .notEmpty()
+    .withMessage('Amount is required')
+    .isFloat({ min: 0.0000001 })
+    .withMessage('Amount must be greater than 0'),
+];
 
 export const prepareValidation = [
   param('operation')
     .isIn(VALID_OPERATIONS)
     .withMessage(`Operation must be one of: ${VALID_OPERATIONS.join(', ')}`),
-  body('userAddress').isString().notEmpty().withMessage('User address is required'),
-  amountValidation,
-  body('assetAddress').optional().isString(),
+  check('userAddress')
+    .notEmpty()
+    .withMessage('User address is required')
+    .custom((value) => {
+      if (!StrKey.isValidEd25519PublicKey(value)) {
+        throw new Error('Invalid Stellar address');
+      }
+      return true;
+    }),
+  ...amountValidation,
+  check('assetAddress').optional().isString().notEmpty().withMessage('Asset address is required'),
   validateRequest,
 ];
 

@@ -39,6 +39,20 @@ pub enum ProposalType {
     EmergencyPause(bool),
     /// Generic action for future extensions
     GenericAction(Action),
+    /// Change interest rate configuration
+    InterestRateConfig(InterestRateParams),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct InterestRateParams {
+    pub base_rate_bps: Option<i128>,
+    pub kink_utilization_bps: Option<i128>,
+    pub multiplier_bps: Option<i128>,
+    pub jump_multiplier_bps: Option<i128>,
+    pub rate_floor_bps: Option<i128>,
+    pub rate_ceiling_bps: Option<i128>,
+    pub spread_bps: Option<i128>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -157,3 +171,4 @@ pub const DEFAULT_QUORUM_BPS: u32 = 4_000; // 40% default quorum
 pub const DEFAULT_VOTING_THRESHOLD: i128 = 5_000; // 50% default threshold
 pub const DEFAULT_TIMELOCK_DURATION: u64 = 7 * 24 * 60 * 60; // 7 days
 pub const DEFAULT_RECOVERY_PERIOD: u64 = 3 * 24 * 60 * 60; // 3 days
+pub const MIN_TIMELOCK_DELAY: u64 = 24 * 60 * 60; // 24 hours

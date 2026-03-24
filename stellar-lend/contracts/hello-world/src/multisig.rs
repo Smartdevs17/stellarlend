@@ -1,5 +1,9 @@
 use soroban_sdk::{Address, Env, Vec};
 
+use crate::errors::GovernanceError;
+use crate::storage::GovernanceDataKey;
+use crate::types::{Proposal, ProposalStatus, ProposalType};
+
 use crate::governance::{
     approve_proposal, execute_proposal, get_multisig_config, set_multisig_config,
     get_proposal, get_proposal_approvals,
