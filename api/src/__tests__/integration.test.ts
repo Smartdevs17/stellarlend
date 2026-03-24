@@ -225,3 +225,69 @@ describe('Error Handling', () => {
     expect(res.body.services.sorobanRpc).toBe(false);
   });
 });
+
+// ─── 3. Concurrent Requests & Rate Limiting ───────────────────────────────────
+
+describe('Concurrent Requests', () => {
+  it('handles multiple simultaneous prepare requests independently', async () => {
+    const operations: Array<'deposit' | 'borrow' | 'repay' | 'withdraw'> = [
+      'deposit',
+      'borrow',
+      'repay',
+      'withdraw',
+    ];
+
+    const responses = await Promise.all(
+      operations.map((op) =>
+        request(app)
+          .get(`/api/lending/prepare/${op}`)
+          .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT })
+      )
+    );
+
+    responses.forEach((res, i) => {
+      expect(res.status).toBe(200);
+      expect(res.body.operation).toBe(operations[i]);
+      expect(res.body.unsignedXdr).toBe('unsigned_xdr_string');
+    });
+  });
+
+  it('each concurrent request gets its own response body', async () => {
+    // Return different XDR per call to verify isolation
+    mockStellarService.buildUnsignedTransaction
+      .mockResolvedValueOnce('xdr_for_user_1')
+      .mockResolvedValueOnce('xdr_for_user_2');
+
+    const [res1, res2] = await Promise.all([
+      request(app)
+        .get('/api/lending/prepare/deposit')
+        .query({ userAddress: VALID_ADDRESS, amount: '1000000' }),
+      request(app)
+        .get('/api/lending/prepare/deposit')
+        .query({ userAddress: VALID_ADDRESS, amount: '2000000' }),
+    ]);
+
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+    expect(res1.body.unsignedXdr).toBe('xdr_for_user_1');
+    expect(res2.body.unsignedXdr).toBe('xdr_for_user_2');
+  });
+
+  it('rate limiter returns 429 after exceeding the configured limit', async () => {
+    // Temporarily lower the rate limit by firing many requests
+    // The default test config allows 100 req/window; we fire 110 to trigger it
+    const total = 110;
+    const responses = await Promise.all(
+      Array.from({ length: total }, () =>
+        request(app)
+          .get('/api/lending/prepare/deposit')
+          .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT })
+      )
+    );
+
+    const statuses = responses.map((r) => r.status);
+    // At least some should succeed and at least one should be rate-limited
+    expect(statuses).toContain(200);
+    expect(statuses).toContain(429);
+  });
+});
