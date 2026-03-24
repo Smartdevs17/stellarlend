@@ -223,3 +223,18 @@ fn test_overflow_protection() {
     );
     assert_eq!(result, Err(Ok(BorrowError::Overflow)));
 }
+
+#[test]
+fn test_debt_position_tracks_borrowed_asset_for_repay() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, user, asset, collateral_asset) = setup_test(&env);
+
+    client.borrow(&user, &asset, &10_000, &collateral_asset, &20_000);
+
+    let debt = client.get_user_debt(&user);
+    assert_eq!(debt.asset, asset);
+
+    let repay_result = client.try_repay(&user, &debt.asset, &1_000);
+    assert!(repay_result.is_ok());
+}
