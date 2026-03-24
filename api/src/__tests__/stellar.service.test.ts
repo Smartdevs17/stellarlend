@@ -202,9 +202,7 @@ describe('StellarService', () => {
 
       expect(account).toBeDefined();
       expect(mockedAxios.get).toHaveBeenCalledWith(
-        expect.stringContaining(
-          '/accounts/GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
-        )
+        expect.stringContaining('/accounts/GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX')
       );
     });
 
@@ -255,7 +253,11 @@ describe('StellarService', () => {
       mockedAxios.post.mockImplementation(() => {
         callCount++;
         if (callCount < 3) {
-          return mockAxiosReject({ status: 502, data: { detail: 'Bad gateway' }, message: 'Bad gateway' });
+          return mockAxiosReject({
+            status: 502,
+            data: { detail: 'Bad gateway' },
+            message: 'Bad gateway',
+          });
         }
         return Promise.resolve({
           data: { hash: 'tx_hash_abc', ledger: 777, successful: true },
@@ -289,7 +291,11 @@ describe('StellarService', () => {
     it('stops after max retries on persistent 5xx errors and returns failure', async () => {
       jest.useFakeTimers();
       mockedAxios.post.mockImplementation(() =>
-        mockAxiosReject({ status: 503, data: { detail: 'Service Unavailable' }, message: 'Service Unavailable' })
+        mockAxiosReject({
+          status: 503,
+          data: { detail: 'Service Unavailable' },
+          message: 'Service Unavailable',
+        })
       );
 
       const promise = service.submitTransaction('mock_tx_xdr');

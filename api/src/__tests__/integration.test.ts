@@ -100,9 +100,7 @@ describe('Complete Deposit Flow', () => {
   });
 
   it('submit calls monitorTransaction after successful submitTransaction', async () => {
-    await request(app)
-      .post('/api/lending/submit')
-      .send({ signedXdr: 'signed_xdr_payload' });
+    await request(app).post('/api/lending/submit').send({ signedXdr: 'signed_xdr_payload' });
 
     expect(mockStellarService.submitTransaction).toHaveBeenCalledWith('signed_xdr_payload');
     expect(mockStellarService.monitorTransaction).toHaveBeenCalledWith('abc123txhash');
@@ -201,9 +199,7 @@ describe('Error Handling', () => {
       error: 'tx_bad_seq',
     });
 
-    const res = await request(app)
-      .post('/api/lending/submit')
-      .send({ signedXdr: 'bad_xdr' });
+    const res = await request(app).post('/api/lending/submit').send({ signedXdr: 'bad_xdr' });
 
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);

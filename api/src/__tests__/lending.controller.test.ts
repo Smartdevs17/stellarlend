@@ -19,7 +19,6 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-
 // Mock StellarService before importing app
 import { StellarService } from '../services/stellar.service';
 jest.mock('../services/stellar.service');
@@ -45,19 +44,20 @@ const mockStellarService: jest.Mocked<StellarService> = {
 import request from 'supertest';
 import app from '../app';
 
-
 describe('Lending Controller', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   describe('GET /api/lending/prepare/:operation', () => {
-      const validBody = {
-        userAddress: 'GDZZJ3UPZZCKY5DBH6ZGMPMRORRBG4ECIORASBUAXPPNCL4SYRHNLYU2',
-        amount: '1000000',
+    const validBody = {
+      userAddress: 'GDZZJ3UPZZCKY5DBH6ZGMPMRORRBG4ECIORASBUAXPPNCL4SYRHNLYU2',
+      amount: '1000000',
     };
 
-    it.each(['deposit', 'borrow', 'repay', 'withdraw'])('should return unsigned XDR for %s', async (operation) => {
+    it.each(['deposit', 'borrow', 'repay', 'withdraw'])(
+      'should return unsigned XDR for %s',
+      async (operation) => {
         const response = await request(app)
           .get(`/api/lending/prepare/${operation}`)
           .send(validBody);
@@ -66,7 +66,8 @@ describe('Lending Controller', () => {
         expect(response.body.unsignedXdr).toBe('unsigned_xdr_string');
         expect(response.body.operation).toBe(operation);
         expect(response.body.expiresAt).toBeDefined();
-    });
+      }
+    );
 
     it('should return 400 for invalid operation', async () => {
       const response = await request(app).get('/api/lending/prepare/invalid_op').send(validBody);

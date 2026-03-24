@@ -84,12 +84,7 @@ export class StellarService {
 
   async submitTransaction(txXdr: string): Promise<TransactionResponse> {
     const {
-      request: {
-        maxRetries,
-        retryInitialDelayMs,
-        retryMaxDelayMs,
-        timeout,
-      },
+      request: { maxRetries, retryInitialDelayMs, retryMaxDelayMs, timeout },
     } = config;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -136,10 +131,7 @@ export class StellarService {
         }
 
         // Exponential backoff with cap
-        const backoff = Math.min(
-          retryInitialDelayMs * Math.pow(2, attempt),
-          retryMaxDelayMs
-        );
+        const backoff = Math.min(retryInitialDelayMs * Math.pow(2, attempt), retryMaxDelayMs);
         logger.warn(
           `Submit transaction attempt ${attempt + 1} failed${
             status ? ` (status ${status})` : ''
