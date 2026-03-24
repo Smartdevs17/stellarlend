@@ -19,7 +19,6 @@ jobs:
     # This job is set to continue-on-error until the smart contracts are fixed.
     name: Contracts — Lint, Build, Test
     runs-on: ubuntu-latest
-    continue-on-error: true
     env:
       CARGO_TERM_COLOR: always
     steps:
@@ -44,25 +43,21 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Check formatting
-        continue-on-error: true
         run: |
           cd stellar-lend
           cargo fmt --all -- --check
 
       - name: Run clippy
-        continue-on-error: true
         run: |
           cd stellar-lend
           cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Build
-        continue-on-error: true
         run: |
           cd stellar-lend
           cargo build --verbose
 
       - name: Run tests
-        continue-on-error: true
         run: |
           cd stellar-lend
           cargo test --verbose
@@ -109,8 +104,6 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Run tests
-        # TODO: Fix pre-existing test failures in lending.controller, stellar.service, and integration tests
-        continue-on-error: true
         run: |
           npm test || echo "::warning::API tests have pre-existing failures that need to be fixed"
 
@@ -192,13 +185,10 @@ jobs:
           echo "Oracle:    ${{ needs.oracle.result }}"
 
           if [[ "${{ needs.api.result }}" != "success" ]] || \
-             [[ "${{ needs.oracle.result }}" != "success" ]]; then
+             [[ "${{ needs.oracle.result }}" != "success" ]] || \
+             [[ "${{ needs.contracts.result }}" != "success" ]]; then
             echo "::error::One or more quality checks failed. PR cannot be merged."
             exit 1
-          fi
-
-          if [[ "${{ needs.contracts.result }}" != "success" ]]; then
-            echo "::warning::Contracts have pre-existing compilation issues that need to be fixed."
           fi
 
           echo "All required quality checks passed!"

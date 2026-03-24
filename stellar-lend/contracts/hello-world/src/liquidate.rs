@@ -257,45 +257,53 @@ pub fn liquidate(
     // Accrue interest before liquidation
     accrue_interest(env, &mut position)?;
 
-    // Get collateral balance
-    let collateral_key = DepositDataKey::CollateralBalance(borrower.clone());
-    let collateral_balance = env
-        .storage()
-        .persistent()
-        .get::<DepositDataKey, i128>(&collateral_key)
-        .unwrap_or(0);
+    // Get collateral balance for the targeted collateral asset.
+    // For multi-asset users, use per-asset balance; fall back to aggregate for legacy users.
+    let collateral_balance = if let Some(ref collateral_addr) = collateral_asset {
+        if crate::multi_collateral::has_multi_asset_collateral(env, &borrower) {
+            crate::multi_collateral::get_user_asset_collateral(env, &borrower, collateral_addr)
+        } else {
+            let collateral_key = DepositDataKey::CollateralBalance(borrower.clone());
+            env.storage()
+                .persistent()
+                .get::<DepositDataKey, i128>(&collateral_key)
+                .unwrap_or(0)
+        }
+    } else {
+        let collateral_key = DepositDataKey::CollateralBalance(borrower.clone());
+        env.storage()
+            .persistent()
+            .get::<DepositDataKey, i128>(&collateral_key)
+            .unwrap_or(0)
+    };
 
     // Calculate total debt (principal + interest)
     let total_debt = calculate_debt_value(position.debt, position.borrow_interest)?;
 
-    // Get asset prices and calculate collateral value
-    // For native XLM (None), both assets are the same, so use 1:1 ratio
-    // For token assets, use oracle prices to convert between assets
-    let collateral_value = if debt_asset.is_none() && collateral_asset.is_none() {
-        // Both are native XLM - no price conversion needed
-        collateral_balance
-    } else {
-        // Need to convert between different assets using prices
-        let debt_price = if let Some(ref debt_addr) = debt_asset {
-            get_asset_price(env, debt_addr)
+    // Use oracle-priced total collateral value for multi-asset liquidation check;
+    // fall back to raw collateral_balance for legacy single-asset users.
+    let collateral_value_for_check =
+        if crate::multi_collateral::has_multi_asset_collateral(env, &borrower) {
+            crate::multi_collateral::calculate_total_collateral_value(env, &borrower)
+                .map_err(|_| LiquidationError::Overflow)?
+        } else if debt_asset.is_none() && collateral_asset.is_none() {
+            collateral_balance
         } else {
-            // Default price for native XLM (1:1, no decimals)
-            1i128
+            let debt_price = if let Some(ref debt_addr) = debt_asset {
+                get_asset_price(env, debt_addr)
+            } else {
+                1i128
+            };
+            let collateral_price = if let Some(ref collateral_addr) = collateral_asset {
+                get_asset_price(env, collateral_addr)
+            } else {
+                1i128
+            };
+            calculate_collateral_value(collateral_balance, collateral_price, debt_price)?
         };
-
-        let collateral_price = if let Some(ref collateral_addr) = collateral_asset {
-            get_asset_price(env, collateral_addr)
-        } else {
-            // Default price for native XLM (1:1, no decimals)
-            1i128
-        };
-
-        // Calculate collateral value in debt asset terms
-        calculate_collateral_value(collateral_balance, collateral_price, debt_price)?
-    };
 
     // Check if position can be liquidated
-    let can_liquidate = can_be_liquidated(env, collateral_value, total_debt)
+    let can_liquidate = can_be_liquidated(env, collateral_value_for_check, total_debt)
         .map_err(|_| LiquidationError::NotLiquidatable)?;
 
     if !can_liquidate {
@@ -457,16 +465,30 @@ pub fn liquidate(
     position.debt = position.debt.checked_sub(principal_to_pay).unwrap_or(0);
     position.last_accrual_time = timestamp;
 
-    // Update borrower's collateral balance
-    let new_collateral_balance = collateral_balance
+    // Update borrower's aggregate collateral balance
+    let aggregate_collateral_key = DepositDataKey::CollateralBalance(borrower.clone());
+    let aggregate_collateral = env
+        .storage()
+        .persistent()
+        .get::<DepositDataKey, i128>(&aggregate_collateral_key)
+        .unwrap_or(0);
+    let new_aggregate_collateral = aggregate_collateral
         .checked_sub(actual_collateral_seized)
-        .ok_or(LiquidationError::Overflow)?;
+        .unwrap_or(0);
     env.storage()
         .persistent()
-        .set(&collateral_key, &new_collateral_balance);
+        .set(&aggregate_collateral_key, &new_aggregate_collateral);
+
+    // Also update per-asset tracking if the borrower has multi-asset collateral
+    if let Some(ref collateral_addr) = collateral_asset {
+        if crate::multi_collateral::has_multi_asset_collateral(env, &borrower) {
+            crate::deposit::record_asset_withdrawal(env, &borrower, collateral_addr, actual_collateral_seized)
+                .map_err(|_| LiquidationError::Overflow)?;
+        }
+    }
 
     // Update position collateral
-    position.collateral = new_collateral_balance;
+    position.collateral = new_aggregate_collateral;
 
     // Save updated position
     env.storage().persistent().set(&position_key, &position);

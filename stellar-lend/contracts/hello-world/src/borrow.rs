@@ -182,7 +182,11 @@ fn calculate_max_borrowable(
     }
 }
 
-/// Validate that borrow would maintain minimum collateral ratio
+/// Validate that borrow would maintain minimum collateral ratio.
+///
+/// For multi-asset users (those with entries in `UserAssetList`), the collateral
+/// value is computed as the oracle-weighted sum across all deposited assets.
+/// For single-asset / legacy users the aggregate `CollateralBalance` is used.
 fn validate_collateral_ratio_after_borrow(
     env: &Env,
     user: &Address,
@@ -197,15 +201,26 @@ fn validate_collateral_ratio_after_borrow(
         .get::<DepositDataKey, Position>(&position_key)
         .ok_or(BorrowError::InsufficientCollateral)?;
 
-    // Get current collateral balance
-    let collateral_key = DepositDataKey::CollateralBalance(user.clone());
-    let current_collateral = env
-        .storage()
-        .persistent()
-        .get::<DepositDataKey, i128>(&collateral_key)
-        .unwrap_or(0);
+    // Determine effective collateral value:
+    // - Multi-asset path: oracle-priced sum across all deposited assets
+    // - Legacy path: raw aggregate CollateralBalance (collateral_factor applied below)
+    let (effective_collateral, apply_factor) =
+        if crate::multi_collateral::has_multi_asset_collateral(env, user) {
+            let total = crate::multi_collateral::calculate_total_collateral_value(env, user)
+                .map_err(|_| BorrowError::Overflow)?;
+            // total already has collateral factors applied per asset
+            (total, false)
+        } else {
+            let collateral_key = DepositDataKey::CollateralBalance(user.clone());
+            let bal = env
+                .storage()
+                .persistent()
+                .get::<DepositDataKey, i128>(&collateral_key)
+                .unwrap_or(0);
+            (bal, true)
+        };
 
-    if current_collateral == 0 {
+    if effective_collateral == 0 {
         return Err(BorrowError::InsufficientCollateral);
     }
 
@@ -214,22 +229,35 @@ fn validate_collateral_ratio_after_borrow(
         .debt
         .checked_add(borrow_amount)
         .ok_or(BorrowError::Overflow)?;
+    let total_debt = new_debt
+        .checked_add(position.borrow_interest)
+        .ok_or(BorrowError::Overflow)?;
 
-    // Calculate new collateral ratio
-    if let Some(new_ratio) = calculate_collateral_ratio(
-        current_collateral,
-        new_debt,
-        position.borrow_interest,
-        collateral_factor,
-    ) {
-        let min_ratio = crate::risk_params::get_min_collateral_ratio(env).unwrap_or(15000);
-        if new_ratio < min_ratio {
-            return Err(BorrowError::InsufficientCollateralRatio);
-        }
-    } else {
-        // If ratio calculation returns None, it means no debt, which shouldn't happen after borrow
-        // But if it does, we allow it (infinite ratio is always safe)
+    if total_debt == 0 {
         return Ok(());
+    }
+
+    // Apply collateral factor for legacy single-asset path
+    let collateral_value = if apply_factor {
+        effective_collateral
+            .checked_mul(collateral_factor)
+            .ok_or(BorrowError::Overflow)?
+            .checked_div(10000)
+            .ok_or(BorrowError::Overflow)?
+    } else {
+        effective_collateral
+    };
+
+    // ratio = collateral_value * 10000 / total_debt (in basis points)
+    let ratio = collateral_value
+        .checked_mul(10000)
+        .ok_or(BorrowError::Overflow)?
+        .checked_div(total_debt)
+        .ok_or(BorrowError::Overflow)?;
+
+    let min_ratio = crate::risk_params::get_min_collateral_ratio(env).unwrap_or(15000);
+    if ratio < min_ratio {
+        return Err(BorrowError::InsufficientCollateralRatio);
     }
 
     Ok(())
@@ -304,13 +332,23 @@ pub fn borrow_asset(
     // Accrue interest on existing debt before borrowing
     accrue_interest(env, &mut position)?;
 
-    // Get current collateral balance
-    let collateral_key = DepositDataKey::CollateralBalance(user.clone());
-    let current_collateral = env
-        .storage()
-        .persistent()
-        .get::<DepositDataKey, i128>(&collateral_key)
-        .unwrap_or(0);
+    // Get effective collateral for borrowing capacity:
+    // Multi-asset users: oracle-priced aggregate (collateral factors already applied)
+    // Legacy users: raw aggregate CollateralBalance
+    let (current_collateral, use_raw_factor) =
+        if crate::multi_collateral::has_multi_asset_collateral(env, &user) {
+            let total = crate::multi_collateral::calculate_total_collateral_value(env, &user)
+                .map_err(|_| BorrowError::Overflow)?;
+            (total, false)
+        } else {
+            let collateral_key = DepositDataKey::CollateralBalance(user.clone());
+            let bal = env
+                .storage()
+                .persistent()
+                .get::<DepositDataKey, i128>(&collateral_key)
+                .unwrap_or(0);
+            (bal, true)
+        };
 
     // Check if user has collateral
     if current_collateral == 0 {
@@ -352,12 +390,16 @@ pub fn borrow_asset(
     // Get minimum collateral ratio from risk params
     let min_ratio = crate::risk_params::get_min_collateral_ratio(env).unwrap_or(15000);
 
+    // For multi-asset users collateral value is already oracle-weighted;
+    // pass 10000 (identity) so calculate_max_borrowable skips the factor step.
+    let effective_factor = if use_raw_factor { collateral_factor } else { 10000 };
+
     // Calculate maximum borrowable amount
     let max_borrowable = calculate_max_borrowable(
         current_collateral,
         position.debt,
         position.borrow_interest,
-        collateral_factor,
+        effective_factor,
         min_ratio,
     )?;
 
