@@ -136,20 +136,134 @@ describe('Cache', () => {
 
       expect(stats.size).toBe(3);
     });
+
+    it('should report eviction count', () => {
+      // maxEntries=3, batch=10% => ceil(0.3)=1 eviction per batch
+      cache = createCache({ maxEntries: 3, evictBatchFraction: 0.1 });
+
+      cache.set('a', 1);
+      cache.set('b', 2);
+      cache.set('c', 3);
+      cache.set('d', 4); // triggers eviction
+
+      const stats = cache.getStats();
+      expect(stats.evictions).toBeGreaterThanOrEqual(1);
+    });
   });
 
-  describe('eviction', () => {
-    it('should evict oldest entry when at capacity', () => {
-      cache = createCache({ maxEntries: 3 });
+  describe('LRU eviction', () => {
+    it('should evict least recently used entry first (single eviction)', () => {
+      // maxEntries=3, batch fraction=1/3 => ceil(1)=1 eviction
+      cache = createCache({ maxEntries: 3, evictBatchFraction: 0.34 });
 
       cache.set('first', 1);
       cache.set('second', 2);
       cache.set('third', 3);
+
+      // Access 'first' to make it recently used — 'second' becomes LRU
+      cache.get('first');
+
+      // Adding 'fourth' should evict 'second' (LRU)
       cache.set('fourth', 4);
 
-      expect(cache.get('first')).toBeUndefined();
-      expect(cache.get('second')).toBe(2);
+      expect(cache.get('second')).toBeUndefined(); // evicted
+      expect(cache.get('first')).toBe(1);
+      expect(cache.get('third')).toBe(3);
       expect(cache.get('fourth')).toBe(4);
+    });
+
+    it('should evict a batch of LRU entries when at capacity', () => {
+      // maxEntries=10, batch=10% => ceil(1)=1; use 50% to evict 5
+      cache = createCache({ maxEntries: 10, evictBatchFraction: 0.5 });
+
+      for (let i = 0; i < 10; i++) {
+        cache.set(`key${i}`, i);
+      }
+
+      // Access keys 5-9 to make them recently used; keys 0-4 are LRU
+      for (let i = 5; i < 10; i++) {
+        cache.get(`key${i}`);
+      }
+
+      // Adding one more triggers batch eviction of 5 LRU entries (keys 0-4)
+      cache.set('new', 99);
+
+      for (let i = 0; i < 5; i++) {
+        expect(cache.get(`key${i}`)).toBeUndefined();
+      }
+      for (let i = 5; i < 10; i++) {
+        expect(cache.get(`key${i}`)).toBe(i);
+      }
+      expect(cache.get('new')).toBe(99);
+    });
+
+    it('should evict 10% batch by default when at capacity', () => {
+      // maxEntries=10, default 10% => ceil(1)=1 eviction per trigger
+      cache = createCache({ maxEntries: 10, evictBatchFraction: 0.1 });
+
+      for (let i = 0; i < 10; i++) {
+        cache.set(`key${i}`, i);
+      }
+
+      // key0 is LRU; adding one more should evict key0
+      cache.set('extra', 100);
+
+      expect(cache.get('key0')).toBeUndefined();
+      expect(cache.getStats().evictions).toBe(1);
+    });
+
+    it('should update LRU order when a key is overwritten', () => {
+      cache = createCache({ maxEntries: 3, evictBatchFraction: 0.34 });
+
+      cache.set('a', 1);
+      cache.set('b', 2);
+      cache.set('c', 3);
+
+      // Overwrite 'a' — it should move to most-recently-used position
+      cache.set('a', 10);
+
+      // 'b' is now LRU; adding 'd' should evict 'b'
+      cache.set('d', 4);
+
+      expect(cache.get('b')).toBeUndefined();
+      expect(cache.get('a')).toBe(10);
+      expect(cache.get('c')).toBe(3);
+      expect(cache.get('d')).toBe(4);
+    });
+  });
+
+  describe('eviction under load', () => {
+    it('should handle rapid insertions without exceeding maxEntries by more than batchSize', () => {
+      const maxEntries = 100;
+      const batchFraction = 0.1;
+      cache = createCache({ maxEntries, evictBatchFraction: batchFraction });
+
+      // Insert 200 entries — cache should never grow beyond maxEntries
+      for (let i = 0; i < 200; i++) {
+        cache.set(`load-key-${i}`, i);
+        expect(cache.getStats().size).toBeLessThanOrEqual(maxEntries);
+      }
+
+      const stats = cache.getStats();
+      expect(stats.evictions).toBeGreaterThan(0);
+      expect(stats.size).toBeLessThanOrEqual(maxEntries);
+    });
+
+    it('should maintain high hit rate when recently set keys are accessed', () => {
+      cache = createCache({ maxEntries: 50, evictBatchFraction: 0.1 });
+
+      // Fill cache
+      for (let i = 0; i < 50; i++) {
+        cache.set(`k${i}`, i);
+      }
+
+      // Access all keys (hits)
+      for (let i = 0; i < 50; i++) {
+        cache.get(`k${i}`);
+      }
+
+      const stats = cache.getStats();
+      expect(stats.hitRate).toBeGreaterThan(0.8);
     });
   });
 
@@ -223,6 +337,12 @@ describe('PriceCache', () => {
 
       expect(stats.hits).toBe(1);
       expect(stats.misses).toBe(1);
+    });
+
+    it('should include eviction count in stats', () => {
+      const stats = priceCache.getStats();
+      expect(stats.evictions).toBeDefined();
+      expect(stats.evictions).toBeGreaterThanOrEqual(0);
     });
   });
 });
