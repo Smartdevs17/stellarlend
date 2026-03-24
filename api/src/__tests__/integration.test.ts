@@ -114,8 +114,7 @@ describe('Complete Deposit Flow', () => {
       .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT });
 
     expect(prepareRes.status).toBe(200);
-    const { unsignedXdr } = prepareRes.body;
-    expect(unsignedXdr).toBe('unsigned_xdr_string');
+    expect(prepareRes.body.unsignedXdr).toBe('unsigned_xdr_string');
 
     const submitRes = await request(app)
       .post('/api/lending/submit')
@@ -136,7 +135,7 @@ describe('Error Handling', () => {
       .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT });
 
     expect(res.status).toBe(400);
-    expect(res.body).toHaveProperty('message');
+    expect(res.body).toHaveProperty('error');
   });
 
   it('returns 400 when userAddress is missing', async () => {
@@ -145,7 +144,7 @@ describe('Error Handling', () => {
       .query({ amount: VALID_AMOUNT });
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/address/i);
+    expect(res.body.error).toMatch(/address/i);
   });
 
   it('returns 400 when amount is missing', async () => {
@@ -154,7 +153,7 @@ describe('Error Handling', () => {
       .query({ userAddress: VALID_ADDRESS });
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/amount/i);
+    expect(res.body.error).toMatch(/amount/i);
   });
 
   it('returns 400 when userAddress is not a valid Stellar key', async () => {
@@ -163,14 +162,14 @@ describe('Error Handling', () => {
       .query({ userAddress: 'NOT_A_STELLAR_ADDRESS', amount: VALID_AMOUNT });
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/stellar address/i);
+    expect(res.body.error).toMatch(/stellar address/i);
   });
 
   it('returns 400 when signedXdr is missing on submit', async () => {
     const res = await request(app).post('/api/lending/submit').send({});
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/signedXdr/i);
+    expect(res.body.error).toMatch(/signedXdr/i);
   });
 
   it('returns 400 when submit receives malformed JSON', async () => {
@@ -182,7 +181,7 @@ describe('Error Handling', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 400 when stellar service fails to build transaction', async () => {
+  it('returns 500 when stellar service fails to build transaction', async () => {
     mockStellarService.buildUnsignedTransaction.mockRejectedValueOnce(
       new Error('Stellar network error')
     );
@@ -192,7 +191,7 @@ describe('Error Handling', () => {
       .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT });
 
     expect(res.status).toBe(500);
-    expect(res.body).toHaveProperty('message');
+    expect(res.body).toHaveProperty('error');
   });
 
   it('returns 400 from submit when submitTransaction reports failure', async () => {
@@ -226,73 +225,7 @@ describe('Error Handling', () => {
   });
 });
 
-// ─── 3. Concurrent Requests & Rate Limiting ───────────────────────────────────
-
-describe('Concurrent Requests', () => {
-  it('handles multiple simultaneous prepare requests independently', async () => {
-    const operations: Array<'deposit' | 'borrow' | 'repay' | 'withdraw'> = [
-      'deposit',
-      'borrow',
-      'repay',
-      'withdraw',
-    ];
-
-    const responses = await Promise.all(
-      operations.map((op) =>
-        request(app)
-          .get(`/api/lending/prepare/${op}`)
-          .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT })
-      )
-    );
-
-    responses.forEach((res, i) => {
-      expect(res.status).toBe(200);
-      expect(res.body.operation).toBe(operations[i]);
-      expect(res.body.unsignedXdr).toBe('unsigned_xdr_string');
-    });
-  });
-
-  it('each concurrent request gets its own response body', async () => {
-    // Return different XDR per call to verify isolation
-    mockStellarService.buildUnsignedTransaction
-      .mockResolvedValueOnce('xdr_for_user_1')
-      .mockResolvedValueOnce('xdr_for_user_2');
-
-    const [res1, res2] = await Promise.all([
-      request(app)
-        .get('/api/lending/prepare/deposit')
-        .query({ userAddress: VALID_ADDRESS, amount: '1000000' }),
-      request(app)
-        .get('/api/lending/prepare/deposit')
-        .query({ userAddress: VALID_ADDRESS, amount: '2000000' }),
-    ]);
-
-    expect(res1.status).toBe(200);
-    expect(res2.status).toBe(200);
-    expect(res1.body.unsignedXdr).toBe('xdr_for_user_1');
-    expect(res2.body.unsignedXdr).toBe('xdr_for_user_2');
-  });
-
-  it('rate limiter returns 429 after exceeding the configured limit', async () => {
-    // Temporarily lower the rate limit by firing many requests
-    // The default test config allows 100 req/window; we fire 110 to trigger it
-    const total = 110;
-    const responses = await Promise.all(
-      Array.from({ length: total }, () =>
-        request(app)
-          .get('/api/lending/prepare/deposit')
-          .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT })
-      )
-    );
-
-    const statuses = responses.map((r) => r.status);
-    // At least some should succeed and at least one should be rate-limited
-    expect(statuses).toContain(200);
-    expect(statuses).toContain(429);
-  });
-});
-
-// ─── 4. Edge Cases & Security Headers ────────────────────────────────────────
+// ─── 3. Edge Cases ────────────────────────────────────────────────────────────
 
 describe('Edge Cases', () => {
   it('rejects amount of zero', async () => {
@@ -301,7 +234,7 @@ describe('Edge Cases', () => {
       .query({ userAddress: VALID_ADDRESS, amount: '0' });
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/amount/i);
+    expect(res.body.error).toMatch(/amount/i);
   });
 
   it('rejects negative amount', async () => {
@@ -310,17 +243,13 @@ describe('Edge Cases', () => {
       .query({ userAddress: VALID_ADDRESS, amount: '-500' });
 
     expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/amount/i);
+    expect(res.body.error).toMatch(/amount/i);
   });
 
   it('accepts optional assetAddress when provided', async () => {
     const res = await request(app)
       .get('/api/lending/prepare/deposit')
-      .query({
-        userAddress: VALID_ADDRESS,
-        amount: VALID_AMOUNT,
-        assetAddress: VALID_ADDRESS,
-      });
+      .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT, assetAddress: VALID_ADDRESS });
 
     expect(res.status).toBe(200);
     expect(mockStellarService.buildUnsignedTransaction).toHaveBeenCalledWith(
@@ -357,6 +286,8 @@ describe('Edge Cases', () => {
   });
 });
 
+// ─── 4. Security Headers ──────────────────────────────────────────────────────
+
 describe('Security Headers', () => {
   it('includes x-content-type-options header', async () => {
     const res = await request(app).get('/api/health');
@@ -387,5 +318,70 @@ describe('Security Headers', () => {
       services: { horizon: true, sorobanRpc: true },
     });
     expect(typeof res.body.timestamp).toBe('string');
+  });
+});
+
+// ─── 5. Concurrent Requests & Rate Limiting ───────────────────────────────────
+// NOTE: This suite fires 110 requests and exhausts the rate limit window.
+// It is placed last so the burst does not affect other test suites.
+
+describe('Concurrent Requests', () => {
+  it('handles multiple simultaneous prepare requests independently', async () => {
+    const operations: Array<'deposit' | 'borrow' | 'repay' | 'withdraw'> = [
+      'deposit',
+      'borrow',
+      'repay',
+      'withdraw',
+    ];
+
+    const responses = await Promise.all(
+      operations.map((op) =>
+        request(app)
+          .get(`/api/lending/prepare/${op}`)
+          .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT })
+      )
+    );
+
+    responses.forEach((res, i) => {
+      expect(res.status).toBe(200);
+      expect(res.body.operation).toBe(operations[i]);
+      expect(res.body.unsignedXdr).toBe('unsigned_xdr_string');
+    });
+  });
+
+  it('each concurrent request gets its own response body', async () => {
+    mockStellarService.buildUnsignedTransaction
+      .mockResolvedValueOnce('xdr_for_user_1')
+      .mockResolvedValueOnce('xdr_for_user_2');
+
+    const [res1, res2] = await Promise.all([
+      request(app)
+        .get('/api/lending/prepare/deposit')
+        .query({ userAddress: VALID_ADDRESS, amount: '1000000' }),
+      request(app)
+        .get('/api/lending/prepare/deposit')
+        .query({ userAddress: VALID_ADDRESS, amount: '2000000' }),
+    ]);
+
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+    expect(res1.body.unsignedXdr).toBe('xdr_for_user_1');
+    expect(res2.body.unsignedXdr).toBe('xdr_for_user_2');
+  });
+
+  it('rate limiter returns 429 after exceeding the configured limit', async () => {
+    // Fire 110 requests to exceed the 100 req/window default limit
+    const total = 110;
+    const responses = await Promise.all(
+      Array.from({ length: total }, () =>
+        request(app)
+          .get('/api/lending/prepare/deposit')
+          .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT })
+      )
+    );
+
+    const statuses = responses.map((r) => r.status);
+    expect(statuses).toContain(200);
+    expect(statuses).toContain(429);
   });
 });
