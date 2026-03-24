@@ -7,6 +7,8 @@ pub enum GovernanceDataKey {
     Config,
     NextProposalId,
     MultisigConfig,
+    MultisigAdmins,
+    MultisigThreshold,
     GuardianConfig,
 
     Proposal(u64),

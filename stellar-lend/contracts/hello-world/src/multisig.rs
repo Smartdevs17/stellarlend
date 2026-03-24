@@ -23,12 +23,14 @@
 #![allow(unused)]
 use soroban_sdk::{Address, Env, Symbol, Vec};
 
+use crate::errors::GovernanceError;
+use crate::storage::GovernanceDataKey;
+use crate::types::{Proposal, ProposalStatus, ProposalType};
+
 use crate::governance::{
-    GovernanceDataKey, GovernanceError, Proposal, ProposalStatus, ProposalType,
     approve_proposal, create_proposal, execute_multisig_proposal, execute_proposal,
     get_multisig_admins, get_multisig_threshold, get_proposal, get_proposal_approvals,
-    set_multisig_admins, set_multisig_threshold,
-    emit_approval_event, emit_proposal_executed_event,
+    set_multisig_admins, set_multisig_threshold, emit_proposal_executed_event,
 };
 
 // ============================================================================

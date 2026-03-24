@@ -8,7 +8,7 @@ use crate::storage::{GovernanceDataKey, GuardianConfig};
 use crate::events::{
     GovernanceInitializedEvent, GuardianAddedEvent, GuardianRemovedEvent, ProposalApprovedEvent,
     ProposalCancelledEvent,     ProposalQueuedEvent, RecoveryApprovedEvent, RecoveryExecutedEvent, RecoveryStartedEvent,
-    VoteCastEvent, emit_approval_event,
+    VoteCastEvent, emit_proposal_approved,
 };
 
 use crate::types::{
@@ -749,7 +749,7 @@ pub fn set_multisig_admins(
     caller: Address,
     admins: Vec<Address>,
 ) -> Result<(), GovernanceError> {
-    let mut config = get_multisig_config(env).ok_or(GovernanceError::NotInitialized)?;
+    let config = get_multisig_config(env).ok_or(GovernanceError::NotInitialized)?;
     set_multisig_config(env, caller, admins, config.threshold)
 }
 
@@ -853,14 +853,7 @@ fn emit_proposal_failed_event(env: &Env, proposal_id: &u64) {
     env.events().publish(topics, ());
 }
 
-pub fn emit_approval_event(env: &Env, proposal_id: &u64, approver: &Address) {
-    let topics = (
-        Symbol::new(env, "proposal_approved"),
-        *proposal_id,
-        approver.clone(),
-    );
-    env.events().publish(topics, ());
-}
+
 
 pub fn add_guardian(env: &Env, caller: Address, guardian: Address) -> Result<(), GovernanceError> {
     caller.require_auth();
@@ -1178,12 +1171,6 @@ pub fn get_config(env: &Env) -> Option<GovernanceConfig> {
 
 pub fn get_admin(env: &Env) -> Option<Address> {
     env.storage().instance().get(&GovernanceDataKey::Admin)
-}
-
-pub fn get_multisig_config(env: &Env) -> Option<MultisigConfig> {
-    env.storage()
-        .instance()
-        .get(&GovernanceDataKey::MultisigConfig)
 }
 
 pub fn emit_guardian_added_event(env: &Env, guardian: &Address) {

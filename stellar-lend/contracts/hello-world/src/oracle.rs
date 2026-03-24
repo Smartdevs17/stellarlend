@@ -59,9 +59,13 @@ pub enum OracleDataKey {
     FallbackOracle(Address),
     /// Transient price cache for improved gas efficiency
     /// Value type: CachedPrice
+    /// Primary oracle address for an asset
+    PrimaryOracle(Address),
+    /// Fallback price feed data for an asset
+    FallbackFeed(Address),
+    /// transient price cache
     PriceCache(Address),
     /// Global oracle safety and operational parameters
-    /// Value type: OracleConfig
     OracleConfig,
     /// Pause switches specifically for oracle updates: Map<Symbol, bool>
     PauseSwitches,

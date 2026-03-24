@@ -15,7 +15,7 @@ fn setup_env() -> (Env, Address, Address) {
     let admin = Address::generate(&env);
 
     let client = HelloContractClient::new(&env, &contract_id);
-    client.initialize(
+    client.gov_initialize(
         &admin,
         &Address::generate(&env), // vote_token
         &None, // voting_period
