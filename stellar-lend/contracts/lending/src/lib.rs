@@ -55,7 +55,6 @@ mod pause_test;
 mod token_receiver_test;
 #[cfg(test)]
 mod views_test;
-
 #[cfg(test)]
 mod data_store_test;
 #[cfg(test)]
