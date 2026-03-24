@@ -84,12 +84,10 @@ describe('Validation Middleware', () => {
     });
 
     it('should reject invalid operation', async () => {
-      const response = await request(app)
-        .get('/api/lending/prepare/invalid_op')
-        .query({
-          userAddress: 'GDH7NBM22WUCYOLJJZ7ALN3QZ6W2G5YCHDP2YQWJZ76L2GZFPHSYZ4Y3',
-          amount: '1000000',
-        });
+      const response = await request(app).get('/api/lending/prepare/invalid_op').query({
+        userAddress: 'GDH7NBM22WUCYOLJJZ7ALN3QZ6W2G5YCHDP2YQWJZ76L2GZFPHSYZ4Y3',
+        amount: '1000000',
+      });
 
       expect(response.status).toBe(400);
     });

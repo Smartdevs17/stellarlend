@@ -39,11 +39,7 @@ export const prepareValidation = [
       return true;
     }),
   ...amountValidation,
-  check('assetAddress')
-    .optional()
-    .isString()
-    .notEmpty()
-    .withMessage('Asset address is required'),
+  check('assetAddress').optional().isString().notEmpty().withMessage('Asset address is required'),
   validateRequest,
 ];
 
