@@ -136,7 +136,27 @@ impl HelloContract {
         withdraw::withdraw_collateral(&env, user, asset, amount)
     }
 
-    pub fn liquidate(env: Env, caller: Address, paused: bool) -> Result<(), RiskManagementError> {
+    pub fn liquidate(
+        env: Env,
+        liquidator: Address,
+        borrower: Address,
+        debt_asset: Option<Address>,
+        collateral_asset: Option<Address>,
+        debt_amount: i128,
+    ) -> Result<(i128, i128, i128), liquidate::LiquidationError> {
+        liquidator.require_auth();
+        liquidate::liquidate(
+            &env,
+            liquidator,
+            borrower,
+            debt_asset,
+            collateral_asset,
+            debt_amount,
+        )
+    }
+
+    pub fn set_emergency_pause(env: Env, caller: Address, paused: bool) -> Result<(), RiskManagementError> {
+        require_admin(&env, &caller)?;
         risk_management::set_emergency_pause(&env, caller, paused)
     }
 
