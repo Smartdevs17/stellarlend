@@ -43,7 +43,7 @@ export interface SubmitRequest {
 export interface TransactionResponse {
   success: boolean;
   transactionHash?: string;
-  status: 'pending' | 'success' | 'failed';
+  status: 'pending' | 'success' | 'failed' | 'cancelled';
   message?: string;
   error?: string;
   ledger?: number;

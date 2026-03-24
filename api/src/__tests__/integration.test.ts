@@ -1,43 +1,62 @@
+// Robust global Axios mock to prevent real network calls
+import axios from 'axios';
+jest.mock('axios');
+const mockedAxios = axios as jest.Mocked<typeof axios>;
+beforeAll(() => {
+  mockedAxios.create.mockReturnThis();
+  const axiosResponse = {
+    data: {},
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    config: { url: '' },
+  };
+  mockedAxios.get.mockResolvedValue(axiosResponse);
+  mockedAxios.post.mockResolvedValue(axiosResponse);
+  mockedAxios.request.mockResolvedValue(axiosResponse);
+});
+afterEach(() => {
+  jest.clearAllMocks();
+});
+
+
+// Mock StellarService before importing app
+import { StellarService } from '../services/stellar.service';
+jest.mock('../services/stellar.service');
+const mockStellarService: jest.Mocked<StellarService> = {
+  buildUnsignedTransaction: jest.fn().mockResolvedValue('unsigned_xdr_string'),
+  submitTransaction: jest.fn().mockResolvedValue({
+    success: true,
+    transactionHash: 'tx_hash',
+    status: 'success',
+  }),
+  monitorTransaction: jest.fn().mockResolvedValue({
+    success: true,
+    transactionHash: 'tx_hash',
+    status: 'success',
+    ledger: 12345,
+  }),
+  healthCheck: jest.fn().mockResolvedValue({ horizon: true, sorobanRpc: true }),
+} as any;
+(StellarService as jest.Mock).mockImplementation(() => mockStellarService);
 import request from 'supertest';
 import app from '../app';
-import { StellarService } from '../services/stellar.service';
 
-jest.mock('../services/stellar.service');
 
 describe('API Integration Tests', () => {
-  let mockStellarService: jest.Mocked<StellarService>;
-
   beforeEach(() => {
-    mockStellarService = {
-      buildUnsignedTransaction: jest.fn().mockResolvedValue('unsigned_xdr'),
-      submitTransaction: jest.fn().mockResolvedValue({
-        success: true,
-        transactionHash: 'tx_hash',
-        status: 'success',
-      }),
-      monitorTransaction: jest.fn().mockResolvedValue({
-        success: true,
-        transactionHash: 'tx_hash',
-        status: 'success',
-        ledger: 12345,
-      }),
-      healthCheck: jest.fn().mockResolvedValue({ horizon: true, sorobanRpc: true }),
-    } as unknown as jest.Mocked<StellarService>;
-
-    (StellarService as jest.Mock).mockImplementation(() => mockStellarService);
     jest.clearAllMocks();
-    (StellarService as jest.Mock).mockImplementation(() => mockStellarService);
   });
 
   describe('Complete Lending Flow', () => {
     it('should handle complete lending lifecycle via prepare/submit', async () => {
       const prepareRes = await request(app).get('/api/lending/prepare/deposit').send({
-        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+          userAddress: 'GDZZJ3UPZZCKY5DBH6ZGMPMRORRBG4ECIORASBUAXPPNCL4SYRHNLYU2',
         amount: '10000000',
       });
 
-      expect(prepareRes.status).toBe(200);
-      expect(prepareRes.body.unsignedXdr).toBe('unsigned_xdr');
+  expect(prepareRes.status).toBe(200);
+  expect(prepareRes.body.unsignedXdr).toBe('unsigned_xdr_string');
 
       const submitRes = await request(app)
         .post('/api/lending/submit')
