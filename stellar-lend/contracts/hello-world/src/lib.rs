@@ -28,8 +28,10 @@ pub mod types;
 pub mod withdraw;
 
 use crate::deposit::DepositDataKey;
+use crate::deposit::Position;
 use crate::risk_management::RiskManagementError;
 use crate::interest_rate::InterestRateError;
+use crate::analytics::AnalyticsError;
 
 // ─── Admin helper ─────────────────────────────────────────────────────────────
 
@@ -233,6 +235,20 @@ impl HelloContract {
     /// Returns 0 for legacy single-asset users.
     pub fn get_user_total_collateral_value(env: Env, user: Address) -> i128 {
         multi_collateral::calculate_total_collateral_value(&env, &user).unwrap_or(0)
+    }
+
+    // -------------------------------------------------------------------------
+    // Analytics
+    // -------------------------------------------------------------------------
+
+    /// Read-only user health factor query (collateral/debt in basis points).
+    pub fn get_health_factor(env: Env, user: Address) -> Result<i128, AnalyticsError> {
+        analytics::calculate_health_factor(&env, &user)
+    }
+
+    /// Read-only user position query.
+    pub fn get_user_position(env: Env, user: Address) -> Result<Position, AnalyticsError> {
+        analytics::get_user_position_summary(&env, &user)
     }
 }
 

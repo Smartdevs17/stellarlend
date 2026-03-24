@@ -160,6 +160,33 @@ fn test_health_factor_below_threshold() {
 }
 
 #[test]
+fn test_get_health_factor_query_matches_report() {
+    let env = create_test_env();
+    let (contract_id, _admin, client) = setup_contract_with_admin(&env);
+    let user = Address::generate(&env);
+
+    client.deposit_collateral(&user, &None, &100);
+    set_user_position(&env, &contract_id, &user, 15000, 10000, 0);
+
+    let report = client.get_user_report(&user);
+    let health = client.get_health_factor(&user).unwrap();
+    assert_eq!(health, report.metrics.health_factor);
+}
+
+#[test]
+fn test_get_user_position_query_returns_position() {
+    let env = create_test_env();
+    let (contract_id, _admin, client) = setup_contract_with_admin(&env);
+    let user = Address::generate(&env);
+
+    set_user_position(&env, &contract_id, &user, 4000, 1000, 0);
+
+    let position = client.get_user_position(&user).unwrap();
+    assert_eq!(position.collateral, 4000);
+    assert_eq!(position.debt, 1000);
+}
+
+#[test]
 fn test_health_factor_risk_level_reflected() {
     let env = create_test_env();
     let (contract_id, _admin, client) = setup_contract_with_admin(&env);
