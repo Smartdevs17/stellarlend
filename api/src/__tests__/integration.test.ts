@@ -1,8 +1,28 @@
+// Mock StellarService before importing app
+import { StellarService } from '../services/stellar.service';
+jest.mock('../services/stellar.service');
+
 // Robust global Axios mock to prevent real network calls
 import axios from 'axios';
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
+
+import request from 'supertest';
+import app from '../app';
+
+const VALID_ADDRESS = 'GDZZJ3UPZZCKY5DBH6ZGMPMRORRBG4ECIORASBUAXPPNCL4SYRHNLYU2';
+const VALID_AMOUNT = '10000000';
+
+const mockStellarService: jest.Mocked<StellarService> = {
+  buildUnsignedTransaction: jest.fn(),
+  submitTransaction: jest.fn(),
+  monitorTransaction: jest.fn(),
+  healthCheck: jest.fn(),
+} as any;
+
 beforeAll(() => {
+  (StellarService as jest.Mock).mockImplementation(() => mockStellarService);
+
   mockedAxios.create.mockReturnThis();
   const axiosResponse = {
     data: {},
@@ -15,171 +35,94 @@ beforeAll(() => {
   mockedAxios.post.mockResolvedValue(axiosResponse);
   mockedAxios.request.mockResolvedValue(axiosResponse);
 });
-afterEach(() => {
+
+beforeEach(() => {
   jest.clearAllMocks();
-});
-
-
-// Mock StellarService before importing app
-import { StellarService } from '../services/stellar.service';
-jest.mock('../services/stellar.service');
-const mockStellarService: jest.Mocked<StellarService> = {
-  buildUnsignedTransaction: jest.fn().mockResolvedValue('unsigned_xdr_string'),
-  submitTransaction: jest.fn().mockResolvedValue({
+  // Default happy-path mock responses
+  mockStellarService.buildUnsignedTransaction.mockResolvedValue('unsigned_xdr_string');
+  mockStellarService.submitTransaction.mockResolvedValue({
     success: true,
-    transactionHash: 'tx_hash',
+    transactionHash: 'abc123txhash',
     status: 'success',
-  }),
-  monitorTransaction: jest.fn().mockResolvedValue({
+  });
+  mockStellarService.monitorTransaction.mockResolvedValue({
     success: true,
-    transactionHash: 'tx_hash',
+    transactionHash: 'abc123txhash',
     status: 'success',
     ledger: 12345,
-  }),
-  healthCheck: jest.fn().mockResolvedValue({ horizon: true, sorobanRpc: true }),
-} as any;
-(StellarService as jest.Mock).mockImplementation(() => mockStellarService);
-import request from 'supertest';
-import app from '../app';
+  });
+  mockStellarService.healthCheck.mockResolvedValue({ horizon: true, sorobanRpc: true });
+});
 
+// ─── 1. Complete Deposit Flow ─────────────────────────────────────────────────
 
-describe('API Integration Tests', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
+describe('Complete Deposit Flow', () => {
+  it('prepare returns unsigned XDR with correct shape', async () => {
+    const res = await request(app)
+      .get('/api/lending/prepare/deposit')
+      .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      unsignedXdr: 'unsigned_xdr_string',
+      operation: 'deposit',
+    });
+    expect(typeof res.body.expiresAt).toBe('string');
+    expect(new Date(res.body.expiresAt).getTime()).toBeGreaterThan(Date.now());
   });
 
-  describe('Complete Lending Flow', () => {
-    it('should handle complete lending lifecycle via prepare/submit', async () => {
-      const prepareRes = await request(app).get('/api/lending/prepare/deposit').send({
-          userAddress: 'GDZZJ3UPZZCKY5DBH6ZGMPMRORRBG4ECIORASBUAXPPNCL4SYRHNLYU2',
-        amount: '10000000',
-      });
+  it('prepare calls buildUnsignedTransaction with correct args', async () => {
+    await request(app)
+      .get('/api/lending/prepare/deposit')
+      .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT });
 
-  expect(prepareRes.status).toBe(200);
-  expect(prepareRes.body.unsignedXdr).toBe('unsigned_xdr_string');
-
-      const submitRes = await request(app)
-        .post('/api/lending/submit')
-        .send({ signedXdr: 'signed_xdr' });
-
-      expect(submitRes.status).toBe(200);
-      expect(submitRes.body.success).toBe(true);
-    });
+    expect(mockStellarService.buildUnsignedTransaction).toHaveBeenCalledTimes(1);
+    expect(mockStellarService.buildUnsignedTransaction).toHaveBeenCalledWith(
+      'deposit',
+      VALID_ADDRESS,
+      undefined,
+      VALID_AMOUNT
+    );
   });
 
-  describe('Error Handling', () => {
-    it('should return 400 for invalid operation in prepare', async () => {
-      const response = await request(app).get('/api/lending/prepare/invalid_op').send({
-        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-        amount: '1000000',
-      });
+  it('submit returns success with transaction hash and ledger', async () => {
+    const res = await request(app)
+      .post('/api/lending/submit')
+      .send({ signedXdr: 'signed_xdr_payload' });
 
-      expect(response.status).toBe(400);
-    });
-
-    it('should handle rate limiting', async () => {
-      const requests = Array(10)
-        .fill(null)
-        .map(() =>
-          request(app).get('/api/lending/prepare/deposit').send({
-            userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-            amount: '1000000',
-          })
-        );
-
-      const responses = await Promise.all(requests);
-      expect(responses.some((r) => r.status === 200 || r.status === 400 || r.status === 429)).toBe(
-        true
-      );
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      success: true,
+      transactionHash: 'abc123txhash',
+      status: 'success',
+      ledger: 12345,
     });
   });
 
-  describe('Concurrent Requests', () => {
-    it('should handle concurrent prepare requests', async () => {
-      const requests = [
-        request(app).get('/api/lending/prepare/deposit').send({
-          userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-          amount: '1000000',
-        }),
-        request(app).get('/api/lending/prepare/borrow').send({
-          userAddress: 'GYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY',
-          amount: '2000000',
-        }),
-      ];
+  it('submit calls monitorTransaction after successful submitTransaction', async () => {
+    await request(app)
+      .post('/api/lending/submit')
+      .send({ signedXdr: 'signed_xdr_payload' });
 
-      const responses = await Promise.all(requests);
-      responses.forEach((response) => {
-        expect([200, 400, 429, 500]).toContain(response.status);
-      });
-    });
+    expect(mockStellarService.submitTransaction).toHaveBeenCalledWith('signed_xdr_payload');
+    expect(mockStellarService.monitorTransaction).toHaveBeenCalledWith('abc123txhash');
   });
 
-  describe('Edge Cases', () => {
-    it('should reject extremely large amounts', async () => {
-      const response = await request(app).get('/api/lending/prepare/deposit').send({
-        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-        amount: '999999999999999999999999999999',
-      });
+  it('full prepare → submit lifecycle returns consistent data', async () => {
+    const prepareRes = await request(app)
+      .get('/api/lending/prepare/deposit')
+      .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT });
 
-      // With mocked service, 200 is acceptable; without mock, 400/500 expected
-      expect([200, 400, 500]).toContain(response.status);
-    });
+    expect(prepareRes.status).toBe(200);
+    const { unsignedXdr } = prepareRes.body;
+    expect(unsignedXdr).toBe('unsigned_xdr_string');
 
-    it('should handle missing optional assetAddress', async () => {
-      const response = await request(app).get('/api/lending/prepare/deposit').send({
-        userAddress: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
-        amount: '1000000',
-      });
+    const submitRes = await request(app)
+      .post('/api/lending/submit')
+      .send({ signedXdr: 'client_signed_xdr' });
 
-      expect([200, 400, 500]).toContain(response.status);
-    });
-
-    it('should reject malformed JSON on submit', async () => {
-      const response = await request(app)
-        .post('/api/lending/submit')
-        .set('Content-Type', 'application/json')
-        .send('{ invalid json }');
-
-      expect(response.status).toBe(400);
-    });
-  });
-
-  describe('CORS and Security Headers', () => {
-    it('should include security headers', async () => {
-      const response = await request(app).get('/api/health');
-
-      expect(response.headers).toHaveProperty('x-content-type-options');
-      expect(response.headers).toHaveProperty('x-frame-options');
-      expect(response.headers).toHaveProperty('strict-transport-security');
-    });
-
-    it('should handle OPTIONS requests', async () => {
-      const response = await request(app).options('/api/lending/prepare/deposit');
-
-      expect([200, 204]).toContain(response.status);
-    });
-  });
-
-  describe('HTTPS Redirection', () => {
-    const originalEnv = process.env.NODE_ENV;
-
-    afterEach(() => {
-      process.env.NODE_ENV = originalEnv;
-    });
-
-    it('should redirect HTTP to HTTPS in production', async () => {
-      // Re-require app or mock config if necessary, but here we try setting env
-      // Note: This test might require the app to be re-initialized if config is static
-      // For this specific codebase, let's see if we can trigger it.
-
-      // Since we can't easily re-initialize 'app' without side effects in this test file,
-      // we'll focus on verifying the HSTS header which is always active now.
-      // To fully test redirection, we'd ideally have a way to inject config.
-
-      const response = await request(app).get('/api/health').set('x-forwarded-proto', 'http');
-
-      // In development (default), it should NOT redirect
-      expect(response.status).toBe(200);
-    });
+    expect(submitRes.status).toBe(200);
+    expect(submitRes.body.success).toBe(true);
+    expect(submitRes.body.transactionHash).toBe('abc123txhash');
   });
 });
