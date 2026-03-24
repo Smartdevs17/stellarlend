@@ -10,7 +10,6 @@ pub enum GovernanceDataKey {
     MultisigAdmins,
     MultisigThreshold,
     GuardianConfig,
-    MultisigAdmins,
     Guardians,
     GuardianThreshold,
 

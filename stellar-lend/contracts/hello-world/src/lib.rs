@@ -13,6 +13,7 @@ pub mod flash_loan;
 pub mod governance;
 pub mod interest_rate;
 pub mod liquidate;
+pub mod multi_collateral;
 pub mod multisig;
 pub mod oracle;
 pub mod recovery;
@@ -22,24 +23,9 @@ pub mod reserve;
 pub mod risk_management;
 pub mod risk_params;
 pub mod storage;
-pub mod types;
 pub mod treasury;
-pub mod withdraw;
-pub mod recovery;
-pub mod multisig;
 pub mod types;
-pub mod storage;
-pub mod reentrancy;
-
-mod admin;
-mod errors;
-mod reserve;
-mod risk_params;
-mod config;
-mod bridge;
-
-#[cfg(test)]
-// mod tests;
+pub mod withdraw;
 
 use crate::deposit::DepositDataKey;
 use crate::deposit::Position;
@@ -72,7 +58,7 @@ pub struct HelloContract;
 #[contractimpl]
 impl HelloContract {
     pub fn hello(env: Env) -> String {
-        String::from_str(env, "Hello")
+        String::from_str(&env, "Hello")
     }
 
     pub fn gov_initialize(
@@ -85,7 +71,7 @@ impl HelloContract {
         proposal_threshold: Option<i128>,
         timelock_duration: Option<u64>,
         default_voting_threshold: Option<i128>,
-    ) -> Result<(), GovernanceError> {
+    ) -> Result<(), governance::GovernanceError> {
         governance::initialize(
             &env,
             admin,
@@ -230,6 +216,31 @@ impl HelloContract {
         treasury::get_fee_config(&env)
     }
 
+    // -------------------------------------------------------------------------
+    // Multi-Asset Collateral
+    // -------------------------------------------------------------------------
+
+    /// Return the collateral balance for a specific (user, asset) pair
+    pub fn get_user_asset_collateral(env: Env, user: Address, asset: Address) -> i128 {
+        multi_collateral::get_user_asset_collateral(&env, &user, &asset)
+    }
+
+    /// Return the list of assets in which the user currently holds collateral
+    pub fn get_user_asset_list(env: Env, user: Address) -> Vec<Address> {
+        multi_collateral::get_user_asset_list(&env, &user)
+    }
+
+    /// Return the oracle-weighted total collateral value across all of the
+    /// user's deposited assets (collateral factors applied per asset).
+    /// Returns 0 for legacy single-asset users.
+    pub fn get_user_total_collateral_value(env: Env, user: Address) -> i128 {
+        multi_collateral::calculate_total_collateral_value(&env, &user).unwrap_or(0)
+    }
+
+    // -------------------------------------------------------------------------
+    // Analytics
+    // -------------------------------------------------------------------------
+
     /// Read-only user health factor query (collateral/debt in basis points).
     pub fn get_health_factor(env: Env, user: Address) -> Result<i128, AnalyticsError> {
         analytics::calculate_health_factor(&env, &user)
@@ -247,5 +258,7 @@ mod test_reentrancy;
 mod test_zero_amount;
 #[cfg(test)]
 mod flash_loan_test;
+#[cfg(test)]
+mod multi_collateral_test;
 #[cfg(test)]
 mod treasury_test;
