@@ -69,6 +69,36 @@ jobs:
           cargo audit
 
   # ─────────────────────────────────────────────
+  # Workspace — validate root monorepo scripts
+  # ─────────────────────────────────────────────
+  workspace:
+    name: Workspace — Root install & script validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install all workspace dependencies from root
+        run: npm install --workspaces
+
+      - name: Verify workspace scripts are resolvable
+        run: |
+          echo "Checking root workspace scripts..."
+          node -e "
+            const p = require('./package.json');
+            const required = ['test:all','lint:all','build:all','install:all'];
+            required.forEach(s => {
+              if (!p.scripts[s]) { console.error('Missing script: ' + s); process.exit(1); }
+              console.log('OK: ' + s + ' => ' + p.scripts[s]);
+            });
+          "
+
+  # ─────────────────────────────────────────────
   # API (TypeScript / Express / Jest)
   # ─────────────────────────────────────────────
   api:
@@ -88,8 +118,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: npm
-          cache-dependency-path: api/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -137,8 +165,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: npm
-          cache-dependency-path: oracle/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -175,7 +201,7 @@ jobs:
   quality-gate:
     name: Quality Gate
     runs-on: ubuntu-latest
-    needs: [contracts, api, oracle]
+    needs: [contracts, api, oracle, workspace]
     if: always()
     steps:
       - name: Check all jobs passed
@@ -183,10 +209,12 @@ jobs:
           echo "Contracts: ${{ needs.contracts.result }} (non-blocking — pre-existing issues)"
           echo "API:       ${{ needs.api.result }}"
           echo "Oracle:    ${{ needs.oracle.result }}"
+          echo "Workspace: ${{ needs.workspace.result }}"
 
           if [[ "${{ needs.api.result }}" != "success" ]] || \
              [[ "${{ needs.oracle.result }}" != "success" ]] || \
-             [[ "${{ needs.contracts.result }}" != "success" ]]; then
+             [[ "${{ needs.contracts.result }}" != "success" ]] || \
+             [[ "${{ needs.workspace.result }}" != "success" ]]; then
             echo "::error::One or more quality checks failed. PR cannot be merged."
             exit 1
           fi

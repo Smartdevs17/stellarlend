@@ -219,7 +219,8 @@ pub fn deposit_collateral(
     }
 
     // Check for reentrancy
-    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| DepositError::Reentrancy)?;
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| DepositError::Reentrancy)?;
 
     // Check if deposits are paused
     // Note: The risk management system provides pause functionality through the public API.
@@ -380,16 +381,27 @@ pub fn deposit_collateral(
 
 /// Record a deposit into per-asset collateral tracking.
 /// This is additive and safe to call even if the asset is already tracked.
-pub fn record_asset_deposit(env: &Env, user: &Address, asset: &Address, amount: i128) -> Result<(), DepositError> {
+pub fn record_asset_deposit(
+    env: &Env,
+    user: &Address,
+    asset: &Address,
+    amount: i128,
+) -> Result<(), DepositError> {
     // Update per-asset balance
     let asset_key = DepositDataKey::UserAssetCollateral(user.clone(), asset.clone());
-    let current = env.storage().persistent().get::<DepositDataKey, i128>(&asset_key).unwrap_or(0);
+    let current = env
+        .storage()
+        .persistent()
+        .get::<DepositDataKey, i128>(&asset_key)
+        .unwrap_or(0);
     let new_balance = current.checked_add(amount).ok_or(DepositError::Overflow)?;
     env.storage().persistent().set(&asset_key, &new_balance);
 
     // Add to asset list if not already present
     let list_key = DepositDataKey::UserAssetList(user.clone());
-    let mut asset_list = env.storage().persistent()
+    let mut asset_list = env
+        .storage()
+        .persistent()
         .get::<DepositDataKey, Vec<Address>>(&list_key)
         .unwrap_or_else(|| Vec::new(env));
 
@@ -409,16 +421,27 @@ pub fn record_asset_deposit(env: &Env, user: &Address, asset: &Address, amount: 
 }
 
 /// Record a withdrawal from per-asset collateral tracking.
-pub fn record_asset_withdrawal(env: &Env, user: &Address, asset: &Address, amount: i128) -> Result<(), DepositError> {
+pub fn record_asset_withdrawal(
+    env: &Env,
+    user: &Address,
+    asset: &Address,
+    amount: i128,
+) -> Result<(), DepositError> {
     let asset_key = DepositDataKey::UserAssetCollateral(user.clone(), asset.clone());
-    let current = env.storage().persistent().get::<DepositDataKey, i128>(&asset_key).unwrap_or(0);
+    let current = env
+        .storage()
+        .persistent()
+        .get::<DepositDataKey, i128>(&asset_key)
+        .unwrap_or(0);
     let new_balance = current.checked_sub(amount).unwrap_or(0);
     env.storage().persistent().set(&asset_key, &new_balance);
 
     // Remove from asset list if balance reaches zero
     if new_balance == 0 {
         let list_key = DepositDataKey::UserAssetList(user.clone());
-        let asset_list = env.storage().persistent()
+        let asset_list = env
+            .storage()
+            .persistent()
             .get::<DepositDataKey, Vec<Address>>(&list_key)
             .unwrap_or_else(|| Vec::new(env));
         let mut new_list: Vec<Address> = Vec::new(env);

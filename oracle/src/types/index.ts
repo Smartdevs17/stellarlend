@@ -119,6 +119,10 @@ export interface OracleServiceConfig {
   redisUrl?: string;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   providers: ProviderConfig[];
+  circuitBreaker: {
+    failureThreshold: number;
+    backoffMs: number;
+  };
 }
 
 /**

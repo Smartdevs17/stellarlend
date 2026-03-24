@@ -27,6 +27,7 @@ export abstract class BasePriceProvider {
   protected lastRequestTime: number = 0;
   protected requestCount: number = 0;
   protected windowStartTime: number = Date.now();
+  private rateLimitChain: Promise<void> = Promise.resolve();
 
   constructor(config: ProviderConfig) {
     this.config = config;
@@ -116,6 +117,14 @@ export abstract class BasePriceProvider {
    * Enforce rate limiting
    */
   protected async enforceRateLimit(): Promise<void> {
+    // Serialize rate-limit state updates so concurrent requests cannot
+    // all pass the same counter check in parallel.
+    const run = this.rateLimitChain.then(() => this.enforceRateLimitInternal());
+    this.rateLimitChain = run.catch(() => undefined);
+    await run;
+  }
+
+  private async enforceRateLimitInternal(): Promise<void> {
     const now = Date.now();
     const { maxRequests, windowMs } = this.config.rateLimit;
 

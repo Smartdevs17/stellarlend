@@ -1,11 +1,8 @@
-#![cfg(test)]
-
-use soroban_sdk::{
-    contract, contractimpl, testutils::Address as _, token, Address, Env, Symbol, IntoVal,
-};
+use crate::flash_loan::FlashLoanDataKey;
 use crate::{HelloContract, HelloContractClient};
-use crate::deposit::{DepositDataKey, DepositError};
-use crate::flash_loan::{FlashLoanDataKey, FlashLoanError, FlashLoanRecord};
+use soroban_sdk::{
+    contract, contractimpl, testutils::Address as _, token, Address, Env, IntoVal, Symbol,
+};
 
 #[contract]
 pub struct MaliciousToken;
@@ -19,7 +16,7 @@ impl MaliciousToken {
     pub fn transfer_from(env: Env, _spender: Address, from: Address, _to: Address, _amount: i128) {
         Self::attempt_reentrancy(&env, &from);
     }
-    
+
     pub fn transfer(env: Env, _from: Address, to: Address, _amount: i128) {
         Self::attempt_reentrancy(&env, &to);
     }
@@ -28,10 +25,14 @@ impl MaliciousToken {
 impl MaliciousToken {
     fn attempt_reentrancy(env: &Env, user: &Address) {
         let target_key = Symbol::new(env, "TEST_TARGET");
-        if let Some(target) = env.storage().temporary().get::<Symbol, Address>(&target_key) {
+        if let Some(target) = env
+            .storage()
+            .temporary()
+            .get::<Symbol, Address>(&target_key)
+        {
             let client = HelloContractClient::new(env, &target);
             let token_opt = Some(env.current_contract_address());
-            
+
             // Try operations that should be protected by reentrancy guards if we were in them.
             // Note: This contract generally uses a global or per-module lock.
             let res = client.try_deposit_collateral(user, &token_opt, &100);
@@ -45,19 +46,23 @@ pub struct FlashLoanReceiver;
 
 #[contractimpl]
 impl FlashLoanReceiver {
-    pub fn on_flash_loan(env: Env, user: Address, asset: Address, amount: i128, fee: i128) {
+    pub fn on_flash_loan(env: Env, _user: Address, asset: Address, amount: i128, fee: i128) {
         let target_key = Symbol::new(&env, "TEST_TARGET");
-        let target = env.storage().temporary().get::<Symbol, Address>(&target_key).unwrap();
-        
+        let target = env
+            .storage()
+            .temporary()
+            .get::<Symbol, Address>(&target_key)
+            .unwrap();
+
         // Verify the reentrancy guard is ACTIVE during callback execution
         // We cannot attempt re-entry or storage reads via env.as_contract because
         // Soroban VM natively blocks ALL cross-contract re-entry with an unrecoverable panic.
         // The security is guaranteed by the VM's native block + our granular guard.
-        
+
         // REPAY PROPERLY
         let total = amount + fee;
         let token_client = token::TokenClient::new(&env, &asset);
-        
+
         // Approve the core contract to pull the funds.
         // We do NOT call `client.repay_flash_loan` here because Soroban natively
         // blocks contract re-entry, and `execute_flash_loan` will automatically
@@ -66,25 +71,26 @@ impl FlashLoanReceiver {
     }
 }
 
+#[allow(dead_code)]
 fn setup_test(env: &Env) -> (Address, HelloContractClient<'static>, Address, Address) {
     env.mock_all_auths();
-    
+
     let admin = Address::generate(env);
     let user = Address::generate(env);
-    
+
     let contract_id = env.register(HelloContract, ());
     let client = HelloContractClient::new(env, &contract_id);
-    
+
     client.initialize(&admin);
-    
+
     let malicious_token_id = env.register(MaliciousToken, ());
     let target_key = Symbol::new(env, "TEST_TARGET");
     env.as_contract(&malicious_token_id, || {
         env.storage().temporary().set(&target_key, &contract_id);
     });
 
-    let static_client = unsafe { 
-        core::mem::transmute::<HelloContractClient<'_>, HelloContractClient<'static>>(client) 
+    let static_client = unsafe {
+        core::mem::transmute::<HelloContractClient<'_>, HelloContractClient<'static>>(client)
     };
 
     (contract_id, static_client, malicious_token_id, user)
@@ -97,7 +103,7 @@ fn test_flash_loan_reentrancy_protection() {
 
     let admin = Address::generate(&env);
     let user = Address::generate(&env);
-    
+
     let contract_id = env.register(HelloContract, ());
     let client = HelloContractClient::new(&env, &contract_id);
     client.initialize(&admin);
@@ -113,7 +119,7 @@ fn test_flash_loan_reentrancy_protection() {
     let token_admin = Address::generate(&env);
     let token_contract = env.register_stellar_asset_contract_v2(token_admin);
     let token_address = token_contract.address();
-    let token_client = token::TokenClient::new(&env, &token_address);
+    let _token_client = token::TokenClient::new(&env, &token_address);
     let token_asset_client = token::StellarAssetClient::new(&env, &token_address);
 
     // Fund contract
@@ -127,8 +133,12 @@ fn test_flash_loan_reentrancy_protection() {
 
     // Verify guard is cleared after the call finishes
     env.as_contract(&contract_id, || {
-        let key: soroban_sdk::Val = FlashLoanDataKey::ActiveFlashLoan(user.clone(), token_address.clone()).into_val(&env);
-        assert!(!env.storage().temporary().has(&key), "Guard should be cleared");
+        let key: soroban_sdk::Val =
+            FlashLoanDataKey::ActiveFlashLoan(user.clone(), token_address.clone()).into_val(&env);
+        assert!(
+            !env.storage().temporary().has(&key),
+            "Guard should be cleared"
+        );
     });
 }
 
@@ -139,7 +149,7 @@ fn test_flash_loan_failure_clears_guard() {
 
     let admin = Address::generate(&env);
     let user = Address::generate(&env);
-    
+
     let contract_id = env.register(HelloContract, ());
     let client = HelloContractClient::new(&env, &contract_id);
     client.initialize(&admin);
@@ -159,8 +169,12 @@ fn test_flash_loan_failure_clears_guard() {
 
     // Verify guard is still cleared thanks to RAII!
     env.as_contract(&contract_id, || {
-        let key: soroban_sdk::Val = FlashLoanDataKey::ActiveFlashLoan(user.clone(), token_address.clone()).into_val(&env);
-        assert!(!env.storage().temporary().has(&key), "Guard should be cleared even on failure");
+        let key: soroban_sdk::Val =
+            FlashLoanDataKey::ActiveFlashLoan(user.clone(), token_address.clone()).into_val(&env);
+        assert!(
+            !env.storage().temporary().has(&key),
+            "Guard should be cleared even on failure"
+        );
     });
 }
 

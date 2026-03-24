@@ -1,0 +1,19 @@
+{
+  "name": "stellarlend",
+  "private": true,
+  "workspaces": [
+    "api",
+    "oracle"
+  ],
+  "scripts": {
+    "install:all": "npm install",
+    "test:all": "npm run test --workspaces --if-present",
+    "lint:all": "npm run lint --workspaces --if-present",
+    "build:all": "npm run build --workspaces --if-present",
+    "format:all": "npm run format --workspaces --if-present",
+    "typecheck:all": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

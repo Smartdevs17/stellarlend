@@ -9,6 +9,8 @@ import type { RawPriceData, PriceData, AggregatedPrice } from '../types/index.js
 import { BasePriceProvider } from '../providers/base-provider.js';
 import { PriceValidator } from './price-validator.js';
 import { PriceCache } from './cache.js';
+import { CircuitBreaker, createCircuitBreaker } from './circuit-breaker.js';
+import type { CircuitBreakerConfig, CircuitBreakerMetrics } from './circuit-breaker.js';
 import { scalePrice } from '../config.js';
 import { logger } from '../utils/logger.js';
 
@@ -18,6 +20,7 @@ import { logger } from '../utils/logger.js';
 export interface AggregatorConfig {
   minSources: number;
   useWeightedMedian: boolean;
+  circuitBreaker?: Partial<Omit<CircuitBreakerConfig, 'providerName'>>;
 }
 
 /**
@@ -36,6 +39,7 @@ export class PriceAggregator {
   private validator: PriceValidator;
   private cache: PriceCache;
   private config: AggregatorConfig;
+  private circuitBreakers: Map<string, CircuitBreaker>;
 
   constructor(
     providers: BasePriceProvider[],
@@ -48,6 +52,17 @@ export class PriceAggregator {
     this.validator = validator;
     this.cache = cache;
     this.config = { ...DEFAULT_CONFIG, ...config };
+
+    // Create one circuit breaker per provider
+    this.circuitBreakers = new Map(
+      this.providers.map((p) => [
+        p.name,
+        createCircuitBreaker({
+          providerName: p.name,
+          ...this.config.circuitBreaker,
+        }),
+      ])
+    );
 
     logger.info('Price aggregator initialized', {
       enabledProviders: this.providers.map((p) => p.name),
@@ -109,28 +124,42 @@ export class PriceAggregator {
   }
 
   /**
-   * Fetch price from providers with fallback logic
+   * Fetch price from providers with fallback logic.
+   * Skips providers whose circuit breaker is OPEN.
    */
   private async fetchWithFallback(asset: string): Promise<PriceData[]> {
     const validPrices: PriceData[] = [];
     const errors: Map<string, Error> = new Map();
 
     for (const provider of this.providers) {
+      const cb = this.circuitBreakers.get(provider.name)!;
+
+      if (!cb.isAllowed()) {
+        logger.warn(`Circuit breaker OPEN – skipping provider "${provider.name}" for ${asset}`, {
+          metrics: cb.getMetrics(),
+        });
+        continue;
+      }
+
       try {
         const rawPrice = await provider.fetchPrice(asset);
         const validation = this.validator.validate(rawPrice);
 
         if (validation.isValid && validation.price) {
+          cb.recordSuccess();
           validPrices.push(validation.price);
           logger.debug(`Got valid price from ${provider.name} for ${asset}`, {
             price: validation.price.price.toString(),
           });
         } else {
+          // Validation failure counts as a provider failure
+          cb.recordFailure();
           logger.warn(`Invalid price from ${provider.name} for ${asset}`, {
             errors: validation.errors,
           });
         }
       } catch (error) {
+        cb.recordFailure();
         errors.set(provider.name, error instanceof Error ? error : new Error(String(error)));
         logger.warn(`Provider ${provider.name} failed for ${asset}`, { error });
       }
@@ -240,7 +269,15 @@ export class PriceAggregator {
     return {
       enabledProviders: this.providers.length,
       cacheStats: this.cache.getStats(),
+      circuitBreakers: this.getCircuitBreakerMetrics(),
     };
+  }
+
+  /**
+   * Get circuit breaker metrics for all providers
+   */
+  getCircuitBreakerMetrics(): CircuitBreakerMetrics[] {
+    return Array.from(this.circuitBreakers.values()).map((cb) => cb.getMetrics());
   }
 }
 

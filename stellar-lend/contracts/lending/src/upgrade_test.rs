@@ -7,7 +7,7 @@ fn hash(env: &Env, b: u8) -> BytesN<32> {
 }
 
 fn setup(env: &Env, required_approvals: u32) -> (UpgradeManagerClient<'_>, Address) {
-    let contract_id = env.register_contract(None, UpgradeManager);
+    let contract_id = env.register(UpgradeManager, ());
     let client = UpgradeManagerClient::new(env, &contract_id);
     let admin = Address::generate(env);
     client.init(&admin, &hash(env, 1), &required_approvals);
@@ -38,7 +38,7 @@ fn test_init_sets_defaults() {
 fn test_init_rejects_zero_threshold() {
     let env = Env::default();
     env.mock_all_auths();
-    let contract_id = env.register_contract(None, UpgradeManager);
+    let contract_id = env.register(UpgradeManager, ());
     let client = UpgradeManagerClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
 
@@ -236,7 +236,7 @@ fn test_upgrade_status_missing_proposal_errors() {
 #[test]
 fn test_is_approver_false_before_init() {
     let env = Env::default();
-    let contract_id = env.register_contract(None, UpgradeManager);
+    let contract_id = env.register(UpgradeManager, ());
     let client = UpgradeManagerClient::new(&env, &contract_id);
     let random = Address::generate(&env);
 

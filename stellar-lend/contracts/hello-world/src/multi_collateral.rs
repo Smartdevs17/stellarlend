@@ -40,7 +40,7 @@ pub enum MultiCollateralError {
 }
 
 /// Scale factor for oracle prices (8 decimal places)
-const PRICE_DECIMALS: i128 = 1_00_000_000; // 10^8
+const PRICE_DECIMALS: i128 = 100_000_000; // 10^8
 
 /// Scale factor for basis points
 const BPS_SCALE: i128 = 10_000;

@@ -1,8 +1,8 @@
 use crate::{
-    deposit::{AssetParams, DepositDataKey, Position},
+    deposit::{AssetParams, DepositDataKey},
     HelloContract, HelloContractClient,
 };
-use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 fn setup() -> (Env, Address, Address) {
     let env = Env::default();
@@ -350,7 +350,11 @@ fn test_borrow_allowed_using_multi_asset_collateral() {
 
     env.as_contract(&contract_id, || {
         // Each collateral asset: 100% factor
-        for asset in [collateral_a.clone(), collateral_b.clone(), borrow_asset.clone()] {
+        for asset in [
+            collateral_a.clone(),
+            collateral_b.clone(),
+            borrow_asset.clone(),
+        ] {
             env.storage().persistent().set(
                 &DepositDataKey::AssetParams(asset),
                 &AssetParams {
@@ -371,7 +375,10 @@ fn test_borrow_allowed_using_multi_asset_collateral() {
     // Max borrow ≈ 10000 * 10000 / 11000 ≈ 9090
     // Borrowing 5000 should be well within limit
     let debt = client.borrow_asset(&user, &Some(borrow_asset), &5000);
-    assert!(debt > 0, "Borrow should succeed with multi-asset collateral");
+    assert!(
+        debt > 0,
+        "Borrow should succeed with multi-asset collateral"
+    );
 }
 
 #[test]

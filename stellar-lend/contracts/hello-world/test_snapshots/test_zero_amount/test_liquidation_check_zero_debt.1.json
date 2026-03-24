@@ -242,10 +242,42 @@
                   "map": [
                     {
                       "key": {
+                        "symbol": "close_factor"
+                      },
+                      "val": {
+                        "i128": "5000"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "last_update"
                       },
                       "val": {
                         "u64": "0"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "liquidation_incentive"
+                      },
+                      "val": {
+                        "i128": "1000"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "liquidation_threshold"
+                      },
+                      "val": {
+                        "i128": "10500"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "min_collateral_ratio"
+                      },
+                      "val": {
+                        "i128": "11000"
                       }
                     },
                     {

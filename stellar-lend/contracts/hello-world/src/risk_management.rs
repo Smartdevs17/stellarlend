@@ -111,8 +111,6 @@ pub enum PauseOperation {
     All,
 }
 
-
-
 /// Initialize risk management system
 ///
 /// Sets up default risk parameters and admin address.
@@ -137,13 +135,14 @@ pub fn initialize_risk_management(env: &Env, admin: Address) -> Result<(), RiskM
     // Set admin
     env.storage().persistent().set(&RiskDataKey::Admin, &admin);
 
-    let risk_params = crate::risk_params::get_risk_params(env).unwrap_or(crate::risk_params::RiskParams {
-        min_collateral_ratio: 11_000,
-        liquidation_threshold: 10_500,
-        close_factor: 5_000,
-        liquidation_incentive: 1_000,
-        last_update: env.ledger().timestamp(),
-    });
+    let risk_params =
+        crate::risk_params::get_risk_params(env).unwrap_or(crate::risk_params::RiskParams {
+            min_collateral_ratio: 11_000,
+            liquidation_threshold: 10_500,
+            close_factor: 5_000,
+            liquidation_incentive: 1_000,
+            last_update: env.ledger().timestamp(),
+        });
 
     // Initialize default risk config for pause switches
     let default_config = RiskConfig {
@@ -199,7 +198,10 @@ pub fn require_admin(env: &Env, caller: &Address) -> Result<(), RiskManagementEr
 /// Get current risk configuration
 pub fn get_risk_config(env: &Env) -> Option<RiskConfig> {
     let config_key = RiskDataKey::RiskConfig;
-    let mut config = env.storage().persistent().get::<RiskDataKey, RiskConfig>(&config_key)?;
+    let mut config = env
+        .storage()
+        .persistent()
+        .get::<RiskDataKey, RiskConfig>(&config_key)?;
 
     if let Some(params) = crate::risk_params::get_risk_params(env) {
         config.min_collateral_ratio = params.min_collateral_ratio;
@@ -211,8 +213,6 @@ pub fn get_risk_config(env: &Env) -> Option<RiskConfig> {
 
     Some(config)
 }
-
-
 
 /// Set pause switches (admin only)
 ///
@@ -371,10 +371,6 @@ pub fn check_emergency_pause(env: &Env) -> Result<(), RiskManagementError> {
     }
     Ok(())
 }
-
-
-
-
 
 /// Emit pause switch updated event
 fn emit_pause_switch_updated_event(env: &Env, caller: &Address, operation: &Symbol, paused: bool) {

@@ -1,4 +1,4 @@
-use crate::bridge::{BridgeContract, ContractError};
+use crate::bridge::BridgeContract;
 use soroban_sdk::Env;
 
 #[test]

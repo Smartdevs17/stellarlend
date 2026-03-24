@@ -21,7 +21,10 @@
 //! - Interest is accrued on the borrower's position before liquidation.
 
 #![allow(unused)]
-use crate::events::{emit_liquidation, emit_liquidation_fee_collected, LiquidationEvent, LiquidationFeeCollectedEvent};
+use crate::events::{
+    emit_liquidation, emit_liquidation_fee_collected, LiquidationEvent,
+    LiquidationFeeCollectedEvent,
+};
 use soroban_sdk::{contracterror, Address, Env, IntoVal, Map, Symbol, Val, Vec};
 
 use crate::deposit::{
@@ -214,7 +217,8 @@ pub fn liquidate(
     }
 
     // Check for reentrancy
-    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| LiquidationError::Reentrancy)?;
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| LiquidationError::Reentrancy)?;
 
     // Check emergency pause
     if is_emergency_paused(env) {
@@ -482,8 +486,13 @@ pub fn liquidate(
     // Also update per-asset tracking if the borrower has multi-asset collateral
     if let Some(ref collateral_addr) = collateral_asset {
         if crate::multi_collateral::has_multi_asset_collateral(env, &borrower) {
-            crate::deposit::record_asset_withdrawal(env, &borrower, collateral_addr, actual_collateral_seized)
-                .map_err(|_| LiquidationError::Overflow)?;
+            crate::deposit::record_asset_withdrawal(
+                env,
+                &borrower,
+                collateral_addr,
+                actual_collateral_seized,
+            )
+            .map_err(|_| LiquidationError::Overflow)?;
         }
     }
 
