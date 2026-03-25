@@ -94,12 +94,31 @@ export class StellarService {
           { tx: txXdr },
           { timeout }
         );
-        const data = response.data as { hash: string; ledger: number };
+        // Horizon and other RPCs can return slightly different shapes; the only
+        // reliable indicator we validate here is `successful` when present.
+        const data = response.data as any;
+        const successful: unknown = data?.successful;
+        const transactionHash: string | undefined =
+          data?.hash ?? data?.transaction_hash ?? data?.transactionHash;
+        const ledger: number | undefined = data?.ledger ?? data?.ledger_index ?? data?.ledgerIndex;
+
+        if (successful === false) {
+          return {
+            success: false,
+            transactionHash,
+            status: 'failed',
+            error: 'Transaction failed on-chain',
+            message: 'Provider reported on-chain failure despite successful HTTP submission',
+            ledger,
+            details: data,
+          };
+        }
+
         return {
           success: true,
-          transactionHash: data.hash,
+          transactionHash,
           status: 'success',
-          ledger: data.ledger,
+          ledger,
         };
       } catch (error: any) {
         const status = error?.response?.status as number | undefined;

@@ -31,28 +31,9 @@ pub mod types;
 pub mod withdraw;
 
 use crate::analytics::AnalyticsError;
-use crate::deposit::DepositDataKey;
 use crate::deposit::Position;
 use crate::interest_rate::InterestRateError;
 use crate::risk_management::RiskManagementError;
-
-// ─── Admin helper ─────────────────────────────────────────────────────────────
-
-/// Require that `caller` is the stored admin; panics via `?` on failure.
-fn require_admin(env: &Env, caller: &Address) -> Result<(), RiskManagementError> {
-    caller.require_auth();
-    let admin_key = DepositDataKey::Admin;
-    let admin = env
-        .storage()
-        .persistent()
-        .get::<DepositDataKey, Address>(&admin_key)
-        .ok_or(RiskManagementError::Unauthorized)?;
-
-    if caller != &admin {
-        return Err(RiskManagementError::Unauthorized);
-    }
-    Ok(())
-}
 
 /// The StellarLend core contract.
 #[contract]
@@ -132,7 +113,8 @@ impl HelloContract {
         close_factor: Option<i128>,
         liquidation_incentive: Option<i128>,
     ) -> Result<(), RiskManagementError> {
-        require_admin(&env, &caller)?;
+        // Authorization is handled by risk_management::require_admin.
+        risk_management::require_admin(&env, &caller)?;
         risk_params::set_risk_params(
             &env,
             min_collateral_ratio,
@@ -194,7 +176,8 @@ impl HelloContract {
         caller: Address,
         paused: bool,
     ) -> Result<(), RiskManagementError> {
-        require_admin(&env, &caller)?;
+        // Authorization is handled by risk_management::require_admin.
+        risk_management::require_admin(&env, &caller)?;
         risk_management::set_emergency_pause(&env, caller, paused)
     }
 

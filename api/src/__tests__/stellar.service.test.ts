@@ -232,6 +232,29 @@ describe('StellarService', () => {
       expect(result.ledger).toBe(12345);
     });
 
+    it('returns failure when provider reports unsuccessful on-chain execution (HTTP 200)', async () => {
+      mockedAxios.post.mockResolvedValue({
+        data: {
+          hash: 'tx_hash_456',
+          ledger: 12346,
+          successful: false,
+          extras: { result_codes: { transaction: 'tx_bad_seq' } },
+        },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: { url: '' },
+      });
+
+      const result = await service.submitTransaction('mock_tx_xdr');
+
+      expect(result.success).toBe(false);
+      expect(result.status).toBe('failed');
+      expect(result.transactionHash).toBe('tx_hash_456');
+      expect(result.error).toBe('Transaction failed on-chain');
+      expect(result.details).toBeDefined();
+    });
+
     it('should handle transaction submission failure', async () => {
       mockedAxios.post.mockImplementation(() =>
         mockAxiosReject({

@@ -21,8 +21,33 @@ export const amountValidation = [
   check('amount')
     .notEmpty()
     .withMessage('Amount is required')
-    .isFloat({ min: 0.0000001 })
-    .withMessage('Amount must be greater than 0'),
+    .custom((value) => {
+      const errMsg = 'Amount must be a valid positive integer';
+
+      try {
+        const str = String(value).trim();
+
+        // Strict integer check: reject floats, scientific notation, empty, etc.
+        if (!/^\+?\d+$/.test(str)) {
+          throw new Error(errMsg);
+        }
+
+        const amount = BigInt(str);
+        if (amount <= 0n) {
+          throw new Error(errMsg);
+        }
+
+        // Ensure it fits into signed i128 which is what the contract expects.
+        const maxI128 = (1n << 127n) - 1n;
+        if (amount > maxI128) {
+          throw new Error(errMsg);
+        }
+
+        return true;
+      } catch {
+        throw new Error(errMsg);
+      }
+    }),
 ];
 
 /**

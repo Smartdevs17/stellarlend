@@ -47,6 +47,11 @@ export interface TransactionResponse {
   message?: string;
   error?: string;
   ledger?: number;
+  /**
+   * Optional raw provider payload for debugging (e.g. Horizon or RPC result details).
+   * Kept generic since provider response shapes differ.
+   */
+  details?: unknown;
 }
 
 export interface PositionResponse {
