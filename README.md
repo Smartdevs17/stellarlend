@@ -150,6 +150,18 @@ This script runs:
 - Security audit (`cargo audit`)
 - Documentation generation
 
+## Docker Quickstart
+
+To run the project locally without manually installing Node.js dependencies, you can use Docker:
+
+1. Ensure you have [Docker](https://docs.docker.com/get-docker/) and Docker Compose installed.
+2. Create your local environment files at `api/.env` and `oracle/.env` (use `.env.example` as a template).
+3. From the root directory, build and start the containers:
+   ```bash
+   docker-compose up --build
+   ```
+4. The API will be accessible at http://localhost:3000.
+
 ### Network Deployment
 
 #### Deploy to Testnet
