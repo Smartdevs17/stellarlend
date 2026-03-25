@@ -24,9 +24,10 @@ const httpsAgent = new https.Agent({
  */
 export abstract class BasePriceProvider {
   protected config: ProviderConfig;
-  protected lastRequestTime: number = 0;
-  protected requestCount: number = 0;
-  protected windowStartTime: number = Date.now();
+  // Sliding-window rate limit state: store timestamps (ms) for recent requests.
+  // We keep timestamps for requests that are still within the active window.
+  protected requestTimestamps: number[] = [];
+  private rateLimitChain: Promise<void> = Promise.resolve();
 
   constructor(config: ProviderConfig) {
     this.config = config;
@@ -116,24 +117,37 @@ export abstract class BasePriceProvider {
    * Enforce rate limiting
    */
   protected async enforceRateLimit(): Promise<void> {
-    const now = Date.now();
+    // Serialize rate-limit state updates so concurrent requests cannot
+    // all pass the same counter check in parallel.
+    const run = this.rateLimitChain.then(() => this.enforceRateLimitInternal());
+    this.rateLimitChain = run.catch(() => undefined);
+    await run;
+  }
+
+  private async enforceRateLimitInternal(): Promise<void> {
     const { maxRequests, windowMs } = this.config.rateLimit;
 
-    if (now - this.windowStartTime >= windowMs) {
-      this.windowStartTime = now;
-      this.requestCount = 0;
-    }
+    // Loop until the request can be accepted under a moving window.
+    // We use an inclusive window definition (requests at exactly `windowMs`
+    // age are still counted) to prevent boundary bursts.
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const now = Date.now();
 
-    if (this.requestCount >= maxRequests) {
-      const waitTime = windowMs - (now - this.windowStartTime);
+      // Keep requests that are within the last windowMs (inclusive).
+      // That means remove only those strictly older than windowMs.
+      this.requestTimestamps = this.requestTimestamps.filter((t) => now - t <= windowMs);
+
+      if (this.requestTimestamps.length < maxRequests) {
+        this.requestTimestamps.push(now);
+        return;
+      }
+
+      const earliest = this.requestTimestamps[0];
+      const waitTime = Math.max(0, earliest + windowMs - now + 1);
       logger.warn(`Rate limit reached for ${this.name}, waiting ${waitTime}ms`);
       await this.sleep(waitTime);
-      this.windowStartTime = Date.now();
-      this.requestCount = 0;
     }
-
-    this.requestCount++;
-    this.lastRequestTime = now;
   }
 
   /**

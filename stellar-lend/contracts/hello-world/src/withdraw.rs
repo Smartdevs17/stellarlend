@@ -177,7 +177,8 @@ pub fn withdraw_collateral(
     }
 
     // Check for reentrancy
-    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| WithdrawError::Reentrancy)?;
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| WithdrawError::Reentrancy)?;
 
     // Check if withdrawals are paused
     let pause_switches_key = DepositDataKey::PauseSwitches;
@@ -256,11 +257,11 @@ pub fn withdraw_collateral(
     env.storage().persistent().set(&position_key, &position);
 
     // Handle asset transfer
-    if let Some(ref asset_addr) = asset {
+    if let Some(ref _asset_addr) = asset {
         // Transfer tokens from contract to user
         #[cfg(not(test))]
         {
-            let token_client = soroban_sdk::token::Client::new(env, asset_addr);
+            let token_client = soroban_sdk::token::Client::new(env, _asset_addr);
             token_client.transfer(
                 &env.current_contract_address(), // from (this contract)
                 &user,                           // to (user)

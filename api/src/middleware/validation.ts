@@ -21,11 +21,40 @@ export const amountValidation = [
   check('amount')
     .notEmpty()
     .withMessage('Amount is required')
-    .isFloat({ min: 0.0000001 })
-    .withMessage('Amount must be greater than 0'),
+    .custom((value) => {
+      const errMsg = 'Amount must be a valid positive integer';
+
+      try {
+        const str = String(value).trim();
+
+        // Strict integer check: reject floats, scientific notation, empty, etc.
+        if (!/^\+?\d+$/.test(str)) {
+          throw new Error(errMsg);
+        }
+
+        const amount = BigInt(str);
+        if (amount <= 0n) {
+          throw new Error(errMsg);
+        }
+
+        // Ensure it fits into signed i128 which is what the contract expects.
+        const maxI128 = (1n << 127n) - 1n;
+        if (amount > maxI128) {
+          throw new Error(errMsg);
+        }
+
+        return true;
+      } catch {
+        throw new Error(errMsg);
+      }
+    }),
 ];
 
-export const prepareValidation = [
+/**
+ * Factory function to create lending validation middleware
+ * Allows for future customization per operation if needed
+ */
+const createLendingValidation = () => [
   param('operation')
     .isIn(VALID_OPERATIONS)
     .withMessage(`Operation must be one of: ${VALID_OPERATIONS.join(', ')}`),
@@ -43,13 +72,15 @@ export const prepareValidation = [
   validateRequest,
 ];
 
+export const prepareValidation = createLendingValidation();
+
 export const submitValidation = [
   body('signedXdr').isString().notEmpty().withMessage('signedXdr is required'),
   validateRequest,
 ];
 
 // Kept for backward compatibility — deprecated, will be removed in v2
-export const depositValidation = prepareValidation;
-export const borrowValidation = prepareValidation;
-export const repayValidation = prepareValidation;
-export const withdrawValidation = prepareValidation;
+export const depositValidation = createLendingValidation();
+export const borrowValidation = createLendingValidation();
+export const repayValidation = createLendingValidation();
+export const withdrawValidation = createLendingValidation();

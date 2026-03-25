@@ -16,7 +16,7 @@ use crate::events::{
     GovernanceInitializedEvent, GuardianAddedEvent, GuardianRemovedEvent, ProposalApprovedEvent,
     ProposalCancelledEvent, ProposalCreatedEvent, ProposalExecutedEvent, ProposalFailedEvent,
     ProposalQueuedEvent, RecoveryApprovedEvent, RecoveryExecutedEvent, RecoveryStartedEvent,
-    VoteCastEvent, emit_proposal_approved,
+    VoteCastEvent,
 };
 
 use crate::{interest_rate, risk_management, risk_params};
@@ -98,7 +98,6 @@ pub fn initialize(
 
     Ok(())
 }
-
 
 // ========================================================================
 // Proposal Creation
@@ -528,7 +527,7 @@ pub fn create_admin_proposal(
         .set(&GovernanceDataKey::NextProposalId, &(proposal_id + 1));
 
     emit_proposal_created_event(env, &proposal_id, &admin);
-    
+
     let topics = (Symbol::new(env, "proposal_queued"), proposal_id);
     env.events().publish(topics, execution_time);
 
@@ -547,7 +546,7 @@ pub fn create_emergency_proposal(
     // but for "emergency bypass" we can allow direct execution if called by a valid multisig admin
     // assuming it's correctly authorized by the multisig threshold.
     // In this simplified version, we'll check against multisig admins.
-    
+
     let multisig_config: MultisigConfig = env
         .storage()
         .instance()
@@ -828,6 +827,7 @@ fn emit_proposal_created_event(env: &Env, proposal_id: &u64, proposer: &Address)
     env.events().publish(topics, ());
 }
 
+#[allow(dead_code)]
 fn emit_vote_cast_event(
     env: &Env,
     proposal_id: &u64,
@@ -848,12 +848,11 @@ pub fn emit_proposal_executed_event(env: &Env, proposal_id: &u64, executor: &Add
     env.events().publish(topics, ());
 }
 
+#[allow(dead_code)]
 fn emit_proposal_failed_event(env: &Env, proposal_id: &u64) {
     let topics = (Symbol::new(env, "proposal_failed"), *proposal_id);
     env.events().publish(topics, ());
 }
-
-
 
 pub fn add_guardian(env: &Env, caller: Address, guardian: Address) -> Result<(), GovernanceError> {
     caller.require_auth();

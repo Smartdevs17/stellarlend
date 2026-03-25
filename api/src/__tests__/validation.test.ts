@@ -1,5 +1,8 @@
 import request from 'supertest';
 import app from '../app';
+import express from 'express';
+import { prepareValidation } from '../middleware/validation';
+import { errorHandler } from '../middleware/errorHandler';
 
 const VALID_ADDRESS = 'GDZZJ3UPZZCKY5DBH6ZGMPMRORRBG4ECIORASBUAXPPNCL4SYRHNLYU2';
 
@@ -68,7 +71,7 @@ describe('Validation Middleware', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain('Amount must be greater than 0');
+      expect(response.body.error).toContain('Amount must be a valid positive integer');
     });
 
     it('should reject negative amount', async () => {
@@ -80,7 +83,53 @@ describe('Validation Middleware', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain('Amount must be greater than 0');
+      expect(response.body.error).toContain('Amount must be a valid positive integer');
+    });
+
+    it('should reject non-integer amount strings', async () => {
+      const res = await request(app)
+        .get('/api/lending/prepare/deposit')
+        .query({ userAddress: VALID_ADDRESS, assetAddress: 'G...', amount: '1.5' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Amount must be a valid positive integer');
+    });
+
+    it('should reject non-numeric amount strings', async () => {
+      const res = await request(app)
+        .get('/api/lending/prepare/deposit')
+        .query({ userAddress: VALID_ADDRESS, assetAddress: 'G...', amount: 'abc' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Amount must be a valid positive integer');
+    });
+
+    it('should reject empty amount strings', async () => {
+      const res = await request(app)
+        .get('/api/lending/prepare/deposit')
+        .query({ userAddress: VALID_ADDRESS, assetAddress: 'G...', amount: '' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Amount is required');
+    });
+
+    it('should accept very large valid integers (within i128)', async () => {
+      // Max i128 = 2^127 - 1
+      const maxI128 = '170141183460469231731687303715884105727';
+
+      // Validate middleware acceptance without relying on external Horizon/Soroban availability.
+      const testApp = express();
+      testApp.use(express.json());
+      testApp.get('/api/lending/prepare/:operation', prepareValidation, (req, res) => {
+        res.status(200).json({ ok: true });
+      });
+      testApp.use(errorHandler);
+
+      const res = await request(testApp)
+        .get('/api/lending/prepare/deposit')
+        .query({ userAddress: VALID_ADDRESS, assetAddress: 'G...', amount: maxI128 });
+
+      expect(res.status).toBe(200);
     });
 
     it('should reject invalid operation', async () => {

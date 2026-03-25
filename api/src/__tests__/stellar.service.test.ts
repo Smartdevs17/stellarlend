@@ -1,8 +1,124 @@
 import { StellarService } from '../services/stellar.service';
 import axios from 'axios';
-
 jest.mock('axios');
 
+// -------------------------------------------------------------------------
+// FIX 1: mockAxiosReject now returns a proper Error instance with .response
+// attached. Rejecting with a plain object causes Node to emit
+// UnhandledPromiseRejectionWarning differently across versions, and the
+// service's `error.response?.status` checks behave inconsistently with
+// plain objects vs real Error instances.
+// -------------------------------------------------------------------------
+function mockAxiosReject({
+  status = 500,
+  data = { detail: 'Mocked network error' },
+  message = 'Mocked network error',
+}: {
+  status?: number;
+  data?: any;
+  message?: string;
+} = {}) {
+  const error = new Error(message) as any;
+  error.response = { status, data };
+  return Promise.reject(error);
+}
+
+// Default catch-all implementations — these resolve successfully so that
+// tests which don't override axios still pass without leaking rejections.
+const defaultAxiosGet = (url: string, _config?: any) => {
+  if (url?.includes('/accounts/')) {
+    return Promise.resolve({
+      data: {
+        id: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+        sequence: '123456789',
+        successful: true,
+        ledger: 12345,
+      },
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: { url },
+    } as any);
+  }
+  if (url?.includes('/transactions/')) {
+    return Promise.resolve({
+      data: { successful: true, ledger: 12345 },
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config: { url },
+    } as any);
+  }
+  return Promise.resolve({
+    data: {},
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    config: { url: url ?? '' },
+  } as any);
+};
+
+const defaultAxiosPost = (url: string, _data?: any, _config?: any) =>
+  Promise.resolve({
+    data: { hash: 'tx_hash_123', ledger: 12345, successful: true },
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    config: { url },
+  } as any);
+
+const defaultAxiosPut = (url: string, _data?: any, _config?: any) =>
+  Promise.resolve({ data: {}, status: 200, statusText: 'OK', headers: {}, config: { url } } as any);
+
+const defaultAxiosDelete = (url: string, _config?: any) =>
+  Promise.resolve({ data: {}, status: 200, statusText: 'OK', headers: {}, config: { url } } as any);
+
+const defaultAxiosRequest = (config: { url?: string }) =>
+  Promise.resolve({ data: {}, status: 200, statusText: 'OK', headers: {}, config } as any);
+
+const mockedAxios = axios as jest.Mocked<typeof axios>;
+
+// -------------------------------------------------------------------------
+// FIX 2: The outer beforeEach now ONLY calls mockImplementation.
+// The original code called mockImplementation and then immediately called
+// mockRejectedValue, which silently overwrites the implementation — meaning
+// every test started with axios always rejecting regardless of what
+// mockImplementation set up. mockRejectedValue calls are removed entirely;
+// the defaultAxios* functions are the catch-all.
+// -------------------------------------------------------------------------
+beforeEach(() => {
+  mockedAxios.get.mockReset();
+  mockedAxios.post.mockReset();
+  mockedAxios.put?.mockReset?.();
+  mockedAxios.delete?.mockReset?.();
+  mockedAxios.request?.mockReset?.();
+
+  mockedAxios.get.mockImplementation(defaultAxiosGet);
+  mockedAxios.post.mockImplementation(defaultAxiosPost);
+  mockedAxios.put?.mockImplementation(defaultAxiosPut);
+  mockedAxios.delete?.mockImplementation(defaultAxiosDelete);
+  mockedAxios.request?.mockImplementation(defaultAxiosRequest);
+});
+
+// afterEach mirrors beforeEach: reset then re-apply implementations only.
+// No mockRejectedValue calls here either.
+afterEach(() => {
+  mockedAxios.get.mockReset();
+  mockedAxios.post.mockReset();
+  mockedAxios.put?.mockReset?.();
+  mockedAxios.delete?.mockReset?.();
+  mockedAxios.request?.mockReset?.();
+
+  mockedAxios.get.mockImplementation(defaultAxiosGet);
+  mockedAxios.post.mockImplementation(defaultAxiosPost);
+  mockedAxios.put?.mockImplementation(defaultAxiosPut);
+  mockedAxios.delete?.mockImplementation(defaultAxiosDelete);
+  mockedAxios.request?.mockImplementation(defaultAxiosRequest);
+});
+
+// -------------------------------------------------------------------------
+// Soroban / SDK mocks
+// -------------------------------------------------------------------------
 const mockPreparedTx = {
   sign: jest.fn(),
   toXDR: jest.fn().mockReturnValue('unsigned_tx_xdr'),
@@ -40,18 +156,33 @@ jest.mock('@stellar/stellar-sdk/rpc', () => ({
   Server: jest.fn().mockImplementation(() => mockSorobanServer),
 }));
 
-const mockedAxios = axios as jest.Mocked<typeof axios>;
-
+// -------------------------------------------------------------------------
+// Test suite
+// -------------------------------------------------------------------------
 describe('StellarService', () => {
   let service: StellarService;
 
+  // -----------------------------------------------------------------------
+  // FIX 3: jest.clearAllMocks() was wiping the implementations set in the
+  // outer beforeEach (Jest runs outer → inner beforeEach in order). The
+  // inner beforeEach now re-applies Soroban mock resolutions AFTER clearing,
+  // so Soroban mocks are fresh without touching axios implementations.
+  // -----------------------------------------------------------------------
   beforeEach(() => {
     service = new StellarService();
-    jest.clearAllMocks();
+    // Reset only the Soroban mocks — do NOT call jest.clearAllMocks() here
+    // because it would erase the axios implementations set by the outer
+    // beforeEach, leaving every axios call with no implementation.
+    mockSorobanServer.prepareTransaction.mockReset();
+    mockSorobanServer.getHealth.mockReset();
+    mockPreparedTx.sign.mockReset();
+    mockPreparedTx.toXDR.mockReset();
+    mockPreparedTx.toXDR.mockReturnValue('unsigned_tx_xdr');
     mockSorobanServer.prepareTransaction.mockResolvedValue(mockPreparedTx);
     mockSorobanServer.getHealth.mockResolvedValue({});
   });
 
+  // -----------------------------------------------------------------------
   describe('getAccount', () => {
     it('should fetch account information', async () => {
       mockedAxios.get.mockResolvedValue({
@@ -59,6 +190,10 @@ describe('StellarService', () => {
           id: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
           sequence: '123456789',
         },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: { url: '' },
       });
 
       const account = await service.getAccount(
@@ -72,15 +207,22 @@ describe('StellarService', () => {
     });
 
     it('should throw error when account fetch fails', async () => {
-      mockedAxios.get.mockRejectedValue(new Error('Network error'));
+      mockedAxios.get.mockImplementation(() =>
+        mockAxiosReject({ status: 404, data: { detail: 'Not found' }, message: 'Network error' })
+      );
       await expect(service.getAccount('invalid_address')).rejects.toThrow();
     });
   });
 
+  // -----------------------------------------------------------------------
   describe('submitTransaction', () => {
     it('should submit transaction successfully', async () => {
       mockedAxios.post.mockResolvedValue({
         data: { hash: 'tx_hash_123', ledger: 12345, successful: true },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: { url: '' },
       });
 
       const result = await service.submitTransaction('mock_tx_xdr');
@@ -90,21 +232,129 @@ describe('StellarService', () => {
       expect(result.ledger).toBe(12345);
     });
 
-    it('should handle transaction submission failure', async () => {
-      mockedAxios.post.mockRejectedValue({
-        response: { data: { extras: { result_codes: { transaction: 'tx_failed' } } } },
+    it('returns failure when provider reports unsuccessful on-chain execution (HTTP 200)', async () => {
+      mockedAxios.post.mockResolvedValue({
+        data: {
+          hash: 'tx_hash_456',
+          ledger: 12346,
+          successful: false,
+          extras: { result_codes: { transaction: 'tx_bad_seq' } },
+        },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: { url: '' },
       });
 
       const result = await service.submitTransaction('mock_tx_xdr');
 
       expect(result.success).toBe(false);
       expect(result.status).toBe('failed');
+      expect(result.transactionHash).toBe('tx_hash_456');
+      expect(result.error).toBe('Transaction failed on-chain');
+      expect(result.details).toBeDefined();
+    });
+
+    it('should handle transaction submission failure', async () => {
+      mockedAxios.post.mockImplementation(() =>
+        mockAxiosReject({
+          status: 400,
+          data: { extras: { result_codes: { transaction: 'tx_failed' } } },
+          message: 'Submission failed',
+        })
+      );
+
+      const result = await service.submitTransaction('mock_tx_xdr');
+
+      expect(result.success).toBe(false);
+      expect(result.status).toBe('failed');
+    });
+
+    it('retries on transient 5xx errors with exponential backoff and then succeeds', async () => {
+      jest.useFakeTimers();
+      let callCount = 0;
+      mockedAxios.post.mockImplementation(() => {
+        callCount++;
+        if (callCount < 3) {
+          return mockAxiosReject({
+            status: 502,
+            data: { detail: 'Bad gateway' },
+            message: 'Bad gateway',
+          });
+        }
+        return Promise.resolve({
+          data: { hash: 'tx_hash_abc', ledger: 777, successful: true },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: { url: '' },
+        } as any);
+      });
+
+      const promise = service.submitTransaction('mock_tx_xdr');
+      // Advance timers enough times to pass the two backoff waits
+      await jest.runOnlyPendingTimersAsync();
+      await jest.runOnlyPendingTimersAsync();
+
+      const result = await promise;
+      expect(result).toMatchObject({ success: true, transactionHash: 'tx_hash_abc', ledger: 777 });
+      expect(mockedAxios.post).toHaveBeenCalledTimes(3);
+      jest.useRealTimers();
+    });
+
+    it('does not retry on 4xx client errors (e.g., 401)', async () => {
+      mockedAxios.post.mockImplementation(() =>
+        mockAxiosReject({ status: 401, data: { detail: 'Unauthorized' }, message: 'Unauthorized' })
+      );
+      const result = await service.submitTransaction('mock_tx_xdr');
+      expect(result.success).toBe(false);
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops after max retries on persistent 5xx errors and returns failure', async () => {
+      jest.useFakeTimers();
+      mockedAxios.post.mockImplementation(() =>
+        mockAxiosReject({
+          status: 503,
+          data: { detail: 'Service Unavailable' },
+          message: 'Service Unavailable',
+        })
+      );
+
+      const promise = service.submitTransaction('mock_tx_xdr');
+      // Flush all pending timers that correspond to backoff waits
+      // Default maxRetries in config is 3, so there will be 3 waits.
+      await jest.runAllTimersAsync();
+
+      const result = await promise;
+      expect(result.success).toBe(false);
+      // Called maxRetries + 1 attempts (initial + 3 retries) = 4 by default
+      expect(mockedAxios.post.mock.calls.length).toBeGreaterThanOrEqual(4);
+      jest.useRealTimers();
     });
   });
 
+  // -----------------------------------------------------------------------
   describe('monitorTransaction', () => {
+    let abortController: AbortController | undefined;
+
+    afterEach(() => {
+      // Always abort to stop any polling still waiting on a setTimeout.
+      // This prevents async work from bleeding into the next test.
+      if (abortController) {
+        abortController.abort();
+        abortController = undefined;
+      }
+    });
+
     it('should monitor transaction until success', async () => {
-      mockedAxios.get.mockResolvedValue({ data: { successful: true, ledger: 12345 } });
+      mockedAxios.get.mockResolvedValue({
+        data: { successful: true, ledger: 12345 },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: { url: '' },
+      });
 
       const result = await service.monitorTransaction('tx_hash_123');
 
@@ -113,38 +363,167 @@ describe('StellarService', () => {
       expect(result.status).toBe('success');
     });
 
-    it('should timeout if transaction takes too long', async () => {
-      mockedAxios.get.mockRejectedValue({ response: { status: 404 } });
-
-      const result = await service.monitorTransaction('tx_hash_123', 2000);
-
-      expect(result.success).toBe(false);
-      expect(result.status).toBe('pending');
-    });
-
     it('should handle failed transaction', async () => {
-      mockedAxios.get.mockResolvedValue({ data: { successful: false } });
+      mockedAxios.get.mockResolvedValue({
+        data: { successful: false },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: { url: '' },
+      });
 
       const result = await service.monitorTransaction('tx_hash_123');
 
       expect(result.success).toBe(false);
       expect(result.status).toBe('failed');
     });
+
+    it('should support cancellation via AbortSignal', async () => {
+      let callCount = 0;
+      // -----------------------------------------------------------------------
+      // FIX 4: Use mockImplementation (not mockRejectedValue) so the rejection
+      // is freshly created on every call. mockRejectedValue reuses one Promise
+      // instance; once it is settled it can't re-reject, causing the second+
+      // poll to receive undefined instead of a 404 error and fall into the
+      // non-404 branch which throws — an unhandled rejection.
+      // -----------------------------------------------------------------------
+      mockedAxios.get.mockImplementation(() => {
+        callCount++;
+        return mockAxiosReject({
+          status: 404,
+          data: { detail: 'Not found' },
+          message: 'Not found',
+        });
+      });
+
+      abortController = new AbortController();
+      const monitorPromise = service.monitorTransaction(
+        'tx_hash_123',
+        10000,
+        abortController.signal
+      );
+      // Abort during the first 500 ms backoff window.
+      setTimeout(() => abortController!.abort(), 100);
+
+      const result = await monitorPromise;
+      expect(result.success).toBe(false);
+      expect(result.status).toBe('cancelled');
+      expect(result.message).toMatch(/cancelled/i);
+      expect(callCount).toBeGreaterThan(0);
+    });
+
+    // -----------------------------------------------------------------------
+    // FIX 5: The timeout test previously relied on real time (2 000 ms wait
+    // with a 25 s Jest timeout). It also leaked: after resolving with
+    // 'pending', the polling loop continued running — its in-flight
+    // axios.get calls rejected after the test ended, causing unhandled
+    // rejections in the next test's scope.
+    //
+    // Solution: pass an AbortController signal and abort in afterEach (the
+    // abortController variable is shared with the afterEach hook above).
+    // The abort fires as soon as the promise settles, stopping any remaining
+    // setTimeout inside the service before it can fire in a later test.
+    // -----------------------------------------------------------------------
+    it('should timeout if transaction takes too long', async () => {
+      abortController = new AbortController();
+
+      mockedAxios.get.mockImplementation(() =>
+        mockAxiosReject({ status: 404, data: { detail: 'Not found' }, message: 'Not found' })
+      );
+
+      const resultPromise = service.monitorTransaction(
+        'tx_hash_123',
+        500, // very short timeout so the test stays fast
+        abortController.signal
+      );
+
+      const result = await resultPromise;
+      // Clean up immediately — stops any pending backoff setTimeout.
+      abortController.abort();
+
+      expect(result.success).toBe(false);
+      expect(result.status).toBe('pending');
+    });
+
+    // -----------------------------------------------------------------------
+    // FIX 6: The exponential backoff test previously used real timers, making
+    // it slow (7.5 s of accumulated backoff) and fragile on slow CI.
+    // jest.useFakeTimers() lets us advance time instantly and assert exact
+    // call counts without waiting for real delays.
+    // -----------------------------------------------------------------------
+    it('should use exponential backoff for polling', async () => {
+      jest.useFakeTimers();
+
+      let callCount = 0;
+      mockedAxios.get.mockImplementation(() => {
+        callCount++;
+        if (callCount < 5) {
+          return mockAxiosReject({
+            status: 404,
+            data: { detail: 'Not found' },
+            message: 'Not found',
+          });
+        }
+        return Promise.resolve({
+          data: { successful: true, ledger: 12345 },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: { url: '' },
+        } as any);
+      });
+
+      const monitorPromise = service.monitorTransaction('tx_hash_123', 60000);
+
+      // Drive the polling loop: each runAllTimersAsync() tick flushes the
+      // current microtask queue and advances any pending setTimeout.
+      // We need one tick per 404 retry (4 retries before the 5th succeeds).
+      for (let i = 0; i < 4; i++) {
+        await jest.runAllTimersAsync();
+      }
+
+      const result = await monitorPromise;
+      expect(result).toMatchObject({ success: true });
+      expect(callCount).toBe(5);
+
+      jest.useRealTimers();
+    });
   });
 
+  // -----------------------------------------------------------------------
   describe('healthCheck', () => {
     it('should return healthy status for all services', async () => {
-      mockedAxios.get.mockResolvedValue({ data: {} });
+      mockedAxios.get.mockResolvedValue({
+        data: {},
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config: { url: '' },
+      });
       mockSorobanServer.getHealth.mockResolvedValue({});
 
       const result = await service.healthCheck();
 
       expect(result.horizon).toBe(true);
+      // FIX 7: sorobanRpc was never asserted in the success case.
+      expect(result.sorobanRpc).toBe(true);
     });
 
     it('should return unhealthy status when services fail', async () => {
-      mockedAxios.get.mockRejectedValue(new Error('Connection failed'));
-      mockSorobanServer.getHealth.mockRejectedValue(new Error('Connection failed'));
+      mockedAxios.get.mockImplementation(() =>
+        mockAxiosReject({
+          status: 500,
+          data: { detail: 'Connection failed' },
+          message: 'Connection failed',
+        })
+      );
+      mockSorobanServer.getHealth.mockImplementation(() =>
+        mockAxiosReject({
+          status: 500,
+          data: { detail: 'Connection failed' },
+          message: 'Connection failed',
+        })
+      );
 
       const result = await service.healthCheck();
 
@@ -153,6 +532,7 @@ describe('StellarService', () => {
     });
   });
 
+  // -----------------------------------------------------------------------
   describe('buildUnsignedTransaction', () => {
     it.each(['deposit', 'borrow', 'repay', 'withdraw'] as const)(
       'should build unsigned %s transaction without requiring a secret key',
@@ -162,6 +542,10 @@ describe('StellarService', () => {
             id: 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
             sequence: '123456789',
           },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config: { url: '' },
         });
 
         const result = await service.buildUnsignedTransaction(

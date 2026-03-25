@@ -1,9 +1,9 @@
 #![no_std]
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Val, Vec};
 
-mod events;
 mod borrow;
 mod deposit;
+mod events;
 mod flash_loan;
 mod pause;
 mod token_receiver;
@@ -46,21 +46,21 @@ mod upgrade;
 #[cfg(test)]
 mod borrow_test;
 #[cfg(test)]
+mod data_store_test;
+#[cfg(test)]
 mod deposit_test;
 #[cfg(test)]
 mod flash_loan_test;
+#[cfg(test)]
+mod math_safety_test;
 #[cfg(test)]
 mod pause_test;
 #[cfg(test)]
 mod token_receiver_test;
 #[cfg(test)]
-mod views_test;
-#[cfg(test)]
-mod data_store_test;
-#[cfg(test)]
-mod math_safety_test;
-#[cfg(test)]
 mod upgrade_test;
+#[cfg(test)]
+mod views_test;
 #[cfg(test)]
 mod withdraw_test;
 

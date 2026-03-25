@@ -346,6 +346,8 @@ Before deploying to mainnet:
 - [ ] Contract IDs recorded in an internal infrastructure registry
 - [ ] `initialize` called once; second call confirmed to fail with `AlreadyInitialized`
 - [ ] Admin transferred to multisig after initialization
+- [ ] HTTPS/SSL certificate configured and verified
+- [ ] `x-forwarded-proto` header correctly passed by proxy (if applicable)
 - [ ] Oracle price feeds configured via `update_price_feed`
 - [ ] Emergency pause tested: `set_emergency_pause(admin, true)` → confirmed paused
 - [ ] Emergency pause disabled before launch: `set_emergency_pause(admin, false)`
@@ -431,7 +433,25 @@ stellar contract invoke \
 
 ---
 
-## 10. Security assumptions
+## 10. API Security & HTTPS
+
+The StellarLend API handles sensitive information, including Stellar private keys and transaction XDRs. To protect against man-in-the-middle attacks, the API enforces secure connections when running in production.
+
+### HTTPS Enforcement
+When `NODE_ENV=production`, the API server:
+1. **Redirects HTTP to HTTPS**: Any request made over unencrypted HTTP is automatically redirected to its HTTPS equivalent.
+2. **HSTS (HTTP Strict Transport Security)**: The server sends HSTS headers to instruct browsers and clients to only use HTTPS for future communications.
+   - `max-age`: 1 year (31,536,000 seconds)
+   - `includeSubDomains`: Applied to all subdomains
+   - `preload`: Opt-in for browser preload lists
+
+### Deployment Requirements
+For production deployments (e.g., Mainnet), you **must** provide a valid SSL/TLS certificate.
+- If deploying behind a load balancer or proxy (like AWS ELB, Nginx, or Vercel), ensure it is configured to pass the `x-forwarded-proto` header so the API can correctly detect the secure connection.
+
+---
+
+## 11. Security assumptions
 
 | Assumption | Mitigation |
 |---|---|
@@ -451,7 +471,7 @@ stellar contract invoke \
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 ### `AlreadyInitialized` error when calling initialize
 

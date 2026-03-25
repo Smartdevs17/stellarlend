@@ -62,7 +62,9 @@ export class OracleService {
 
     const cache = createPriceCache(config.cacheTtlSeconds);
 
-    this.aggregator = createAggregator(providers, validator, cache);
+    this.aggregator = createAggregator(providers, validator, cache, {
+      circuitBreaker: config.circuitBreaker,
+    });
 
     this.contractUpdater = createContractUpdater({
       network: config.stellarNetwork,
@@ -195,6 +197,7 @@ export class OracleService {
       adminSecretKey: safe.adminSecretKey, // masked value
       providers: this.aggregator.getProviders(),
       aggregatorStats: this.aggregator.getStats(),
+      circuitBreakers: this.aggregator.getCircuitBreakerMetrics(),
     };
   }
 

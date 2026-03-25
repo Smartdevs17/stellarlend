@@ -1,4 +1,4 @@
-use soroban_sdk::{Env, Symbol, IntoVal, Val};
+use soroban_sdk::{Env, IntoVal, Symbol, Val};
 
 pub struct ReentrancyGuard<'a> {
     env: &'a Env,
