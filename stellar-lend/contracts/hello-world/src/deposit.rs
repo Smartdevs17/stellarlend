@@ -49,6 +49,8 @@ pub enum DepositError {
     Overflow = 6,
     /// Reentrancy detected
     Reentrancy = 7,
+    /// Caller is not authorized
+    Unauthorized = 8,
 }
 
 /// Storage keys for deposit-related data
@@ -202,6 +204,19 @@ pub struct ProtocolAnalytics {
 /// # Security
 /// * Validates deposit amount > 0
 /// * Checks pause switches
+/// Set per-asset deposit parameters (admin-only). Caller must already be verified.
+pub fn set_asset_params(
+    env: &Env,
+    _caller: Address,
+    asset: Address,
+    params: AssetParams,
+) -> Result<(), DepositError> {
+    env.storage()
+        .persistent()
+        .set(&DepositDataKey::AssetParams(asset), &params);
+    Ok(())
+}
+
 /// * Validates asset parameters
 /// * Transfers tokens from user to contract
 /// * Updates collateral balances
@@ -272,7 +287,6 @@ pub fn deposit_collateral(
 
         // Transfer tokens from user to contract using token contract
         // Use the token contract's transfer_from method
-        #[cfg(not(test))]
         {
             let token_client = soroban_sdk::token::Client::new(env, asset_addr);
 
