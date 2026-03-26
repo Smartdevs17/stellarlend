@@ -63,7 +63,7 @@ jobs:
       - name: Run cross-contract tests
         run: |
           cd stellar-lend
-          cargo test --package hello-world --lib cross_contract_test -- -Z unstable-options --report-time 2>&1 | tee cross-contract-test-report.txt
+          cargo test --package hello-world --lib cross_contract_test 2>&1 | tee cross-contract-test-report.txt
           grep "test result:" cross-contract-test-report.txt
 
       - name: Upload cross-contract test report
