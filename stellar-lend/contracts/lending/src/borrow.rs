@@ -254,7 +254,9 @@ pub fn repay(env: &Env, user: Address, asset: Address, amount: i128) -> Result<(
 
         // Update total protocol debt
         let total_debt = get_total_debt(env);
-        let new_total = total_debt.saturating_sub(remaining_repayment);
+        let new_total = total_debt
+            .checked_sub(remaining_repayment)
+            .ok_or(BorrowError::Overflow)?;
         set_total_debt(env, new_total);
     }
 
