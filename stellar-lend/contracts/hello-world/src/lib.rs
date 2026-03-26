@@ -320,8 +320,39 @@ impl HelloContract {
     pub fn get_user_position(env: Env, user: Address) -> Result<Position, AnalyticsError> {
         analytics::get_user_position_summary(&env, &user)
     }
+
+    // -------------------------------------------------------------------------
+    // Asset Configuration
+    // -------------------------------------------------------------------------
+
+    /// Set per-asset deposit/collateral parameters (admin-only).
+    pub fn update_asset_config(
+        env: Env,
+        asset: Address,
+        params: deposit::AssetParams,
+    ) -> Result<(), deposit::DepositError> {
+        let admin = crate::admin::get_admin(&env).ok_or(deposit::DepositError::Unauthorized)?;
+        admin.require_auth();
+        deposit::set_asset_params(&env, admin, asset, params)
+    }
+
+    // -------------------------------------------------------------------------
+    // Flash Loan Configuration
+    // -------------------------------------------------------------------------
+
+    /// Configure flash loan parameters (admin-only).
+    pub fn configure_flash_loan(
+        env: Env,
+        caller: Address,
+        config: flash_loan::FlashLoanConfig,
+    ) -> Result<(), flash_loan::FlashLoanError> {
+        flash_loan::set_flash_loan_config(&env, caller, config)
+    }
 }
 
+#[cfg(test)]
+#[path = "tests/cross_contract_test.rs"]
+mod cross_contract_test;
 #[cfg(test)]
 mod flash_loan_test;
 #[cfg(test)]
