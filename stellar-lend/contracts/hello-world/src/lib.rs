@@ -351,6 +351,9 @@ impl HelloContract {
 }
 
 #[cfg(test)]
+#[path = "tests/cross_contract_test.rs"]
+mod cross_contract_test;
+#[cfg(test)]
 mod flash_loan_test;
 #[cfg(test)]
 mod multi_collateral_test;
@@ -360,6 +363,3 @@ mod test_reentrancy;
 mod test_zero_amount;
 #[cfg(test)]
 mod treasury_test;
-#[cfg(test)]
-#[path = "tests/cross_contract_test.rs"]
-mod cross_contract_test;

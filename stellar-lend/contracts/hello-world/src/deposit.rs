@@ -180,6 +180,19 @@ pub struct ProtocolAnalytics {
     pub total_value_locked: i128,
 }
 
+/// Set per-asset deposit parameters (admin-only). Caller must already be verified.
+pub fn set_asset_params(
+    env: &Env,
+    _caller: Address,
+    asset: Address,
+    params: AssetParams,
+) -> Result<(), DepositError> {
+    env.storage()
+        .persistent()
+        .set(&DepositDataKey::AssetParams(asset), &params);
+    Ok(())
+}
+
 /// Deposit collateral function
 ///
 /// Allows users to deposit assets as collateral in the protocol.
@@ -204,19 +217,6 @@ pub struct ProtocolAnalytics {
 /// # Security
 /// * Validates deposit amount > 0
 /// * Checks pause switches
-/// Set per-asset deposit parameters (admin-only). Caller must already be verified.
-pub fn set_asset_params(
-    env: &Env,
-    _caller: Address,
-    asset: Address,
-    params: AssetParams,
-) -> Result<(), DepositError> {
-    env.storage()
-        .persistent()
-        .set(&DepositDataKey::AssetParams(asset), &params);
-    Ok(())
-}
-
 /// * Validates asset parameters
 /// * Transfers tokens from user to contract
 /// * Updates collateral balances

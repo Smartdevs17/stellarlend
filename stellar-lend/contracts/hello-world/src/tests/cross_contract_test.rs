@@ -1,13 +1,9 @@
 #![cfg(test)]
 
 use crate::{HelloContract, HelloContractClient};
-use soroban_sdk::{
-    contract, contractimpl,
-    testutils::Address as _,
-    Address, Env, Symbol,
-};
 use soroban_sdk::token::Client as TokenClient;
 use soroban_sdk::token::StellarAssetClient as StellarTokenClient;
+use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, Env, Symbol};
 
 // ============================================================================
 // Helper Contracts
@@ -22,16 +18,34 @@ pub struct MockFlashLoanReceiver;
 #[contractimpl]
 impl MockFlashLoanReceiver {
     pub fn init(env: Env, provider: Address, should_repay: bool, should_reenter: bool) {
-        env.storage().instance().set(&Symbol::new(&env, "provider"), &provider);
-        env.storage().instance().set(&Symbol::new(&env, "should_repay"), &should_repay);
-        env.storage().instance().set(&Symbol::new(&env, "should_reenter"), &should_reenter);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "provider"), &provider);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "should_repay"), &should_repay);
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "should_reenter"), &should_reenter);
     }
 
     /// Callback invoked by the protocol: on_flash_loan(user, asset, amount, fee)
     pub fn on_flash_loan(env: Env, _user: Address, asset: Address, amount: i128, fee: i128) {
-        let provider: Address = env.storage().instance().get(&Symbol::new(&env, "provider")).unwrap();
-        let should_repay: bool = env.storage().instance().get(&Symbol::new(&env, "should_repay")).unwrap();
-        let should_reenter: bool = env.storage().instance().get(&Symbol::new(&env, "should_reenter")).unwrap();
+        let provider: Address = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "provider"))
+            .unwrap();
+        let should_repay: bool = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "should_repay"))
+            .unwrap();
+        let should_reenter: bool = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "should_reenter"))
+            .unwrap();
 
         let token_client = TokenClient::new(&env, &asset);
 
@@ -88,7 +102,13 @@ fn create_token_contract<'a>(
 
 fn setup_protocol<'a>(
     e: &Env,
-) -> (HelloContractClient<'a>, Address, Address, Address, TokenClient<'a>) {
+) -> (
+    HelloContractClient<'a>,
+    Address,
+    Address,
+    Address,
+    TokenClient<'a>,
+) {
     let admin = Address::generate(e);
     let user = Address::generate(e);
 
@@ -230,6 +250,7 @@ fn test_cross_contract_error_propagation() {
     let huge_amount = 1_000_000_000_000i128;
     token_client.approve(&user, &protocol_id, &huge_amount, &200u32);
 
-    let res = client.try_deposit_collateral(&user, &Some(token_client.address.clone()), &huge_amount);
+    let res =
+        client.try_deposit_collateral(&user, &Some(token_client.address.clone()), &huge_amount);
     assert!(res.is_err());
 }
