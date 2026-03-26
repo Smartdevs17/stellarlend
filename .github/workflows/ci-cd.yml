@@ -143,8 +143,7 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Run tests
-        run: |
-          npm test || echo "::warning::API tests have pre-existing failures that need to be fixed"
+        run: npm test
 
       - name: Build
         run: npm run build
