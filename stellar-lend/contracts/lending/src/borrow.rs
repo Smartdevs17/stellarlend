@@ -13,7 +13,6 @@
 pub use crate::events::{BorrowCollateralDepositEvent, BorrowEvent, RepayEvent};
 
 /// Backward-compatible name for collateral added to a borrow position (see [`BorrowCollateralDepositEvent`]).
-#[allow(dead_code)]
 pub type DepositEvent = BorrowCollateralDepositEvent;
 
 use crate::pause::{self, PauseType};
