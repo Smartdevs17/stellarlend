@@ -319,6 +319,10 @@ For a complete list of entrypoints including AMM, flash loans, bridge, governanc
 
 ---
 
+##  Changelog
+See [CHANGELOG.md](CHANGELOG.md) for a full list of updates and changes.
+
+
 ## Contributing
 
 We welcome contributions! StellarLend participates in the **Stellar Wave Program** via [Drips](https://www.drips.network/). Contributors can earn points and rewards by picking up issues labeled **`Stellar Wave`** in the issue tracker.
