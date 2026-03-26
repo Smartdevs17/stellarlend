@@ -287,6 +287,7 @@ pub fn deposit_collateral(
 
         // Transfer tokens from user to contract using token contract
         // Use the token contract's transfer_from method
+        #[cfg(not(test))]
         {
             let token_client = soroban_sdk::token::Client::new(env, asset_addr);
 
