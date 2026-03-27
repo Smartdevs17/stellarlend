@@ -74,7 +74,26 @@ router.get('/prepare/:operation', prepareValidation, lendingController.prepare);
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/SubmitRequest'
+ *             type: object
+ *             required:
+ *               - signedXdr
+ *             properties:
+ *               signedXdr:
+ *                 type: string
+ *                 description: Signed transaction XDR
+ *               operation:
+ *                 type: string
+ *                 enum: [deposit, borrow, repay, withdraw]
+ *                 description: Optional lending operation for audit logging
+ *               userAddress:
+ *                 type: string
+ *                 description: Optional user address for audit logging
+ *               amount:
+ *                 type: string
+ *                 description: Optional amount for audit logging
+ *               assetAddress:
+ *                 type: string
+ *                 description: Optional asset address for audit logging
  *     responses:
  *       200:
  *         description: Transaction submitted and monitored successfully
