@@ -196,7 +196,7 @@ fn test_deposit_borrow_interactions() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #3)")]
+#[should_panic(expected = "Error(Contract, #20)")]
 fn test_flash_loan_insufficient_liquidity() {
     let env = Env::default();
     env.mock_all_auths();
