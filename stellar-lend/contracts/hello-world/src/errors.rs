@@ -38,4 +38,5 @@ pub enum GovernanceError {
     AlreadyInitialized = 132,
     NotInitialized = 133,
     InvalidProposal = 134,
+    InputTooLong = 135,
 }
