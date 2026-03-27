@@ -22,6 +22,8 @@ pub enum ContractError {
     AmountNotPositive = 11,
     AmountBelowMinimum = 12,
     Overflow = 13,
+    /// Bridge acceptance (deposit) operations are paused
+    BridgeAcceptancePaused = 14,
 }
 
 #[contractevent]
@@ -62,6 +64,13 @@ pub struct BridgeWithdrawalEvent {
     pub amount: i128,
 }
 
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct BridgeAcceptancePauseEvent {
+    pub paused: bool,
+    pub admin: Address,
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const MAX_FEE_BPS: u64 = 1_000; // 10 % ceiling
@@ -88,6 +97,8 @@ pub struct BridgeConfig {
 pub enum DataKey {
     Bridge(String),
     BridgeList,
+    /// Global pause flag for bridge acceptance (deposit) operations
+    BridgeAcceptancePaused,
 }
 
 #[contract]
@@ -260,6 +271,16 @@ impl BridgeContract {
     ) -> Result<i128, ContractError> {
         sender.require_auth();
 
+        // Check bridge acceptance pause
+        if env
+            .storage()
+            .persistent()
+            .get::<DataKey, bool>(&DataKey::BridgeAcceptancePaused)
+            .unwrap_or(false)
+        {
+            return Err(ContractError::BridgeAcceptancePaused);
+        }
+
         if amount <= 0 {
             return Err(ContractError::AmountNotPositive);
         }
@@ -342,6 +363,36 @@ impl BridgeContract {
             amount
         );
         Ok(())
+    }
+
+    // ── set_bridge_acceptance_paused ──────────────────────────────────────────
+
+    /// Admin: pause or unpause all bridge acceptance (deposit) operations.
+    pub fn set_bridge_acceptance_paused(
+        env: Env,
+        caller: Address,
+        paused: bool,
+    ) -> Result<(), ContractError> {
+        Self::require_admin(&env, &caller)?;
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::BridgeAcceptancePaused, &paused);
+
+        BridgeAcceptancePauseEvent {
+            paused,
+            admin: caller,
+        }
+        .publish(&env);
+        Ok(())
+    }
+
+    /// Query whether bridge acceptance is currently paused.
+    pub fn is_bridge_acceptance_paused(env: Env) -> bool {
+        env.storage()
+            .persistent()
+            .get::<DataKey, bool>(&DataKey::BridgeAcceptancePaused)
+            .unwrap_or(false)
     }
 
     // ── transfer_admin ────────────────────────────────────────────────────────

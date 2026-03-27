@@ -17,6 +17,10 @@ pub enum PauseType {
     Withdraw = 4,
     /// Pause liquidation operations
     Liquidation = 5,
+    /// Pause flash loan operations
+    FlashLoan = 6,
+    /// Pause bridge acceptance (deposit) operations
+    BridgeAcceptance = 7,
 }
 
 /// Storage keys for pause states.
