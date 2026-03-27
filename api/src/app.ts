@@ -43,6 +43,20 @@ const limiter = rateLimit({
 
 app.use('/api/', limiter);
 
+// Per-user rate limiter for lending endpoints
+const userRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute window
+  max: 10, // 10 requests per minute per user
+  keyGenerator: (req) => {
+    // Try to get userAddress from request body first, then query params, then fall back to IP
+    const userAddress = req.body?.userAddress || req.query?.userAddress || req.ip;
+    return userAddress;
+  },
+  message: { success: false, error: 'Too many requests for this account' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Lazy-load Swagger UI so the module is only imported when /api/docs is hit
 let swaggerUiLoaded = false;
 app.use('/api/docs', (req: Request, res: Response, next: NextFunction) => {
@@ -59,7 +73,7 @@ app.get('/api/openapi.json', (_req, res) => {
 });
 
 app.use('/api/health', healthRoutes);
-app.use('/api/lending', lendingRoutes);
+app.use('/api/lending', userRateLimiter, lendingRoutes);
 
 app.use(errorHandler);
 
