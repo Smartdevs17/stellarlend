@@ -17,8 +17,8 @@ vi.mock('../src/services/contract-updater.js', () => ({
         await new Promise(resolve => setTimeout(resolve, 50));
         return prices.map((price, index) => ({
           success: true,
-          asset: `ASSET_${index}`,
-          price: BigInt(Math.floor(price.price * 1000000)),
+          asset: price.asset || `ASSET_${index}`,
+          price: BigInt(Math.floor((price.price || 0.15) * 1000000)),
           timestamp: Date.now(),
         }));
       }),
@@ -80,11 +80,15 @@ describe('OracleService Lifecycle Integration Tests', () => {
       stellarRpcUrl: 'https://soroban-testnet.stellar.org',
       contractId: 'CTEST123',
       adminSecretKey: 'STEST123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ123456',
-      updateIntervalMs: 200, // Short interval for faster tests
+      updateIntervalMs: 1000, // Use same interval as existing tests
       maxPriceDeviationPercent: 10,
       priceStaleThresholdSeconds: 300,
       cacheTtlSeconds: 30,
       logLevel: 'error', // Reduce log noise in tests
+      circuitBreaker: {
+        failureThreshold: 5,
+        backoffMs: 1000,
+      },
       providers: [
         {
           name: 'coingecko',
@@ -125,7 +129,7 @@ describe('OracleService Lifecycle Integration Tests', () => {
       expect(service.getStatus().isRunning).toBe(true);
 
       // Allow at least one update cycle
-      await new Promise(resolve => setTimeout(resolve, 250));
+      await new Promise(resolve => setTimeout(resolve, 1100));
 
       // Stop service
       service.stop();
@@ -142,7 +146,7 @@ describe('OracleService Lifecycle Integration Tests', () => {
       // Perform multiple cycles
       for (let i = 0; i < 3; i++) {
         await service.start(['XLM']);
-        await new Promise(resolve => setTimeout(resolve, 250));
+        await new Promise(resolve => setTimeout(resolve, 1100));
         service.stop();
         await new Promise(resolve => setTimeout(resolve, 100));
         
@@ -198,7 +202,7 @@ describe('OracleService Lifecycle Integration Tests', () => {
       await service.start(['XLM', 'BTC', 'ETH']);
 
       // Wait for update to start, then stop immediately
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise(resolve => setTimeout(resolve, 500));
       service.stop();
 
       // Should stop without throwing
@@ -289,7 +293,7 @@ describe('OracleService Lifecycle Integration Tests', () => {
 
       // Start and let it run
       await service.start(['XLM']);
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 1100));
 
       // Stop
       service.stop();
@@ -298,7 +302,7 @@ describe('OracleService Lifecycle Integration Tests', () => {
       await service.start(['BTC']);
       expect(service.getStatus().isRunning).toBe(true);
 
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 1100));
       service.stop();
     });
 
@@ -307,7 +311,7 @@ describe('OracleService Lifecycle Integration Tests', () => {
 
       // First run
       await service.start(['XLM']);
-      await new Promise(resolve => setTimeout(resolve, 150));
+      await new Promise(resolve => setTimeout(resolve, 1100));
       service.stop();
 
       const statusAfterStop = service.getStatus();
@@ -318,7 +322,7 @@ describe('OracleService Lifecycle Integration Tests', () => {
       const statusAfterRestart = service.getStatus();
       expect(statusAfterRestart.isRunning).toBe(true);
 
-      await new Promise(resolve => setTimeout(resolve, 150));
+      await new Promise(resolve => setTimeout(resolve, 1100));
       service.stop();
     });
   });
@@ -331,7 +335,7 @@ describe('OracleService Lifecycle Integration Tests', () => {
       await service.start(['XLM', 'BTC', 'ETH', 'USDC', 'SOL']);
 
       // Wait for updates to be in progress
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       // Initiate graceful shutdown
       const stopStartTime = Date.now();
