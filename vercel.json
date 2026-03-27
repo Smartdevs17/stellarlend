@@ -9,5 +9,8 @@
     "api/src/vercel.ts": {
       "runtime": "@vercel/node@3"
     }
+  },
+  "github": {
+    "silent": true
   }
 }
