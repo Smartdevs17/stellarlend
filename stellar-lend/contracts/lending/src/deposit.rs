@@ -17,6 +17,7 @@ pub enum DepositError {
     Overflow = 3,
     AssetNotSupported = 4,
     ExceedsDepositCap = 5,
+    SettingsNotInitialized = 6,
 }
 
 /// Storage keys for deposit-related data
@@ -59,6 +60,10 @@ pub fn deposit(
 
     if pause::is_paused(env, PauseType::Deposit) {
         return Err(DepositError::DepositPaused);
+    }
+
+    if !is_deposit_settings_initialized(env) {
+        return Err(DepositError::SettingsNotInitialized);
     }
 
     if amount <= 0 {
@@ -148,7 +153,7 @@ fn get_deposit_cap(env: &Env) -> i128 {
     env.storage()
         .persistent()
         .get(&DepositDataKey::CapAmount)
-        .unwrap_or(i128::MAX)
+        .unwrap_or(0)
 }
 
 fn get_min_deposit_amount(env: &Env) -> i128 {
@@ -156,6 +161,10 @@ fn get_min_deposit_amount(env: &Env) -> i128 {
         .persistent()
         .get(&DepositDataKey::MinAmount)
         .unwrap_or(0)
+}
+
+fn is_deposit_settings_initialized(env: &Env) -> bool {
+    env.storage().persistent().has(&DepositDataKey::CapAmount)
 }
 
 fn emit_deposit_event(env: &Env, user: Address, asset: Address, amount: i128, new_balance: i128) {

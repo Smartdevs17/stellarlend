@@ -13,6 +13,7 @@
 pub use crate::events::{BorrowCollateralDepositEvent, BorrowEvent, RepayEvent};
 
 /// Backward-compatible name for collateral added to a borrow position (see [`BorrowCollateralDepositEvent`]).
+#[allow(dead_code)]
 pub type DepositEvent = BorrowCollateralDepositEvent;
 
 use crate::pause::{self, PauseType};
@@ -41,6 +42,8 @@ pub enum BorrowError {
     BelowMinimumBorrow = 8,
     /// Repay amount exceeds current debt
     RepayAmountTooHigh = 9,
+    /// Borrow settings must be initialized before borrowing
+    SettingsNotInitialized = 10,
 }
 
 /// Storage keys for protocol-wide data.
@@ -111,6 +114,10 @@ pub fn borrow(
 
     if pause::is_paused(env, PauseType::Borrow) {
         return Err(BorrowError::ProtocolPaused);
+    }
+
+    if !is_borrow_settings_initialized(env) {
+        return Err(BorrowError::SettingsNotInitialized);
     }
 
     if amount <= 0 || collateral_amount <= 0 {
@@ -359,7 +366,7 @@ fn get_debt_ceiling(env: &Env) -> i128 {
     env.storage()
         .persistent()
         .get(&BorrowDataKey::BorrowDebtCeiling)
-        .unwrap_or(i128::MAX)
+        .unwrap_or(0)
 }
 
 fn get_min_borrow_amount(env: &Env) -> i128 {
@@ -367,6 +374,12 @@ fn get_min_borrow_amount(env: &Env) -> i128 {
         .persistent()
         .get(&BorrowDataKey::BorrowMinAmount)
         .unwrap_or(1000)
+}
+
+fn is_borrow_settings_initialized(env: &Env) -> bool {
+    env.storage()
+        .persistent()
+        .has(&BorrowDataKey::BorrowDebtCeiling)
 }
 
 fn emit_borrow_event(env: &Env, user: Address, asset: Address, amount: i128, collateral: i128) {
