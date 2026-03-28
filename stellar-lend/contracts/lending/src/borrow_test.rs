@@ -43,6 +43,22 @@ fn test_borrow_success() {
 }
 
 #[test]
+fn test_borrow_fails_when_settings_not_initialized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LendingContract, ());
+    let client = LendingContractClient::new(&env, &contract_id);
+
+    let user = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let collateral_asset = Address::generate(&env);
+
+    let result = client.try_borrow(&user, &asset, &10_000, &collateral_asset, &20_000);
+    assert_eq!(result, Err(Ok(BorrowError::SettingsNotInitialized)));
+}
+
+#[test]
 fn test_borrow_insufficient_collateral() {
     let env = Env::default();
     env.mock_all_auths();

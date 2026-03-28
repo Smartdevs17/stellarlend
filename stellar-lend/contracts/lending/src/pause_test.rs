@@ -20,6 +20,7 @@ fn test_pause_borrow_granular() {
     let collateral_asset = Address::generate(&env);
 
     client.initialize(&admin, &1_000_000_000, &1000);
+    client.initialize_deposit_settings(&1_000_000_000, &100);
 
     // Initial state: not paused
     client.borrow(&user, &asset, &10_000, &collateral_asset, &20_000);
@@ -53,6 +54,7 @@ fn test_global_pause() {
     let collateral_asset = Address::generate(&env);
 
     client.initialize(&admin, &1_000_000_000, &1000);
+    client.initialize_deposit_settings(&1_000_000_000, &100);
 
     // Pause all
     client.set_pause(&admin, &PauseType::All, &true);
@@ -100,6 +102,7 @@ fn test_set_pause_unauthorized_address() {
     let user = Address::generate(&env);
 
     client.initialize(&admin, &1_000_000_000, &1000);
+    client.initialize_deposit_settings(&1_000_000_000, &100);
 
     // Try to set pause with non-admin address
     client.set_pause(&user, &PauseType::Borrow, &true);

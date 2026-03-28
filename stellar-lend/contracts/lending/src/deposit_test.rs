@@ -25,6 +25,21 @@ fn test_deposit_success() {
 }
 
 #[test]
+fn test_deposit_fails_when_settings_not_initialized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LendingContract, ());
+    let client = LendingContractClient::new(&env, &contract_id);
+
+    let user = Address::generate(&env);
+    let asset = Address::generate(&env);
+
+    let result = client.try_deposit(&user, &asset, &10_000);
+    assert_eq!(result, Err(Ok(DepositError::SettingsNotInitialized)));
+}
+
+#[test]
 fn test_deposit_invalid_amount_zero() {
     let env = Env::default();
     env.mock_all_auths();
