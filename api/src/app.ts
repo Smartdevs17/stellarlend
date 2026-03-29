@@ -1,15 +1,19 @@
 import express, { Application, Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { MemoryStore } from 'express-rate-limit';
 import { config } from './config';
 import lendingRoutes from './routes/lending.routes';
 import healthRoutes from './routes/health.routes';
+import protocolRoutes from './routes/protocol.routes';
 import { errorHandler } from './middleware/errorHandler';
+import { idempotencyMiddleware } from './middleware/idempotency';
 import { swaggerSpec } from './config/swagger';
 import logger from './utils/logger';
 
 const app: Application = express();
+const ipRateLimitStore = new MemoryStore();
+const userRateLimitStore = new MemoryStore();
 
 app.use(
   helmet({
@@ -39,9 +43,25 @@ const limiter = rateLimit({
   windowMs: config.rateLimit.windowMs,
   max: config.rateLimit.maxRequests,
   message: 'Too many requests from this IP, please try again later.',
+  store: ipRateLimitStore,
 });
 
 app.use('/api/', limiter);
+
+// Per-user rate limiter for lending endpoints
+const userRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute window
+  max: 10, // 10 requests per minute per user
+  store: userRateLimitStore,
+  keyGenerator: (req) => {
+    // Try to get userAddress from request body first, then query params, then fall back to IP
+    const userAddress = req.body?.userAddress || req.query?.userAddress || req.ip;
+    return userAddress;
+  },
+  message: { success: false, error: 'Too many requests for this account' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Lazy-load Swagger UI so the module is only imported when /api/docs is hit
 let swaggerUiLoaded = false;
@@ -59,8 +79,13 @@ app.get('/api/openapi.json', (_req, res) => {
 });
 
 app.use('/api/health', healthRoutes);
-app.use('/api/lending', lendingRoutes);
+app.use('/api/protocol', protocolRoutes);
+app.use('/api/lending', idempotencyMiddleware, userRateLimiter, lendingRoutes);
 
 app.use(errorHandler);
+
+export async function resetRateLimiters(): Promise<void> {
+  await Promise.all([ipRateLimitStore.resetAll(), userRateLimitStore.resetAll()]);
+}
 
 export default app;

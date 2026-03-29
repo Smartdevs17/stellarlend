@@ -38,6 +38,10 @@ export interface PrepareResponse {
 
 export interface SubmitRequest {
   signedXdr: string;
+  operation?: LendingOperation;
+  userAddress?: string;
+  amount?: string;
+  assetAddress?: string;
 }
 
 export interface TransactionResponse {
@@ -70,6 +74,14 @@ export interface HealthCheckResponse {
     horizon: boolean;
     sorobanRpc: boolean;
   };
+}
+
+export interface ProtocolStatsResponse {
+  totalDeposits: string;
+  totalBorrows: string;
+  utilizationRate: string;
+  numberOfUsers: number;
+  tvl: string;
 }
 
 export enum TransactionStatus {
