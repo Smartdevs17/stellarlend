@@ -2,14 +2,20 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-if (!process.env.CONTRACT_ID) {
-  throw new Error('CONTRACT_ID environment variable is required');
+// Environment Validation 
+const required = ['CONTRACT_ID', 'JWT_SECRET', 'STELLAR_NETWORK', 'SOROBAN_RPC_URL'];
+const missing = required.filter(v => !process.env[v]);
+if (missing.length > 0) {
+  console.error('❌ Missing required environment variables:', missing.join(', '));
+  process.exit(1);
 }
 
-const jwtSecret = process.env.JWT_SECRET;
-if (!jwtSecret || jwtSecret === 'default-secret-change-me' || jwtSecret.length < 32) {
-  throw new Error('JWT_SECRET must be set to a strong secret (min 32 chars)');
+const jwtSecret = process.env.JWT_SECRET!;
+if (jwtSecret === 'default-secret-change-me' || jwtSecret.length < 32) {
+  console.error('❌ JWT_SECRET must be a strong secret (min 32 chars, not default value)');
+  process.exit(1);
 }
+
 
 export const config = {
   server: {
