@@ -13,7 +13,14 @@ import axios from 'axios';
 import { config } from '../config';
 import logger from '../utils/logger';
 import { InternalServerError } from '../utils/errors';
-import { TransactionResponse, LendingOperation, ProtocolStatsResponse } from '../types';
+import {
+  TransactionResponse,
+  LendingOperation,
+  ProtocolStatsResponse,
+  TransactionHistoryItem,
+  TransactionHistoryResponse,
+  TransactionHistoryQuery,
+} from '../types';
 import { BoundedTtlCache } from '../utils/boundedTtlCache';
 
 const CONTRACT_METHODS: Record<LendingOperation, string> = {
@@ -397,7 +404,7 @@ export class StellarService {
   async getTransactionHistory(query: TransactionHistoryQuery): Promise<TransactionHistoryResponse> {
     try {
       const { userAddress, limit = 10, cursor } = query;
-      
+
       // Validate Stellar address format
       if (!this.isValidStellarAddress(userAddress)) {
         throw new InternalServerError('Invalid Stellar address format');
@@ -417,7 +424,9 @@ export class StellarService {
 
       // Extract pagination info
       const pagination = {
-        cursor: response.data._links.next ? response.data._links.next.href.split('cursor=')[1] : undefined,
+        cursor: response.data._links.next
+          ? response.data._links.next.href.split('cursor=')[1]
+          : undefined,
         hasNextPage: !!response.data._links.next,
         limit: parseInt(response.data.limit) || limit,
       };
@@ -455,21 +464,21 @@ export class StellarService {
         return false;
       }
 
-      return transaction.operations.some((op: any) => 
-        op.type === 'invoke_contract_function' && 
-        op.contract_id === this.contractId
+      return transaction.operations.some(
+        (op: any) => op.type === 'invoke_contract_function' && op.contract_id === this.contractId
       );
     } catch {
       return false;
     }
   }
 
-  private async mapToTransactionHistoryItem(transaction: any): Promise<TransactionHistoryItem | null> {
+  private async mapToTransactionHistoryItem(
+    transaction: any
+  ): Promise<TransactionHistoryItem | null> {
     try {
       // Extract operation details
-      const lendingOp = transaction.operations.find((op: any) => 
-        op.type === 'invoke_contract_function' && 
-        op.contract_id === this.contractId
+      const lendingOp = transaction.operations.find(
+        (op: any) => op.type === 'invoke_contract_function' && op.contract_id === this.contractId
       );
 
       if (!lendingOp) {
@@ -503,10 +512,10 @@ export class StellarService {
 
   private mapFunctionToOperation(functionName: string): LendingOperation | null {
     const functionToOperation: Record<string, LendingOperation> = {
-      'deposit_collateral': 'deposit',
-      'borrow_asset': 'borrow',
-      'repay_debt': 'repay',
-      'withdraw_collateral': 'withdraw',
+      deposit_collateral: 'deposit',
+      borrow_asset: 'borrow',
+      repay_debt: 'repay',
+      withdraw_collateral: 'withdraw',
     };
 
     return functionToOperation[functionName] || null;
