@@ -389,7 +389,7 @@ When reporting issues, please include:
 
 ### Security
 
-If you discover a security vulnerability, please **do not** open a public issue. Instead, contact the maintainers directly through a secure channel.
+If you discover a security vulnerability, please **do not** open a public issue. Instead, see our [SECURITY.md](SECURITY.md) for disclosure instructions and contact information.
 
 ---
 

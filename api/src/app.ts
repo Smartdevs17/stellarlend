@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit, { MemoryStore } from 'express-rate-limit';
 import { config } from './config';
+import { bodySizeLimitMiddleware } from './middleware/bodySizeLimit';
 import lendingRoutes from './routes/lending.routes';
 import healthRoutes from './routes/health.routes';
 import protocolRoutes from './routes/protocol.routes';
@@ -36,8 +37,9 @@ if (config.server.env === 'production') {
 }
 
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: config.bodySizeLimit.limit }));
+app.use(express.urlencoded({ extended: true, limit: config.bodySizeLimit.limit }));
+app.use(bodySizeLimitMiddleware);
 
 const limiter = rateLimit({
   windowMs: config.rateLimit.windowMs,

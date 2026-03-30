@@ -43,6 +43,10 @@ export const config = {
     retryInitialDelayMs: parseInt(process.env.RETRY_INITIAL_DELAY_MS || '1000', 10),
     retryMaxDelayMs: parseInt(process.env.RETRY_MAX_DELAY_MS || '10000', 10),
   },
+  bodySizeLimit: {
+    /** Maximum request body size (e.g. '100kb', '1mb'). Defaults to 100kb. */
+    limit: process.env.BODY_SIZE_LIMIT || '100kb',
+  },
   cache: {
     idempotencyTtlMs: parseInt(process.env.IDEMPOTENCY_TTL_MS || '86400000', 10),
     idempotencyMaxEntries: parseInt(process.env.IDEMPOTENCY_MAX_ENTRIES || '1000', 10),
