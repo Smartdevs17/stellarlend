@@ -13,6 +13,7 @@ import logger from '../utils/logger';
 import { emergencyPauseService } from '../services/emergencyPause.service';
 import { redisCacheService } from '../services/redisCache.service';
 import { auditLogService } from '../services/auditLog.service';
+import { requestCoalescingService } from '../services/requestCoalescing.service';
 import {
   assignRole,
   getCurrentRoleAssignments,
@@ -240,6 +241,19 @@ export const readinessCheck = async (_req: Request, res: Response, next: NextFun
       status: readinessStatus,
       horizon,
       soroban,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const coalescingMetrics = async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const metrics = requestCoalescingService.getStats();
+
+    res.status(200).json({
+      timestamp: new Date().toISOString(),
+      metrics,
     });
   } catch (error) {
     next(error);
