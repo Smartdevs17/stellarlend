@@ -572,6 +572,39 @@ export class StellarService {
     }
   }
 
+  /**
+   * Async generator that pages through the full transaction history for a user
+   * and yields items one at a time, keeping memory usage bounded.
+   * Callers should check `signal.aborted` and stop consuming when the client disconnects.
+   */
+  async *streamTransactionHistory(
+    userAddress: string,
+    pageSize: number = config.pagination.defaultLimit,
+    signal?: AbortSignal
+  ): AsyncGenerator<TransactionHistoryItem> {
+    if (!this.isValidStellarAddress(userAddress)) {
+      throw new InternalServerError('Invalid Stellar address format');
+    }
+
+    let nextUrl: string | null =
+      `${this.horizonUrl}/accounts/${userAddress}/transactions?limit=${pageSize}&order=desc`;
+
+    while (nextUrl) {
+      if (signal?.aborted) return;
+
+      const response = await axios.get(nextUrl);
+      const transactions: any[] = response.data._embedded?.records ?? [];
+
+      const lendingTxs = await this.filterLendingTransactions(transactions);
+      for (const tx of lendingTxs) {
+        if (signal?.aborted) return;
+        yield tx;
+      }
+
+      nextUrl = response.data._links?.next?.href ?? null;
+    }
+  }
+
   private isValidStellarAddress(address: string): boolean {
     try {
       // Basic Stellar address validation (G followed by 56 alphanumeric characters)

@@ -66,6 +66,25 @@ const mockStellarService: jest.Mocked<StellarService> = {
       total: null,
     },
   }),
+  streamTransactionHistory: jest.fn().mockImplementation(async function* () {
+    yield {
+      transactionHash: 'tx_hash_stream_1',
+      type: 'deposit',
+      amount: '500000',
+      assetAddress: 'GTEST123...',
+      timestamp: '2023-01-01T00:00:00Z',
+      status: 'success',
+      ledger: 11111,
+    };
+    yield {
+      transactionHash: 'tx_hash_stream_2',
+      type: 'borrow',
+      amount: '250000',
+      timestamp: '2023-01-02T00:00:00Z',
+      status: 'success',
+      ledger: 11112,
+    };
+  }),
 } as any;
 (StellarService as jest.Mock).mockImplementation(() => mockStellarService);
 
@@ -476,6 +495,78 @@ describe('Lending Controller', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toMatch(/Idempotency-Key/i);
+    });
+  });
+
+  describe('GET /api/lending/transactions/:userAddress/stream', () => {
+    const userAddress = 'GDZZJ3UPZZCKY5DBH6ZGMPMRORRBG4ECIORASBUAXPPNCL4SYRHNLYU2';
+
+    it('should respond with content-type application/x-ndjson', async () => {
+      const response = await request(app)
+        .get(`/api/lending/transactions/${userAddress}/stream`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers['content-type']).toMatch(/application\/x-ndjson/);
+    });
+
+    it('should stream each transaction as a separate JSON line', async () => {
+      const response = await request(app)
+        .get(`/api/lending/transactions/${userAddress}/stream`);
+
+      expect(response.status).toBe(200);
+      const lines = response.text.trim().split('\n').filter(Boolean);
+      expect(lines.length).toBe(2);
+
+      const first = JSON.parse(lines[0]);
+      expect(first.transactionHash).toBe('tx_hash_stream_1');
+      expect(first.type).toBe('deposit');
+
+      const second = JSON.parse(lines[1]);
+      expect(second.transactionHash).toBe('tx_hash_stream_2');
+      expect(second.type).toBe('borrow');
+    });
+
+    it('should call streamTransactionHistory with the user address', async () => {
+      await request(app).get(`/api/lending/transactions/${userAddress}/stream`);
+
+      expect(mockStellarService.streamTransactionHistory).toHaveBeenCalledWith(
+        userAddress,
+        undefined,
+        expect.any(AbortSignal)
+      );
+    });
+
+    it('should stream an empty body when there are no transactions', async () => {
+      mockStellarService.streamTransactionHistory.mockImplementationOnce(async function* () {});
+
+      const response = await request(app)
+        .get(`/api/lending/transactions/${userAddress}/stream`);
+
+      expect(response.status).toBe(200);
+      expect(response.text.trim()).toBe('');
+    });
+
+    it('should write a terminal error line when the stream throws after headers are sent', async () => {
+      mockStellarService.streamTransactionHistory.mockImplementationOnce(async function* () {
+        yield {
+          transactionHash: 'tx_before_error',
+          type: 'deposit',
+          amount: '100',
+          timestamp: '2023-01-01T00:00:00Z',
+          status: 'success',
+          ledger: 1,
+        };
+        throw new Error('upstream failure');
+      });
+
+      const response = await request(app)
+        .get(`/api/lending/transactions/${userAddress}/stream`);
+
+      // Headers were sent with the first item, so we get a 200 with an error line at the end
+      expect(response.status).toBe(200);
+      const lines = response.text.trim().split('\n').filter(Boolean);
+      const lastLine = JSON.parse(lines[lines.length - 1]);
+      expect(lastLine).toHaveProperty('error');
     });
   });
 });
