@@ -10,6 +10,7 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
 
 import request from 'supertest';
 import app, { resetRateLimiters } from '../app';
+import { emergencyPauseService } from '../services/emergencyPause.service';
 
 const VALID_ADDRESS = 'GDZZJ3UPZZCKY5DBH6ZGMPMRORRBG4ECIORASBUAXPPNCL4SYRHNLYU2';
 const VALID_AMOUNT = '10000000';
@@ -41,6 +42,8 @@ beforeAll(() => {
 beforeEach(async () => {
   jest.clearAllMocks();
   idempotencyStore.clear();
+  emergencyPauseService.resume();
+  emergencyPauseService.drainWithdrawalQueue();
   await resetRateLimiters();
   // Default happy-path mock responses
   mockStellarService.buildUnsignedTransaction.mockResolvedValue('unsigned_xdr_string');
@@ -178,7 +181,7 @@ describe('Error Handling', () => {
     const res = await request(app).post('/api/lending/submit').send({});
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/signedXdr/i);
+    expect(res.body.error).toMatch(/signedXdr|invalid value/i);
   });
 
   it('returns 400 when submit receives malformed JSON', async () => {

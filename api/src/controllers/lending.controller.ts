@@ -10,6 +10,17 @@ import {
 } from '../types';
 import { config } from '../config';
 import logger from '../utils/logger';
+import { emergencyPauseService } from '../services/emergencyPause.service';
+import { redisCacheService } from '../services/redisCache.service';
+import { auditLogService } from '../services/auditLog.service';
+import { requestCoalescingService } from '../services/requestCoalescing.service';
+import {
+  assignRole,
+  getCurrentRoleAssignments,
+  getRbacAuditContext,
+  scheduleRevocation,
+  type Role,
+} from '../middleware/rbac';
 
 function mapHealthResponse(services: { horizon: boolean; sorobanRpc: boolean }) {
   const isHealthy = services.horizon && services.sorobanRpc;
@@ -24,6 +35,14 @@ function mapHealthResponse(services: { horizon: boolean; sorobanRpc: boolean }) 
 
 export const prepare = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    if (emergencyPauseService.isPaused().paused) {
+      return res.status(503).json({
+        success: false,
+        error: 'Protocol is paused',
+        reason: emergencyPauseService.isPaused().reason,
+      });
+    }
+
     const operation = req.params.operation as LendingOperation;
     const { userAddress, assetAddress, amount } = { ...req.query, ...req.body } as any;
 
@@ -49,6 +68,23 @@ export const prepare = async (req: Request, res: Response, next: NextFunction) =
 export const submit = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { signedXdr, operation, userAddress, amount, assetAddress }: SubmitRequest = req.body;
+    const pauseState = emergencyPauseService.isPaused();
+    if (pauseState.paused) {
+      if (operation === 'withdraw' && userAddress && amount) {
+        emergencyPauseService.queueWithdrawal({ userAddress, assetAddress, amount });
+        return res.status(202).json({
+          success: false,
+          status: 'queued',
+          reason: pauseState.reason,
+          message: 'Withdrawal queued while protocol is paused',
+        });
+      }
+      return res.status(503).json({
+        success: false,
+        error: 'Protocol is paused',
+        reason: pauseState.reason,
+      });
+    }
 
     logger.info('Submitting signed transaction');
 
@@ -56,43 +92,123 @@ export const submit = async (req: Request, res: Response, next: NextFunction) =>
     const result = await stellarService.submitTransaction(signedXdr);
 
     if (result.success && result.transactionHash) {
+      emergencyPauseService.recordSuccess();
       const monitorResult = await stellarService.monitorTransaction(result.transactionHash);
-      
-      // Create audit log entry with operation details
-      const auditLogData = {
-        action: operation ? operation.toUpperCase() : 'TRANSACTION_EXECUTED',
-        userAddress: userAddress || 'REDACTED',
+
+      auditLogService.record({
+        action: operation ? (operation.toUpperCase() as any) : 'TRANSACTION_EXECUTED',
+        actor: userAddress || 'REDACTED',
+        status: monitorResult.status as any,
+        txHash: result.transactionHash,
+        ledger: monitorResult.ledger,
         amount: amount || 'REDACTED',
         assetAddress: assetAddress || 'REDACTED',
-        txHash: result.transactionHash,
-        timestamp: new Date().toISOString(),
         ip: req.ip,
-        status: monitorResult.status,
-        ledger: monitorResult.ledger
-      };
+      });
 
-      logger.info('AUDIT', auditLogData);
-      
+      await redisCacheService.delByPrefix('stellarlend:position:');
+      await redisCacheService.delByPrefix('stellarlend:pool:');
+      await redisCacheService.delByPrefix('stellarlend:protocol:');
+
       return res.status(200).json(monitorResult);
     }
 
+    emergencyPauseService.recordFailure();
     return res.status(400).json(result);
   } catch (error) {
+    emergencyPauseService.recordFailure();
     next(error);
   }
 };
 
-export const getTransactionHistory = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { userAddress } = req.params;
-    const query = { ...req.query, userAddress };
-    const stellarService = new StellarService();
-    const result = await stellarService.getTransactionHistory(query as any);
+export const getPauseStatus = (_req: Request, res: Response) => {
+  return res.status(200).json({
+    ...emergencyPauseService.isPaused(),
+    queuedWithdrawals: emergencyPauseService.getWithdrawalQueue(),
+    cacheMetrics: redisCacheService.getMetrics(),
+  });
+};
 
-    return res.status(200).json(result);
-  } catch (error) {
-    next(error);
-  }
+export const setManualPause = (req: Request, res: Response) => {
+  const before = emergencyPauseService.isPaused();
+  emergencyPauseService.pause('manual');
+  auditLogService.record({
+    action: 'PROTOCOL_PAUSED',
+    actor: req.ip ?? 'SYSTEM',
+    status: 'success',
+    ip: req.ip,
+    beforeState: { paused: before.paused, reason: before.reason },
+    afterState: { paused: true, reason: 'manual' },
+  });
+  return res.status(200).json({ paused: true, reason: 'manual' });
+};
+
+export const resumeProtocol = (req: Request, res: Response) => {
+  const before = emergencyPauseService.isPaused();
+  const queuedWithdrawals = emergencyPauseService.drainWithdrawalQueue();
+  emergencyPauseService.resume();
+  auditLogService.record({
+    action: 'PROTOCOL_RESUMED',
+    actor: req.ip ?? 'SYSTEM',
+    status: 'success',
+    ip: req.ip,
+    beforeState: { paused: before.paused, reason: before.reason },
+    afterState: { paused: false, queuedWithdrawalsReleased: queuedWithdrawals.length },
+  });
+  return res.status(200).json({
+    paused: false,
+    resumed: true,
+    queuedWithdrawalsReleased: queuedWithdrawals.length,
+  });
+};
+
+export const assignAccessRole = (req: Request, res: Response) => {
+  const { actor, role } = getRbacAuditContext(req);
+  const { targetAddress, targetRole } = req.body as {
+    targetAddress: string;
+    targetRole: Role;
+  };
+  assignRole(role, targetAddress, targetRole);
+  auditLogService.record({
+    action: 'ROLE_ASSIGNED',
+    actor,
+    status: 'success',
+    ip: req.ip,
+    afterState: { targetAddress, targetRole, assignedBy: actor },
+  });
+  return res.status(200).json({
+    success: true,
+    assignedBy: actor,
+    targetAddress,
+    targetRole,
+  });
+};
+
+export const revokeAccessRole = (req: Request, res: Response) => {
+  const { actor, role } = getRbacAuditContext(req);
+  const { targetAddress, targetRole, coolOffMs } = req.body as {
+    targetAddress: string;
+    targetRole: Role;
+    coolOffMs?: number;
+  };
+  scheduleRevocation(actor, role, targetAddress, targetRole, coolOffMs ?? 3_600_000);
+  auditLogService.record({
+    action: 'ROLE_REVOKED',
+    actor,
+    status: 'pending',
+    ip: req.ip,
+    afterState: { targetAddress, targetRole, coolOffMs: coolOffMs ?? 3_600_000, revokedBy: actor },
+  });
+  return res.status(202).json({
+    success: true,
+    targetAddress,
+    targetRole,
+    coolOffMs: coolOffMs ?? 3_600_000,
+  });
+};
+
+export const listRoleAssignments = (_req: Request, res: Response) => {
+  return res.status(200).json(getCurrentRoleAssignments());
 };
 
 export const healthCheck = async (req: Request, res: Response, next: NextFunction) => {
@@ -125,6 +241,19 @@ export const readinessCheck = async (_req: Request, res: Response, next: NextFun
       status: readinessStatus,
       horizon,
       soroban,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const coalescingMetrics = async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const metrics = requestCoalescingService.getStats();
+
+    res.status(200).json({
+      timestamp: new Date().toISOString(),
+      metrics,
     });
   } catch (error) {
     next(error);
@@ -165,4 +294,72 @@ export const getTransactionHistory = async (
   } catch (error) {
     next(error);
   }
+};
+
+export const streamTransactionHistory = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const pageSize = req.query.pageSize ? Number(req.query.pageSize) : undefined;
+
+  const abort = new AbortController();
+  req.on('close', () => abort.abort());
+
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.flushHeaders();
+
+  try {
+    const stellarService = new StellarService();
+    const stream = stellarService.streamTransactionHistory(
+      req.params.userAddress,
+      pageSize,
+      abort.signal
+    );
+
+    for await (const item of stream) {
+      if (abort.signal.aborted) break;
+      res.write(JSON.stringify(item) + '\n');
+    }
+
+    if (!abort.signal.aborted) {
+      res.end();
+    }
+  } catch (error) {
+    if (!res.headersSent) {
+      next(error);
+    } else {
+      res.write(JSON.stringify({ error: 'Stream interrupted' }) + '\n');
+      res.end();
+    }
+  }
+};
+
+export const getAuditLogs = (req: Request, res: Response) => {
+  const { action, actor, status, from, to, limit, offset } = req.query as Record<string, string>;
+  const entries = auditLogService.search({
+    action,
+    actor,
+    status,
+    from,
+    to,
+    limit: limit ? Number(limit) : undefined,
+    offset: offset ? Number(offset) : undefined,
+  });
+  return res.status(200).json({ total: auditLogService.count(), entries });
+};
+
+export const exportAuditLogs = (req: Request, res: Response) => {
+  const { action, actor, status, from, to } = req.query as Record<string, string>;
+  const json = auditLogService.export({ action, actor, status, from, to });
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', 'attachment; filename="audit-logs.json"');
+  return res.status(200).send(json);
+};
+
+export const verifyAuditLogIntegrity = (_req: Request, res: Response) => {
+  const result = auditLogService.verify();
+  return res.status(result.valid ? 200 : 409).json(result);
 };

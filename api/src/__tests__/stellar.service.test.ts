@@ -1,4 +1,5 @@
 import { StellarService, clearProtocolStatsCache } from '../services/stellar.service';
+import { redisCacheService } from '../services/redisCache.service';
 import axios from 'axios';
 jest.mock('axios');
 
@@ -177,6 +178,7 @@ describe('StellarService', () => {
   // -----------------------------------------------------------------------
   beforeEach(() => {
     clearProtocolStatsCache();
+    redisCacheService.clearAllForTests();
     service = new StellarService();
     // Reset only the Soroban mocks — do NOT call jest.clearAllMocks() here
     // because it would erase the axios implementations set by the outer

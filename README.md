@@ -10,6 +10,7 @@ Key operational guides:
 
 - [docs/event-indexing.md](docs/event-indexing.md)
 - [docs/upgrade-mechanism.md](docs/upgrade-mechanism.md)
+- [docs/DEV_TOOLING.md](docs/DEV_TOOLING.md)
 
 ---
 
@@ -319,6 +320,7 @@ For a complete list of entrypoints including AMM, flash loans, bridge, governanc
 - **[Protocol Documentation](docs/README.md)**: Comprehensive protocol documentation including modules, admin operations, monitoring, analytics, and upgrade procedures
 - **[Upgrade Authorization](docs/UPGRADE_AUTHORIZATION.md)**: Strict upgrade authorization boundaries, key rotation workflow, and security assumptions
 - **[Storage Layout and Migration](docs/storage.md)**: Detailed documentation of the contract's persistent storage structure, keys, types, and upgrade/migration strategies
+- **[Fuzzing Strategy](docs/fuzzing.md)**: Coverage-guided, property-based fuzzing harnesses (cargo-fuzz/libFuzzer) for contract edge cases
 - **[Contract README](stellar-lend/contracts/hello-world/README.md)**: Contract-specific documentation and entrypoint reference
 - **[CI/CD Documentation](ci-doc.md)**: Continuous integration setup and local reproduction guide
 - **[Example Reports](docs/examples/)**: Example JSON outputs for protocol and user analytics

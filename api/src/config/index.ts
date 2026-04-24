@@ -52,9 +52,13 @@ export const config = {
     maxLimit: parseInt(process.env.PAGINATION_MAX_LIMIT || '100', 10),
   },
   cache: {
+    redisEnabled: process.env.REDIS_ENABLED === 'true',
+    redisUrl: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
     idempotencyTtlMs: parseInt(process.env.IDEMPOTENCY_TTL_MS || '86400000', 10),
     idempotencyMaxEntries: parseInt(process.env.IDEMPOTENCY_MAX_ENTRIES || '1000', 10),
     protocolStatsTtlMs: parseInt(process.env.PROTOCOL_STATS_TTL_MS || '30000', 10),
+    positionTtlMs: parseInt(process.env.POSITION_CACHE_TTL_MS || '15000', 10),
+    poolTtlMs: parseInt(process.env.POOL_CACHE_TTL_MS || '30000', 10),
   },
   ws: {
     /** Milliseconds between price poll cycles (default 30 s) */
@@ -63,5 +67,8 @@ export const config = {
     heartbeatIntervalMs: parseInt(process.env.WS_HEARTBEAT_INTERVAL_MS || '30000', 10),
     /** Optional oracle service base URL for price data (e.g. http://localhost:4000) */
     oracleApiUrl: process.env.ORACLE_API_URL || '',
+  },
+  emergency: {
+    autoPauseFailureThreshold: parseInt(process.env.AUTO_PAUSE_FAILURE_THRESHOLD || '5', 10),
   },
 };

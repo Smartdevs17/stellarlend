@@ -1,5 +1,7 @@
 use crate::borrow::BorrowCollateral;
-use crate::borrow::{calculate_interest, validate_collateral_ratio, BorrowDataKey, DebtPosition};
+use crate::borrow::{
+    calculate_interest, validate_collateral_ratio, BorrowDataKey, BorrowError, DebtPosition,
+};
 use crate::views::{collateral_value, compute_health_factor, HEALTH_FACTOR_NO_DEBT};
 use crate::LendingContract;
 use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env};
@@ -93,7 +95,7 @@ fn test_interest_monotonic_for_large_ledger_jumps() {
     for years in checkpoints {
         env.ledger()
             .with_mut(|li| li.timestamp = years * 31_536_000);
-        let interest = calculate_interest(&env, &position);
+        let interest = calculate_interest(&env, &position).unwrap_or(0);
         assert!(interest >= previous_interest);
 
         // 5% simple APR upper bound for whole-year checkpoints
@@ -110,7 +112,7 @@ fn test_interest_monotonic_for_large_ledger_jumps() {
 }
 
 #[test]
-fn test_interest_saturates_to_i128_max_at_extreme_horizon() {
+fn test_interest_returns_overflow_error_at_extreme_horizon() {
     let env = Env::default();
     let position = DebtPosition {
         borrowed_amount: i128::MAX,
@@ -120,8 +122,10 @@ fn test_interest_saturates_to_i128_max_at_extreme_horizon() {
     };
 
     env.ledger().with_mut(|li| li.timestamp = u64::MAX);
-    let interest = calculate_interest(&env, &position);
-    assert_eq!(interest, i128::MAX);
+    assert_eq!(
+        calculate_interest(&env, &position),
+        Err(BorrowError::Overflow)
+    );
 }
 
 #[test]

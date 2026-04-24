@@ -7,11 +7,14 @@ import { bodySizeLimitMiddleware } from './middleware/bodySizeLimit';
 import lendingRoutes from './routes/lending.routes';
 import healthRoutes from './routes/health.routes';
 import protocolRoutes from './routes/protocol.routes';
+import portfolioRoutes from './routes/portfolio.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { swaggerSpec } from './config/swagger';
 import logger from './utils/logger';
 import { requestIdMiddleware } from './middleware/requestId';
+import { sanitizeInput } from './middleware/sanitizeInput';
+import { redisCacheService } from './services/redisCache.service';
 
 const app: Application = express();
 app.use(requestIdMiddleware);
@@ -42,6 +45,7 @@ if (config.server.env === 'production') {
 app.use(cors());
 app.use(express.json({ limit: config.bodySizeLimit.limit }));
 app.use(express.urlencoded({ extended: true, limit: config.bodySizeLimit.limit }));
+app.use(sanitizeInput);
 app.use(bodySizeLimitMiddleware);
 
 const limiter = rateLimit({
@@ -86,8 +90,11 @@ app.get('/api/openapi.json', (_req, res) => {
 app.use('/api/health', healthRoutes);
 app.use('/api/protocol', protocolRoutes);
 app.use('/api/lending', idempotencyMiddleware, userRateLimiter, lendingRoutes);
+app.use('/api/portfolio', portfolioRoutes);
 
 app.use(errorHandler);
+
+void redisCacheService.warmup();
 
 export async function resetRateLimiters(): Promise<void> {
   await Promise.all([ipRateLimitStore.resetAll(), userRateLimitStore.resetAll()]);
