@@ -4,7 +4,7 @@ describe('RequestCoalescingService', () => {
   let service: RequestCoalescingService;
 
   beforeEach(() => {
-    service = new RequestCoalescingService();
+    service = new RequestCoalescingService({ gracePeriodMs: 0 });
   });
 
   describe('execute', () => {
@@ -14,9 +14,9 @@ describe('RequestCoalescingService', () => {
 
       // Start multiple concurrent requests
       const promises = [
-        service.execute(key, mockOperation, 5000),
-        service.execute(key, mockOperation, 5000),
-        service.execute(key, mockOperation, 5000),
+        service.execute(key, mockOperation),
+        service.execute(key, mockOperation),
+        service.execute(key, mockOperation),
       ];
 
       const results = await Promise.all(promises);
@@ -32,8 +32,8 @@ describe('RequestCoalescingService', () => {
       const mockOperation2 = jest.fn().mockResolvedValue('result2');
 
       const promises = [
-        service.execute('key1', mockOperation1, 5000),
-        service.execute('key2', mockOperation2, 5000),
+        service.execute('key1', mockOperation1),
+        service.execute('key2', mockOperation2),
       ];
 
       const results = await Promise.all(promises);
@@ -48,28 +48,30 @@ describe('RequestCoalescingService', () => {
         () => new Promise(resolve => setTimeout(() => resolve('result'), 100))
       );
 
-      const promise = service.execute('key', mockOperation, 50); // 50ms timeout
+      service = new RequestCoalescingService({ gracePeriodMs: 0, maxWaitMs: 50 });
+
+      const promise = service.execute('key', mockOperation);
 
       await expect(promise).rejects.toThrow('Request coalescing timeout');
     });
   });
 
-  describe('getStats', () => {
+  describe('getMetrics', () => {
     it('should return coalescing statistics', async () => {
       const mockOperation = jest.fn().mockResolvedValue('result');
 
       // Execute some coalesced requests
       await Promise.all([
-        service.execute('key1', mockOperation, 5000),
-        service.execute('key1', mockOperation, 5000),
-        service.execute('key2', mockOperation, 5000),
+        service.execute('key1', mockOperation),
+        service.execute('key1', mockOperation),
+        service.execute('key2', mockOperation),
       ]);
 
-      const stats = service.getStats();
+      const stats = service.getMetrics();
 
       expect(stats).toHaveProperty('totalRequests');
       expect(stats).toHaveProperty('coalescedRequests');
-      expect(stats).toHaveProperty('activeOperations');
+      expect(stats).toHaveProperty('activeCoalescingGroups');
       expect(stats.totalRequests).toBe(3);
       expect(stats.coalescedRequests).toBe(1); // One coalesced request for key1
     });
