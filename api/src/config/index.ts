@@ -20,8 +20,10 @@ export const config = {
     network: process.env.STELLAR_NETWORK || 'testnet',
     horizonUrl: process.env.HORIZON_URL || 'https://horizon-testnet.stellar.org',
     sorobanRpcUrl: process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org',
+    rpcUrl: process.env.SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org',
     networkPassphrase: process.env.NETWORK_PASSPHRASE || 'Test SDF Network ; September 2015',
     contractId: process.env.CONTRACT_ID || '',
+    accountingContractId: process.env.ACCOUNTING_CONTRACT_ID || '',
   },
   auth: {
     jwtSecret: process.env.JWT_SECRET as string,

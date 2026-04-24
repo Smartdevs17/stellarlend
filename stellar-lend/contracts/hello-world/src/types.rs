@@ -161,6 +161,74 @@ pub struct Action {
 }
 
 // ========================================================================
+// Flash Loan Attack Protection Types
+// ========================================================================
+
+/// Snapshot of a voter's token balance taken at proposal creation time.
+/// Voting power is always derived from this snapshot, not the live balance,
+/// preventing flash loan attacks where tokens are borrowed to inflate votes.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct VotePowerSnapshot {
+    /// The proposal this snapshot belongs to
+    pub proposal_id: u64,
+    /// The voter whose balance was snapshotted
+    pub voter: Address,
+    /// Token balance at snapshot time (= voting power)
+    pub balance: i128,
+    /// Ledger timestamp when the snapshot was taken
+    pub snapshot_time: u64,
+}
+
+/// Vote lock record: prevents a voter from transferring governance tokens
+/// while they have an active vote in a live proposal.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct VoteLock {
+    /// The locked voter
+    pub voter: Address,
+    /// Timestamp when the lock expires (= proposal end_time)
+    pub locked_until: u64,
+    /// Amount of tokens locked
+    pub locked_amount: i128,
+    /// The proposal that triggered this lock
+    pub proposal_id: u64,
+}
+
+/// Delegation record: tracks who an address has delegated its vote to.
+/// Delegation must be set at least `DELEGATION_DEADLINE` seconds before
+/// a proposal is created to be valid for that proposal.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct DelegationRecord {
+    /// The address that delegated its vote
+    pub delegator: Address,
+    /// The address receiving the delegated vote power
+    pub delegatee: Address,
+    /// When the delegation was established
+    pub delegated_at: u64,
+    /// Depth in the delegation chain (capped at MAX_DELEGATION_DEPTH)
+    pub depth: u32,
+}
+
+/// Governance analytics for attack detection.
+/// Tracks suspicious patterns such as sudden large vote swings.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct GovernanceAnalytics {
+    /// Total proposals created
+    pub total_proposals: u64,
+    /// Total votes cast
+    pub total_votes: u64,
+    /// Number of proposals that triggered the suspicious-activity flag
+    pub suspicious_proposals: u32,
+    /// Timestamp of the last suspicious event
+    pub last_suspicious_at: u64,
+    /// Largest single-voter power seen (for anomaly detection)
+    pub max_single_voter_power: i128,
+}
+
+// ========================================================================
 // Constants
 // ========================================================================
 
@@ -172,3 +240,10 @@ pub const DEFAULT_VOTING_THRESHOLD: i128 = 5_000; // 50% default threshold
 pub const DEFAULT_TIMELOCK_DURATION: u64 = 7 * 24 * 60 * 60; // 7 days
 pub const DEFAULT_RECOVERY_PERIOD: u64 = 3 * 24 * 60 * 60; // 3 days
 pub const MIN_TIMELOCK_DELAY: u64 = 24 * 60 * 60; // 24 hours
+
+// Flash loan attack protection constants
+pub const VOTE_LOCK_PERIOD: u64 = 7 * 24 * 60 * 60; // 7 days - tokens locked during voting
+pub const DELEGATION_DEADLINE: u64 = 24 * 60 * 60; // 24 hours before proposal submission
+pub const MAX_DELEGATION_DEPTH: u32 = 3; // Prevent delegation chains
+pub const PROPOSAL_RATE_LIMIT: u32 = 5; // Max proposals per address per window
+pub const PROPOSAL_RATE_WINDOW: u64 = 24 * 60 * 60; // 24 hour window for rate limiting

@@ -624,3 +624,77 @@ pub fn emit_fee_config_updated(e: &Env, event: FeeConfigUpdatedEvent) {
 pub fn emit_liquidation_fee_collected(e: &Env, event: LiquidationFeeCollectedEvent) {
     event.publish(e);
 }
+
+// ============================================================================
+// Flash Loan Attack Protection Events
+// ============================================================================
+
+/// Emitted when a voter's tokens are locked for the duration of a vote period.
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct VoteLockedEvent {
+    pub voter: Address,
+    pub proposal_id: u64,
+    pub locked_amount: i128,
+    pub locked_until: u64,
+    pub timestamp: u64,
+}
+
+/// Emitted when a voter's vote power snapshot is recorded at proposal creation.
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct VotePowerSnapshotTakenEvent {
+    pub proposal_id: u64,
+    pub voter: Address,
+    pub balance: i128,
+    pub snapshot_time: u64,
+}
+
+/// Emitted when an address delegates its vote power to another address.
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct VoteDelegatedEvent {
+    pub delegator: Address,
+    pub delegatee: Address,
+    pub delegated_at: u64,
+}
+
+/// Emitted when a delegation is revoked.
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct VoteDelegationRevokedEvent {
+    pub delegator: Address,
+    pub timestamp: u64,
+}
+
+/// Emitted when suspicious governance activity is detected (potential flash loan attack).
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct SuspiciousGovActivityEvent {
+    pub proposal_id: u64,
+    pub voter: Address,
+    pub voter_power: i128,
+    pub total_supply_estimate: i128,
+    pub reason: Symbol,
+    pub timestamp: u64,
+}
+
+pub fn emit_vote_locked(e: &Env, event: VoteLockedEvent) {
+    event.publish(e);
+}
+
+pub fn emit_vote_power_snapshot_taken(e: &Env, event: VotePowerSnapshotTakenEvent) {
+    event.publish(e);
+}
+
+pub fn emit_vote_delegated(e: &Env, event: VoteDelegatedEvent) {
+    event.publish(e);
+}
+
+pub fn emit_vote_delegation_revoked(e: &Env, event: VoteDelegationRevokedEvent) {
+    event.publish(e);
+}
+
+pub fn emit_suspicious_gov_activity(e: &Env, event: SuspiciousGovActivityEvent) {
+    event.publish(e);
+}

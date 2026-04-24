@@ -52,6 +52,14 @@ pub enum GovernanceError {
     NotInitialized = 133,
     InvalidProposal = 134,
     InputTooLong = 135,
+    // Flash loan attack protection errors
+    VotesLocked = 136,
+    DelegationTooRecent = 137,
+    DelegationDepthExceeded = 138,
+    AlreadyDelegated = 139,
+    SelfDelegation = 140,
+    SnapshotNotFound = 141,
+    ProposalRateLimitExceeded = 142,
 }
 
 /// Unified public contract error type for the lending interface.
