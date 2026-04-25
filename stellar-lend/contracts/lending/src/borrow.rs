@@ -41,6 +41,10 @@ pub enum BorrowError {
     BelowMinimumBorrow = 8,
     /// Repay amount exceeds current debt
     RepayAmountTooHigh = 9,
+    /// Position is healthy and cannot be liquidated
+    PositionHealthy = 10,
+    /// Insufficient reserves to recover bad debt
+    InsufficientReserves = 11,
 }
 
 /// Storage keys for protocol-wide data.
