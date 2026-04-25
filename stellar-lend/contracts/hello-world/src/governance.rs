@@ -12,10 +12,6 @@ pub use crate::types::{
     DEFAULT_RECOVERY_PERIOD, DEFAULT_TIMELOCK_DURATION, DEFAULT_VOTING_PERIOD,
     DEFAULT_VOTING_THRESHOLD, DELEGATION_DEADLINE, MAX_DELEGATION_DEPTH, MIN_TIMELOCK_DELAY,
     PROPOSAL_RATE_LIMIT, PROPOSAL_RATE_WINDOW,
-    GovernanceConfig, MultisigConfig, Proposal, ProposalOutcome, ProposalStatus, ProposalType,
-    RecoveryRequest, VoteInfo, VoteType, BASIS_POINTS_SCALE, DEFAULT_EXECUTION_DELAY,
-    DEFAULT_QUORUM_BPS, DEFAULT_RECOVERY_PERIOD, DEFAULT_TIMELOCK_DURATION, DEFAULT_VOTING_PERIOD,
-    DEFAULT_VOTING_THRESHOLD, MIN_TIMELOCK_DELAY,
 };
 
 use crate::events::{
@@ -24,7 +20,6 @@ use crate::events::{
     ProposalQueuedEvent, RecoveryApprovedEvent, RecoveryExecutedEvent, RecoveryStartedEvent,
     SuspiciousGovActivityEvent, VoteCastEvent, VoteDelegatedEvent, VoteDelegationRevokedEvent,
     VoteLockedEvent, VotePowerSnapshotTakenEvent,
-    VoteCastEvent,
 };
 
 use crate::{interest_rate, risk_management, risk_params};
@@ -1325,6 +1320,7 @@ fn get_delegated_power_for_voter(
 /// On Soroban, we cannot directly freeze token transfers, so we record the
 /// lock on-chain and expose `is_vote_locked` for off-chain enforcement and
 /// for the token contract to query if it implements a lock hook.
+#[allow(dead_code)]
 fn lock_vote_tokens(
     env: &Env,
     voter: &Address,
@@ -1480,6 +1476,7 @@ fn get_delegation_depth(env: &Env, addr: &Address) -> u32 {
 
 /// Enforce proposal rate limiting: an address may not create more than
 /// PROPOSAL_RATE_LIMIT proposals within a PROPOSAL_RATE_WINDOW second window.
+#[allow(dead_code)]
 fn enforce_proposal_rate_limit(env: &Env, proposer: &Address) -> Result<(), GovernanceError> {
     let now = env.ledger().timestamp();
 
@@ -1507,6 +1504,7 @@ fn enforce_proposal_rate_limit(env: &Env, proposer: &Address) -> Result<(), Gove
 /// Detect suspicious voting patterns that may indicate a flash loan attack.
 /// Emits a `SuspiciousGovernanceActivityEvent` if the voter's power exceeds
 /// a threshold relative to the total supply estimate.
+#[allow(dead_code)]
 fn detect_suspicious_voting(
     env: &Env,
     proposal_id: u64,
@@ -1561,6 +1559,7 @@ fn detect_suspicious_voting(
 }
 
 /// Update analytics when a proposal is created.
+#[allow(dead_code)]
 fn update_analytics_proposal_created(env: &Env) {
     let analytics_key = GovernanceDataKey::GovernanceAnalytics;
     let mut analytics: GovernanceAnalytics = env
@@ -1579,6 +1578,7 @@ fn update_analytics_proposal_created(env: &Env) {
 }
 
 /// Update analytics when a vote is cast.
+#[allow(dead_code)]
 fn update_analytics_vote_cast(env: &Env) {
     let analytics_key = GovernanceDataKey::GovernanceAnalytics;
     let mut analytics: GovernanceAnalytics = env

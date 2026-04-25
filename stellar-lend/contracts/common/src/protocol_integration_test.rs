@@ -11,12 +11,6 @@ use crate::shared_types::{
 };
 
 #[contract]
-struct TestContract;
-
-#[contractimpl]
-impl TestContract {}
-
-#[contract]
 struct CommonTestContract;
 
 #[contractimpl]
@@ -34,11 +28,6 @@ fn setup() -> (Env, Address, Address, Address, Address) {
     (env, contract, source, target, user)
 }
 
-fn with_contract<T>(env: &Env, f: impl FnOnce() -> T) -> T {
-    let contract = env.register_contract(None, TestContract);
-    env.as_contract(&contract, f)
-}
-
 #[test]
 fn cross_contract_message_flow_with_retry_and_confirm() {
     let (env, contract, source, target, _) = setup();
@@ -46,11 +35,6 @@ fn cross_contract_message_flow_with_retry_and_confirm() {
     let hash = symbol_short!("hash001");
 
     env.as_contract(&contract, || {
-    let (env, source, target, _) = setup();
-    with_contract(&env, || {
-        let kind = symbol_short!("borrow");
-        let hash = symbol_short!("hash001");
-
         let id = message_bus::publish(&env, source, target, kind, hash, SHARED_TYPES_VERSION_V1);
         let first = message_bus::dequeue_next(&env).unwrap();
         assert_eq!(first.id, id);
@@ -73,8 +57,6 @@ fn replay_protection_rejects_duplicate_confirmation() {
     let (env, contract, source, target, _) = setup();
 
     env.as_contract(&contract, || {
-    let (env, source, target, _) = setup();
-    with_contract(&env, || {
         let id = message_bus::publish(
             &env,
             source,
@@ -96,9 +78,6 @@ fn cache_ttl_and_metrics_work_for_health_factor() {
     let health_key: Symbol = symbol_short!("health");
 
     env.as_contract(&contract, || {
-    let (env, _, _, _) = setup();
-    with_contract(&env, || {
-        let health_key: Symbol = symbol_short!("health");
         cache::set_cached(&env, health_key, 12_345, Some(15)).unwrap();
 
         let first = cache::get_cached(&env, symbol_short!("health"));
