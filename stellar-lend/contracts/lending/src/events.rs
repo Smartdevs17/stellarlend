@@ -22,7 +22,7 @@
 //! - **Upgrade manager** — static prefixes: `up_init`, `up_apadd`, `up_prop`, `up_appr`, `up_exec`,
 //!   `up_roll`, plus `#[topic]` fields as before.
 
-use soroban_sdk::{contractevent, Address, String};
+use soroban_sdk::{contractevent, Address, Env, String};
 
 // ─── Lending (LendingContract) ─────────────────────────────────────────────
 
@@ -219,4 +219,12 @@ pub struct UpgradeRollbackEvent {
     #[topic]
     pub proposal_id: u64,
     pub prev_version: u32,
+}
+
+pub fn emit_bad_debt(env: &Env, user: &Address, amount: i128) {
+    env.events().publish(("bad_debt",), (user.clone(), amount));
+}
+
+pub fn emit_bad_debt_recovered(env: &Env, amount: i128) {
+    env.events().publish(("bad_debt_recovered",), (amount,));
 }

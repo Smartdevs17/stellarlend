@@ -13,7 +13,7 @@ use soroban_sdk::{contracttype, Address, Env, IntoVal, Symbol, Vec, I256};
 
 use crate::borrow::{
     get_close_factor_bps, get_liquidation_incentive_bps, get_liquidation_threshold_bps, get_oracle,
-    get_user_collateral, get_user_debt, BorrowCollateral, DebtPosition,
+    get_stablecoin_config, get_user_collateral, get_user_debt, BorrowCollateral, DebtPosition,
 };
 
 /// Scale for oracle price (1e8 = one unit). Value = amount * price / PRICE_SCALE.
@@ -352,6 +352,7 @@ pub fn get_protocol_report(env: &Env, stablecoin_assets: Vec<Address>) -> Protoc
     if let Some(oracle) = get_oracle(env) {
         for asset in stablecoin_assets.iter() {
             if let Some(config) = crate::borrow::get_stablecoin_config(env, &asset) {
+            if let Some(config) = get_stablecoin_config(env, &asset) {
                 let price = env.invoke_contract::<i128>(
                     &oracle,
                     &soroban_sdk::Symbol::new(env, "price"),
