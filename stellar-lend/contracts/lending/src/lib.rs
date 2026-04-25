@@ -1,5 +1,12 @@
 //! Standardized contract events (V1 schema)
 
+// ─────────────────────────────────────────
+// Formal verification specification modules
+// Activated by: cargo test --features spec -- spec::
+// ─────────────────────────────────────────
+#[cfg(any(test, feature = "spec"))]
+pub mod spec;
+
 use soroban_sdk::{contractevent, Address, Symbol};
 
 // ─────────────────────────────────────────
