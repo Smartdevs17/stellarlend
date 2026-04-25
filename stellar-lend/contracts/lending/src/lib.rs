@@ -7,6 +7,15 @@
 #[cfg(any(test, feature = "spec"))]
 pub mod spec;
 
+pub mod borrow;
+mod deposit;
+pub mod events;
+mod flash_loan;
+pub mod invariants;
+pub mod pause;
+mod token_receiver;
+mod withdraw;
+pub mod yield_farming;
 use soroban_sdk::{contractevent, Address, Symbol};
 
 // ─────────────────────────────────────────
