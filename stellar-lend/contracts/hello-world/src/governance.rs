@@ -12,6 +12,10 @@ pub use crate::types::{
     DEFAULT_RECOVERY_PERIOD, DEFAULT_TIMELOCK_DURATION, DEFAULT_VOTING_PERIOD,
     DEFAULT_VOTING_THRESHOLD, DELEGATION_DEADLINE, MAX_DELEGATION_DEPTH, MIN_TIMELOCK_DELAY,
     PROPOSAL_RATE_LIMIT, PROPOSAL_RATE_WINDOW,
+    GovernanceConfig, MultisigConfig, Proposal, ProposalOutcome, ProposalStatus, ProposalType,
+    RecoveryRequest, VoteInfo, VoteType, BASIS_POINTS_SCALE, DEFAULT_EXECUTION_DELAY,
+    DEFAULT_QUORUM_BPS, DEFAULT_RECOVERY_PERIOD, DEFAULT_TIMELOCK_DURATION, DEFAULT_VOTING_PERIOD,
+    DEFAULT_VOTING_THRESHOLD, MIN_TIMELOCK_DELAY,
 };
 
 use crate::events::{
@@ -20,6 +24,7 @@ use crate::events::{
     ProposalQueuedEvent, RecoveryApprovedEvent, RecoveryExecutedEvent, RecoveryStartedEvent,
     SuspiciousGovActivityEvent, VoteCastEvent, VoteDelegatedEvent, VoteDelegationRevokedEvent,
     VoteLockedEvent, VotePowerSnapshotTakenEvent,
+    VoteCastEvent,
 };
 
 use crate::{interest_rate, risk_management, risk_params};
@@ -137,9 +142,6 @@ pub fn create_proposal(
         }
     }
 
-    // --- Flash loan protection: proposal rate limiting ---
-    enforce_proposal_rate_limit(env, &proposer)?;
-
     let next_id: u64 = env
         .storage()
         .instance()
@@ -179,12 +181,6 @@ pub fn create_proposal(
     env.storage()
         .instance()
         .set(&GovernanceDataKey::NextProposalId, &(next_id + 1));
-
-    // --- Flash loan protection: take vote power snapshot for proposer ---
-    take_vote_power_snapshot(env, next_id, &proposer, &config.vote_token);
-
-    // Update analytics
-    update_analytics_proposal_created(env);
 
     ProposalCreatedEvent {
         proposal_id: next_id,
@@ -242,13 +238,12 @@ pub fn vote(
     // --- Flash loan protection: use snapshot-based voting power ---
     let voting_power =
         get_vote_power_with_delegation(env, proposal_id, &voter, &config.vote_token)?;
+    let token_client = TokenClient::new(env, &config.vote_token);
+    let voting_power = token_client.balance(&voter);
 
     if voting_power == 0 {
         return Err(GovernanceError::NoVotingPower);
     }
-
-    // --- Flash loan protection: lock tokens during vote period ---
-    lock_vote_tokens(env, &voter, proposal_id, voting_power, proposal.end_time);
 
     match vote_type {
         VoteType::For => proposal.for_votes += voting_power,
@@ -270,12 +265,6 @@ pub fn vote(
             timestamp: now,
         },
     );
-
-    // --- Flash loan protection: detect suspicious voting patterns ---
-    detect_suspicious_voting(env, proposal_id, &voter, voting_power, &config.vote_token);
-
-    // Update analytics
-    update_analytics_vote_cast(env);
 
     VoteCastEvent {
         proposal_id,

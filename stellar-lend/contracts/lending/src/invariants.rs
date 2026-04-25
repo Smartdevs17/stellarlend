@@ -6,18 +6,20 @@
 
 #![allow(unused_imports)]
 
+extern crate alloc;
+
+use alloc::vec::Vec;
+
 use soroban_sdk::{Address, Env};
 
+use crate::borrow::get_admin as get_borrow_admin;
+use crate::pause::{is_paused, PauseType};
 use crate::views::{
     get_collateral_balance as view_collateral_balance,
-    get_collateral_value as view_collateral_value,
-    get_debt_balance as view_debt_balance,
-    get_debt_value as view_debt_value,
-    get_health_factor as view_health_factor,
+    get_collateral_value as view_collateral_value, get_debt_balance as view_debt_balance,
+    get_debt_value as view_debt_value, get_health_factor as view_health_factor,
     get_user_position as view_user_position,
 };
-use crate::pause::is_paused;
-use crate::borrow::get_admin as get_borrow_admin;
 
 // ─────────────────────────────────────────────
 // Violation — carries reproduction info
@@ -49,11 +51,8 @@ pub struct ExemptionFlags {
 // health_factor (in bps, 10_000 = 1.0) must be >= 10_000
 // for any user who just completed a deposit/borrow/repay/withdraw.
 // ─────────────────────────────────────────────
-pub fn check_inv_001_solvency(
-    env: &Env,
-    user: &Address,
-) -> Result<(), InvariantViolation> {
-    let health_bps = view_health_factor(env, user.clone());
+pub fn check_inv_001_solvency(env: &Env, user: &Address) -> Result<(), InvariantViolation> {
+    let health_bps = view_health_factor(env, user);
     if health_bps < 10_000 {
         return Err(InvariantViolation {
             invariant_id: "INV-001",
@@ -70,7 +69,7 @@ pub fn check_inv_002_collateral_non_negative(
     env: &Env,
     user: &Address,
 ) -> Result<(), InvariantViolation> {
-    let balance = view_collateral_balance(env, user.clone());
+    let balance = view_collateral_balance(env, user);
     if balance < 0 {
         return Err(InvariantViolation {
             invariant_id: "INV-002",
@@ -87,7 +86,7 @@ pub fn check_inv_003_debt_non_negative(
     env: &Env,
     user: &Address,
 ) -> Result<(), InvariantViolation> {
-    let balance = view_debt_balance(env, user.clone());
+    let balance = view_debt_balance(env, user);
     if balance < 0 {
         return Err(InvariantViolation {
             invariant_id: "INV-003",
@@ -106,12 +105,12 @@ pub fn check_inv_004_liquidation_eligible(
     env: &Env,
     user: &Address,
 ) -> Result<(), InvariantViolation> {
-    if is_paused(env) {
+    if is_paused(env, PauseType::Liquidation) {
         return Ok(()); // documented exemption
     }
-    let health_bps = view_health_factor(env, user.clone());
+    let health_bps = view_health_factor(env, user);
     if health_bps < 10_000 {
-        let debt = view_debt_balance(env, user.clone());
+        let debt = view_debt_balance(env, user);
         if debt <= 0 {
             return Err(InvariantViolation {
                 invariant_id: "INV-004",
@@ -132,7 +131,7 @@ pub fn check_inv_005_no_value_creation_on_borrow(
     user: &Address,
     collateral_value_before: i128,
 ) -> Result<(), InvariantViolation> {
-    let after = view_collateral_value(env, user.clone());
+    let after = view_collateral_value(env, user);
     if after > collateral_value_before {
         return Err(InvariantViolation {
             invariant_id: "INV-005",
@@ -152,7 +151,7 @@ pub fn check_inv_006_admin_stability(
     admin_before: &Address,
 ) -> Result<(), InvariantViolation> {
     let admin_after = get_borrow_admin(env);
-    if admin_after != *admin_before {
+    if admin_after != Some(admin_before.clone()) {
         return Err(InvariantViolation {
             invariant_id: "INV-006",
             message: "Access control: admin changed without explicit set_admin action",
@@ -172,11 +171,11 @@ pub fn check_inv_007_pause_immutability(
     debt_before: i128,
     collateral_before: i128,
 ) -> Result<(), InvariantViolation> {
-    if !is_paused(env) {
+    if !is_paused(env, PauseType::Borrow) {
         return Ok(());
     }
-    let debt_after = view_debt_balance(env, user.clone());
-    let collateral_after = view_collateral_balance(env, user.clone());
+    let debt_after = view_debt_balance(env, user);
+    let collateral_after = view_collateral_balance(env, user);
 
     if debt_after != debt_before {
         return Err(InvariantViolation {
@@ -202,8 +201,8 @@ pub fn check_inv_008_health_factor_consistency(
     env: &Env,
     user: &Address,
 ) -> Result<(), InvariantViolation> {
-    let debt = view_debt_balance(env, user.clone());
-    let health = view_health_factor(env, user.clone());
+    let debt = view_debt_balance(env, user);
+    let health = view_health_factor(env, user);
 
     if debt == 0 && health < 10_000 {
         return Err(InvariantViolation {
@@ -228,10 +227,10 @@ pub fn check_inv_009_collateral_covers_debt(
     env: &Env,
     user: &Address,
 ) -> Result<(), InvariantViolation> {
-    let health = view_health_factor(env, user.clone());
+    let health = view_health_factor(env, user);
     if health >= 10_000 {
-        let col_val = view_collateral_value(env, user.clone());
-        let debt_val = view_debt_value(env, user.clone());
+        let col_val = view_collateral_value(env, user);
+        let debt_val = view_debt_value(env, user);
         if debt_val > 0 && col_val < debt_val {
             return Err(InvariantViolation {
                 invariant_id: "INV-009",
@@ -246,18 +245,27 @@ pub fn check_inv_009_collateral_covers_debt(
 // Aggregate — run all stateless per-user invariants.
 // Returns all violations found (does not stop on first).
 // ─────────────────────────────────────────────
-pub fn assert_all_for_user(
-    env: &Env,
-    user: &Address,
-) -> std::vec::Vec<InvariantViolation> {
-    let mut violations = std::vec::Vec::new();
+pub fn assert_all_for_user(env: &Env, user: &Address) -> Vec<InvariantViolation> {
+    let mut violations = Vec::new();
 
-    if let Err(v) = check_inv_001_solvency(env, user) { violations.push(v); }
-    if let Err(v) = check_inv_002_collateral_non_negative(env, user) { violations.push(v); }
-    if let Err(v) = check_inv_003_debt_non_negative(env, user) { violations.push(v); }
-    if let Err(v) = check_inv_004_liquidation_eligible(env, user) { violations.push(v); }
-    if let Err(v) = check_inv_008_health_factor_consistency(env, user) { violations.push(v); }
-    if let Err(v) = check_inv_009_collateral_covers_debt(env, user) { violations.push(v); }
+    if let Err(v) = check_inv_001_solvency(env, user) {
+        violations.push(v);
+    }
+    if let Err(v) = check_inv_002_collateral_non_negative(env, user) {
+        violations.push(v);
+    }
+    if let Err(v) = check_inv_003_debt_non_negative(env, user) {
+        violations.push(v);
+    }
+    if let Err(v) = check_inv_004_liquidation_eligible(env, user) {
+        violations.push(v);
+    }
+    if let Err(v) = check_inv_008_health_factor_consistency(env, user) {
+        violations.push(v);
+    }
+    if let Err(v) = check_inv_009_collateral_covers_debt(env, user) {
+        violations.push(v);
+    }
 
     violations
 }
@@ -268,6 +276,7 @@ pub fn assert_all_for_user(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::LendingContract;
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::Env;
 
@@ -275,6 +284,12 @@ mod tests {
         let env = Env::default();
         let user = Address::generate(&env);
         (env, user)
+    }
+
+    #[allow(deprecated)]
+    fn with_contract<T>(env: &Env, f: impl FnOnce() -> T) -> T {
+        let contract_id = env.register_contract(None, LendingContract);
+        env.as_contract(&contract_id, f)
     }
 
     #[test]
@@ -299,13 +314,17 @@ mod tests {
     fn test_inv_002_fresh_user_passes() {
         // A fresh address with no collateral stored should return Ok.
         let (env, user) = setup();
-        assert!(check_inv_002_collateral_non_negative(&env, &user).is_ok());
+        with_contract(&env, || {
+            assert!(check_inv_002_collateral_non_negative(&env, &user).is_ok());
+        });
     }
 
     #[test]
     fn test_inv_003_fresh_user_passes() {
         let (env, user) = setup();
-        assert!(check_inv_003_debt_non_negative(&env, &user).is_ok());
+        with_contract(&env, || {
+            assert!(check_inv_003_debt_non_negative(&env, &user).is_ok());
+        });
     }
 
     #[test]
@@ -314,15 +333,20 @@ mod tests {
         let (env, user) = setup();
         let before: i128 = 1_000_000;
         // view_collateral_value on fresh user returns 0, which is <= before
-        let result = check_inv_005_no_value_creation_on_borrow(&env, &user, before);
-        assert!(result.is_ok());
+        with_contract(&env, || {
+            let result = check_inv_005_no_value_creation_on_borrow(&env, &user, before);
+            assert!(result.is_ok());
+        });
     }
 
     #[test]
     fn test_assert_all_returns_vec() {
         let (env, user) = setup();
-        let violations = assert_all_for_user(&env, &user);
+        let violations = with_contract(&env, || assert_all_for_user(&env, &user));
         // Fresh user with no state — all checks should pass
-        assert!(violations.is_empty(), "Fresh user should have no violations");
+        assert!(
+            violations.is_empty(),
+            "Fresh user should have no violations"
+        );
     }
 }
