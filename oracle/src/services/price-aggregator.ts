@@ -283,9 +283,7 @@ export class PriceAggregator {
   /**
    * Get circuit breaker metrics for all providers
    */
-  getCircuitBreakerMetrics(): Array<
-    CircuitBreakerMetrics & { providerName: string; state: CircuitState }
-  > {
+  getCircuitBreakerMetrics(): CircuitBreakerMetrics[] {
     const metrics: CircuitBreakerMetrics[] = [];
 
     for (const breaker of this.circuitBreakers.values()) {

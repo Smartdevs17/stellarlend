@@ -146,7 +146,6 @@ export interface TransactionHistoryItem {
   memo?: string;
 }
 
-import { PaginatedResponse } from './pagination';
 export * from './subscriptions';
 import { PaginatedResponse, PaginationParams } from './pagination';
 

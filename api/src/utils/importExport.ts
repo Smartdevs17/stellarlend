@@ -23,11 +23,7 @@ const REQUIRED_FIELDS = [
   'startDate',
 ] as const;
 
-const CANONICAL_FIELDS = [
-  ...REQUIRED_FIELDS,
-  'nextBillingDate',
-  'metadata',
-] as const;
+const CANONICAL_FIELDS = [...REQUIRED_FIELDS, 'nextBillingDate', 'metadata'] as const;
 
 type CanonicalField = (typeof CANONICAL_FIELDS)[number];
 type RawImportRow = Record<string, unknown>;
@@ -124,7 +120,10 @@ function parseCsvRows(csv: string, columnMapping?: Record<string, string>): RawI
   });
 }
 
-function parseJsonRows(input: string | unknown[], columnMapping?: Record<string, string>): RawImportRow[] {
+function parseJsonRows(
+  input: string | unknown[],
+  columnMapping?: Record<string, string>
+): RawImportRow[] {
   let parsed: unknown;
 
   if (typeof input === 'string') {
@@ -150,7 +149,12 @@ function parseJsonRows(input: string | unknown[], columnMapping?: Record<string,
   });
 }
 
-function normalizeDate(value: unknown, field: string, rowNumber: number, errors: ImportRowError[]): string | undefined {
+function normalizeDate(
+  value: unknown,
+  field: string,
+  rowNumber: number,
+  errors: ImportRowError[]
+): string | undefined {
   const raw = normalizeString(value);
   if (!raw) {
     return undefined;
@@ -195,7 +199,11 @@ function normalizeMetadata(
   }
 }
 
-function normalizeAmount(value: unknown, rowNumber: number, errors: ImportRowError[]): number | undefined {
+function normalizeAmount(
+  value: unknown,
+  rowNumber: number,
+  errors: ImportRowError[]
+): number | undefined {
   const raw = normalizeString(value);
   if (!raw) {
     errors.push({ rowNumber, field: 'amount', message: 'amount is required' });
@@ -352,7 +360,11 @@ export function validateImport(
 
   rows.forEach((row, index) => {
     const rowNumber = input.format === 'csv' ? index + 2 : index + 1;
-    const { subscription, errors: rowErrors } = normalizeSubscriptionRow(input.merchantId, row, rowNumber);
+    const { subscription, errors: rowErrors } = normalizeSubscriptionRow(
+      input.merchantId,
+      row,
+      rowNumber
+    );
 
     if (rowErrors.length > 0 || !subscription) {
       errors.push(...rowErrors);

@@ -679,8 +679,14 @@ impl HelloContract {
         reserve_amount: i128,
         lp_tokens_received: i128,
     ) -> Result<(), LendingError> {
-        reserve::record_reserve_deploy_to_amm(&env, caller, asset, reserve_amount, lp_tokens_received)
-            .map_err(Into::into)
+        reserve::record_reserve_deploy_to_amm(
+            &env,
+            caller,
+            asset,
+            reserve_amount,
+            lp_tokens_received,
+        )
+        .map_err(Into::into)
     }
 
     pub fn get_reserve_amm_lp_balance(env: Env, asset: Option<Address>) -> i128 {
