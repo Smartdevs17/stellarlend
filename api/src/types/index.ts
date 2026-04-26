@@ -146,6 +146,7 @@ export interface TransactionHistoryItem {
   memo?: string;
 }
 
+export * from './subscriptions';
 import { PaginatedResponse, PaginationParams } from './pagination';
 
 export type TransactionHistoryResponse = PaginatedResponse<TransactionHistoryItem>;

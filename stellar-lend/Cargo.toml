@@ -1,12 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
+  "benchmarks",
   "client",
   "contracts/amm",
   "contracts/bridge",
   "contracts/common",
   "contracts/hello-world",
   "contracts/lending",
+  "contracts/stablecoin",
 ]
 exclude = ["fuzz"]
 
