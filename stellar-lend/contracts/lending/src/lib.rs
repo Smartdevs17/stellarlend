@@ -2,6 +2,13 @@
 
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, Val, Vec};
 
+// ─────────────────────────────────────────
+// Formal verification specification modules
+// Activated by: cargo test --features spec -- spec::
+// ─────────────────────────────────────────
+#[cfg(any(test, feature = "spec"))]
+pub mod spec;
+
 pub mod borrow;
 mod deposit;
 pub mod events;
