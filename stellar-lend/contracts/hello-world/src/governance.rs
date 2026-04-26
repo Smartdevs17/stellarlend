@@ -7,11 +7,12 @@ pub use crate::storage::{GovernanceDataKey, GuardianConfig};
 
 pub use crate::types::{
     DelegationRecord, GovernanceAnalytics, GovernanceConfig, MultisigConfig, Proposal,
-    ProposalOutcome, ProposalStatus, ProposalType, RecoveryRequest, VoteInfo, VoteLock,
-    VotePowerSnapshot, VoteType, BASIS_POINTS_SCALE, DEFAULT_EXECUTION_DELAY, DEFAULT_QUORUM_BPS,
-    DEFAULT_RECOVERY_PERIOD, DEFAULT_TIMELOCK_DURATION, DEFAULT_VOTING_PERIOD,
-    DEFAULT_VOTING_THRESHOLD, DELEGATION_DEADLINE, MAX_DELEGATION_DEPTH, MIN_TIMELOCK_DELAY,
-    PROPOSAL_RATE_LIMIT, PROPOSAL_RATE_WINDOW,
+    ParameterOptimizationRecommendation, ProposalOutcome, ProposalSimulationResult, ProposalStatus,
+    ProposalType, RecoveryRequest, VoteInfo, VoteLock, VotePowerSnapshot, VoteType,
+    BASIS_POINTS_SCALE, DEFAULT_EXECUTION_DELAY, DEFAULT_QUORUM_BPS, DEFAULT_RECOVERY_PERIOD,
+    DEFAULT_TIMELOCK_DURATION, DEFAULT_VOTING_PERIOD, DEFAULT_VOTING_THRESHOLD,
+    DELEGATION_DEADLINE, MAX_DELEGATION_DEPTH, MIN_TIMELOCK_DELAY, PROPOSAL_RATE_LIMIT,
+    PROPOSAL_RATE_WINDOW,
 };
 
 use crate::events::{
@@ -375,6 +376,153 @@ pub fn queue_proposal(
     }
 
     Ok(outcome)
+}
+
+// ========================================================================
+// Proposal Simulation (read-only) + caching
+// ========================================================================
+
+fn compute_simulation(
+    env: &Env,
+    proposal: &Proposal,
+    config: &GovernanceConfig,
+) -> ProposalSimulationResult {
+    let now = env.ledger().timestamp();
+
+    let total_votes = proposal.for_votes + proposal.against_votes + proposal.abstain_votes;
+    let quorum_required = (total_votes * config.quorum_bps as i128) / BASIS_POINTS_SCALE;
+    let quorum_reached = total_votes >= quorum_required;
+
+    let threshold_votes =
+        (proposal.total_voting_power * proposal.voting_threshold) / BASIS_POINTS_SCALE;
+    let threshold_met = proposal.for_votes >= threshold_votes;
+
+    let would_succeed = quorum_reached && threshold_met;
+    let note = if would_succeed {
+        String::from_str(env, "simulation: would succeed with current votes")
+    } else {
+        String::from_str(env, "simulation: would fail with current votes")
+    };
+
+    ProposalSimulationResult {
+        proposal_id: proposal.id,
+        now,
+        would_succeed,
+        quorum_required,
+        quorum_reached,
+        threshold_votes,
+        threshold_met,
+        for_votes: proposal.for_votes,
+        against_votes: proposal.against_votes,
+        abstain_votes: proposal.abstain_votes,
+        total_voting_power: proposal.total_voting_power,
+        note,
+    }
+}
+
+pub fn simulate_proposal(
+    env: &Env,
+    proposal_id: u64,
+) -> Result<ProposalSimulationResult, GovernanceError> {
+    let config: GovernanceConfig = env
+        .storage()
+        .instance()
+        .get(&GovernanceDataKey::Config)
+        .ok_or(GovernanceError::NotInitialized)?;
+
+    let proposal: Proposal = env
+        .storage()
+        .persistent()
+        .get(&GovernanceDataKey::Proposal(proposal_id))
+        .ok_or(GovernanceError::ProposalNotFound)?;
+
+    let result = compute_simulation(env, &proposal, &config);
+    env.storage()
+        .persistent()
+        .set(&GovernanceDataKey::ProposalSimulationCache(proposal_id), &result);
+    Ok(result)
+}
+
+pub fn get_simulation_cache(env: &Env, proposal_id: u64) -> Option<ProposalSimulationResult> {
+    env.storage()
+        .persistent()
+        .get(&GovernanceDataKey::ProposalSimulationCache(proposal_id))
+}
+
+// ========================================================================
+// Parameter Optimization (simple, transparent heuristic)
+// ========================================================================
+
+pub fn get_parameter_optimization_recommendation(
+    env: &Env,
+) -> Result<ParameterOptimizationRecommendation, GovernanceError> {
+    if let Some(cached) = env
+        .storage()
+        .persistent()
+        .get(&GovernanceDataKey::ParameterOptimizationCache)
+    {
+        return Ok(cached);
+    }
+
+    let config: GovernanceConfig = env
+        .storage()
+        .instance()
+        .get(&GovernanceDataKey::Config)
+        .ok_or(GovernanceError::NotInitialized)?;
+
+    let analytics: GovernanceAnalytics = env
+        .storage()
+        .persistent()
+        .get(&GovernanceDataKey::GovernanceAnalytics)
+        .unwrap_or(GovernanceAnalytics {
+            total_proposals: 0,
+            total_votes: 0,
+            suspicious_proposals: 0,
+            last_suspicious_at: 0,
+            max_single_voter_power: 0,
+        });
+
+    // Heuristic:
+    // - low participation => reduce quorum moderately
+    // - suspicious activity => raise quorum and threshold moderately
+    let votes_per_proposal = if analytics.total_proposals == 0 {
+        0
+    } else {
+        analytics.total_votes / analytics.total_proposals
+    };
+
+    let mut suggested_quorum_bps = config.quorum_bps;
+    if votes_per_proposal < 10 && suggested_quorum_bps > 2_000 {
+        suggested_quorum_bps = suggested_quorum_bps.saturating_sub(500);
+    }
+    if analytics.suspicious_proposals > 0 {
+        suggested_quorum_bps = suggested_quorum_bps.saturating_add(250).min(9_000);
+    }
+
+    let mut suggested_default_voting_threshold = config.default_voting_threshold;
+    if analytics.suspicious_proposals > 0 {
+        suggested_default_voting_threshold =
+            (suggested_default_voting_threshold + 250).min(BASIS_POINTS_SCALE);
+    }
+
+    let transparency_note = String::from_str(
+        env,
+        "recommendation derived from on-chain analytics; governance may override",
+    );
+
+    let recommendation = ParameterOptimizationRecommendation {
+        generated_at: env.ledger().timestamp(),
+        suggested_quorum_bps,
+        suggested_default_voting_threshold,
+        suggested_voting_period: config.voting_period,
+        transparency_note,
+    };
+
+    env.storage()
+        .persistent()
+        .set(&GovernanceDataKey::ParameterOptimizationCache, &recommendation);
+
+    Ok(recommendation)
 }
 
 // ========================================================================

@@ -24,6 +24,9 @@ pub enum GovernanceDataKey {
     ProposalApprovals(u64),
     UserProposals(Address, u64),
 
+    ProposalSimulationCache(u64),
+    ParameterOptimizationCache,
+
     RecoveryRequest,
     RecoveryApprovals,
 }

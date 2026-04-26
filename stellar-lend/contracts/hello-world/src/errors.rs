@@ -12,6 +12,7 @@ use crate::rate_limiter::RateLimitError;
 use crate::repay::RepayError;
 use crate::risk_management::RiskManagementError;
 use crate::risk_params::RiskParamsError;
+use crate::reserve::ReserveError;
 use crate::treasury::TreasuryError;
 use crate::withdraw::WithdrawError;
 
@@ -196,6 +197,17 @@ impl_from_error!(FlashLoanError, {
     FlashLoanError::Reentrancy => LendingError::Reentrancy,
     FlashLoanError::InvalidCallback => LendingError::InvalidCallback,
     FlashLoanError::CallbackFailed => LendingError::CallbackFailed,
+});
+
+impl_from_error!(ReserveError, {
+    ReserveError::Unauthorized => LendingError::Unauthorized,
+    ReserveError::InvalidReserveFactor => LendingError::InvalidParameter,
+    ReserveError::InsufficientReserve => LendingError::InsufficientReserve,
+    ReserveError::InvalidAsset => LendingError::InvalidAsset,
+    ReserveError::InvalidTreasury => LendingError::InvalidParameter,
+    ReserveError::InvalidAmount => LendingError::InvalidAmount,
+    ReserveError::Overflow => LendingError::Overflow,
+    ReserveError::TreasuryNotSet => LendingError::TreasuryNotSet,
 });
 
 impl From<GovernanceError> for LendingError {

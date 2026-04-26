@@ -172,6 +172,26 @@ impl HelloContract {
         governance::get_governance_analytics(&env)
     }
 
+    pub fn gov_simulate_proposal(
+        env: Env,
+        proposal_id: u64,
+    ) -> Result<types::ProposalSimulationResult, LendingError> {
+        governance::simulate_proposal(&env, proposal_id).map_err(Into::into)
+    }
+
+    pub fn gov_get_simulation_cache(
+        env: Env,
+        proposal_id: u64,
+    ) -> Option<types::ProposalSimulationResult> {
+        governance::get_simulation_cache(&env, proposal_id)
+    }
+
+    pub fn gov_get_parameter_optimization(
+        env: Env,
+    ) -> Result<types::ParameterOptimizationRecommendation, LendingError> {
+        governance::get_parameter_optimization_recommendation(&env).map_err(Into::into)
+    }
+
     pub fn gov_create_emergency_proposal(
         env: Env,
         caller: Address,
@@ -637,6 +657,34 @@ impl HelloContract {
     /// Return accumulated protocol reserves for the given asset
     pub fn get_reserve_balance(env: Env, asset: Option<Address>) -> i128 {
         treasury::get_reserve_balance(&env, asset)
+    }
+
+    pub fn set_reserve_amm_target(
+        env: Env,
+        caller: Address,
+        asset: Option<Address>,
+        amm_contract: Address,
+    ) -> Result<(), LendingError> {
+        reserve::set_reserve_amm_target(&env, caller, asset, amm_contract).map_err(Into::into)
+    }
+
+    pub fn get_reserve_amm_target(env: Env, asset: Option<Address>) -> Option<Address> {
+        reserve::get_reserve_amm_target(&env, asset)
+    }
+
+    pub fn record_reserve_deploy_to_amm(
+        env: Env,
+        caller: Address,
+        asset: Option<Address>,
+        reserve_amount: i128,
+        lp_tokens_received: i128,
+    ) -> Result<(), LendingError> {
+        reserve::record_reserve_deploy_to_amm(&env, caller, asset, reserve_amount, lp_tokens_received)
+            .map_err(Into::into)
+    }
+
+    pub fn get_reserve_amm_lp_balance(env: Env, asset: Option<Address>) -> i128 {
+        reserve::get_reserve_amm_lp_balance(&env, asset)
     }
 
     /// Withdraw protocol reserves to a recipient (admin-only)
