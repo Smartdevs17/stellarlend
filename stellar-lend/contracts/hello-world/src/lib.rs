@@ -1,7 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(deprecated)]
 
-use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, Address, Env, IntoVal, String, Vec};
 
 pub mod admin;
 pub mod analytics;
@@ -14,17 +14,21 @@ pub mod errors;
 pub mod events;
 pub mod flash_loan;
 pub mod governance;
+pub mod intents;
 pub mod interest_rate;
 pub mod liquidate;
+pub mod mev_protection;
 pub mod multi_collateral;
 pub mod multisig;
 pub mod oracle;
+pub mod rate_limiter;
 pub mod recovery;
 pub mod reentrancy;
 pub mod repay;
 pub mod reserve;
 pub mod risk_management;
 pub mod risk_params;
+pub mod safe_math;
 pub mod storage;
 pub mod treasury;
 pub mod types;
@@ -68,6 +72,134 @@ impl HelloContract {
             default_voting_threshold,
         )
         .map_err(Into::into)
+    }
+
+    pub fn gov_create_proposal(
+        env: Env,
+        proposer: Address,
+        proposal_type: types::ProposalType,
+        description: String,
+        voting_threshold: Option<i128>,
+    ) -> Result<u64, LendingError> {
+        governance::create_proposal(&env, proposer, proposal_type, description, voting_threshold)
+            .map_err(Into::into)
+    }
+
+    pub fn gov_vote(
+        env: Env,
+        voter: Address,
+        proposal_id: u64,
+        vote_type: types::VoteType,
+    ) -> Result<(), LendingError> {
+        governance::vote(&env, voter, proposal_id, vote_type).map_err(Into::into)
+    }
+
+    pub fn gov_queue_proposal(
+        env: Env,
+        caller: Address,
+        proposal_id: u64,
+    ) -> Result<types::ProposalOutcome, LendingError> {
+        governance::queue_proposal(&env, caller, proposal_id).map_err(Into::into)
+    }
+
+    pub fn gov_execute_proposal(
+        env: Env,
+        executor: Address,
+        proposal_id: u64,
+    ) -> Result<(), LendingError> {
+        governance::execute_proposal(&env, executor, proposal_id).map_err(Into::into)
+    }
+
+    pub fn gov_cancel_proposal(
+        env: Env,
+        caller: Address,
+        proposal_id: u64,
+    ) -> Result<(), LendingError> {
+        governance::cancel_proposal(&env, caller, proposal_id).map_err(Into::into)
+    }
+
+    pub fn gov_approve_proposal(
+        env: Env,
+        approver: Address,
+        proposal_id: u64,
+    ) -> Result<(), LendingError> {
+        governance::approve_proposal(&env, approver, proposal_id).map_err(Into::into)
+    }
+
+    pub fn gov_add_guardian(
+        env: Env,
+        caller: Address,
+        guardian: Address,
+    ) -> Result<(), LendingError> {
+        governance::add_guardian(&env, caller, guardian).map_err(Into::into)
+    }
+
+    pub fn gov_get_guardian_config(env: Env) -> Option<storage::GuardianConfig> {
+        env.storage()
+            .instance()
+            .get(&storage::GovernanceDataKey::GuardianConfig)
+    }
+
+    pub fn gov_get_proposal(env: Env, proposal_id: u64) -> Option<types::Proposal> {
+        governance::get_proposal(&env, proposal_id)
+    }
+
+    pub fn gov_get_vote_lock(env: Env, voter: Address) -> Option<types::VoteLock> {
+        governance::get_vote_lock(&env, &voter)
+    }
+
+    pub fn gov_is_vote_locked(env: Env, voter: Address) -> bool {
+        governance::is_vote_locked(&env, &voter)
+    }
+
+    pub fn gov_get_vote_power_snapshot(
+        env: Env,
+        proposal_id: u64,
+        voter: Address,
+    ) -> Option<types::VotePowerSnapshot> {
+        governance::get_vote_power_snapshot(&env, proposal_id, &voter)
+    }
+
+    pub fn gov_delegate_vote(
+        env: Env,
+        delegator: Address,
+        delegatee: Address,
+    ) -> Result<(), LendingError> {
+        governance::delegate_vote(&env, delegator, delegatee).map_err(Into::into)
+    }
+
+    pub fn gov_get_analytics(env: Env) -> types::GovernanceAnalytics {
+        governance::get_governance_analytics(&env)
+    }
+
+    pub fn gov_simulate_proposal(
+        env: Env,
+        proposal_id: u64,
+    ) -> Result<types::ProposalSimulationResult, LendingError> {
+        governance::simulate_proposal(&env, proposal_id).map_err(Into::into)
+    }
+
+    pub fn gov_get_simulation_cache(
+        env: Env,
+        proposal_id: u64,
+    ) -> Option<types::ProposalSimulationResult> {
+        governance::get_simulation_cache(&env, proposal_id)
+    }
+
+    pub fn gov_get_parameter_optimization(
+        env: Env,
+    ) -> Result<types::ParameterOptimizationRecommendation, LendingError> {
+        governance::get_parameter_optimization_recommendation(&env).map_err(Into::into)
+    }
+
+    pub fn gov_create_emergency_proposal(
+        env: Env,
+        caller: Address,
+        proposal_type: types::ProposalType,
+        description: String,
+    ) -> Result<u64, LendingError> {
+        governance::create_emergency_proposal(&env, caller, proposal_type, description)
+            .map_err(Into::into)
     }
 
     pub fn initialize(env: Env, admin: Address) -> Result<(), LendingError> {
@@ -134,6 +266,62 @@ impl HelloContract {
         asset: Option<Address>,
         amount: i128,
     ) -> Result<i128, LendingError> {
+        // Rate limiting: per-user and global-per-pool (pool = asset or native sentinel)
+        let pool = asset
+            .clone()
+            .unwrap_or_else(|| env.current_contract_address());
+        rate_limiter::consume(
+            &env,
+            &user, // caller is the authenticated user in this entrypoint
+            &user,
+            &soroban_sdk::Symbol::new(&env, "borrow"),
+            &pool,
+        )
+        .map_err(|_| LendingError::LimitExceeded)?;
+        borrow::borrow_asset(&env, user, asset, amount).map_err(Into::into)
+    }
+
+    /// Meta-tx style borrow: user authorizes intent off-chain, relayer submits.
+    pub fn borrow_asset_intent(
+        env: Env,
+        relayer: Address,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+        nonce: u64,
+        expires_at: u64,
+    ) -> Result<i128, LendingError> {
+        // Relayer must authorize themselves (pays fees).
+        relayer.require_auth();
+
+        // Require user authorization for the typed payload.
+        let mut args = Vec::new(&env);
+        args.push_back(user.clone().into_val(&env));
+        args.push_back(asset.clone().into_val(&env));
+        args.push_back(amount.into_val(&env));
+        intents::require_intent_auth(
+            &env,
+            &user,
+            &soroban_sdk::Symbol::new(&env, "borrow"),
+            nonce,
+            expires_at,
+            args,
+        )
+        .map_err(|_| LendingError::Unauthorized)?;
+
+        // Apply rate limit keyed to user (actor).
+        let pool = asset
+            .clone()
+            .unwrap_or_else(|| env.current_contract_address());
+        rate_limiter::consume(
+            &env,
+            &relayer,
+            &user,
+            &soroban_sdk::Symbol::new(&env, "borrow"),
+            &pool,
+        )
+        .map_err(|_| LendingError::LimitExceeded)?;
+
         borrow::borrow_asset(&env, user, asset, amount).map_err(Into::into)
     }
 
@@ -164,6 +352,226 @@ impl HelloContract {
         debt_amount: i128,
     ) -> Result<(i128, i128, i128), LendingError> {
         liquidator.require_auth();
+        // Rate limiting: liquidator is the actor. Pool key uses the debt asset (or native sentinel).
+        let pool = debt_asset
+            .clone()
+            .unwrap_or_else(|| env.current_contract_address());
+        rate_limiter::consume(
+            &env,
+            &liquidator,
+            &liquidator,
+            &soroban_sdk::Symbol::new(&env, "liquidate"),
+            &pool,
+        )
+        .map_err(|_| LendingError::LimitExceeded)?;
+        liquidate::liquidate(
+            &env,
+            liquidator,
+            borrower,
+            debt_asset,
+            collateral_asset,
+            debt_amount,
+        )
+        .map_err(Into::into)
+    }
+
+    pub fn configure_mev_protection(
+        env: Env,
+        caller: Address,
+        config: mev_protection::MevProtectionConfig,
+    ) -> Result<(), LendingError> {
+        mev_protection::configure(&env, caller, config).map_err(Into::into)
+    }
+
+    pub fn get_mev_protection_config(env: Env) -> mev_protection::MevProtectionConfig {
+        mev_protection::get_config(&env)
+    }
+
+    pub fn commit_borrow_protected(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+        max_fee_bps: i128,
+        hint: mev_protection::TxOrderingHint,
+    ) -> Result<u64, LendingError> {
+        mev_protection::create_commit(
+            &env,
+            user,
+            mev_protection::SensitiveOperation::Borrow,
+            asset,
+            None,
+            None,
+            amount,
+            max_fee_bps,
+            hint,
+        )
+        .map_err(Into::into)
+    }
+
+    pub fn reveal_borrow_protected(
+        env: Env,
+        user: Address,
+        commit_id: u64,
+    ) -> Result<i128, LendingError> {
+        let (asset, amount, _) = mev_protection::reveal_borrow(&env, user.clone(), commit_id)
+            .map_err(LendingError::from)?;
+        borrow::borrow_asset(&env, user, asset, amount).map_err(Into::into)
+    }
+
+    pub fn commit_withdraw_protected(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+        max_fee_bps: i128,
+        hint: mev_protection::TxOrderingHint,
+    ) -> Result<u64, LendingError> {
+        mev_protection::create_commit(
+            &env,
+            user,
+            mev_protection::SensitiveOperation::Withdraw,
+            asset,
+            None,
+            None,
+            amount,
+            max_fee_bps,
+            hint,
+        )
+        .map_err(Into::into)
+    }
+
+    pub fn reveal_withdraw_protected(
+        env: Env,
+        user: Address,
+        commit_id: u64,
+    ) -> Result<i128, LendingError> {
+        let (asset, amount) = mev_protection::reveal_withdraw(&env, user.clone(), commit_id)
+            .map_err(LendingError::from)?;
+        withdraw::withdraw_collateral(&env, user, asset, amount).map_err(Into::into)
+    }
+
+    pub fn commit_liquidation_protected(
+        env: Env,
+        liquidator: Address,
+        borrower: Address,
+        debt_asset: Option<Address>,
+        collateral_asset: Option<Address>,
+        debt_amount: i128,
+        max_fee_bps: i128,
+        hint: mev_protection::TxOrderingHint,
+    ) -> Result<u64, LendingError> {
+        mev_protection::create_commit(
+            &env,
+            liquidator,
+            mev_protection::SensitiveOperation::Liquidate,
+            debt_asset,
+            collateral_asset,
+            Some(borrower),
+            debt_amount,
+            max_fee_bps,
+            hint,
+        )
+        .map_err(Into::into)
+    }
+
+    pub fn reveal_liquidation_protected(
+        env: Env,
+        liquidator: Address,
+        commit_id: u64,
+    ) -> Result<(i128, i128, i128), LendingError> {
+        let (borrower, debt_asset, collateral_asset, debt_amount) =
+            mev_protection::reveal_liquidation(&env, liquidator.clone(), commit_id)
+                .map_err(LendingError::from)?;
+        liquidate::liquidate(
+            &env,
+            liquidator,
+            borrower,
+            debt_asset,
+            collateral_asset,
+            debt_amount,
+        )
+        .map_err(Into::into)
+    }
+
+    pub fn cancel_mev_commit(env: Env, user: Address, commit_id: u64) -> Result<(), LendingError> {
+        mev_protection::cancel_commit(&env, user, commit_id).map_err(Into::into)
+    }
+
+    pub fn get_mev_commit(env: Env, commit_id: u64) -> Option<mev_protection::PendingCommit> {
+        mev_protection::get_commit(&env, commit_id)
+    }
+
+    pub fn preview_mev_fee_bps(
+        env: Env,
+        operation: mev_protection::SensitiveOperation,
+        asset: Option<Address>,
+        amount: i128,
+    ) -> i128 {
+        mev_protection::preview_fee_bps(&env, operation, asset, amount)
+    }
+
+    pub fn get_mev_ordering_hint(
+        env: Env,
+        requested: mev_protection::TxOrderingHint,
+    ) -> mev_protection::TxOrderingHint {
+        mev_protection::execution_hint(&env, requested)
+    }
+
+    pub fn get_mev_user_guidance(
+        env: Env,
+        operation: mev_protection::SensitiveOperation,
+    ) -> String {
+        mev_protection::user_guidance(&env, operation)
+    }
+
+    pub fn get_mev_ordering_stats(env: Env) -> mev_protection::OrderingStats {
+        mev_protection::get_ordering_stats(&env)
+    }
+
+    /// Meta-tx style liquidation: liquidator authorizes intent off-chain.
+    pub fn liquidate_intent(
+        env: Env,
+        relayer: Address,
+        liquidator: Address,
+        borrower: Address,
+        debt_asset: Option<Address>,
+        collateral_asset: Option<Address>,
+        debt_amount: i128,
+        nonce: u64,
+        expires_at: u64,
+    ) -> Result<(i128, i128, i128), LendingError> {
+        relayer.require_auth();
+
+        let mut args = Vec::new(&env);
+        args.push_back(liquidator.clone().into_val(&env));
+        args.push_back(borrower.clone().into_val(&env));
+        args.push_back(debt_asset.clone().into_val(&env));
+        args.push_back(collateral_asset.clone().into_val(&env));
+        args.push_back(debt_amount.into_val(&env));
+
+        intents::require_intent_auth(
+            &env,
+            &liquidator,
+            &soroban_sdk::Symbol::new(&env, "liquidate"),
+            nonce,
+            expires_at,
+            args,
+        )
+        .map_err(|_| LendingError::Unauthorized)?;
+
+        let pool = debt_asset
+            .clone()
+            .unwrap_or_else(|| env.current_contract_address());
+        rate_limiter::consume(
+            &env,
+            &relayer,
+            &liquidator,
+            &soroban_sdk::Symbol::new(&env, "liquidate"),
+            &pool,
+        )
+        .map_err(|_| LendingError::LimitExceeded)?;
+
         liquidate::liquidate(
             &env,
             liquidator,
@@ -182,8 +590,7 @@ impl HelloContract {
     ) -> Result<(), LendingError> {
         // Authorization is handled by risk_management::require_admin.
         risk_management::require_admin(&env, &caller)?;
-        risk_management::set_emergency_pause(&env, caller, paused)
-            .map_err(Into::into)
+        risk_management::set_emergency_pause(&env, caller, paused).map_err(Into::into)
     }
 
     pub fn execute_flash_loan(
@@ -213,10 +620,7 @@ impl HelloContract {
         risk_params::can_be_liquidated(&env, collateral_value, debt_value).map_err(Into::into)
     }
 
-    pub fn get_max_liquidatable_amount(
-        env: Env,
-        debt_value: i128,
-    ) -> Result<i128, LendingError> {
+    pub fn get_max_liquidatable_amount(env: Env, debt_value: i128) -> Result<i128, LendingError> {
         risk_params::get_max_liquidatable_amount(&env, debt_value).map_err(Into::into)
     }
 
@@ -241,11 +645,7 @@ impl HelloContract {
     // -------------------------------------------------------------------------
 
     /// Set the protocol treasury address (admin-only)
-    pub fn set_treasury(
-        env: Env,
-        caller: Address,
-        treasury: Address,
-    ) -> Result<(), LendingError> {
+    pub fn set_treasury(env: Env, caller: Address, treasury: Address) -> Result<(), LendingError> {
         treasury::set_treasury(&env, caller, treasury).map_err(Into::into)
     }
 
@@ -257,6 +657,34 @@ impl HelloContract {
     /// Return accumulated protocol reserves for the given asset
     pub fn get_reserve_balance(env: Env, asset: Option<Address>) -> i128 {
         treasury::get_reserve_balance(&env, asset)
+    }
+
+    pub fn set_reserve_amm_target(
+        env: Env,
+        caller: Address,
+        asset: Option<Address>,
+        amm_contract: Address,
+    ) -> Result<(), LendingError> {
+        reserve::set_reserve_amm_target(&env, caller, asset, amm_contract).map_err(Into::into)
+    }
+
+    pub fn get_reserve_amm_target(env: Env, asset: Option<Address>) -> Option<Address> {
+        reserve::get_reserve_amm_target(&env, asset)
+    }
+
+    pub fn record_reserve_deploy_to_amm(
+        env: Env,
+        caller: Address,
+        asset: Option<Address>,
+        reserve_amount: i128,
+        lp_tokens_received: i128,
+    ) -> Result<(), LendingError> {
+        reserve::record_reserve_deploy_to_amm(&env, caller, asset, reserve_amount, lp_tokens_received)
+            .map_err(Into::into)
+    }
+
+    pub fn get_reserve_amm_lp_balance(env: Env, asset: Option<Address>) -> i128 {
+        reserve::get_reserve_amm_lp_balance(&env, asset)
     }
 
     /// Withdraw protocol reserves to a recipient (admin-only)
@@ -339,10 +767,7 @@ impl HelloContract {
     }
 
     /// Read-only user analytics report.
-    pub fn get_user_report(
-        env: Env,
-        user: Address,
-    ) -> Result<analytics::UserReport, LendingError> {
+    pub fn get_user_report(env: Env, user: Address) -> Result<analytics::UserReport, LendingError> {
         analytics::generate_user_report(&env, &user).map_err(Into::into)
     }
 
@@ -353,6 +778,11 @@ impl HelloContract {
         offset: u32,
     ) -> Result<Vec<analytics::ActivityEntry>, LendingError> {
         analytics::get_recent_activity(&env, limit, offset).map_err(Into::into)
+    }
+
+    /// Read-only: get next expected nonce for off-chain intents.
+    pub fn get_intent_nonce(env: Env, user: Address, operation: soroban_sdk::Symbol) -> u64 {
+        intents::get_next_nonce(&env, user, operation)
     }
 
     // -------------------------------------------------------------------------
@@ -398,6 +828,12 @@ impl HelloContract {
 mod cross_contract_test;
 #[cfg(test)]
 mod flash_loan_test;
+#[cfg(test)]
+#[path = "tests/governance_test.rs"]
+mod governance_test;
+#[cfg(test)]
+#[path = "tests/mev_protection_test.rs"]
+mod mev_protection_test;
 #[cfg(test)]
 mod multi_collateral_test;
 #[cfg(test)]

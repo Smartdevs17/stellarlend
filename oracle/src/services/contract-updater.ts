@@ -186,7 +186,10 @@ export class ContractUpdater {
     const simulated = await this.server.simulateTransaction(transaction);
 
     if (rpc.Api.isSimulationError(simulated)) {
-      throw new Error(`Simulation failed: ${simulated.error}`);
+      const message = String(simulated.error ?? 'Unknown simulation error');
+      throw new Error(
+        message.startsWith('Simulation failed:') ? message : `Simulation failed: ${message}`
+      );
     }
 
     if (!rpc.Api.isSimulationSuccess(simulated)) {
@@ -272,10 +275,11 @@ export class ContractUpdater {
         result.admin = true;
         result.details.admin = {
           exists: true,
-          balance: adminAccount.balances
-            .filter((balance: any) => balance.asset_type === 'native')
-            .map((balance: any) => balance.balance)
-            .join('') || '0',
+          balance:
+            adminAccount.balances
+              .filter((balance: any) => balance.asset_type === 'native')
+              .map((balance: any) => balance.balance)
+              .join('') || '0',
         };
       } catch (error) {
         result.details.admin = {

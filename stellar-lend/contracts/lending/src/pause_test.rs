@@ -193,7 +193,10 @@ fn test_pause_flash_loan_granular() {
     let receiver = Address::generate(&env);
     let asset = Address::generate(&env);
     let result = client.try_flash_loan(&receiver, &asset, &1000, &soroban_sdk::Bytes::new(&env));
-    assert_eq!(result, Err(Ok(crate::flash_loan::FlashLoanError::FlashLoanPaused)));
+    assert_eq!(
+        result,
+        Err(Ok(crate::flash_loan::FlashLoanError::FlashLoanPaused))
+    );
 
     // Other operations should still work
     let user = Address::generate(&env);
@@ -221,7 +224,10 @@ fn test_global_pause_includes_flash_loan() {
     let receiver = Address::generate(&env);
     let asset = Address::generate(&env);
     let result = client.try_flash_loan(&receiver, &asset, &1000, &soroban_sdk::Bytes::new(&env));
-    assert_eq!(result, Err(Ok(crate::flash_loan::FlashLoanError::FlashLoanPaused)));
+    assert_eq!(
+        result,
+        Err(Ok(crate::flash_loan::FlashLoanError::FlashLoanPaused))
+    );
 
     // Unpause all
     client.set_pause(&admin, &PauseType::All, &false);

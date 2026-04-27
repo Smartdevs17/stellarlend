@@ -82,6 +82,16 @@ export interface ProtocolStatsResponse {
   utilizationRate: string;
   numberOfUsers: number;
   tvl: string;
+  stablecoinStats?: StablecoinAssetStats[];
+}
+
+export interface StablecoinAssetStats {
+  asset: string;
+  price: string;
+  targetPrice: string;
+  deviationBps: number;
+  stabilityFeeBps: number;
+  isDepegged: boolean;
 }
 
 export enum TransactionStatus {
@@ -136,6 +146,8 @@ export interface TransactionHistoryItem {
   memo?: string;
 }
 
+import { PaginatedResponse } from './pagination';
+export * from './subscriptions';
 import { PaginatedResponse, PaginationParams } from './pagination';
 
 export type TransactionHistoryResponse = PaginatedResponse<TransactionHistoryItem>;
@@ -143,4 +155,3 @@ export type TransactionHistoryResponse = PaginatedResponse<TransactionHistoryIte
 export interface TransactionHistoryQuery extends PaginationParams {
   userAddress: string;
 }
-

@@ -1,64 +1,11 @@
-use soroban_sdk::{
-    contract, contractevent, contracterror, contractimpl, contracttype, panic_with_error, Address,
-    BytesN, Env, Vec,
+use crate::events::{
+    UpgradeApprovalRecordedEvent, UpgradeApproverAddedEvent, UpgradeApproverRemovedEvent,
+    UpgradeExecutedEvent, UpgradeInitEvent, UpgradeProposedEvent, UpgradeRollbackEvent,
 };
-
-#[contractevent(topics = ["up_init"], data_format = "single-value")]
-#[derive(Clone, Debug)]
-pub struct UpgradeInitEvent {
-    #[topic]
-    pub admin: Address,
-    pub required_approvals: u32,
-}
-
-#[contractevent(topics = ["up_apadd"], data_format = "single-value")]
-#[derive(Clone, Debug)]
-pub struct UpgradeApproverAddedEvent {
-    #[topic]
-    pub caller: Address,
-    #[topic]
-    pub approver: Address,
-}
-
-#[contractevent(topics = ["up_prop"], data_format = "single-value")]
-#[derive(Clone, Debug)]
-pub struct UpgradeProposedEvent {
-    #[topic]
-    pub caller: Address,
-    #[topic]
-    pub id: u64,
-    pub new_version: u32,
-}
-
-#[contractevent(topics = ["up_appr"], data_format = "single-value")]
-#[derive(Clone, Debug)]
-pub struct UpgradeApprovalRecordedEvent {
-    #[topic]
-    pub caller: Address,
-    #[topic]
-    pub proposal_id: u64,
-    pub approval_count: u32,
-}
-
-#[contractevent(topics = ["up_exec"], data_format = "single-value")]
-#[derive(Clone, Debug)]
-pub struct UpgradeExecutedEvent {
-    #[topic]
-    pub caller: Address,
-    #[topic]
-    pub proposal_id: u64,
-    pub new_version: u32,
-}
-
-#[contractevent(topics = ["up_roll"], data_format = "single-value")]
-#[derive(Clone, Debug)]
-pub struct UpgradeRollbackEvent {
-    #[topic]
-    pub caller: Address,
-    #[topic]
-    pub proposal_id: u64,
-    pub prev_version: u32,
-}
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, BytesN, Env,
+    Vec,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -183,17 +130,50 @@ impl UpgradeManager {
     }
 
     /// Removes an upgrade approver. Only admin can call.
+    ///
+    /// Safety guardrails:
+    /// - Admin cannot remove themselves as an approver.
+    /// - The approver set cannot be reduced below `required_approvals`.
     pub fn remove_approver(env: Env, caller: Address, approver: Address) {
         caller.require_auth();
         Self::assert_initialized(&env);
         Self::assert_admin(&env, &caller);
 
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&UpgradeKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, UpgradeError::NotInitialized));
+
+        if approver == admin {
+            panic_with_error!(&env, UpgradeError::NotAuthorized);
+        }
+
+        let required = Self::required_approvals(env.clone());
         let mut approvers = Self::approvers(&env);
-        if let Some(idx) = approvers.iter().position(|a| a == approver) {
-            approvers.remove(idx as u32);
+
+        let mut idx: Option<u32> = None;
+        for i in 0..approvers.len() {
+            if approvers.get(i).unwrap() == approver {
+                idx = Some(i);
+                break;
+            }
+        }
+
+        if let Some(i) = idx {
+            approvers.remove(i);
+            if approvers.len() < required {
+                panic_with_error!(&env, UpgradeError::InvalidThreshold);
+            }
             env.storage()
                 .persistent()
                 .set(&UpgradeKey::Approvers, &approvers);
+
+            UpgradeApproverRemovedEvent {
+                caller: caller.clone(),
+                approver: approver.clone(),
+            }
+            .publish(&env);
         }
     }
 

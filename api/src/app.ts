@@ -7,11 +7,20 @@ import { bodySizeLimitMiddleware } from './middleware/bodySizeLimit';
 import lendingRoutes from './routes/lending.routes';
 import healthRoutes from './routes/health.routes';
 import protocolRoutes from './routes/protocol.routes';
+import subscriptionRoutes from './routes/subscription.routes';
+import portfolioRoutes from './routes/portfolio.routes';
+import gasRoutes from './routes/gas.routes';
+import stakingRoutes from './routes/staking.routes';
+import transactionRoutes from './routes/transaction.routes';
+import merkleRoutes from './routes/merkle.routes';
+import zkProofRoutes from './routes/zkProof.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { swaggerSpec } from './config/swagger';
 import logger from './utils/logger';
 import { requestIdMiddleware } from './middleware/requestId';
+import { sanitizeInput } from './middleware/sanitizeInput';
+import { redisCacheService } from './services/redisCache.service';
 
 const app: Application = express();
 app.use(requestIdMiddleware);
@@ -42,6 +51,7 @@ if (config.server.env === 'production') {
 app.use(cors());
 app.use(express.json({ limit: config.bodySizeLimit.limit }));
 app.use(express.urlencoded({ extended: true, limit: config.bodySizeLimit.limit }));
+app.use(sanitizeInput);
 app.use(bodySizeLimitMiddleware);
 
 const limiter = rateLimit({
@@ -72,11 +82,13 @@ const userRateLimiter = rateLimit({
 let swaggerUiLoaded = false;
 app.use('/api/docs', (req: Request, res: Response, next: NextFunction) => {
   if (swaggerUiLoaded) return next();
-  import('swagger-ui-express').then((swaggerUi) => {
-    app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-    swaggerUiLoaded = true;
-    next();
-  }).catch(next);
+  import('swagger-ui-express')
+    .then((swaggerUi) => {
+      app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+      swaggerUiLoaded = true;
+      next();
+    })
+    .catch(next);
 });
 
 app.get('/api/openapi.json', (_req, res) => {
@@ -86,8 +98,17 @@ app.get('/api/openapi.json', (_req, res) => {
 app.use('/api/health', healthRoutes);
 app.use('/api/protocol', protocolRoutes);
 app.use('/api/lending', idempotencyMiddleware, userRateLimiter, lendingRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/portfolio', portfolioRoutes);
+app.use('/api/gas', userRateLimiter, gasRoutes);
+app.use('/api/staking', stakingRoutes);
+app.use('/api/transactions', transactionRoutes);
+app.use('/api/merkle', merkleRoutes);
+app.use('/api/zk', zkProofRoutes);
 
 app.use(errorHandler);
+
+void redisCacheService.warmup();
 
 export async function resetRateLimiters(): Promise<void> {
   await Promise.all([ipRateLimitStore.resetAll(), userRateLimitStore.resetAll()]);
