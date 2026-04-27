@@ -813,72 +813,13 @@ impl HelloContract {
         flash_loan::set_flash_loan_config(&env, caller, config).map_err(Into::into)
     }
 
-    // -------------------------------------------------------------------------
-    // Rate limiting configuration & monitoring
-    // -------------------------------------------------------------------------
-
-    /// Admin-only: configure default rate limits for an operation.
-    pub fn configure_rate_limit_operation(
+    /// Set the native asset address used when `asset = None` (admin-only).
+    pub fn set_native_asset_address(
         env: Env,
         caller: Address,
-        operation: soroban_sdk::Symbol,
-        cfg: rate_limiter::RateLimitConfig,
+        native_asset: Address,
     ) -> Result<(), LendingError> {
-        rate_limiter::configure_operation_limit(&env, caller, operation, cfg).map_err(|e| match e {
-            rate_limiter::RateLimitError::Unauthorized => LendingError::Unauthorized,
-            rate_limiter::RateLimitError::InvalidConfig => LendingError::InvalidParameter,
-            _ => LendingError::InvalidParameter,
-        })
-    }
-
-    /// Admin-only: configure global-per-pool rate limits for an operation.
-    pub fn configure_rate_limit_pool(
-        env: Env,
-        caller: Address,
-        operation: soroban_sdk::Symbol,
-        pool: Address,
-        cfg: rate_limiter::RateLimitConfig,
-    ) -> Result<(), LendingError> {
-        rate_limiter::configure_pool_limit(&env, caller, operation, pool, cfg).map_err(
-            |e| match e {
-                rate_limiter::RateLimitError::Unauthorized => LendingError::Unauthorized,
-                rate_limiter::RateLimitError::InvalidConfig => LendingError::InvalidParameter,
-                _ => LendingError::InvalidParameter,
-            },
-        )
-    }
-
-    /// Admin-only: grant/revoke extra burst capacity for a (user, operation) pair.
-    pub fn set_user_rate_limit_grace(
-        env: Env,
-        caller: Address,
-        user: Address,
-        operation: soroban_sdk::Symbol,
-        enabled: bool,
-    ) -> Result<(), LendingError> {
-        rate_limiter::set_user_grace(&env, caller, user, operation, enabled).map_err(|e| match e {
-            rate_limiter::RateLimitError::Unauthorized => LendingError::Unauthorized,
-            _ => LendingError::InvalidParameter,
-        })
-    }
-
-    /// Read-only: returns per-user bucket status.
-    pub fn get_user_rate_limit_status(
-        env: Env,
-        user: Address,
-        operation: soroban_sdk::Symbol,
-        pool: Address,
-    ) -> rate_limiter::RateLimitStatus {
-        rate_limiter::get_user_status(&env, user, operation, pool)
-    }
-
-    /// Read-only: returns global-per-pool bucket status.
-    pub fn get_global_rate_limit_status(
-        env: Env,
-        operation: soroban_sdk::Symbol,
-        pool: Address,
-    ) -> rate_limiter::RateLimitStatus {
-        rate_limiter::get_global_status(&env, operation, pool)
+        deposit::set_native_asset_address(&env, caller, native_asset).map_err(Into::into)
     }
 
     // -------------------------------------------------------------------------
@@ -1108,9 +1049,12 @@ mod test_reentrancy;
 mod test_zero_amount;
 #[cfg(test)]
 mod treasury_test;
-// Temporarily disabled due to pre-existing issues
-// #[cfg(test)]
-// #[path = "tests/timelock_test.rs"]
-// mod timelock_test;
-// Disabled until the full governance attack-prevention surface is implemented.
-// mod governance_attack_prevention_test;
+#[cfg(test)]
+#[path = "tests/diff_harness.rs"]
+mod diff_harness;
+#[cfg(test)]
+#[path = "tests/differential_test.rs"]
+mod differential_test;
+#[cfg(test)]
+#[path = "tests/migration_verification_test.rs"]
+mod migration_verification_test;
