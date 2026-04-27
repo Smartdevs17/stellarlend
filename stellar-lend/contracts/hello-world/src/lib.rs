@@ -382,6 +382,15 @@ impl HelloContract {
     ) -> Result<(), LendingError> {
         flash_loan::set_flash_loan_config(&env, caller, config).map_err(Into::into)
     }
+
+    /// Set the native asset address used when `asset = None` (admin-only).
+    pub fn set_native_asset_address(
+        env: Env,
+        caller: Address,
+        native_asset: Address,
+    ) -> Result<(), LendingError> {
+        deposit::set_native_asset_address(&env, caller, native_asset).map_err(Into::into)
+    }
 }
 
 #[cfg(test)]
@@ -397,3 +406,12 @@ mod test_reentrancy;
 mod test_zero_amount;
 #[cfg(test)]
 mod treasury_test;
+#[cfg(test)]
+#[path = "tests/diff_harness.rs"]
+mod diff_harness;
+#[cfg(test)]
+#[path = "tests/differential_test.rs"]
+mod differential_test;
+#[cfg(test)]
+#[path = "tests/migration_verification_test.rs"]
+mod migration_verification_test;
