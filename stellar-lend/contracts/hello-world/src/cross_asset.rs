@@ -18,7 +18,9 @@
 //! - Prices must not be stale (> 1 hour old) for position calculations.
 
 #![allow(dead_code)]
-use soroban_sdk::{contractevent, contracterror, contracttype, symbol_short, Address, Env, Map, Symbol, Vec};
+use soroban_sdk::{
+    contracterror, contractevent, contracttype, symbol_short, Address, Env, Map, Symbol, Vec,
+};
 
 // -------------------------------------------------------------------------
 // Events for cap changes and pool state changes

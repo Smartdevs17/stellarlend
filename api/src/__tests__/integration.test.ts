@@ -588,9 +588,7 @@ describe('Contract Verification', () => {
   });
 
   it('returns 400 for invalid contract ID', async () => {
-    const res = await request(app)
-      .get('/api/verification')
-      .query({ contractId: 'invalid' });
+    const res = await request(app).get('/api/verification').query({ contractId: 'invalid' });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/Unable to determine source path/);

@@ -6,11 +6,7 @@ import {
   SubscriptionRecord,
   ValidationResult,
 } from '../types';
-import {
-  exportSubscriptions,
-  importSubscriptions,
-  validateImport,
-} from '../utils/importExport';
+import { exportSubscriptions, importSubscriptions, validateImport } from '../utils/importExport';
 
 const subscriptionsByMerchant = new Map<string, Map<string, SubscriptionRecord>>();
 const importHistoryByMerchant = new Map<string, ImportHistoryEntry[]>();

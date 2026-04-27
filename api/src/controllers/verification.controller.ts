@@ -14,7 +14,7 @@ export const verifyContract = async (req: Request, res: Response): Promise<void>
 
     if (!contractId || typeof contractId !== 'string') {
       res.status(400).json({
-        error: 'contractId parameter is required'
+        error: 'contractId parameter is required',
       });
       return;
     }
@@ -28,7 +28,7 @@ export const verifyContract = async (req: Request, res: Response): Promise<void>
       sourcePath = path.join(process.cwd(), '../../stellar-lend/contracts/hello-world');
     } else {
       res.status(400).json({
-        error: 'Unable to determine source path for contract ID'
+        error: 'Unable to determine source path for contract ID',
       });
       return;
     }
@@ -41,7 +41,7 @@ export const verifyContract = async (req: Request, res: Response): Promise<void>
     if (stderr && !stdout.includes('VERIFICATION SUCCESSFUL')) {
       res.status(400).json({
         verified: false,
-        error: stderr
+        error: stderr,
       });
       return;
     }
@@ -50,14 +50,13 @@ export const verifyContract = async (req: Request, res: Response): Promise<void>
       verified: true,
       contractId,
       network,
-      message: 'Contract verification successful'
+      message: 'Contract verification successful',
     });
-
   } catch (error) {
     console.error('Verification error:', error);
     res.status(500).json({
       verified: false,
-      error: 'Verification failed'
+      error: 'Verification failed',
     });
   }
 };

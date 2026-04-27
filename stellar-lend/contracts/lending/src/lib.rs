@@ -1,4 +1,6 @@
 #![no_std]
+// create_borrow_commitment and contractimpl-generated glue exceed clippy::too_many_arguments (7)
+#![allow(clippy::too_many_arguments)]
 
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, Val, Vec};
 
@@ -20,6 +22,12 @@ pub use flash_loan::FlashLoanError;
 pub use pause::PauseType;
 pub use views::{ProtocolMetrics, ProtocolReport, StablecoinAssetStats, UserPositionSummary};
 pub use withdraw::WithdrawError;
+
+pub use commitments::{
+    BorrowCommitment, CommitmentError, CommitmentStatus, PriceTrigger, TriggerCombiner,
+};
+pub use events::RiskAlertSeverity;
+pub use risk_monitor::{RiskAlertThresholds, RiskMonitorError};
 
 use borrow::{
     borrow as borrow_cmd, deposit as borrow_deposit, get_admin as get_borrow_admin,
@@ -66,11 +74,15 @@ pub enum ReserveKey {
     ProtocolReserves,
 }
 
+mod commitments;
 mod data_store;
+mod risk_monitor;
 pub mod upgrade;
 
 #[cfg(test)]
 mod borrow_test;
+#[cfg(test)]
+mod commitments_test;
 #[cfg(test)]
 mod data_store_test;
 #[cfg(test)]
@@ -409,6 +421,62 @@ impl LendingContract {
     /// Get protocol report including stablecoin stats.
     pub fn get_protocol_report(env: Env, stablecoin_assets: Vec<Address>) -> ProtocolReport {
         views::get_protocol_report(&env, stablecoin_assets)
+    }
+
+    /// Configure utilization threshold alerts (warning / critical / emergency in basis points of debt vs ceiling).
+    pub fn set_risk_alert_thresholds(
+        env: Env,
+        admin: Address,
+        thresholds: RiskAlertThresholds,
+    ) -> Result<(), RiskMonitorError> {
+        risk_monitor::set_risk_alert_thresholds(&env, admin, thresholds)
+    }
+
+    pub fn get_risk_alert_thresholds(env: Env) -> Option<RiskAlertThresholds> {
+        risk_monitor::get_risk_alert_thresholds(&env)
+    }
+
+    pub fn create_borrow_commitment(
+        env: Env,
+        owner: Address,
+        triggers: Vec<PriceTrigger>,
+        combiner: TriggerCombiner,
+        borrow_asset: Address,
+        collateral_asset: Address,
+        borrow_amount: i128,
+        collateral_amount: i128,
+        min_fill_bps: u32,
+        expiry_timestamp: u64,
+    ) -> Result<u64, CommitmentError> {
+        commitments::create_borrow_commitment(
+            &env,
+            owner,
+            triggers,
+            combiner,
+            borrow_asset,
+            collateral_asset,
+            borrow_amount,
+            collateral_amount,
+            min_fill_bps,
+            expiry_timestamp,
+        )
+    }
+
+    pub fn cancel_borrow_commitment(
+        env: Env,
+        owner: Address,
+        commitment_id: u64,
+    ) -> Result<(), CommitmentError> {
+        commitments::cancel_borrow_commitment(&env, owner, commitment_id)
+    }
+
+    /// Keeper or user: execute commitment when oracle triggers are satisfied (no owner signature).
+    pub fn execute_borrow_commitment(env: Env, commitment_id: u64) -> Result<(), CommitmentError> {
+        commitments::execute_borrow_commitment(&env, commitment_id)
+    }
+
+    pub fn get_borrow_commitment(env: Env, commitment_id: u64) -> Option<BorrowCommitment> {
+        commitments::get_borrow_commitment(&env, commitment_id)
     }
 
     pub fn recover_bad_debt(env: Env, admin: Address, amount: i128) -> Result<(), BorrowError> {

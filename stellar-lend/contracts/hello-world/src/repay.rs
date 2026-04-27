@@ -116,12 +116,9 @@ fn accrue_interest(env: &Env, user: &Address, position: &mut Position) -> Result
         .get::<DepositDataKey, i128>(&DepositDataKey::UserBorrowIndex(user.clone()))
         .unwrap_or(current_index);
 
-    let new_interest = crate::interest_rate::compute_index_interest(
-        position.debt,
-        user_index,
-        current_index,
-    )
-    .map_err(|_| RepayError::Overflow)?;
+    let new_interest =
+        crate::interest_rate::compute_index_interest(position.debt, user_index, current_index)
+            .map_err(|_| RepayError::Overflow)?;
 
     position.borrow_interest = position
         .borrow_interest

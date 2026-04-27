@@ -679,8 +679,14 @@ impl HelloContract {
         reserve_amount: i128,
         lp_tokens_received: i128,
     ) -> Result<(), LendingError> {
-        reserve::record_reserve_deploy_to_amm(&env, caller, asset, reserve_amount, lp_tokens_received)
-            .map_err(Into::into)
+        reserve::record_reserve_deploy_to_amm(
+            &env,
+            caller,
+            asset,
+            reserve_amount,
+            lp_tokens_received,
+        )
+        .map_err(Into::into)
     }
 
     pub fn get_reserve_amm_lp_balance(env: Env, asset: Option<Address>) -> i128 {
@@ -1084,12 +1090,6 @@ impl HelloContract {
 #[path = "tests/borrow_cap_test.rs"]
 mod borrow_cap_test;
 #[cfg(test)]
-#[path = "tests/supply_cap_test.rs"]
-mod supply_cap_test;
-#[cfg(test)]
-#[path = "tests/isolated_pool_test.rs"]
-mod isolated_pool_test;
-#[cfg(test)]
 #[path = "tests/cross_contract_test.rs"]
 mod cross_contract_test;
 #[cfg(test)]
@@ -1098,10 +1098,16 @@ mod flash_loan_test;
 #[path = "tests/governance_test.rs"]
 mod governance_test;
 #[cfg(test)]
+#[path = "tests/isolated_pool_test.rs"]
+mod isolated_pool_test;
+#[cfg(test)]
 #[path = "tests/mev_protection_test.rs"]
 mod mev_protection_test;
 #[cfg(test)]
 mod multi_collateral_test;
+#[cfg(test)]
+#[path = "tests/supply_cap_test.rs"]
+mod supply_cap_test;
 #[cfg(test)]
 mod test_reentrancy;
 #[cfg(test)]

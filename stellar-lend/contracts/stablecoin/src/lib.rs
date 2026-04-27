@@ -1,7 +1,8 @@
 #![no_std]
+#![allow(deprecated)] // env.events().publish — migrate to #[contractevent] when stabilizing stablecoin API
 
+use soroban_sdk::token::{StellarAssetClient, TokenClient};
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol};
-use soroban_sdk::token::TokenClient;
 
 const BPS: i128 = 10_000;
 
@@ -55,7 +56,10 @@ fn require_admin(env: &Env, caller: &Address) -> Result<(), StablecoinError> {
 }
 
 fn is_shutdown(env: &Env) -> bool {
-    env.storage().instance().get(&DataKey::Shutdown).unwrap_or(false)
+    env.storage()
+        .instance()
+        .get(&DataKey::Shutdown)
+        .unwrap_or(false)
 }
 
 fn stablecoin_token(env: &Env) -> Result<Address, StablecoinError> {
@@ -84,14 +88,26 @@ fn reserve_ratio_bps(env: &Env) -> Result<i128, StablecoinError> {
 }
 
 fn add_total_collateral(env: &Env, amount: i128) -> Result<(), StablecoinError> {
-    let current: i128 = env.storage().instance().get(&DataKey::TotalCollateral).unwrap_or(0);
-    let next = current.checked_add(amount).ok_or(StablecoinError::Overflow)?;
-    env.storage().instance().set(&DataKey::TotalCollateral, &next);
+    let current: i128 = env
+        .storage()
+        .instance()
+        .get(&DataKey::TotalCollateral)
+        .unwrap_or(0);
+    let next = current
+        .checked_add(amount)
+        .ok_or(StablecoinError::Overflow)?;
+    env.storage()
+        .instance()
+        .set(&DataKey::TotalCollateral, &next);
     Ok(())
 }
 
 fn sub_total_collateral(env: &Env, amount: i128) -> Result<(), StablecoinError> {
-    let current: i128 = env.storage().instance().get(&DataKey::TotalCollateral).unwrap_or(0);
+    let current: i128 = env
+        .storage()
+        .instance()
+        .get(&DataKey::TotalCollateral)
+        .unwrap_or(0);
     if amount > current {
         return Err(StablecoinError::InsufficientCollateral);
     }
@@ -134,11 +150,18 @@ impl StablecoinContract {
             .instance()
             .set(&DataKey::ReserveRatioBps, &config.reserve_ratio_bps);
         env.storage().instance().set(&DataKey::Shutdown, &false);
-        env.storage().instance().set(&DataKey::TotalCollateral, &0i128);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalCollateral, &0i128);
 
         env.events().publish(
             (Symbol::new(&env, "stablecoin_initialized"),),
-            (admin, stablecoin_token, collateral_token, config.reserve_ratio_bps),
+            (
+                admin,
+                stablecoin_token,
+                collateral_token,
+                config.reserve_ratio_bps,
+            ),
         );
 
         Ok(())
@@ -189,13 +212,15 @@ impl StablecoinContract {
         }
 
         let collateral = collateral_token(&env)?;
-        TokenClient::new(&env, &collateral).transfer(&user, &env.current_contract_address(), &amount);
+        TokenClient::new(&env, &collateral).transfer(
+            &user,
+            env.current_contract_address(),
+            &amount,
+        );
         add_total_collateral(&env, amount)?;
 
-        env.events().publish(
-            (Symbol::new(&env, "collateral_deposited"), user),
-            amount,
-        );
+        env.events()
+            .publish((Symbol::new(&env, "collateral_deposited"), user), amount);
         Ok(())
     }
 
@@ -228,7 +253,7 @@ impl StablecoinContract {
         }
 
         let stable = stablecoin_token(&env)?;
-        TokenClient::new(&env, &stable).mint(&user, &mint_amount);
+        StellarAssetClient::new(&env, &stable).mint(&user, &mint_amount);
 
         env.events().publish(
             (Symbol::new(&env, "stablecoin_minted"), user),
@@ -290,4 +315,3 @@ impl StablecoinContract {
             .unwrap_or(0))
     }
 }
-
