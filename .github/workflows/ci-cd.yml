@@ -60,6 +60,26 @@ jobs:
           cd stellar-lend
           cargo test --verbose
 
+      - name: Run gas benchmark suite
+        run: |
+          cd stellar-lend
+          GAS_BENCHMARK_OUTPUT=benchmarks/gas-current.json cargo test --package hello-world gas_benchmark -- --nocapture
+
+      - name: Compare gas benchmarks against baseline
+        run: |
+          cd stellar-lend
+          python3 scripts/check_gas_benchmarks.py \
+            --baseline benchmarks/gas-baseline.json \
+            --current benchmarks/gas-current.json \
+            --max-regression-pct 10
+
+      - name: Upload gas benchmark report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-benchmark-report
+          path: stellar-lend/benchmarks/gas-current.json
+
       - name: Run cross-contract tests
         run: |
           cd stellar-lend
@@ -73,10 +93,24 @@ jobs:
           name: cross-contract-test-report
           path: stellar-lend/cross-contract-test-report.txt
 
+      - name: Run differential tests
+        run: |
+          cd stellar-lend
+          cargo test --package hello-world --lib tests::differential_test -- --nocapture 2>&1 | tee differential-test-report.txt
+          cargo test --package hello-world --lib tests::migration_verification_test -- --nocapture 2>&1 | tee -a differential-test-report.txt
+          grep "test result:" differential-test-report.txt
+
+      - name: Upload differential test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: differential-test-report
+          path: stellar-lend/differential-test-report.txt
+
       - name: Run security audit
         run: |
           cd stellar-lend
-          cargo install cargo-audit
+          cargo install cargo-audit --locked
           cargo audit
 
   fuzzing:

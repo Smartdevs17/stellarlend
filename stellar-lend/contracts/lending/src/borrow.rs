@@ -16,7 +16,7 @@ pub use crate::events::{BorrowCollateralDepositEvent, BorrowEvent, RepayEvent};
 pub type DepositEvent = BorrowCollateralDepositEvent;
 
 use crate::pause::{self, PauseType};
-use soroban_sdk::{contracterror, contracttype, Address, Env, I256};
+use soroban_sdk::{contracterror, contracttype, Address, Env, IntoVal, Symbol, I256};
 
 /// Errors that can occur during borrow operations.
 #[contracterror]
@@ -41,6 +41,10 @@ pub enum BorrowError {
     BelowMinimumBorrow = 8,
     /// Repay amount exceeds current debt
     RepayAmountTooHigh = 9,
+    /// Position is healthy and cannot be liquidated
+    PositionHealthy = 10,
+    /// Insufficient reserves to recover bad debt
+    InsufficientReserves = 11,
 }
 
 /// Storage keys for protocol-wide data.
@@ -74,6 +78,22 @@ pub enum BorrowDataKey {
     LiquidationIncentiveBps,
     /// Global interest index (for invariant testing)
     InterestIndex,
+    /// Stablecoin configuration for a specific asset
+    AssetStablecoinConfig(Address),
+}
+
+/// Dynamic stablecoin configuration.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct StablecoinConfig {
+    /// Target price in oracle units (e.g. 100_000_000 for $1.00)
+    pub target_price: i128,
+    /// Minimum deviation before stability fee kicks in (basis points)
+    pub peg_threshold_bps: i128,
+    /// Fee added to interest rate when depegged (basis points)
+    pub stability_fee_bps: i128,
+    /// Threshold for emergency actions (basis points)
+    pub emergency_threshold_bps: i128,
 }
 
 /// User debt position tracking.
@@ -104,7 +124,7 @@ const COLLATERAL_RATIO_MIN: i128 = 15000; // 150% in basis points
 const INTEREST_RATE_PER_YEAR: i128 = 500; // 5% in basis points
 const SECONDS_PER_YEAR: u64 = 31536000;
 
-/// Borrow assets against deposited collateral
+/// Borrow assets against deposited collateral (requires direct user authorization).
 pub fn borrow(
     env: &Env,
     user: Address,
@@ -113,7 +133,55 @@ pub fn borrow(
     collateral_asset: Address,
     collateral_amount: i128,
 ) -> Result<(), BorrowError> {
-    user.require_auth();
+    borrow_inner(
+        env,
+        user,
+        asset,
+        amount,
+        collateral_asset,
+        collateral_amount,
+        BorrowAuth::RequireUserSignature,
+    )
+}
+
+/// Borrow on behalf of a user who previously authorized a scheduled commitment (no `user.require_auth`).
+pub(crate) fn borrow_from_commitment(
+    env: &Env,
+    user: Address,
+    asset: Address,
+    amount: i128,
+    collateral_asset: Address,
+    collateral_amount: i128,
+) -> Result<(), BorrowError> {
+    borrow_inner(
+        env,
+        user,
+        asset,
+        amount,
+        collateral_asset,
+        collateral_amount,
+        BorrowAuth::TrustedCommitment,
+    )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BorrowAuth {
+    RequireUserSignature,
+    TrustedCommitment,
+}
+
+fn borrow_inner(
+    env: &Env,
+    user: Address,
+    asset: Address,
+    amount: i128,
+    collateral_asset: Address,
+    collateral_amount: i128,
+    auth: BorrowAuth,
+) -> Result<(), BorrowError> {
+    if auth == BorrowAuth::RequireUserSignature {
+        user.require_auth();
+    }
 
     if pause::is_paused(env, PauseType::Borrow) {
         return Err(BorrowError::ProtocolPaused);
@@ -164,6 +232,8 @@ pub fn borrow(
     save_debt_position(env, &user, &debt_position);
     save_collateral_position(env, &user, &collateral_position);
     set_total_debt(env, new_total);
+
+    crate::risk_monitor::on_utilization_changed(env, new_total, debt_ceiling);
 
     emit_borrow_event(env, user, asset, amount, collateral_amount);
 
@@ -305,13 +375,62 @@ pub(crate) fn calculate_interest(env: &Env, position: &DebtPosition) -> Result<i
     let rate_256 = I256::from_i128(env, INTEREST_RATE_PER_YEAR);
     let time_256 = I256::from_i128(env, time_elapsed as i128);
 
-    let interest_256 = borrowed_256
+    let mut interest_256 = borrowed_256
         .mul(&rate_256)
         .mul(&time_256)
         .div(&I256::from_i128(env, 10000))
         .div(&I256::from_i128(env, SECONDS_PER_YEAR as i128));
 
+    // Stability fee logic
+    if let Some(config) = get_stablecoin_config(env, &position.asset) {
+        if let Some(oracle) = get_oracle(env) {
+            let price = get_asset_price(env, &oracle, &position.asset);
+            let deviation = config.target_price.saturating_sub(price);
+            let deviation_bps = if config.target_price > 0 {
+                deviation
+                    .saturating_mul(10000)
+                    .saturating_div(config.target_price)
+            } else {
+                0
+            };
+
+            if deviation_bps > config.peg_threshold_bps {
+                let stability_fee_256 = borrowed_256
+                    .mul(&I256::from_i128(env, config.stability_fee_bps))
+                    .mul(&time_256)
+                    .div(&I256::from_i128(env, 10000))
+                    .div(&I256::from_i128(env, SECONDS_PER_YEAR as i128));
+
+                interest_256 = interest_256.add(&stability_fee_256);
+
+                crate::events::PegDeviationEvent {
+                    asset: position.asset.clone(),
+                    price,
+                    target_price: config.target_price,
+                    deviation_bps,
+                    timestamp: env.ledger().timestamp(),
+                }
+                .publish(env);
+
+                crate::events::StabilityFeeAppliedEvent {
+                    asset: position.asset.clone(),
+                    fee_bps: config.stability_fee_bps,
+                    timestamp: env.ledger().timestamp(),
+                }
+                .publish(env);
+            }
+        }
+    }
+
     interest_256.to_i128().ok_or(BorrowError::Overflow)
+}
+
+fn get_asset_price(env: &Env, oracle: &Address, asset: &Address) -> i128 {
+    env.invoke_contract(
+        oracle,
+        &Symbol::new(env, "price"),
+        (asset.clone(),).into_val(env),
+    )
 }
 
 fn get_debt_position(env: &Env, user: &Address, default_asset: Option<&Address>) -> DebtPosition {
@@ -348,7 +467,7 @@ fn save_collateral_position(env: &Env, user: &Address, position: &BorrowCollater
         .set(&BorrowDataKey::BorrowUserCollateral(user.clone()), position);
 }
 
-fn get_total_debt(env: &Env) -> i128 {
+pub(crate) fn get_total_debt(env: &Env) -> i128 {
     env.storage()
         .persistent()
         .get(&BorrowDataKey::BorrowTotalDebt)
@@ -361,14 +480,14 @@ fn set_total_debt(env: &Env, amount: i128) {
         .set(&BorrowDataKey::BorrowTotalDebt, &amount);
 }
 
-fn get_debt_ceiling(env: &Env) -> i128 {
+pub(crate) fn get_debt_ceiling(env: &Env) -> i128 {
     env.storage()
         .persistent()
         .get(&BorrowDataKey::BorrowDebtCeiling)
         .unwrap_or(i128::MAX)
 }
 
-fn get_min_borrow_amount(env: &Env) -> i128 {
+pub(crate) fn get_min_borrow_amount(env: &Env) -> i128 {
     env.storage()
         .persistent()
         .get(&BorrowDataKey::BorrowMinAmount)
@@ -545,4 +664,27 @@ pub fn set_interest_index(env: &Env, index: i128) {
     env.storage()
         .persistent()
         .set(&BorrowDataKey::InterestIndex, &index);
+}
+
+pub fn set_stablecoin_config(
+    env: &Env,
+    admin: &Address,
+    asset: Address,
+    config: StablecoinConfig,
+) -> Result<(), BorrowError> {
+    let current = get_admin(env).ok_or(BorrowError::Unauthorized)?;
+    if *admin != current {
+        return Err(BorrowError::Unauthorized);
+    }
+    admin.require_auth();
+    env.storage()
+        .persistent()
+        .set(&BorrowDataKey::AssetStablecoinConfig(asset), &config);
+    Ok(())
+}
+
+pub fn get_stablecoin_config(env: &Env, asset: &Address) -> Option<StablecoinConfig> {
+    env.storage()
+        .persistent()
+        .get(&BorrowDataKey::AssetStablecoinConfig(asset.clone()))
 }

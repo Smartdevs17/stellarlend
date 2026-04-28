@@ -10,6 +10,7 @@ import {
 } from '@stellar/stellar-sdk';
 import { Server as SorobanServer } from '@stellar/stellar-sdk/rpc';
 import axios from 'axios';
+import type { AxiosResponse } from 'axios';
 import { config } from '../config';
 import logger from '../utils/logger';
 import { InternalServerError } from '../utils/errors';
@@ -18,12 +19,14 @@ import {
   TransactionResponse,
   LendingOperation,
   ProtocolStatsResponse,
+  PositionResponse,
   TransactionHistoryItem,
   TransactionHistoryQuery,
   TransactionHistoryResponse,
 } from '../types';
 import { BoundedTtlCache } from '../utils/boundedTtlCache';
 import { redisCacheService } from './redisCache.service';
+import { requestCoalescingService } from './requestCoalescing.service';
 
 const CONTRACT_METHODS: Record<LendingOperation, string> = {
   deposit: 'deposit_collateral',
@@ -175,6 +178,55 @@ export class StellarService {
     }
   }
 
+  async estimateGas(
+    operation: LendingOperation,
+    userAddress: string,
+    assetAddress: string | undefined,
+    amount: string
+  ): Promise<{ cpuInstructions: string; memoryBytes: string; minResourceFee: string }> {
+    const coalescingKey = requestCoalescingService.generateKey('estimateGas', {
+      operation,
+      userAddress,
+      assetAddress,
+      amount,
+    });
+    return requestCoalescingService.execute(coalescingKey, async () => {
+      try {
+        const account = await this.getAccount(userAddress);
+        const contract = new Contract(this.contractId);
+
+        const params = [
+          new Address(userAddress).toScVal(),
+          assetAddress ? new Address(assetAddress).toScVal() : xdr.ScVal.scvVoid(),
+          nativeToScVal(BigInt(amount), { type: 'i128' }),
+        ];
+
+        const tx = new TransactionBuilder(account, {
+          fee: BASE_FEE,
+          networkPassphrase: this.networkPassphrase,
+        })
+          .addOperation(contract.call(CONTRACT_METHODS[operation], ...params))
+          .setTimeout(TX_TIMEOUT_SECONDS)
+          .build();
+
+        const simulation = await (this.sorobanServer as any).simulateTransaction(tx);
+
+        if (simulation.error) {
+          throw new InternalServerError(`Simulation failed: ${simulation.error}`);
+        }
+
+        return {
+          cpuInstructions: simulation.cost?.cpuInsns || '0',
+          memoryBytes: simulation.cost?.memBytes || '0',
+          minResourceFee: simulation.minResourceFee || '0',
+        };
+      } catch (error: any) {
+        logger.error(`Failed to estimate gas for ${operation}:`, error);
+        throw new InternalServerError(error.message || `Failed to estimate gas for ${operation}`);
+      }
+    });
+  }
+
   private buildReadOnlyTransaction(methodName: string, ...params: any[]): any {
     const account = new Account(this.readOnlySimulationAccount, '0');
     const contract = new Contract(this.contractId);
@@ -195,40 +247,44 @@ export class StellarService {
   }
 
   async getProtocolStats(): Promise<ProtocolStatsResponse> {
-    const redisKey = redisCacheService.buildKey('protocol', 'stats');
-    const redisCached = await redisCacheService.get<ProtocolStatsResponse>(redisKey);
-    if (redisCached) return redisCached;
+    const coalescingKey = requestCoalescingService.generateKey('getProtocolStats', {});
 
-    const cachedResponse = protocolStatsCache.get(PROTOCOL_STATS_CACHE_KEY);
-    if (cachedResponse) {
-      return cachedResponse;
-    }
+    return requestCoalescingService.execute(coalescingKey, async () => {
+      const redisKey = redisCacheService.buildKey('protocol', 'stats');
+      const redisCached = await redisCacheService.get<ProtocolStatsResponse>(redisKey);
+      if (redisCached) return redisCached;
 
-    try {
-      const report = await this.simulateContractCall('get_protocol_report');
-      const metrics = report?.metrics ?? report ?? {};
+      const cachedResponse = protocolStatsCache.get(PROTOCOL_STATS_CACHE_KEY);
+      if (cachedResponse) {
+        return cachedResponse;
+      }
 
-      const response: ProtocolStatsResponse = {
-        totalDeposits: toIntegerString(metrics.total_deposits ?? metrics.totalDeposits ?? 0),
-        totalBorrows: toIntegerString(metrics.total_borrows ?? metrics.totalBorrows ?? 0),
-        utilizationRate: formatBpsAsRatio(
-          toIntegerString(metrics.utilization_rate ?? metrics.utilizationRate ?? 0)
-        ),
-        numberOfUsers: toSafeNumber(metrics.total_users ?? metrics.totalUsers ?? 0),
-        tvl: toIntegerString(metrics.total_value_locked ?? metrics.totalValueLocked ?? 0),
-      };
+      try {
+        const report = await this.simulateContractCall('get_protocol_report');
+        const metrics = report?.metrics ?? report ?? {};
 
-      protocolStatsCache.set(PROTOCOL_STATS_CACHE_KEY, response);
-      await redisCacheService.set(
-        redisKey,
-        response,
-        Math.floor(config.cache.protocolStatsTtlMs / 1000)
-      );
-      return response;
-    } catch (error) {
-      logger.error('Failed to fetch protocol stats:', error);
-      throw new InternalServerError('Failed to fetch protocol stats');
-    }
+        const response: ProtocolStatsResponse = {
+          totalDeposits: toIntegerString(metrics.total_deposits ?? metrics.totalDeposits ?? 0),
+          totalBorrows: toIntegerString(metrics.total_borrows ?? metrics.totalBorrows ?? 0),
+          utilizationRate: formatBpsAsRatio(
+            toIntegerString(metrics.utilization_rate ?? metrics.utilizationRate ?? 0)
+          ),
+          numberOfUsers: toSafeNumber(metrics.total_users ?? metrics.totalUsers ?? 0),
+          tvl: toIntegerString(metrics.total_value_locked ?? metrics.totalValueLocked ?? 0),
+        };
+
+        protocolStatsCache.set(PROTOCOL_STATS_CACHE_KEY, response);
+        await redisCacheService.set(
+          redisKey,
+          response,
+          Math.floor(config.cache.protocolStatsTtlMs / 1000)
+        );
+        return response;
+      } catch (error) {
+        logger.error('Failed to fetch protocol stats:', error);
+        throw new InternalServerError('Failed to fetch protocol stats');
+      }
+    });
   }
 
   async submitTransaction(txXdr: string): Promise<TransactionResponse> {
@@ -413,53 +469,61 @@ export class StellarService {
   }
 
   async getTransactionHistory(query: TransactionHistoryQuery): Promise<TransactionHistoryResponse> {
-    try {
-      const { userAddress } = query;
-      const { limit, cursor } = parsePaginationParams(query as any);
-      const historyCacheKey = redisCacheService.buildKey(
-        'position',
-        `${userAddress}:${limit}:${cursor ?? 'first'}`
-      );
-      const cached = await redisCacheService.get<TransactionHistoryResponse>(historyCacheKey);
-      if (cached) return cached;
+    const coalescingKey = requestCoalescingService.generateKey('getTransactionHistory', query);
 
-      // Validate Stellar address format
-      if (!this.isValidStellarAddress(userAddress)) {
-        throw new InternalServerError('Invalid Stellar address format');
+    return requestCoalescingService.execute(coalescingKey, async () => {
+      try {
+        const { userAddress } = query;
+        const { limit, cursor } = parsePaginationParams(query as any);
+        const historyCacheKey = redisCacheService.buildKey(
+          'position',
+          `${userAddress}:${limit}:${cursor ?? 'first'}`
+        );
+        const cached = await redisCacheService.get<TransactionHistoryResponse>(historyCacheKey);
+        if (cached) return cached;
+
+        // Validate Stellar address format
+        if (!this.isValidStellarAddress(userAddress)) {
+          throw new InternalServerError('Invalid Stellar address format');
+        }
+
+        // Build Horizon API URL for transactions
+        let url = `${this.horizonUrl}/accounts/${userAddress}/transactions?limit=${limit}&order=desc`;
+        if (cursor) {
+          url += `&cursor=${encodeURIComponent(cursor)}`;
+        }
+
+        const response = await axios.get(url);
+        const transactions = response.data._embedded?.records || [];
+
+        // Filter and map transactions related to lending contract
+        const lendingTransactions = await this.filterLendingTransactions(transactions);
+
+        // Extract pagination info from Horizon next link
+        const nextCursor = response.data._links?.next
+          ? new URL(response.data._links.next.href).searchParams.get('cursor')
+          : null;
+        const hasNextPage = !!response.data._links?.next;
+
+        const result = {
+          data: lendingTransactions,
+          pagination: buildPaginationMeta(
+            nextCursor,
+            hasNextPage,
+            limit ?? config.pagination.defaultLimit
+          ),
+        };
+        await redisCacheService.set(
+          historyCacheKey,
+          result,
+          Math.floor(config.cache.positionTtlMs / 1000)
+        );
+        return result;
+      } catch (error) {
+        logger.error('Failed to fetch transaction history:', error);
+        throw new InternalServerError('Failed to fetch transaction history');
       }
-
-      // Build Horizon API URL for transactions
-      let url = `${this.horizonUrl}/accounts/${userAddress}/transactions?limit=${limit}&order=desc`;
-      if (cursor) {
-        url += `&cursor=${encodeURIComponent(cursor)}`;
-      }
-
-      const response = await axios.get(url);
-      const transactions = response.data._embedded?.records || [];
-
-      // Filter and map transactions related to lending contract
-      const lendingTransactions = await this.filterLendingTransactions(transactions);
-
-      // Extract pagination info from Horizon next link
-      const nextCursor = response.data._links?.next
-        ? new URL(response.data._links.next.href).searchParams.get('cursor')
-        : null;
-      const hasNextPage = !!response.data._links?.next;
-
-      const result = {
-        data: lendingTransactions,
-        pagination: buildPaginationMeta(nextCursor, hasNextPage, limit ?? config.pagination.defaultLimit),
-      };
-      await redisCacheService.set(
-        historyCacheKey,
-        result,
-        Math.floor(config.cache.positionTtlMs / 1000)
-      );
-      return result;
-    } catch (error) {
-      logger.error('Failed to fetch transaction history:', error);
-      throw new InternalServerError('Failed to fetch transaction history');
-    }
+    });
   }
 
   private async filterLendingTransactions(transactions: any[]): Promise<TransactionHistoryItem[]> {
@@ -570,6 +634,87 @@ export class StellarService {
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * Async generator that pages through the full transaction history for a user
+   * and yields items one at a time, keeping memory usage bounded.
+   * Callers should check `signal.aborted` and stop consuming when the client disconnects.
+   */
+  async *streamTransactionHistory(
+    userAddress: string,
+    pageSize: number = config.pagination.defaultLimit,
+    signal?: AbortSignal
+  ): AsyncGenerator<TransactionHistoryItem> {
+    if (!this.isValidStellarAddress(userAddress)) {
+      throw new InternalServerError('Invalid Stellar address format');
+    }
+
+    let nextUrl: string | null =
+      `${this.horizonUrl}/accounts/${userAddress}/transactions?limit=${pageSize}&order=desc`;
+
+    while (nextUrl) {
+      if (signal?.aborted) return;
+
+      const response: AxiosResponse<any> = await axios.get(nextUrl);
+      const transactions: any[] = response.data._embedded?.records ?? [];
+
+      const lendingTxs = await this.filterLendingTransactions(transactions);
+      for (const tx of lendingTxs) {
+        if (signal?.aborted) return;
+        yield tx;
+      }
+
+      nextUrl = response.data._links?.next?.href ?? null;
+    }
+  }
+
+  async getUserPosition(userAddress: string): Promise<PositionResponse> {
+    if (!this.isValidStellarAddress(userAddress)) {
+      throw new InternalServerError('Invalid Stellar address format');
+    }
+
+    const coalescingKey = requestCoalescingService.generateKey('getUserPosition', { userAddress });
+
+    return requestCoalescingService.execute(coalescingKey, async () => {
+      const cacheKey = redisCacheService.buildKey('position', userAddress);
+      const cached = await redisCacheService.get<PositionResponse>(cacheKey);
+      if (cached) return cached;
+
+      try {
+        const userParam = new Address(userAddress).toScVal();
+        const raw = await this.simulateContractCall('get_user_position', userParam);
+
+        const collateral = toIntegerString(raw?.collateral ?? raw?.collateral_amount ?? 0);
+        const debt = toIntegerString(raw?.debt ?? raw?.debt_amount ?? 0);
+        const borrowInterest = toIntegerString(raw?.borrow_interest ?? raw?.interest ?? 0);
+        const lastAccrualTime = toSafeNumber(raw?.last_accrual_time ?? raw?.lastAccrualTime ?? 0);
+
+        const collateralBig = BigInt(collateral);
+        const debtBig = BigInt(debt);
+        const collateralRatio =
+          debtBig > 0n ? ((collateralBig * 10000n) / debtBig).toString() : 'Infinity';
+
+        const result: PositionResponse = {
+          userAddress,
+          collateral,
+          debt,
+          borrowInterest,
+          lastAccrualTime,
+          collateralRatio,
+        };
+
+        await redisCacheService.set(
+          cacheKey,
+          result,
+          Math.floor(config.cache.positionTtlMs / 1000)
+        );
+        return result;
+      } catch (error) {
+        logger.error('Failed to fetch user position:', error);
+        throw new InternalServerError('Failed to fetch user position');
+      }
+    });
   }
 
   private isValidStellarAddress(address: string): boolean {

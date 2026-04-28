@@ -43,14 +43,22 @@ describe('Validation Middleware', () => {
     });
 
     it('should accept valid Stellar public key', async () => {
-      const response = await request(app).get('/api/lending/prepare/deposit').query({
+      const validationOnlyApp = express();
+      validationOnlyApp.get(
+        '/prepare/:operation',
+        prepareValidation,
+        (_req: Request, res: Response) => res.status(204).send()
+      );
+      validationOnlyApp.use(errorHandler);
+
+      const response = await request(validationOnlyApp).get('/prepare/deposit').query({
         userAddress: VALID_ADDRESS,
         assetAddress: 'G...',
         amount: '100',
       });
 
-      expect(response.status).not.toBe(400);
-    });
+      expect(response.status).toBe(204);
+    }, 15000);
 
     it('should reject missing amount', async () => {
       const response = await request(app).get('/api/lending/prepare/deposit').query({
@@ -120,9 +128,13 @@ describe('Validation Middleware', () => {
       // Validate middleware acceptance without relying on external Horizon/Soroban availability.
       const testApp = express();
       testApp.use(express.json());
-      testApp.get('/api/lending/prepare/:operation', prepareValidation, (_req: Request, res: Response) => {
-        res.status(200).json({ ok: true });
-      });
+      testApp.get(
+        '/api/lending/prepare/:operation',
+        prepareValidation,
+        (_req: Request, res: Response) => {
+          res.status(200).json({ ok: true });
+        }
+      );
       testApp.use(errorHandler);
 
       const res = await request(testApp)
@@ -135,12 +147,16 @@ describe('Validation Middleware', () => {
     // BigInt edge case tests
     it('should accept MAX_SAFE_INTEGER', async () => {
       const maxSafeInt = '9007199254740991';
-      
+
       const testApp = express();
       testApp.use(express.json());
-      testApp.get('/api/lending/prepare/:operation', prepareValidation, (_req: Request, res: Response) => {
-        res.status(200).json({ ok: true });
-      });
+      testApp.get(
+        '/api/lending/prepare/:operation',
+        prepareValidation,
+        (_req: Request, res: Response) => {
+          res.status(200).json({ ok: true });
+        }
+      );
       testApp.use(errorHandler);
 
       const res = await request(testApp)
@@ -152,12 +168,16 @@ describe('Validation Middleware', () => {
 
     it('should accept very large numbers', async () => {
       const veryLargeNumber = '99999999999999999999999999999';
-      
+
       const testApp = express();
       testApp.use(express.json());
-      testApp.get('/api/lending/prepare/:operation', prepareValidation, (_req: Request, res: Response) => {
-        res.status(200).json({ ok: true });
-      });
+      testApp.get(
+        '/api/lending/prepare/:operation',
+        prepareValidation,
+        (_req: Request, res: Response) => {
+          res.status(200).json({ ok: true });
+        }
+      );
       testApp.use(errorHandler);
 
       const res = await request(testApp)
