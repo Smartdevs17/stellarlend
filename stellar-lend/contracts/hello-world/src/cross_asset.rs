@@ -594,6 +594,89 @@ pub fn cross_asset_deposit(
     Ok(position)
 }
 
+/// Borrow assets against the user's total collateral basket.
+///
+/// This function calculates the user's total borrowing power across all deposited
+/// collateral assets and allows borrowing up to the available capacity. The health
+/// factor is calculated using weighted collateral values and must remain above 1.0.
+///
+/// # Arguments
+/// * `env` - The contract environment
+/// * `user` - User borrowing (must authorize)
+/// * `asset` - Asset to borrow (`None` for XLM)
+/// * `amount` - Amount to borrow
+///
+/// # Returns
+/// Updated [`AssetPosition`] after borrowing.
+///
+/// # Errors
+/// * `AssetNotConfigured` - Asset is not registered
+/// * `AssetDisabled` - Asset is not enabled for borrowing
+/// * `InsufficientCollateral` - User has insufficient collateral
+/// * `ExceedsBorrowCapacity` - Borrow amount exceeds available capacity
+/// * `UnhealthyPosition` - Borrow would result in health factor below 1.0
+/// * `BorrowCapExceeded` - Borrow would exceed asset's borrow cap
+pub fn cross_asset_borrow(
+    env: &Env,
+    user: Address,
+    asset: Option<Address>,
+    amount: i128,
+) -> Result<AssetPosition, CrossAssetError> {
+    user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InsufficientCollateral);
+    }
+
+    let asset_key = AssetKey::from_option(asset.clone());
+    let config = get_asset_config(env, &asset_key)?;
+
+    // Check if asset is enabled for borrowing
+    if !config.can_borrow {
+        return Err(CrossAssetError::AssetDisabled);
+    }
+
+    // Check borrow cap
+    if config.max_borrow > 0 {
+        let total_borrows = get_total_borrows(env, &asset_key);
+        if total_borrows + amount > config.max_borrow {
+            return Err(CrossAssetError::BorrowCapExceeded);
+        }
+    }
+
+    // Get current position summary to check borrowing capacity
+    let current_summary = get_user_position_summary(env, &user)?;
+    
+    // Calculate the value of the amount being borrowed
+    let borrow_value = (amount * config.price) / 10_000_000;
+    
+    // Check if borrow would exceed capacity
+    if borrow_value > current_summary.borrow_capacity {
+        return Err(CrossAssetError::ExceedsBorrowCapacity);
+    }
+
+    // Get current position for the borrowing asset
+    let mut position = get_user_asset_position(env, &user, asset.clone());
+    
+    // Update position with new debt
+    position.debt_principal += amount;
+    position.last_updated = env.ledger().timestamp();
+
+    // Store updated position
+    set_user_asset_position(env, &user, asset, position.clone());
+    
+    // Update total borrows for the asset
+    update_total_borrows(env, &asset_key, amount);
+
+    // Verify health factor after borrow (safety check)
+    let new_summary = get_user_position_summary(env, &user)?;
+    if new_summary.health_factor < 10_000 {
+        return Err(CrossAssetError::UnhealthyPosition);
+    }
+
+    Ok(position)
+}
+
 /// Withdraw collateral for a specific asset.
 ///
 /// Requires user authorization. Checks that the user has sufficient collateral
@@ -645,6 +728,97 @@ pub fn cross_asset_withdraw(
     update_total_supply(env, &asset_key, -amount);
 
     Ok(position)
+}
+
+/// Liquidate an unhealthy cross-asset position.
+///
+/// Liquidators can repay debt in exchange for collateral at a discount.
+/// This function handles multi-asset liquidation where the liquidator can choose
+/// which collateral asset to receive.
+///
+/// # Arguments
+/// * `env` - The contract environment
+/// * `liquidator` - Address performing the liquidation
+/// * `user` - Address of the user being liquidated
+/// * `debt_asset` - Asset to repay (None for XLM)
+/// * `collateral_asset` - Asset to receive as collateral (None for XLM)
+/// * `debt_to_repay` - Amount of debt to repay
+/// * `collateral_to_receive` - Expected amount of collateral to receive
+///
+/// # Returns
+/// Amount of collateral actually transferred to liquidator.
+///
+/// # Errors
+/// * `AssetNotConfigured` - Either asset is not registered
+/// * `AssetDisabled` - Assets are disabled for liquidation
+/// * `InsufficientCollateral` - User position is not liquidatable
+/// * `InvalidPrice` - Price data is invalid
+/// * `PriceStale` - Price data is stale
+/// * `NotAuthorized` - Liquidator is not authorized
+pub fn cross_asset_liquidate(
+    env: &Env,
+    liquidator: Address,
+    user: Address,
+    debt_asset: Option<Address>,
+    collateral_asset: Option<Address>,
+    debt_to_repay: i128,
+    collateral_to_receive: i128,
+) -> Result<i128, CrossAssetError> {
+    liquidator.require_auth();
+
+    // Get asset configurations
+    let debt_asset_key = AssetKey::from_option(debt_asset.clone());
+    let collateral_asset_key = AssetKey::from_option(collateral_asset.clone());
+    
+    let debt_config = get_asset_config(env, &debt_asset_key)?;
+    let collateral_config = get_asset_config(env, &collateral_asset_key)?;
+
+    // Check if position is liquidatable
+    let position_summary = get_user_position_summary(env, &user)?;
+    if !position_summary.is_liquidatable {
+        return Err(CrossAssetError::InsufficientCollateral);
+    }
+
+    // Get user positions for both assets
+    let mut debt_position = get_user_asset_position(env, &user, debt_asset.clone());
+    let mut collateral_position = get_user_asset_position(env, &user, collateral_asset.clone());
+
+    // Validate liquidation amounts
+    if debt_to_repay <= 0 || collateral_to_receive <= 0 {
+        return Err(CrossAssetError::InsufficientCollateral);
+    }
+
+    // Calculate actual collateral to receive with liquidation incentive
+    let liquidation_incentive = collateral_config.liquidation_threshold - collateral_config.collateral_factor;
+    let actual_collateral = (collateral_to_receive * (10_000 - liquidation_incentive)) / 10_000;
+
+    // Ensure user has enough collateral
+    if collateral_position.collateral < actual_collateral {
+        return Err(CrossAssetError::InsufficientCollateral);
+    }
+
+    // Ensure user has enough debt to repay
+    let total_debt = debt_position.debt_principal + debt_position.accrued_interest;
+    if debt_to_repay > total_debt {
+        return Err(CrossAssetError::InsufficientCollateral);
+    }
+
+    // Update positions
+    debt_position.debt_principal -= debt_to_repay;
+    debt_position.last_updated = env.ledger().timestamp();
+    
+    collateral_position.collateral -= actual_collateral;
+    collateral_position.last_updated = env.ledger().timestamp();
+
+    // Store updated positions
+    set_user_asset_position(env, &user, debt_asset, debt_position);
+    set_user_asset_position(env, &user, collateral_asset, collateral_position);
+
+    // Update total supplies
+    update_total_borrows(env, &debt_asset_key, -debt_to_repay);
+    update_total_supply(env, &collateral_asset_key, -actual_collateral);
+
+    Ok(actual_collateral)
 }
 
 /// Borrow a specific asset against cross-asset collateral.

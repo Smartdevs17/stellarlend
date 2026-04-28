@@ -11,6 +11,7 @@ pub mod circuit_breaker;
 pub mod config;
 pub mod credit_score;
 pub mod cross_asset;
+pub mod debt_token;
 pub mod deposit;
 pub mod errors;
 pub mod events;
@@ -25,6 +26,7 @@ pub mod multi_collateral;
 pub mod multisig;
 pub mod oracle;
 pub mod rate_limiter;
+pub mod rebalancing;
 pub mod recovery;
 pub mod reentrancy;
 pub mod repay;
@@ -35,6 +37,7 @@ pub mod safe_math;
 pub mod storage;
 pub mod timelock;
 pub mod treasury;
+pub mod tests;
 pub mod types;
 pub mod withdraw;
 
@@ -242,6 +245,16 @@ impl HelloContract {
         deposit::deposit_collateral(&env, user, asset, amount).map_err(Into::into)
     }
 
+    /// Deposit collateral using cross-asset lending
+    pub fn deposit_cross_asset(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+    ) -> Result<(), LendingError> {
+        cross_asset::cross_asset_deposit(&env, user, asset, amount).map_err(|_| LendingError::from)
+    }
+
     pub fn set_risk_params(
         env: Env,
         caller: Address,
@@ -283,6 +296,241 @@ impl HelloContract {
         )
         .map_err(|_| LendingError::LimitExceeded)?;
         borrow::borrow_asset(&env, user, asset, amount).map_err(Into::into)
+    }
+
+    /// Borrow against collateral basket using cross-asset lending
+    pub fn borrow_cross_asset(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+    ) -> Result<(), LendingError> {
+        cross_asset::cross_asset_borrow(&env, user, asset, amount).map_err(Into::into)
+    }
+
+    /// Withdraw collateral using cross-asset lending
+    pub fn withdraw_cross_asset(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+    ) -> Result<(), LendingError> {
+        cross_asset::cross_asset_withdraw(&env, user, asset, amount).map_err(|_| LendingError::from)?;
+        Ok(())
+    }
+
+    /// Get user's cross-asset position summary
+    pub fn get_cross_asset_position_summary(
+        env: Env,
+        user: Address,
+    ) -> Result<cross_asset::UserPositionSummary, LendingError> {
+        cross_asset::get_user_position_summary(&env, &user).map_err(Into::into)
+    }
+
+    /// Liquidate an unhealthy cross-asset position
+    pub fn liquidate_cross_asset(
+        env: Env,
+        liquidator: Address,
+        user: Address,
+        debt_asset: Option<Address>,
+        collateral_asset: Option<Address>,
+        debt_to_repay: i128,
+        collateral_to_receive: i128,
+    ) -> Result<i128, LendingError> {
+        cross_asset::cross_asset_liquidate(
+            &env,
+            liquidator,
+            user,
+            debt_asset,
+            collateral_asset,
+            debt_to_repay,
+            collateral_to_receive,
+        ).map_err(Into::into)
+    }
+
+    /// Set reserve factor for an asset (admin only)
+    pub fn set_reserve_factor(
+        env: Env,
+        caller: Address,
+        asset: Option<Address>,
+        reserve_factor_bps: i128,
+    ) -> Result<(), LendingError> {
+        reserve::set_reserve_factor(&env, caller, asset, reserve_factor_bps).map_err(Into::into)
+    }
+
+    /// Set treasury address (admin only)
+    pub fn set_treasury_address(
+        env: Env,
+        caller: Address,
+        treasury: Address,
+    ) -> Result<(), LendingError> {
+        reserve::set_treasury_address(&env, caller, treasury).map_err(Into::into)
+    }
+
+    /// Withdraw reserves to treasury (admin only)
+    pub fn withdraw_reserve_funds(
+        env: Env,
+        caller: Address,
+        asset: Option<Address>,
+        amount: i128,
+    ) -> Result<i128, LendingError> {
+        reserve::withdraw_reserve_funds(&env, caller, asset, amount).map_err(Into::into)
+    }
+
+    /// Get reserve balance for an asset
+    pub fn get_reserve_balance(
+        env: Env,
+        asset: Option<Address>,
+    ) -> i128 {
+        reserve::get_reserve_balance(&env, asset)
+    }
+
+    /// Get reserve factor for an asset
+    pub fn get_reserve_factor(
+        env: Env,
+        asset: Option<Address>,
+    ) -> i128 {
+        reserve::get_reserve_factor(&env, asset)
+    }
+
+    /// Get comprehensive reserve statistics
+    pub fn get_reserve_stats(
+        env: Env,
+        asset: Option<Address>,
+    ) -> (i128, i128, Option<Address>) {
+        reserve::get_reserve_stats(&env, asset)
+    }
+
+    /// Configure rebalancing settings for a user
+    pub fn configure_rebalancing(
+        env: Env,
+        user: Address,
+        target_health_factor_min: i128,
+        target_health_factor_max: i128,
+        max_gas_cost: i128,
+        auto_rebalance_enabled: bool,
+        min_swap_size: i128,
+        max_slippage_bps: i128,
+        rebalance_cooldown: u64,
+    ) -> Result<(), LendingError> {
+        rebalancing::configure_rebalancing(
+            &env,
+            user,
+            target_health_factor_min,
+            target_health_factor_max,
+            max_gas_cost,
+            auto_rebalance_enabled,
+            min_swap_size,
+            max_slippage_bps,
+            rebalance_cooldown,
+        ).map_err(Into::into)
+    }
+
+    /// Execute automated rebalancing for a user
+    pub fn execute_rebalancing(
+        env: Env,
+        user: Address,
+    ) -> Result<(), LendingError> {
+        rebalancing::execute_rebalancing(&env, user).map_err(Into::into)
+    }
+
+    /// Get user's rebalancing configuration
+    pub fn get_rebalancing_config(
+        env: Env,
+        user: Address,
+    ) -> rebalancing::RebalancingConfig {
+        rebalancing::get_rebalancing_config(&env, &user)
+    }
+
+    /// Set emergency stop for rebalancing (admin only)
+    pub fn set_rebalancing_emergency_stop(
+        env: Env,
+        admin: Address,
+        stopped: bool,
+    ) -> Result<(), LendingError> {
+        rebalancing::set_emergency_stop(&env, admin, stopped).map_err(Into::into)
+    }
+
+    /// Set rebalancing pause (admin only)
+    pub fn set_rebalancing_pause(
+        env: Env,
+        admin: Address,
+        paused: bool,
+    ) -> Result<(), LendingError> {
+        rebalancing::set_rebalancing_pause(&env, admin, paused).map_err(Into::into)
+    }
+
+    /// Mint a new debt token for a position
+    pub fn mint_debt_token(
+        env: Env,
+        user: Address,
+        collateral_asset: Option<Address>,
+        principal: i128,
+        interest_rate_bps: i128,
+    ) -> Result<u64, LendingError> {
+        debt_token::mint_debt_token(&env, user, collateral_asset, principal, interest_rate_bps).map_err(Into::into)
+    }
+
+    /// Transfer a debt token to another address
+    pub fn transfer_debt_token(
+        env: Env,
+        from: Address,
+        to: Address,
+        token_id: u64,
+    ) -> Result<(), LendingError> {
+        debt_token::transfer_debt_token(&env, from, to, token_id).map_err(Into::into)
+    }
+
+    /// Burn a debt token (debt repayment)
+    pub fn burn_debt_token(
+        env: Env,
+        user: Address,
+        token_id: u64,
+        reason: Symbol,
+    ) -> Result<(), LendingError> {
+        debt_token::burn_debt_token(&env, user, token_id, reason).map_err(Into::into)
+    }
+
+    /// Get debt position information for a token
+    pub fn get_debt_position(
+        env: Env,
+        token_id: u64,
+    ) -> Option<debt_token::DebtPosition> {
+        debt_token::get_debt_position(&env, token_id)
+    }
+
+    /// Get all debt tokens owned by a user
+    pub fn get_user_debt_tokens(
+        env: Env,
+        user: Address,
+    ) -> Vec<u64> {
+        debt_token::get_user_debt_tokens(&env, &user)
+    }
+
+    /// Get total supply of debt tokens
+    pub fn get_debt_token_total_supply(
+        env: Env,
+    ) -> u64 {
+        debt_token::get_total_supply(&env)
+    }
+
+    /// Set transfer pause for debt tokens (admin only)
+    pub fn set_debt_token_transfer_pause(
+        env: Env,
+        admin: Address,
+        paused: bool,
+    ) -> Result<(), LendingError> {
+        debt_token::set_transfer_pause(&env, admin, paused).map_err(Into::into)
+    }
+
+    /// Block/unblock an address from debt token transfers (admin only)
+    pub fn set_debt_token_address_blocked(
+        env: Env,
+        admin: Address,
+        address: Address,
+        blocked: bool,
+    ) -> Result<(), LendingError> {
+        debt_token::set_address_blocked(&env, admin, address, blocked).map_err(Into::into)
     }
 
     /// Meta-tx style borrow: user authorizes intent off-chain, relayer submits.

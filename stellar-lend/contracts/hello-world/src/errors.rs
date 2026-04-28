@@ -4,12 +4,14 @@ use crate::admin::AdminError;
 use crate::analytics::AnalyticsError;
 use crate::borrow::BorrowError;
 use crate::cross_asset::CrossAssetError;
+use crate::debt_token::DebtTokenError;
 use crate::deposit::DepositError;
 use crate::flash_loan::FlashLoanError;
 use crate::interest_rate::InterestRateError;
 use crate::liquidate::LiquidationError;
 use crate::mev_protection::MevProtectionError;
 use crate::rate_limiter::RateLimitError;
+use crate::rebalancing::RebalancingError;
 use crate::repay::RepayError;
 use crate::reserve::ReserveError;
 use crate::risk_management::RiskManagementError;
@@ -331,6 +333,34 @@ impl_from_error!(WithdrawError, {
     WithdrawError::Overflow => LendingError::Overflow,
     WithdrawError::Reentrancy => LendingError::Reentrancy,
     WithdrawError::Undercollateralized => LendingError::InvalidState,
+});
+
+impl_from_error!(RebalancingError, {
+    RebalancingError::Unauthorized => LendingError::Unauthorized,
+    RebalancingError::InvalidConfig => LendingError::InvalidParameter,
+    RebalancingError::AlreadyHealthy => LendingError::InvalidState,
+    RebalancingError::GasCostTooHigh => LendingError::LimitExceeded,
+    RebalancingError::SlippageTooHigh => LendingError::LimitExceeded,
+    RebalancingError::SwapTooSmall => LendingError::InvalidAmount,
+    RebalancingError::CooldownActive => LendingError::LimitExceeded,
+    RebalancingError::Undercollateralized => LendingError::InsufficientCollateralRatio,
+    RebalancingError::AmmFailed => LendingError::InvalidState,
+    RebalancingError::InsufficientLiquidity => LendingError::InsufficientLiquidity,
+    RebalancingError::Overflow => LendingError::Overflow,
+});
+
+impl_from_error!(DebtTokenError, {
+    DebtTokenError::TokenNotFound => LendingError::DataNotFound,
+    DebtTokenError::Unauthorized => LendingError::Unauthorized,
+    DebtTokenError::TransferPaused => LendingError::ProtocolPaused,
+    DebtTokenError::TransferBlocked => LendingError::Unauthorized,
+    DebtTokenError::LiquidationInProgress => LendingError::InvalidState,
+    DebtTokenError::InvalidTokenId => LendingError::InvalidParameter,
+    DebtTokenError::Undercollateralized => LendingError::InsufficientCollateralRatio,
+    DebtTokenError::Overflow => LendingError::Overflow,
+    DebtTokenError::ZeroAddress => LendingError::InvalidParameter,
+    DebtTokenError::AlreadyTokenized => LendingError::AlreadyExists,
+    DebtTokenError::PositionNotFound => LendingError::DataNotFound,
 });
 
 impl From<CrossAssetError> for LendingError {

@@ -42,3 +42,9 @@ pub mod input_length_test;
 pub mod governance_test;
 // Disabled until the full governance attack-prevention surface is implemented.
 // pub mod governance_attack_prevention_test;
+
+// New test modules for implemented features
+pub mod cross_asset_tests;
+pub mod debt_token_tests;
+pub mod rebalancing_tests;
+pub mod test_utils;
