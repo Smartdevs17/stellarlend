@@ -19,7 +19,7 @@ pub mod yield_farming;
 
 // Re-export contract types used in the public interface so downstream tooling
 // can construct and inspect them without relying on private module paths.
-pub use borrow::{BorrowCollateral, BorrowError, DebtPosition, StablecoinConfig};
+pub use borrow::{BorrowCollateral, BorrowError, DebtPosition, RateType, StablecoinConfig};
 pub use deposit::{DepositCollateral, DepositError};
 pub use flash_loan::FlashLoanError;
 pub use pause::PauseType;
@@ -35,9 +35,14 @@ pub use risk_monitor::{RiskAlertThresholds, RiskMonitorError};
 
 use borrow::{
     borrow as borrow_cmd, deposit as borrow_deposit, get_admin as get_borrow_admin,
+    borrow_with_rate as borrow_with_rate_cmd,
     get_stablecoin_config as get_stablecoin_config_logic,
     get_user_collateral as get_borrow_collateral, get_user_debt as get_borrow_debt,
+    get_user_debt_with_rate as get_borrow_debt_with_rate,
     initialize_borrow_settings as initialize_borrow_logic, repay as borrow_repay,
+    repay_with_rate as borrow_repay_with_rate,
+    set_variable_borrow_rate_bps as set_variable_borrow_rate_bps_logic,
+    switch_rate_type as switch_rate_type_logic,
     set_admin as set_borrow_admin,
     set_liquidation_threshold_bps as set_liquidation_threshold_logic,
     set_oracle as set_oracle_logic, set_stablecoin_config as set_stablecoin_config_logic,
@@ -203,6 +208,26 @@ impl LendingContract {
         )
     }
 
+    pub fn borrow_with_rate(
+        env: Env,
+        user: Address,
+        asset: Address,
+        amount: i128,
+        collateral_asset: Address,
+        collateral_amount: i128,
+        rate_type: RateType,
+    ) -> Result<(), BorrowError> {
+        borrow_with_rate_cmd(
+            &env,
+            user,
+            asset,
+            amount,
+            collateral_asset,
+            collateral_amount,
+            rate_type,
+        )
+    }
+
     /// Set protocol pause state for a specific operation.
     pub fn set_pause(
         env: Env,
@@ -226,6 +251,30 @@ impl LendingContract {
             return Err(BorrowError::ProtocolPaused);
         }
         borrow_repay(&env, user, asset, amount)
+    }
+
+    pub fn repay_with_rate(
+        env: Env,
+        user: Address,
+        asset: Address,
+        amount: i128,
+        rate_type: RateType,
+    ) -> Result<(), BorrowError> {
+        user.require_auth();
+        if is_paused(&env, PauseType::Repay) {
+            return Err(BorrowError::ProtocolPaused);
+        }
+        borrow_repay_with_rate(&env, user, asset, amount, rate_type)
+    }
+
+    pub fn switch_rate_type(
+        env: Env,
+        user: Address,
+        asset: Address,
+        to_rate_type: RateType,
+    ) -> Result<(), BorrowError> {
+        user.require_auth();
+        switch_rate_type_logic(&env, user, asset, to_rate_type)
     }
 
     /// Deposit collateral into the protocol.
@@ -290,6 +339,18 @@ impl LendingContract {
     /// Get user's debt position.
     pub fn get_user_debt(env: Env, user: Address) -> DebtPosition {
         get_borrow_debt(&env, &user)
+    }
+
+    pub fn get_user_debt_with_rate(env: Env, user: Address, rate_type: RateType) -> DebtPosition {
+        get_borrow_debt_with_rate(&env, &user, rate_type)
+    }
+
+    pub fn set_variable_borrow_rate_bps(
+        env: Env,
+        admin: Address,
+        rate_bps: i128,
+    ) -> Result<(), BorrowError> {
+        set_variable_borrow_rate_bps_logic(&env, &admin, rate_bps)
     }
 
     /// Get user's collateral position from the borrow module.
