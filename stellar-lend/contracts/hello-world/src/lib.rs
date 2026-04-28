@@ -1273,3 +1273,5 @@ mod treasury_test;
 // mod timelock_test;
 // Disabled until the full governance attack-prevention surface is implemented.
 // mod governance_attack_prevention_test;
+#[cfg(test)]
+mod gas_benchmark;
