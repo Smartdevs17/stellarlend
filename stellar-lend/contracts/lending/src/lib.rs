@@ -6,7 +6,9 @@ mod deposit;
 pub mod events;
 mod flash_loan;
 pub mod invariants;
+pub mod invariant_test_suite;
 pub mod pause;
+pub mod state_machine;
 mod token_receiver;
 mod withdraw;
 

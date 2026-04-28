@@ -1,6 +1,6 @@
 use stellarlend_contracts_lending::invariants::{
-    assert_all_stateless, check_inv_003_no_mint_on_borrow, check_inv_005_interest_monotonicity,
-    check_inv_006_reserve_monotonicity, check_inv_008_access_control,
+    assert_all_stateless, check_inv_011_no_mint_on_borrow, check_inv_012_interest_monotonicity,
+    check_inv_013_reserve_monotonicity, check_inv_014_access_control,
     ExemptionFlags, InvariantViolation,
 };
 
@@ -48,16 +48,16 @@ fuzz_target!(|data: &[u8]| {
     }
  
     // ── Assert before/after invariants ──
-    if let Err(v) = check_inv_003_no_mint_on_borrow(&env, assets_before) {
+    if let Err(v) = check_inv_011_no_mint_on_borrow(&env, assets_before) {
         panic_on_violation(&v, data);
     }
-    if let Err(v) = check_inv_005_interest_monotonicity(&env, index_before, &exempt) {
+    if let Err(v) = check_inv_012_interest_monotonicity(&env, index_before, &exempt) {
         panic_on_violation(&v, data);
     }
-    if let Err(v) = check_inv_006_reserve_monotonicity(&env, reserves_before) {
+    if let Err(v) = check_inv_013_reserve_monotonicity(&env, reserves_before) {
         panic_on_violation(&v, data);
     }
-    if let Err(v) = check_inv_008_access_control(&env, &admin_before) {
+    if let Err(v) = check_inv_014_access_control(&env, &admin_before) {
         panic_on_violation(&v, data);
     }
 });

@@ -72,6 +72,8 @@ pub enum BorrowDataKey {
     CloseFactorBps,
     /// Liquidation incentive in basis points (e.g. 1000 = 10%)
     LiquidationIncentiveBps,
+    /// Global interest index (for invariant testing)
+    InterestIndex,
 }
 
 /// User debt position tracking.
@@ -528,4 +530,19 @@ pub fn set_liquidation_incentive_bps(
         .persistent()
         .set(&BorrowDataKey::LiquidationIncentiveBps, &bps);
     Ok(())
+}
+
+/// Get current interest index (for invariant testing)
+pub fn get_interest_index(env: &Env) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&BorrowDataKey::InterestIndex)
+        .unwrap_or(1_000_000_000) // Default to 1.0 with 9 decimals
+}
+
+/// Set interest index (internal use)
+pub fn set_interest_index(env: &Env, index: i128) {
+    env.storage()
+        .persistent()
+        .set(&BorrowDataKey::InterestIndex, &index);
 }
