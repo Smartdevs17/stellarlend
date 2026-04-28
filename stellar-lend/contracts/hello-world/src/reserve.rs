@@ -225,9 +225,10 @@ pub fn set_reserve_amm_target(
     caller.require_auth();
     require_admin(env, &caller)?;
 
-    env.storage()
-        .persistent()
-        .set(&ReserveDataKey::ReserveAmmTarget(asset.clone()), &amm_contract);
+    env.storage().persistent().set(
+        &ReserveDataKey::ReserveAmmTarget(asset.clone()),
+        &amm_contract,
+    );
 
     let topics = (Symbol::new(env, "reserve_amm_target_set"), caller);
     env.events().publish(topics, (asset, amm_contract));
@@ -273,7 +274,9 @@ pub fn record_reserve_deploy_to_amm(
 
     let lp_key = ReserveDataKey::ReserveAmmLpBalance(asset.clone());
     let current_lp: i128 = env.storage().persistent().get(&lp_key).unwrap_or(0);
-    let new_lp = current_lp.checked_add(lp_tokens_received).ok_or(ReserveError::Overflow)?;
+    let new_lp = current_lp
+        .checked_add(lp_tokens_received)
+        .ok_or(ReserveError::Overflow)?;
     env.storage().persistent().set(&lp_key, &new_lp);
 
     let topics = (Symbol::new(env, "reserve_deployed_to_amm"), caller);

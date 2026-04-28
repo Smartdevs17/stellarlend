@@ -6,9 +6,9 @@ pub use crate::errors::GovernanceError;
 pub use crate::storage::{GovernanceDataKey, GuardianConfig};
 
 pub use crate::types::{
-    DelegationRecord, GovernanceAnalytics, GovernanceConfig, MultisigConfig, Proposal,
-    ParameterOptimizationRecommendation, ProposalOutcome, ProposalSimulationResult, ProposalStatus,
-    ProposalType, RecoveryRequest, VoteInfo, VoteLock, VotePowerSnapshot, VoteType,
+    DelegationRecord, GovernanceAnalytics, GovernanceConfig, MultisigConfig,
+    ParameterOptimizationRecommendation, Proposal, ProposalOutcome, ProposalSimulationResult,
+    ProposalStatus, ProposalType, RecoveryRequest, VoteInfo, VoteLock, VotePowerSnapshot, VoteType,
     BASIS_POINTS_SCALE, DEFAULT_EXECUTION_DELAY, DEFAULT_QUORUM_BPS, DEFAULT_RECOVERY_PERIOD,
     DEFAULT_TIMELOCK_DURATION, DEFAULT_VOTING_PERIOD, DEFAULT_VOTING_THRESHOLD,
     DELEGATION_DEADLINE, MAX_DELEGATION_DEPTH, MIN_TIMELOCK_DELAY, PROPOSAL_RATE_LIMIT,
@@ -437,9 +437,10 @@ pub fn simulate_proposal(
         .ok_or(GovernanceError::ProposalNotFound)?;
 
     let result = compute_simulation(env, &proposal, &config);
-    env.storage()
-        .persistent()
-        .set(&GovernanceDataKey::ProposalSimulationCache(proposal_id), &result);
+    env.storage().persistent().set(
+        &GovernanceDataKey::ProposalSimulationCache(proposal_id),
+        &result,
+    );
     Ok(result)
 }
 
@@ -485,11 +486,10 @@ pub fn get_parameter_optimization_recommendation(
     // Heuristic:
     // - low participation => reduce quorum moderately
     // - suspicious activity => raise quorum and threshold moderately
-    let votes_per_proposal = if analytics.total_proposals == 0 {
-        0
-    } else {
-        analytics.total_votes / analytics.total_proposals
-    };
+    let votes_per_proposal = analytics
+        .total_votes
+        .checked_div(analytics.total_proposals)
+        .unwrap_or(0);
 
     let mut suggested_quorum_bps = config.quorum_bps;
     if votes_per_proposal < 10 && suggested_quorum_bps > 2_000 {
@@ -499,10 +499,9 @@ pub fn get_parameter_optimization_recommendation(
         suggested_quorum_bps = suggested_quorum_bps.saturating_add(250).min(9_000);
     }
 
-    let mut suggested_default_voting_threshold = config.default_voting_threshold;
+    let mut suggested_vote_threshold = config.default_voting_threshold;
     if analytics.suspicious_proposals > 0 {
-        suggested_default_voting_threshold =
-            (suggested_default_voting_threshold + 250).min(BASIS_POINTS_SCALE);
+        suggested_vote_threshold = (suggested_vote_threshold + 250).min(BASIS_POINTS_SCALE);
     }
 
     let transparency_note = String::from_str(
@@ -513,14 +512,15 @@ pub fn get_parameter_optimization_recommendation(
     let recommendation = ParameterOptimizationRecommendation {
         generated_at: env.ledger().timestamp(),
         suggested_quorum_bps,
-        suggested_default_voting_threshold,
+        suggested_vote_threshold,
         suggested_voting_period: config.voting_period,
         transparency_note,
     };
 
-    env.storage()
-        .persistent()
-        .set(&GovernanceDataKey::ParameterOptimizationCache, &recommendation);
+    env.storage().persistent().set(
+        &GovernanceDataKey::ParameterOptimizationCache,
+        &recommendation,
+    );
 
     Ok(recommendation)
 }

@@ -6,7 +6,6 @@ import { StrKey } from '@stellar/stellar-sdk';
 const VALID_OPERATIONS = ['deposit', 'borrow', 'repay', 'withdraw'];
 const VALID_IMPORT_FORMATS = ['csv', 'json'];
 const MAX_XDR_LENGTH = 20000;
-const MAX_ASSET_ID_LENGTH = 128;
 
 export const validateRequest = (req: Request, res: Response, next: NextFunction) => {
   const errors = validationResult(req);
@@ -82,24 +81,6 @@ export const submitValidation = [
     .optional()
     .isIn(VALID_OPERATIONS)
     .withMessage(`Operation must be one of: ${VALID_OPERATIONS.join(', ')}`),
-  body('userAddress').optional().custom((value) => {
-    if (value && !StrKey.isValidEd25519PublicKey(value)) {
-      throw new Error('Invalid Stellar address');
-    }
-    return true;
-  }),
-  body('amount').optional().custom((value) => {
-    if (!value) return true;
-
-    const errMsg = 'Amount must be a valid positive integer';
-    try {
-      const str = String(value).trim();
-      if (!/^\+?\d+$/.test(str)) {
-        throw new Error(errMsg);
-      }
-      const amount = BigInt(str);
-      if (amount <= 0n) {
-        throw new Error(errMsg);
   body('userAddress')
     .optional()
     .custom((value) => {
@@ -131,11 +112,7 @@ export const submitValidation = [
       } catch {
         throw new Error(errMsg);
       }
-      return true;
-    } catch {
-      throw new Error(errMsg);
-    }
-  }),
+    }),
   body('assetAddress')
     .optional()
     .isString()
@@ -173,14 +150,6 @@ export const importRequestValidation = [
 
 export const merchantParamValidation = [
   param('merchantId').isString().notEmpty().withMessage('merchantId is required'),
-    }),
-  body('assetAddress')
-    .optional()
-    .isString()
-    .trim()
-    .notEmpty()
-    .isLength({ max: MAX_ASSET_ID_LENGTH })
-    .withMessage('Asset address must be a non-empty string <= 128 chars'),
   validateRequest,
 ];
 

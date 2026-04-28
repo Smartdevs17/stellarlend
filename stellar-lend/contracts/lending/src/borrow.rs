@@ -122,7 +122,7 @@ const COLLATERAL_RATIO_MIN: i128 = 15000; // 150% in basis points
 const INTEREST_RATE_PER_YEAR: i128 = 500; // 5% in basis points
 const SECONDS_PER_YEAR: u64 = 31536000;
 
-/// Borrow assets against deposited collateral
+/// Borrow assets against deposited collateral (requires direct user authorization).
 pub fn borrow(
     env: &Env,
     user: Address,
@@ -131,7 +131,55 @@ pub fn borrow(
     collateral_asset: Address,
     collateral_amount: i128,
 ) -> Result<(), BorrowError> {
-    user.require_auth();
+    borrow_inner(
+        env,
+        user,
+        asset,
+        amount,
+        collateral_asset,
+        collateral_amount,
+        BorrowAuth::RequireUserSignature,
+    )
+}
+
+/// Borrow on behalf of a user who previously authorized a scheduled commitment (no `user.require_auth`).
+pub(crate) fn borrow_from_commitment(
+    env: &Env,
+    user: Address,
+    asset: Address,
+    amount: i128,
+    collateral_asset: Address,
+    collateral_amount: i128,
+) -> Result<(), BorrowError> {
+    borrow_inner(
+        env,
+        user,
+        asset,
+        amount,
+        collateral_asset,
+        collateral_amount,
+        BorrowAuth::TrustedCommitment,
+    )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BorrowAuth {
+    RequireUserSignature,
+    TrustedCommitment,
+}
+
+fn borrow_inner(
+    env: &Env,
+    user: Address,
+    asset: Address,
+    amount: i128,
+    collateral_asset: Address,
+    collateral_amount: i128,
+    auth: BorrowAuth,
+) -> Result<(), BorrowError> {
+    if auth == BorrowAuth::RequireUserSignature {
+        user.require_auth();
+    }
 
     if pause::is_paused(env, PauseType::Borrow) {
         return Err(BorrowError::ProtocolPaused);
@@ -182,6 +230,8 @@ pub fn borrow(
     save_debt_position(env, &user, &debt_position);
     save_collateral_position(env, &user, &collateral_position);
     set_total_debt(env, new_total);
+
+    crate::risk_monitor::on_utilization_changed(env, new_total, debt_ceiling);
 
     emit_borrow_event(env, user, asset, amount, collateral_amount);
 
@@ -415,7 +465,7 @@ fn save_collateral_position(env: &Env, user: &Address, position: &BorrowCollater
         .set(&BorrowDataKey::BorrowUserCollateral(user.clone()), position);
 }
 
-fn get_total_debt(env: &Env) -> i128 {
+pub(crate) fn get_total_debt(env: &Env) -> i128 {
     env.storage()
         .persistent()
         .get(&BorrowDataKey::BorrowTotalDebt)
@@ -428,14 +478,14 @@ fn set_total_debt(env: &Env, amount: i128) {
         .set(&BorrowDataKey::BorrowTotalDebt, &amount);
 }
 
-fn get_debt_ceiling(env: &Env) -> i128 {
+pub(crate) fn get_debt_ceiling(env: &Env) -> i128 {
     env.storage()
         .persistent()
         .get(&BorrowDataKey::BorrowDebtCeiling)
         .unwrap_or(i128::MAX)
 }
 
-fn get_min_borrow_amount(env: &Env) -> i128 {
+pub(crate) fn get_min_borrow_amount(env: &Env) -> i128 {
     env.storage()
         .persistent()
         .get(&BorrowDataKey::BorrowMinAmount)
