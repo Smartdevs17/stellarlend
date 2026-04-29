@@ -38,8 +38,67 @@ use crate::risk_management::{
 };
 use crate::risk_params::{
     can_be_liquidated, get_close_factor, get_liquidation_incentive,
-    get_liquidation_incentive_amount, get_max_liquidatable_amount,
+    get_liquidation_incentive_amount, get_max_liquidatable_amount, get_risk_params,
 };
+
+/// Maximum liquidation penalty cap in basis points (20%)
+const MAX_PENALTY_BPS: i128 = 2_000;
+
+/// Calculate a dynamic liquidation penalty that scales with health factor severity.
+///
+/// The penalty scales linearly between the base incentive and `MAX_PENALTY_BPS`
+/// as the health factor drops from the liquidation threshold toward zero.
+///
+/// # Arguments
+/// * `env` - The Soroban environment
+/// * `collateral_value` - Current collateral value
+/// * `total_debt` - Current total debt (principal + interest)
+///
+/// # Returns
+/// Penalty in basis points (e.g. 1000 = 10%)
+pub fn calculate_dynamic_penalty(
+    env: &Env,
+    collateral_value: i128,
+    total_debt: i128,
+) -> Result<i128, LiquidationError> {
+    let params = get_risk_params(env).ok_or(LiquidationError::Overflow)?;
+    let base_incentive = params.liquidation_incentive; // e.g. 1000 bps = 10%
+    let threshold = params.liquidation_threshold; // e.g. 10500 bps = 105%
+
+    if total_debt == 0 {
+        return Ok(base_incentive);
+    }
+
+    // health_factor_bps = collateral_value * 10000 / total_debt
+    let health_factor_bps = collateral_value
+        .checked_mul(10_000)
+        .ok_or(LiquidationError::Overflow)?
+        .checked_div(total_debt)
+        .ok_or(LiquidationError::Overflow)?;
+
+    // If health factor >= threshold, position is not liquidatable; return base
+    if health_factor_bps >= threshold {
+        return Ok(base_incentive);
+    }
+
+    // severity = (threshold - health_factor_bps) / threshold  (0..1 scaled by 10000)
+    // penalty = base_incentive + severity * (MAX_PENALTY_BPS - base_incentive)
+    let severity_numerator = threshold - health_factor_bps;
+    let penalty_range = MAX_PENALTY_BPS - base_incentive;
+
+    let extra = severity_numerator
+        .checked_mul(penalty_range)
+        .ok_or(LiquidationError::Overflow)?
+        .checked_div(threshold)
+        .ok_or(LiquidationError::Overflow)?;
+
+    let penalty = base_incentive
+        .checked_add(extra)
+        .ok_or(LiquidationError::Overflow)?;
+
+    // Cap at MAX_PENALTY_BPS
+    Ok(penalty.min(MAX_PENALTY_BPS))
+}
 
 /// Errors that can occur during liquidation operations
 #[contracterror]
@@ -362,9 +421,12 @@ pub fn liquidate(
     };
 
     // Calculate liquidation incentive
-    let incentive_bps = get_liquidation_incentive(env).map_err(|_| LiquidationError::Overflow)?;
-    let incentive_amount = get_liquidation_incentive_amount(env, actual_debt_liquidated)
-        .map_err(|_| LiquidationError::Overflow)?;
+    let incentive_bps = calculate_dynamic_penalty(env, collateral_value_for_check, total_debt)?;
+    let incentive_amount = actual_debt_liquidated
+        .checked_mul(incentive_bps)
+        .ok_or(LiquidationError::Overflow)?
+        .checked_div(10_000)
+        .ok_or(LiquidationError::Overflow)?;
 
     // Calculate collateral to seize
     // Liquidator repays debt_liquidated amount of debt asset

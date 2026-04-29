@@ -9,6 +9,7 @@ import {
   BASE_FEE,
   scValToNative,
 } from '@stellar/stellar-sdk';
+import { ValidationError } from '../utils/errors';
 import { Server as SorobanServer } from '@stellar/stellar-sdk/rpc';
 import axios from 'axios';
 import type { AxiosResponse } from 'axios';
@@ -110,6 +111,21 @@ export function clearProtocolStatsCache(): void {
   protocolStatsCache.clear();
 }
 
+/**
+ * Safely create a Keypair from a secret key, throwing a descriptive error
+ * for invalid key format without echoing the key value.
+ */
+function keypairFromSecret(secret: string): Keypair {
+  try {
+    return Keypair.fromSecret(secret);
+  } catch (error) {
+    if (error instanceof Error && /invalid|bad|decode|checksum/i.test(error.message)) {
+      throw new ValidationError('Invalid secret key format');
+    }
+    throw error;
+  }
+}
+
 export class StellarService {
   private horizonUrl: string;
   private sorobanRpcUrl: string;
@@ -143,7 +159,7 @@ export class StellarService {
       throw new InternalServerError('RELAYER_SECRET is not configured');
     }
 
-    const relayer = Keypair.fromSecret(config.stellar.relayerSecret);
+    const relayer = keypairFromSecret(config.stellar.relayerSecret);
     const delegateAddress = relayer.publicKey();
 
     const account = await this.getAccount(delegateAddress);
