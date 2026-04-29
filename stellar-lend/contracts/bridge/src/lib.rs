@@ -6,9 +6,6 @@ mod bridge;
 pub use bridge::BridgeContractClient;
 pub use bridge::{BridgeContract, ContractError};
 
-#[cfg(any(test, feature = "testutils"))]
-pub use bridge::BridgeContractClient;
-
 #[cfg(test)]
 mod math_safety_test;
 #[cfg(test)]

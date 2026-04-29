@@ -3,13 +3,16 @@ import {
   Contract,
   xdr,
   Address,
+  Keypair,
   nativeToScVal,
   Account,
   BASE_FEE,
   scValToNative,
 } from '@stellar/stellar-sdk';
+import { ValidationError } from '../utils/errors';
 import { Server as SorobanServer } from '@stellar/stellar-sdk/rpc';
 import axios from 'axios';
+import type { AxiosResponse } from 'axios';
 import { config } from '../config';
 import logger from '../utils/logger';
 import { InternalServerError } from '../utils/errors';
@@ -108,6 +111,21 @@ export function clearProtocolStatsCache(): void {
   protocolStatsCache.clear();
 }
 
+/**
+ * Safely create a Keypair from a secret key, throwing a descriptive error
+ * for invalid key format without echoing the key value.
+ */
+function keypairFromSecret(secret: string): Keypair {
+  try {
+    return Keypair.fromSecret(secret);
+  } catch (error) {
+    if (error instanceof Error && /invalid|bad|decode|checksum/i.test(error.message)) {
+      throw new ValidationError('Invalid secret key format');
+    }
+    throw error;
+  }
+}
+
 export class StellarService {
   private horizonUrl: string;
   private sorobanRpcUrl: string;
@@ -123,6 +141,61 @@ export class StellarService {
     this.contractId = config.stellar.contractId;
     this.readOnlySimulationAccount = config.stellar.readOnlySimulationAccount;
     this.sorobanServer = new SorobanServer(this.sorobanRpcUrl);
+  }
+
+  async relayExecuteDelegated(
+    delegatorAddress: string,
+    nonce: string,
+    deadline: string,
+    callsXdr: string
+  ): Promise<{
+    delegateAddress: string;
+    txXdr: string;
+    txHash?: string;
+    success: boolean;
+    error?: string;
+  }> {
+    if (!config.stellar.relayerSecret) {
+      throw new InternalServerError('RELAYER_SECRET is not configured');
+    }
+
+    const relayer = keypairFromSecret(config.stellar.relayerSecret);
+    const delegateAddress = relayer.publicKey();
+
+    const account = await this.getAccount(delegateAddress);
+    const contract = new Contract(this.contractId);
+
+    // `callsXdr` is an XDR-encoded ScVal representing Vec<Call> as defined by the contract.
+    // This keeps the API generic and avoids having to replicate Soroban struct encoding here.
+    const calls = xdr.ScVal.fromXDR(callsXdr, 'base64');
+
+    const params = [
+      new Address(delegatorAddress).toScVal(),
+      new Address(delegateAddress).toScVal(),
+      nativeToScVal(BigInt(nonce), { type: 'u64' }),
+      nativeToScVal(BigInt(deadline), { type: 'u64' }),
+      calls,
+    ];
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(contract.call('execute_delegated', ...params))
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
+
+    const preparedTx = await this.sorobanServer.prepareTransaction(tx);
+    preparedTx.sign(relayer);
+
+    const submit = await this.submitTransaction(preparedTx.toXDR());
+    return {
+      delegateAddress,
+      txXdr: preparedTx.toXDR(),
+      txHash: submit.transactionHash,
+      success: submit.success,
+      error: submit.success ? undefined : submit.error,
+    };
   }
 
   async getAccount(address: string): Promise<Account> {
@@ -183,7 +256,12 @@ export class StellarService {
     assetAddress: string | undefined,
     amount: string
   ): Promise<{ cpuInstructions: string; memoryBytes: string; minResourceFee: string }> {
-    const coalescingKey = requestCoalescingService.generateKey('estimateGas', { operation, userAddress, assetAddress, amount });
+    const coalescingKey = requestCoalescingService.generateKey('estimateGas', {
+      operation,
+      userAddress,
+      assetAddress,
+      amount,
+    });
     return requestCoalescingService.execute(coalescingKey, async () => {
       try {
         const account = await this.getAccount(userAddress);
@@ -204,7 +282,7 @@ export class StellarService {
           .build();
 
         const simulation = await (this.sorobanServer as any).simulateTransaction(tx);
-        
+
         if (simulation.error) {
           throw new InternalServerError(`Simulation failed: ${simulation.error}`);
         }
@@ -501,7 +579,11 @@ export class StellarService {
 
         const result = {
           data: lendingTransactions,
-          pagination: buildPaginationMeta(nextCursor, hasNextPage, limit ?? config.pagination.defaultLimit),
+          pagination: buildPaginationMeta(
+            nextCursor,
+            hasNextPage,
+            limit ?? config.pagination.defaultLimit
+          ),
         };
         await redisCacheService.set(
           historyCacheKey,
@@ -646,7 +728,7 @@ export class StellarService {
     while (nextUrl) {
       if (signal?.aborted) return;
 
-      const response = await axios.get(nextUrl);
+      const response: AxiosResponse<any> = await axios.get(nextUrl);
       const transactions: any[] = response.data._embedded?.records ?? [];
 
       const lendingTxs = await this.filterLendingTransactions(transactions);
@@ -675,9 +757,7 @@ export class StellarService {
         const userParam = new Address(userAddress).toScVal();
         const raw = await this.simulateContractCall('get_user_position', userParam);
 
-        const collateral = toIntegerString(
-          raw?.collateral ?? raw?.collateral_amount ?? 0
-        );
+        const collateral = toIntegerString(raw?.collateral ?? raw?.collateral_amount ?? 0);
         const debt = toIntegerString(raw?.debt ?? raw?.debt_amount ?? 0);
         const borrowInterest = toIntegerString(raw?.borrow_interest ?? raw?.interest ?? 0);
         const lastAccrualTime = toSafeNumber(raw?.last_accrual_time ?? raw?.lastAccrualTime ?? 0);
@@ -685,9 +765,7 @@ export class StellarService {
         const collateralBig = BigInt(collateral);
         const debtBig = BigInt(debt);
         const collateralRatio =
-          debtBig > 0n
-            ? ((collateralBig * 10000n) / debtBig).toString()
-            : 'Infinity';
+          debtBig > 0n ? ((collateralBig * 10000n) / debtBig).toString() : 'Infinity';
 
         const result: PositionResponse = {
           userAddress,
@@ -698,7 +776,11 @@ export class StellarService {
           collateralRatio,
         };
 
-        await redisCacheService.set(cacheKey, result, Math.floor(config.cache.positionTtlMs / 1000));
+        await redisCacheService.set(
+          cacheKey,
+          result,
+          Math.floor(config.cache.positionTtlMs / 1000)
+        );
         return result;
       } catch (error) {
         logger.error('Failed to fetch user position:', error);

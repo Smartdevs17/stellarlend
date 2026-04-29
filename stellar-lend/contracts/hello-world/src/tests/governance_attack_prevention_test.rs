@@ -20,8 +20,11 @@
 
 #![cfg(test)]
 
-use soroban_sdk::{testutils::{Address as _, Ledger as _}, Address, Env, String};
 use soroban_sdk::token::StellarAssetClient;
+use soroban_sdk::{
+    testutils::{Address as _, Ledger as _},
+    Address, Env, String,
+};
 
 use crate::{
     types::{ProposalStatus, ProposalType, VoteType},
@@ -53,9 +56,9 @@ fn setup_with_config(
         &Some(voting_period),
         &Some(execution_delay),
         &Some(quorum_bps),
-        &Some(100_i128),           // proposal threshold
-        &Some(7 * 24 * 3600_u64),  // timelock duration
-        &Some(5000_i128),           // 50% voting threshold
+        &Some(100_i128),          // proposal threshold
+        &Some(7 * 24 * 3600_u64), // timelock duration
+        &Some(5000_i128),         // 50% voting threshold
     );
 
     (admin, token, client)
@@ -64,9 +67,9 @@ fn setup_with_config(
 fn setup(env: &Env) -> (Address, Address, HelloContractClient) {
     setup_with_config(
         env,
-        7 * 24 * 3600,  // 7-day voting period
-        2 * 24 * 3600,  // 2-day execution delay
-        4000,           // 40% quorum
+        7 * 24 * 3600, // 7-day voting period
+        2 * 24 * 3600, // 2-day execution delay
+        4000,          // 40% quorum
     )
 }
 
@@ -102,9 +105,14 @@ fn test_vote_locking_prevents_token_transfer_during_active_vote() {
     client.gov_vote(&voter, &proposal_id, &VoteType::For);
 
     // Verify lock is active
-    assert!(client.gov_is_vote_locked(&voter), "Tokens must be locked after voting");
+    assert!(
+        client.gov_is_vote_locked(&voter),
+        "Tokens must be locked after voting"
+    );
 
-    let lock = client.gov_get_vote_lock(&voter).expect("Lock record must exist");
+    let lock = client
+        .gov_get_vote_lock(&voter)
+        .expect("Lock record must exist");
     assert_eq!(lock.voter, voter);
     assert_eq!(lock.proposal_id, proposal_id);
     assert_eq!(lock.locked_amount, 10_000);
@@ -149,8 +157,10 @@ fn test_vote_lock_extends_for_multiple_active_proposals() {
     let lock_2 = client.gov_get_vote_lock(&voter).unwrap();
 
     // Lock should extend to the later proposal's end time
-    assert!(lock_2.locked_until >= lock_1.locked_until,
-        "Lock should extend for later proposal");
+    assert!(
+        lock_2.locked_until >= lock_1.locked_until,
+        "Lock should extend for later proposal"
+    );
 }
 
 #[test]
@@ -178,8 +188,10 @@ fn test_vote_lock_expires_after_voting_period_ends() {
     // Advance past voting period (7 days + 1 second)
     env.ledger().with_mut(|l| l.timestamp += 7 * 24 * 3600 + 1);
 
-    assert!(!client.gov_is_vote_locked(&voter),
-        "Lock must expire after voting period");
+    assert!(
+        !client.gov_is_vote_locked(&voter),
+        "Lock must expire after voting period"
+    );
 }
 
 // ============================================================================
@@ -221,8 +233,10 @@ fn test_delegation_must_be_established_24h_before_proposal() {
     client.gov_vote(&delegatee, &proposal_id, &VoteType::For);
 
     let proposal = client.gov_get_proposal(&proposal_id).unwrap();
-    assert_eq!(proposal.for_votes, 500,
-        "Delegation within 24h deadline must not count");
+    assert_eq!(
+        proposal.for_votes, 500,
+        "Delegation within 24h deadline must not count"
+    );
 }
 
 #[test]
@@ -263,8 +277,10 @@ fn test_delegation_established_before_deadline_counts() {
     client.gov_vote(&delegatee, &proposal_id, &VoteType::For);
 
     let proposal = client.gov_get_proposal(&proposal_id).unwrap();
-    assert_eq!(proposal.for_votes, 10_500,
-        "Valid delegation must add delegator's power");
+    assert_eq!(
+        proposal.for_votes, 10_500,
+        "Valid delegation must add delegator's power"
+    );
 }
 
 // ============================================================================
@@ -304,10 +320,11 @@ fn test_quorum_requirement_blocks_low_participation_proposal() {
 
     let outcome = client.gov_queue_proposal(&small_voter, &proposal_id);
 
-    assert!(!outcome.quorum_reached,
-        "Quorum must not be met with low participation");
-    assert!(!outcome.succeeded,
-        "Proposal must fail without quorum");
+    assert!(
+        !outcome.quorum_reached,
+        "Quorum must not be met with low participation"
+    );
+    assert!(!outcome.succeeded, "Proposal must fail without quorum");
 }
 
 #[test]
@@ -371,7 +388,8 @@ fn test_snapshot_taken_at_proposal_creation() {
     );
 
     // Snapshot should exist for proposer
-    let snapshot = client.gov_get_vote_power_snapshot(&proposal_id, &proposer)
+    let snapshot = client
+        .gov_get_vote_power_snapshot(&proposal_id, &proposer)
         .expect("Snapshot must be taken at proposal creation");
 
     assert_eq!(snapshot.proposal_id, proposal_id);
@@ -408,8 +426,10 @@ fn test_tokens_acquired_after_snapshot_have_no_voting_power() {
     // Attacker tries to vote - should fail
     let result = client.try_gov_vote(&attacker, &proposal_id, &VoteType::For);
 
-    assert!(result.is_err(),
-        "Voter with no snapshot must not be able to vote");
+    assert!(
+        result.is_err(),
+        "Voter with no snapshot must not be able to vote"
+    );
 }
 
 // ============================================================================
@@ -445,8 +465,7 @@ fn test_execution_delay_enforced() {
 
     // Try to execute immediately - should fail (2-day delay required)
     let result = client.try_gov_execute_proposal(&voter, &proposal_id);
-    assert!(result.is_err(),
-        "Execution before delay period must fail");
+    assert!(result.is_err(), "Execution before delay period must fail");
 
     // Advance past execution delay
     env.ledger().with_mut(|l| l.timestamp += 2 * 24 * 3600 + 1);
@@ -495,8 +514,7 @@ fn test_execution_delay_provides_cancellation_window() {
 
     // Execution should fail on cancelled proposal
     let result = client.try_gov_execute_proposal(&voter, &proposal_id);
-    assert!(result.is_err(),
-        "Cancelled proposal must not be executable");
+    assert!(result.is_err(), "Cancelled proposal must not be executable");
 }
 
 // ============================================================================
@@ -528,8 +546,10 @@ fn test_analytics_track_suspicious_large_voter() {
 
     let analytics = client.gov_get_analytics();
 
-    assert!(analytics.suspicious_proposals > 0,
-        "Large single voter must trigger suspicious flag");
+    assert!(
+        analytics.suspicious_proposals > 0,
+        "Large single voter must trigger suspicious flag"
+    );
     assert_eq!(analytics.max_single_voter_power, 999_900);
     assert!(analytics.last_suspicious_at > 0);
 }
@@ -608,8 +628,10 @@ fn test_legitimate_large_voter_not_blocked() {
     client.gov_vote(&large_holder, &proposal_id, &VoteType::For);
 
     let proposal = client.gov_get_proposal(&proposal_id).unwrap();
-    assert_eq!(proposal.for_votes, 100_000,
-        "Legitimate large voter must be able to vote");
+    assert_eq!(
+        proposal.for_votes, 100_000,
+        "Legitimate large voter must be able to vote"
+    );
 }
 
 // ============================================================================
@@ -646,8 +668,10 @@ fn test_cannot_delegate_while_vote_locked() {
     // Try to delegate while locked - should fail
     let result = client.try_gov_delegate_vote(&voter, &delegatee);
 
-    assert!(result.is_err(),
-        "Delegation during vote lock must be prevented");
+    assert!(
+        result.is_err(),
+        "Delegation during vote lock must be prevented"
+    );
 }
 
 // ============================================================================
@@ -732,8 +756,7 @@ fn test_cannot_cancel_executed_proposal() {
 
     // Try to cancel executed proposal - should fail
     let result = client.try_gov_cancel_proposal(&admin, &proposal_id);
-    assert!(result.is_err(),
-        "Cannot cancel executed proposal");
+    assert!(result.is_err(), "Cannot cancel executed proposal");
 }
 
 // ============================================================================
@@ -788,8 +811,7 @@ fn test_proposal_rate_limiting_prevents_spam() {
         &None,
     );
 
-    assert!(result.is_err(),
-        "Proposal rate limit must prevent spam");
+    assert!(result.is_err(), "Proposal rate limit must prevent spam");
 }
 
 #[test]
@@ -817,6 +839,8 @@ fn test_delegation_depth_limit_prevents_chain_attacks() {
     // d → e would exceed max depth
     let result = client.try_gov_delegate_vote(&d, &e);
 
-    assert!(result.is_err(),
-        "Delegation chain exceeding max depth must be rejected");
+    assert!(
+        result.is_err(),
+        "Delegation chain exceeding max depth must be rejected"
+    );
 }

@@ -480,6 +480,9 @@ pub fn remove_liquidity(
         min_amount_a,
         min_amount_b,
         deadline,
+        tick_lower: None,
+        tick_upper: None,
+        fee_tier: None,
     };
 
     // Record liquidity operation
@@ -936,6 +939,8 @@ fn record_liquidity_operation(
         amount_a: params.amount_a,
         amount_b: params.amount_b,
         lp_tokens,
+        tick_lower: params.tick_lower,
+        tick_upper: params.tick_upper,
         timestamp: env.ledger().timestamp(),
     };
 

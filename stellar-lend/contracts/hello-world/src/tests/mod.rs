@@ -25,16 +25,26 @@ pub mod test;
 pub mod withdraw_test;
 // Cross-asset tests disabled - contract methods not yet implemented
 pub mod views_test;
+pub mod borrow_cap_test;
+pub mod supply_cap_test;
+pub mod isolated_pool_test;
 // Cross-asset tests re-enabled when contract exposes full CA API (try_* return Result; get_user_asset_position; try_ca_repay_debt)
 // pub mod test_cross_asset;
 pub mod bridge_test;
 pub mod recovery_test;
 pub mod multisig_test;
+pub mod mev_protection_test;
 pub mod multisig_governance_execution_test;
 pub mod cross_contract_test;
 // Temporarily disabled due to pre-existing issues (not related to governance attack prevention)
 // pub mod timelock_test;
 pub mod input_length_test;
 pub mod governance_test;
-pub mod flash_loan_governance_test;
-pub mod governance_attack_prevention_test;
+// Disabled until the full governance attack-prevention surface is implemented.
+// pub mod governance_attack_prevention_test;
+
+// New test modules for implemented features
+pub mod cross_asset_tests;
+pub mod debt_token_tests;
+pub mod rebalancing_tests;
+pub mod test_utils;

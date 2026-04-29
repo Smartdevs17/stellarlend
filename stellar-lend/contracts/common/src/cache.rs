@@ -92,7 +92,12 @@ pub fn invalidate(env: &Env, key: Symbol) {
     env.storage().persistent().set(&CACHE_ORDER, &order);
 }
 
-pub fn set_cached(env: &Env, key: Symbol, value: i128, ttl_secs: Option<u64>) -> Result<(), CacheError> {
+pub fn set_cached(
+    env: &Env,
+    key: Symbol,
+    value: i128,
+    ttl_secs: Option<u64>,
+) -> Result<(), CacheError> {
     let ttl = ttl_secs.unwrap_or(CACHE_TTL_SECS);
     if ttl == 0 {
         return Err(CacheError::InvalidTtl);

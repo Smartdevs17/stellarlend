@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import * as lendingController from '../controllers/lending.controller';
-import { prepareValidation, submitValidation, paginationValidation } from '../middleware/validation';
+import {
+  prepareValidation,
+  submitValidation,
+  relayDelegatedValidation,
+  paginationValidation,
+} from '../middleware/validation';
 
 const router: Router = Router();
 
@@ -116,6 +121,12 @@ router.get('/prepare/:operation', prepareValidation, lendingController.prepare);
  */
 router.post('/submit', submitValidation, lendingController.submit);
 
+router.post(
+  '/relay-delegated',
+  relayDelegatedValidation,
+  lendingController.relayDelegated
+);
+
 /**
  * @openapi
  * /lending/transactions/{userAddress}:
@@ -166,7 +177,11 @@ router.post('/submit', submitValidation, lendingController.submit);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.get('/transactions/:userAddress', paginationValidation, lendingController.getTransactionHistory);
+router.get(
+  '/transactions/:userAddress',
+  paginationValidation,
+  lendingController.getTransactionHistory
+);
 
 /**
  * @openapi

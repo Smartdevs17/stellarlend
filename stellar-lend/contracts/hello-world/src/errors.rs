@@ -3,12 +3,17 @@ use soroban_sdk::contracterror;
 use crate::admin::AdminError;
 use crate::analytics::AnalyticsError;
 use crate::borrow::BorrowError;
+use crate::cross_asset::CrossAssetError;
+use crate::debt_token::DebtTokenError;
 use crate::deposit::DepositError;
 use crate::flash_loan::FlashLoanError;
 use crate::interest_rate::InterestRateError;
 use crate::liquidate::LiquidationError;
+use crate::mev_protection::MevProtectionError;
 use crate::rate_limiter::RateLimitError;
+use crate::rebalancing::RebalancingError;
 use crate::repay::RepayError;
+use crate::reserve::ReserveError;
 use crate::risk_management::RiskManagementError;
 use crate::risk_params::RiskParamsError;
 use crate::treasury::TreasuryError;
@@ -53,6 +58,18 @@ pub enum GovernanceError {
     NotInitialized = 133,
     InvalidProposal = 134,
     InputTooLong = 135,
+    SelfDelegation = 136,
+    VotesLocked = 137,
+    AlreadyDelegated = 138,
+    DelegationDepthExceeded = 139,
+    ProposalRateLimitExceeded = 140,
+    // Timelock errors
+    TimelockNotFound = 141,
+    TimelockNotReady = 142,
+    TimelockExpired = 143,
+    InvalidTimelockStatus = 144,
+    InvalidTimelockConfig = 145,
+    InvalidTimelockDelay = 146,
 }
 
 /// Unified public contract error type for the lending interface.
@@ -119,6 +136,20 @@ pub enum LendingError {
     GovernanceRequired = 27,
     /// Generic governance failure surfaced through the public interface.
     GovernanceError = 28,
+    /// Commit/reveal confirmation is required before the sensitive action can execute.
+    CommitRequired = 29,
+    /// Requested commit record does not exist.
+    CommitNotFound = 30,
+    /// Commit exists but cannot be revealed yet.
+    CommitNotReady = 31,
+    /// Commit expired before reveal.
+    CommitExpired = 32,
+    /// Protected execution would exceed the user's declared fee cap.
+    FeeCapExceeded = 33,
+    /// Requested resource or entity was not found.
+    NotFound = 34,
+    /// Entity already exists.
+    AlreadyExists = 35,
 }
 
 macro_rules! impl_from_error {
@@ -182,6 +213,17 @@ impl_from_error!(FlashLoanError, {
     FlashLoanError::CallbackFailed => LendingError::CallbackFailed,
 });
 
+impl_from_error!(ReserveError, {
+    ReserveError::Unauthorized => LendingError::Unauthorized,
+    ReserveError::InvalidReserveFactor => LendingError::InvalidParameter,
+    ReserveError::InsufficientReserve => LendingError::InsufficientReserve,
+    ReserveError::InvalidAsset => LendingError::InvalidAsset,
+    ReserveError::InvalidTreasury => LendingError::InvalidParameter,
+    ReserveError::InvalidAmount => LendingError::InvalidAmount,
+    ReserveError::Overflow => LendingError::Overflow,
+    ReserveError::TreasuryNotSet => LendingError::TreasuryNotSet,
+});
+
 impl From<GovernanceError> for LendingError {
     fn from(error: GovernanceError) -> Self {
         match error {
@@ -224,6 +266,17 @@ impl_from_error!(RateLimitError, {
     RateLimitError::InvalidConfig => LendingError::InvalidParameter,
     RateLimitError::Unauthorized => LendingError::Unauthorized,
     RateLimitError::Overflow => LendingError::Overflow,
+});
+
+impl_from_error!(MevProtectionError, {
+    MevProtectionError::InvalidConfig => LendingError::InvalidParameter,
+    MevProtectionError::CommitNotFound => LendingError::CommitNotFound,
+    MevProtectionError::CommitNotReady => LendingError::CommitNotReady,
+    MevProtectionError::CommitExpired => LendingError::CommitExpired,
+    MevProtectionError::Unauthorized => LendingError::Unauthorized,
+    MevProtectionError::FeeCapExceeded => LendingError::FeeCapExceeded,
+    MevProtectionError::InvalidAmount => LendingError::InvalidAmount,
+    MevProtectionError::InvalidOperation => LendingError::InvalidState,
 });
 
 impl_from_error!(RepayError, {
@@ -281,3 +334,48 @@ impl_from_error!(WithdrawError, {
     WithdrawError::Reentrancy => LendingError::Reentrancy,
     WithdrawError::Undercollateralized => LendingError::InvalidState,
 });
+
+impl_from_error!(RebalancingError, {
+    RebalancingError::Unauthorized => LendingError::Unauthorized,
+    RebalancingError::InvalidConfig => LendingError::InvalidParameter,
+    RebalancingError::AlreadyHealthy => LendingError::InvalidState,
+    RebalancingError::GasCostTooHigh => LendingError::LimitExceeded,
+    RebalancingError::SlippageTooHigh => LendingError::LimitExceeded,
+    RebalancingError::SwapTooSmall => LendingError::InvalidAmount,
+    RebalancingError::CooldownActive => LendingError::LimitExceeded,
+    RebalancingError::Undercollateralized => LendingError::InsufficientCollateralRatio,
+    RebalancingError::AmmFailed => LendingError::InvalidState,
+    RebalancingError::InsufficientLiquidity => LendingError::InsufficientLiquidity,
+    RebalancingError::Overflow => LendingError::Overflow,
+});
+
+impl_from_error!(DebtTokenError, {
+    DebtTokenError::TokenNotFound => LendingError::DataNotFound,
+    DebtTokenError::Unauthorized => LendingError::Unauthorized,
+    DebtTokenError::TransferPaused => LendingError::ProtocolPaused,
+    DebtTokenError::TransferBlocked => LendingError::Unauthorized,
+    DebtTokenError::LiquidationInProgress => LendingError::InvalidState,
+    DebtTokenError::InvalidTokenId => LendingError::InvalidParameter,
+    DebtTokenError::Undercollateralized => LendingError::InsufficientCollateralRatio,
+    DebtTokenError::Overflow => LendingError::Overflow,
+    DebtTokenError::ZeroAddress => LendingError::InvalidParameter,
+    DebtTokenError::AlreadyTokenized => LendingError::AlreadyExists,
+    DebtTokenError::PositionNotFound => LendingError::DataNotFound,
+});
+
+impl From<CrossAssetError> for LendingError {
+    fn from(error: CrossAssetError) -> Self {
+        match error {
+            CrossAssetError::AssetNotConfigured => LendingError::DataNotFound,
+            CrossAssetError::AssetDisabled => LendingError::AssetNotEnabled,
+            CrossAssetError::InsufficientCollateral => LendingError::InsufficientCollateral,
+            CrossAssetError::ExceedsBorrowCapacity => LendingError::InsufficientCollateralRatio,
+            CrossAssetError::UnhealthyPosition => LendingError::InsufficientCollateralRatio,
+            CrossAssetError::SupplyCapExceeded => LendingError::LimitExceeded,
+            CrossAssetError::BorrowCapExceeded => LendingError::LimitExceeded,
+            CrossAssetError::InvalidPrice => LendingError::PriceUnavailable,
+            CrossAssetError::PriceStale => LendingError::PriceUnavailable,
+            CrossAssetError::NotAuthorized => LendingError::Unauthorized,
+        }
+    }
+}

@@ -4,8 +4,8 @@ import { ValidationError } from '../utils/errors';
 import { StrKey } from '@stellar/stellar-sdk';
 
 const VALID_OPERATIONS = ['deposit', 'borrow', 'repay', 'withdraw'];
+const VALID_IMPORT_FORMATS = ['csv', 'json'];
 const MAX_XDR_LENGTH = 20000;
-const MAX_ASSET_ID_LENGTH = 128;
 
 export const validateRequest = (req: Request, res: Response, next: NextFunction) => {
   const errors = validationResult(req);
@@ -29,7 +29,6 @@ export const amountValidation = [
       try {
         const str = String(value).trim();
 
-        // Strict integer check: reject floats, scientific notation, empty, etc.
         if (!/^\+?\d+$/.test(str)) {
           throw new Error(errMsg);
         }
@@ -39,7 +38,6 @@ export const amountValidation = [
           throw new Error(errMsg);
         }
 
-        // Ensure it fits into signed i128 which is what the contract expects.
         const maxI128 = (1n << 127n) - 1n;
         if (amount > maxI128) {
           throw new Error(errMsg);
@@ -52,10 +50,6 @@ export const amountValidation = [
     }),
 ];
 
-/**
- * Factory function to create lending validation middleware
- * Allows for future customization per operation if needed
- */
 const createLendingValidation = () => [
   param('operation')
     .isIn(VALID_OPERATIONS)
@@ -74,50 +68,109 @@ const createLendingValidation = () => [
   validateRequest,
 ];
 
+export const relayDelegatedValidation = [
+  body('delegatorAddress')
+    .isString()
+    .notEmpty()
+    .withMessage('delegatorAddress is required')
+    .custom((value) => {
+      if (!StrKey.isValidEd25519PublicKey(value)) {
+        throw new Error('Invalid Stellar address');
+      }
+      return true;
+    }),
+  body('nonce').isString().notEmpty().withMessage('nonce is required'),
+  body('deadline').isString().notEmpty().withMessage('deadline is required'),
+  body('callsXdr')
+    .isString()
+    .notEmpty()
+    .isLength({ max: MAX_XDR_LENGTH })
+    .withMessage('callsXdr is required and must be <= 20000 characters'),
+  validateRequest,
+];
+
 export const prepareValidation = createLendingValidation();
 
 export const submitValidation = [
+  body('signedXdr').isString().notEmpty().withMessage('signedXdr is required'),
   body('signedXdr')
     .isString()
     .notEmpty()
     .isLength({ max: MAX_XDR_LENGTH })
     .withMessage('signedXdr is required and must be <= 20000 characters'),
-  body('operation').optional().isIn(VALID_OPERATIONS).withMessage(`Operation must be one of: ${VALID_OPERATIONS.join(', ')}`),
-  body('userAddress').optional().custom((value) => {
-    if (value && !StrKey.isValidEd25519PublicKey(value)) {
-      throw new Error('Invalid Stellar address');
-    }
-    return true;
-  }),
-  body('amount').optional().custom((value) => {
-    if (!value) return true;
-    
-    const errMsg = 'Amount must be a valid positive integer';
-    try {
-      const str = String(value).trim();
-      if (!/^\+?\d+$/.test(str)) {
-        throw new Error(errMsg);
-      }
-      const amount = BigInt(str);
-      if (amount <= 0n) {
-        throw new Error(errMsg);
-      }
-      const maxI128 = (1n << 127n) - 1n;
-      if (amount > maxI128) {
-        throw new Error(errMsg);
+  body('operation')
+    .optional()
+    .isIn(VALID_OPERATIONS)
+    .withMessage(`Operation must be one of: ${VALID_OPERATIONS.join(', ')}`),
+  body('userAddress')
+    .optional()
+    .custom((value) => {
+      if (value && !StrKey.isValidEd25519PublicKey(value)) {
+        throw new Error('Invalid Stellar address');
       }
       return true;
-    } catch {
-      throw new Error(errMsg);
-    }
-  }),
+    }),
+  body('amount')
+    .optional()
+    .custom((value) => {
+      if (!value) return true;
+
+      const errMsg = 'Amount must be a valid positive integer';
+      try {
+        const str = String(value).trim();
+        if (!/^\+?\d+$/.test(str)) {
+          throw new Error(errMsg);
+        }
+        const amount = BigInt(str);
+        if (amount <= 0n) {
+          throw new Error(errMsg);
+        }
+        const maxI128 = (1n << 127n) - 1n;
+        if (amount > maxI128) {
+          throw new Error(errMsg);
+        }
+        return true;
+      } catch {
+        throw new Error(errMsg);
+      }
+    }),
   body('assetAddress')
     .optional()
     .isString()
-    .trim()
     .notEmpty()
-    .isLength({ max: MAX_ASSET_ID_LENGTH })
-    .withMessage('Asset address must be a non-empty string <= 128 chars'),
+    .withMessage('Asset address must be a string'),
+  validateRequest,
+];
+
+export const importRequestValidation = [
+  body('merchantId').isString().notEmpty().withMessage('merchantId is required'),
+  body('format')
+    .isIn(VALID_IMPORT_FORMATS)
+    .withMessage(`format must be one of: ${VALID_IMPORT_FORMATS.join(', ')}`),
+  body('data')
+    .custom((value) => typeof value === 'string' || Array.isArray(value))
+    .withMessage('data must be a CSV string or JSON array'),
+  body('columnMapping')
+    .optional()
+    .custom((value) => {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        throw new Error('columnMapping must be an object');
+      }
+      return true;
+    }),
+  body('options')
+    .optional()
+    .custom((value) => {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        throw new Error('options must be an object');
+      }
+      return true;
+    }),
+  validateRequest,
+];
+
+export const merchantParamValidation = [
+  param('merchantId').isString().notEmpty().withMessage('merchantId is required'),
   validateRequest,
 ];
 
@@ -135,7 +188,6 @@ export const paginationValidation = [
   validateRequest,
 ];
 
-// Kept for backward compatibility — deprecated, will be removed in v2
 export const depositValidation = createLendingValidation();
 export const borrowValidation = createLendingValidation();
 export const repayValidation = createLendingValidation();
