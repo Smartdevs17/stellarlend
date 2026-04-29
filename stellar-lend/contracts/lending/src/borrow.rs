@@ -176,18 +176,17 @@ pub struct BorrowCollateral {
 }
 
 const COLLATERAL_RATIO_MIN: i128 = 15000; // 150% in basis points
-const DEFAULT_VARIABLE_RATE_BPS: i128 = 500; // 5% in basis points
 const SECONDS_PER_YEAR: u64 = 31536000;
 
 const DEFAULT_STABLE_PREMIUM_BPS: i128 = 100; // 1%
 const DEFAULT_STABLE_RECALC_INTERVAL_SECS: u64 = 6 * 3600; // 6h
 const DEFAULT_SWITCH_FEE_BPS: i128 = 10; // 0.10%
 
-fn get_current_variable_rate_bps(env: &Env) -> i128 {
-    env.storage()
-        .persistent()
-        .get(&BorrowDataKey::BorrowInterestRate)
-        .unwrap_or(DEFAULT_VARIABLE_RATE_BPS)
+fn get_current_variable_rate_bps(env: &Env) -> Result<i128, BorrowError> {
+    crate::interest_rate::borrow_rate_bps(env).map_err(|e| {
+        let be: BorrowError = e.into();
+        be
+    })
 }
 
 pub fn set_variable_borrow_rate_bps(
@@ -203,9 +202,21 @@ pub fn set_variable_borrow_rate_bps(
     if !(0..=10000).contains(&rate_bps) {
         return Err(BorrowError::InvalidAmount);
     }
-    env.storage()
-        .persistent()
-        .set(&BorrowDataKey::BorrowInterestRate, &rate_bps);
+
+    let update = crate::interest_rate::InterestRateConfigUpdate {
+        base_rate_bps: Some(rate_bps),
+        kink_utilization_bps: None,
+        slope_bps: None,
+        jump_slope_bps: None,
+        rate_floor_bps: None,
+        rate_ceiling_bps: None,
+        spread_bps: None,
+    };
+
+    crate::interest_rate::update_config(env, admin, update).map_err(|e| {
+        let be: BorrowError = e.into();
+        be
+    })?;
     Ok(())
 }
 
@@ -235,7 +246,7 @@ fn get_stable_rate_state(env: &Env) -> StableRateState {
         .persistent()
         .get(&BorrowDataKey::StableRateState)
         .unwrap_or(StableRateState {
-            avg_rate_bps: get_current_variable_rate_bps(env),
+            avg_rate_bps: get_current_variable_rate_bps(env).unwrap_or(0),
             last_update: env.ledger().timestamp(),
         })
 }
@@ -255,7 +266,10 @@ fn update_stable_rate_state_if_needed(env: &Env) -> StableRateState {
 
     // Simple EMA smoothing toward current variable rate:
     // new_avg = (old * 9 + current) / 10
-    let current = get_current_variable_rate_bps(env);
+    let current = match get_current_variable_rate_bps(env) {
+        Ok(v) => v,
+        Err(_) => state.avg_rate_bps,
+    };
     let new_avg = state
         .avg_rate_bps
         .checked_mul(9)
@@ -644,7 +658,7 @@ pub(crate) fn calculate_interest(env: &Env, position: &DebtPosition) -> Result<i
 
     let borrowed_256 = I256::from_i128(env, position.borrowed_amount);
     let rate_bps = match position.rate_type {
-        RateType::Variable => get_current_variable_rate_bps(env),
+        RateType::Variable => get_current_variable_rate_bps(env)?,
         RateType::Stable => {
             if position.stable_rate_bps > 0 {
                 position.stable_rate_bps
@@ -870,17 +884,7 @@ pub fn initialize_borrow_settings(
     env.storage()
         .persistent()
         .set(&BorrowDataKey::BorrowMinAmount, &min_borrow_amount);
-
-    // Defaults for dual-rate system
-    if !env
-        .storage()
-        .persistent()
-        .has(&BorrowDataKey::BorrowInterestRate)
-    {
-        env.storage()
-            .persistent()
-            .set(&BorrowDataKey::BorrowInterestRate, &DEFAULT_VARIABLE_RATE_BPS);
-    }
+    crate::interest_rate::set_default_if_missing(env);
     if !env
         .storage()
         .persistent()

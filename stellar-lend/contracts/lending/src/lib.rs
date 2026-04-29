@@ -15,6 +15,7 @@ pub mod borrow;
 pub mod events;
 mod deposit;
 mod flash_loan;
+pub mod interest_rate;
 pub mod invariants;
 pub mod invariant_test_suite;
 pub mod pause;
@@ -29,6 +30,7 @@ pub mod yield_farming;
 pub use borrow::{BorrowCollateral, BorrowError, DebtPosition, RateType, StablecoinConfig};
 pub use deposit::{DepositCollateral, DepositError};
 pub use flash_loan::FlashLoanError;
+pub use interest_rate::{InterestRateConfig, InterestRateConfigUpdate};
 pub use pause::PauseType;
 pub use views::{ProtocolMetrics, ProtocolReport, StablecoinAssetStats, UserPositionSummary};
 pub use withdraw::WithdrawError;
@@ -108,6 +110,8 @@ mod deposit_test;
 #[cfg(test)]
 mod flash_loan_test;
 #[cfg(test)]
+mod interest_rate_test;
+#[cfg(test)]
 mod math_safety_test;
 #[cfg(test)]
 mod meta_test;
@@ -141,6 +145,7 @@ impl LendingContract {
         }
         set_borrow_admin(&env, &admin);
         initialize_borrow_logic(&env, debt_ceiling, min_borrow_amount)?;
+        interest_rate::set_default_if_missing(&env);
         Ok(())
     }
 
@@ -456,6 +461,39 @@ impl LendingContract {
         let current_admin = get_borrow_admin(&env).ok_or(FlashLoanError::Unauthorized)?;
         current_admin.require_auth();
         set_flash_loan_fee_logic(&env, fee_bps)
+    }
+
+    pub fn get_utilization_bps(env: Env) -> i128 {
+        interest_rate::utilization_bps(&env).unwrap_or(0)
+    }
+
+    pub fn get_borrow_rate_bps(env: Env) -> i128 {
+        interest_rate::borrow_rate_bps(&env).unwrap_or(0)
+    }
+
+    pub fn get_supply_rate_bps(env: Env) -> i128 {
+        interest_rate::supply_rate_bps(&env).unwrap_or(0)
+    }
+
+    pub fn update_interest_rate_model(
+        env: Env,
+        caller: Address,
+        update: InterestRateConfigUpdate,
+    ) -> Result<(), BorrowError> {
+        let (prev, next) = interest_rate::update_config(&env, &caller, update).map_err(|e| {
+            let be: BorrowError = e.into();
+            be
+        })?;
+
+        events::InterestRateModelUpdatedEvent {
+            caller,
+            previous: prev,
+            updated: next,
+            timestamp: env.ledger().timestamp(),
+        }
+        .publish(&env);
+
+        Ok(())
     }
 
     /// Withdraw collateral from the protocol.

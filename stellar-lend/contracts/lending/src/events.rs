@@ -24,6 +24,8 @@
 
 use soroban_sdk::{contractevent, contracttype, Address, Env, String};
 
+use crate::interest_rate::InterestRateConfig;
+
 // ─── Lending (LendingContract) ─────────────────────────────────────────────
 
 #[contractevent]
@@ -101,6 +103,15 @@ pub struct PegDeviationEvent {
 pub struct StabilityFeeAppliedEvent {
     pub asset: Address,
     pub fee_bps: i128,
+    pub timestamp: u64,
+}
+
+#[contractevent(topics = ["interest_rate_model_updated"])]
+#[derive(Clone, Debug)]
+pub struct InterestRateModelUpdatedEvent {
+    pub caller: Address,
+    pub previous: InterestRateConfig,
+    pub updated: InterestRateConfig,
     pub timestamp: u64,
 }
 
