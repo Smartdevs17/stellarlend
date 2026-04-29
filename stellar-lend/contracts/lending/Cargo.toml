@@ -21,3 +21,8 @@ delegation-registry = { path = "../delegation-registry" }
 
 [features]
 testutils = ["soroban-sdk/testutils"]
+# Formal verification specification sub-modules.
+# Run with: cargo test -p stellarlend-lending --features spec -- spec::
+spec = []
+# Kani bounded model-checking harnesses (requires `cargo kani`).
+kani = []
