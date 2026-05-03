@@ -44,6 +44,20 @@ export interface SubmitRequest {
   assetAddress?: string;
 }
 
+export interface RelayDelegatedRequest {
+  delegatorAddress: string;
+  nonce: string;
+  deadline: string;
+  callsXdr: string;
+}
+
+export interface RelayDelegatedResponse {
+  delegateAddress: string;
+  transactionHash?: string;
+  status: 'pending' | 'success' | 'failed';
+  error?: string;
+}
+
 export interface TransactionResponse {
   success: boolean;
   transactionHash?: string;
@@ -74,6 +88,24 @@ export interface HealthCheckResponse {
     horizon: boolean;
     sorobanRpc: boolean;
   };
+}
+
+export interface ProtocolStatsResponse {
+  totalDeposits: string;
+  totalBorrows: string;
+  utilizationRate: string;
+  numberOfUsers: number;
+  tvl: string;
+  stablecoinStats?: StablecoinAssetStats[];
+}
+
+export interface StablecoinAssetStats {
+  asset: string;
+  price: string;
+  targetPrice: string;
+  deviationBps: number;
+  stabilityFeeBps: number;
+  isDepegged: boolean;
 }
 
 export enum TransactionStatus {
@@ -114,3 +146,25 @@ export type ServerMessage =
   | { type: 'unsubscribed'; assets: string[] }
   | { type: 'pong' }
   | { type: 'error'; message: string };
+
+// ─── Transaction History Types ──────────────────────────────────────────────────
+
+export interface TransactionHistoryItem {
+  transactionHash: string;
+  type: LendingOperation;
+  amount: string;
+  assetAddress?: string;
+  timestamp: string;
+  status: 'success' | 'failed' | 'pending';
+  ledger?: number;
+  memo?: string;
+}
+
+import { PaginatedResponse, PaginationParams } from './pagination';
+export * from './subscriptions';
+
+export type TransactionHistoryResponse = PaginatedResponse<TransactionHistoryItem>;
+
+export interface TransactionHistoryQuery extends PaginationParams {
+  userAddress: string;
+}

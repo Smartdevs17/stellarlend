@@ -17,6 +17,7 @@ pub enum DepositError {
     Overflow = 3,
     AssetNotSupported = 4,
     ExceedsDepositCap = 5,
+    Unauthorized = 6,
 }
 
 /// Storage keys for deposit-related data
@@ -55,7 +56,19 @@ pub fn deposit(
     asset: Address,
     amount: i128,
 ) -> Result<i128, DepositError> {
-    user.require_auth();
+    deposit_with_auth(env, user, asset, amount, true)
+}
+
+pub(crate) fn deposit_with_auth(
+    env: &Env,
+    user: Address,
+    asset: Address,
+    amount: i128,
+    require_auth: bool,
+) -> Result<i128, DepositError> {
+    if require_auth {
+        user.require_auth();
+    }
 
     if pause::is_paused(env, PauseType::Deposit) {
         return Err(DepositError::DepositPaused);

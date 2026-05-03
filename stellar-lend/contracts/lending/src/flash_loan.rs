@@ -1,5 +1,32 @@
 use crate::events::FlashLoanEvent;
+use crate::pause::{is_paused, PauseType};
 use soroban_sdk::{contracterror, contracttype, token, Address, Bytes, Env, IntoVal, Symbol};
+
+/// RAII guard for flash loan reentrancy protection
+/// Automatically clears the guard when dropped, even on panic
+struct FlashLoanGuard {
+    env: Env,
+    guard_key: FlashLoanDataKey,
+}
+
+impl FlashLoanGuard {
+    fn new(env: &Env, guard_key: FlashLoanDataKey) -> Result<Self, FlashLoanError> {
+        if env.storage().instance().get(&guard_key).unwrap_or(false) {
+            return Err(FlashLoanError::Reentrancy);
+        }
+        env.storage().instance().set(&guard_key, &true);
+        Ok(FlashLoanGuard {
+            env: env.clone(),
+            guard_key,
+        })
+    }
+}
+
+impl Drop for FlashLoanGuard {
+    fn drop(&mut self) {
+        self.env.storage().instance().set(&self.guard_key, &false);
+    }
+}
 
 /// Errors that can occur during flash loan operations
 #[contracterror]
@@ -12,6 +39,8 @@ pub enum FlashLoanError {
     InvalidFee = 4,
     CallbackFailed = 5,
     Reentrancy = 6,
+    /// Flash loan operations are currently paused
+    FlashLoanPaused = 7,
 }
 
 /// Storage keys for flash loan data
@@ -39,15 +68,16 @@ pub fn flash_loan(
     amount: i128,
     params: Bytes,
 ) -> Result<(), FlashLoanError> {
+    if is_paused(env, PauseType::FlashLoan) {
+        return Err(FlashLoanError::FlashLoanPaused);
+    }
+
     if amount <= 0 {
         return Err(FlashLoanError::InvalidAmount);
     }
 
-    let guard_key = FlashLoanDataKey::ReentrancyGuard;
-    if env.storage().instance().get(&guard_key).unwrap_or(false) {
-        return Err(FlashLoanError::Reentrancy);
-    }
-    env.storage().instance().set(&guard_key, &true);
+    // RAII guard automatically clears on scope exit (even on panic)
+    let _guard = FlashLoanGuard::new(env, FlashLoanDataKey::ReentrancyGuard)?;
 
     let fee = calculate_fee(env, amount);
 
@@ -73,15 +103,11 @@ pub fn flash_loan(
     );
 
     if !callback_result {
-        env.storage().instance().set(&guard_key, &false);
         return Err(FlashLoanError::CallbackFailed);
     }
 
     // 3. Verify repayment
     let final_balance = token_client.balance(&env.current_contract_address());
-
-    // Clear the reentrancy guard
-    env.storage().instance().set(&guard_key, &false);
 
     if final_balance < initial_balance + fee {
         return Err(FlashLoanError::InsufficientRepayment);
@@ -121,5 +147,5 @@ pub fn get_flash_loan_fee_bps(env: &Env) -> i128 {
     env.storage()
         .persistent()
         .get(&FlashLoanDataKey::FlashLoanFeeBps)
-        .unwrap_or(5) // Default 5 bps (0.05%)
+        .unwrap_or(9) // Default 9 bps (0.09%) - matches major protocols like Aave
 }

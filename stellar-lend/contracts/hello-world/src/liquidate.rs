@@ -38,8 +38,67 @@ use crate::risk_management::{
 };
 use crate::risk_params::{
     can_be_liquidated, get_close_factor, get_liquidation_incentive,
-    get_liquidation_incentive_amount, get_max_liquidatable_amount,
+    get_liquidation_incentive_amount, get_max_liquidatable_amount, get_risk_params,
 };
+
+/// Maximum liquidation penalty cap in basis points (20%)
+const MAX_PENALTY_BPS: i128 = 2_000;
+
+/// Calculate a dynamic liquidation penalty that scales with health factor severity.
+///
+/// The penalty scales linearly between the base incentive and `MAX_PENALTY_BPS`
+/// as the health factor drops from the liquidation threshold toward zero.
+///
+/// # Arguments
+/// * `env` - The Soroban environment
+/// * `collateral_value` - Current collateral value
+/// * `total_debt` - Current total debt (principal + interest)
+///
+/// # Returns
+/// Penalty in basis points (e.g. 1000 = 10%)
+pub fn calculate_dynamic_penalty(
+    env: &Env,
+    collateral_value: i128,
+    total_debt: i128,
+) -> Result<i128, LiquidationError> {
+    let params = get_risk_params(env).ok_or(LiquidationError::Overflow)?;
+    let base_incentive = params.liquidation_incentive; // e.g. 1000 bps = 10%
+    let threshold = params.liquidation_threshold; // e.g. 10500 bps = 105%
+
+    if total_debt == 0 {
+        return Ok(base_incentive);
+    }
+
+    // health_factor_bps = collateral_value * 10000 / total_debt
+    let health_factor_bps = collateral_value
+        .checked_mul(10_000)
+        .ok_or(LiquidationError::Overflow)?
+        .checked_div(total_debt)
+        .ok_or(LiquidationError::Overflow)?;
+
+    // If health factor >= threshold, position is not liquidatable; return base
+    if health_factor_bps >= threshold {
+        return Ok(base_incentive);
+    }
+
+    // severity = (threshold - health_factor_bps) / threshold  (0..1 scaled by 10000)
+    // penalty = base_incentive + severity * (MAX_PENALTY_BPS - base_incentive)
+    let severity_numerator = threshold - health_factor_bps;
+    let penalty_range = MAX_PENALTY_BPS - base_incentive;
+
+    let extra = severity_numerator
+        .checked_mul(penalty_range)
+        .ok_or(LiquidationError::Overflow)?
+        .checked_div(threshold)
+        .ok_or(LiquidationError::Overflow)?;
+
+    let penalty = base_incentive
+        .checked_add(extra)
+        .ok_or(LiquidationError::Overflow)?;
+
+    // Cap at MAX_PENALTY_BPS
+    Ok(penalty.min(MAX_PENALTY_BPS))
+}
 
 /// Errors that can occur during liquidation operations
 #[contracterror]
@@ -107,28 +166,51 @@ fn calculate_accrued_interest(
     .map_err(|_| LiquidationError::Overflow)
 }
 
-/// Accrue interest on a position
-fn accrue_interest(env: &Env, position: &mut Position) -> Result<(), LiquidationError> {
+/// Accrue compound interest on a position using the global borrow index.
+fn accrue_interest(
+    env: &Env,
+    user: &Address,
+    position: &mut Position,
+) -> Result<(), LiquidationError> {
     let current_time = env.ledger().timestamp();
 
     if position.debt == 0 {
         position.borrow_interest = 0;
         position.last_accrual_time = current_time;
+        let current_index = crate::interest_rate::update_lending_index(env)
+            .map_err(|_| LiquidationError::Overflow)?
+            .borrow_index;
+        env.storage().persistent().set(
+            &DepositDataKey::UserBorrowIndex(user.clone()),
+            &current_index,
+        );
         return Ok(());
     }
 
-    // Calculate new interest accrued using dynamic rate
-    let new_interest =
-        calculate_accrued_interest(env, position.debt, position.last_accrual_time, current_time)?;
+    let current_index = crate::interest_rate::update_lending_index(env)
+        .map_err(|_| LiquidationError::Overflow)?
+        .borrow_index;
 
-    // Add to existing interest
+    let user_index = env
+        .storage()
+        .persistent()
+        .get::<DepositDataKey, i128>(&DepositDataKey::UserBorrowIndex(user.clone()))
+        .unwrap_or(current_index);
+
+    let new_interest =
+        crate::interest_rate::compute_index_interest(position.debt, user_index, current_index)
+            .map_err(|_| LiquidationError::Overflow)?;
+
     position.borrow_interest = position
         .borrow_interest
         .checked_add(new_interest)
         .ok_or(LiquidationError::Overflow)?;
-
-    // Update last accrual time
     position.last_accrual_time = current_time;
+
+    env.storage().persistent().set(
+        &DepositDataKey::UserBorrowIndex(user.clone()),
+        &current_index,
+    );
 
     Ok(())
 }
@@ -220,6 +302,14 @@ pub fn liquidate(
     let _guard =
         crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| LiquidationError::Reentrancy)?;
 
+    // Check circuit breaker - liquidations may be paused or restricted
+    let liquidation_allowed = crate::circuit_breaker::is_liquidation_allowed(env, &liquidator)
+        .unwrap_or(true); // Default to allowed if circuit breaker not initialized
+    
+    if !liquidation_allowed {
+        return Err(LiquidationError::LiquidationPaused);
+    }
+
     // Check emergency pause
     if is_emergency_paused(env) {
         return Err(LiquidationError::LiquidationPaused);
@@ -258,8 +348,8 @@ pub fn liquidate(
         .get::<DepositDataKey, Position>(&position_key)
         .ok_or(LiquidationError::NotLiquidatable)?;
 
-    // Accrue interest before liquidation
-    accrue_interest(env, &mut position)?;
+    // Accrue compound interest before liquidation
+    accrue_interest(env, &borrower, &mut position)?;
 
     // Get collateral balance for the targeted collateral asset.
     // For multi-asset users, use per-asset balance; fall back to aggregate for legacy users.
@@ -331,9 +421,12 @@ pub fn liquidate(
     };
 
     // Calculate liquidation incentive
-    let incentive_bps = get_liquidation_incentive(env).map_err(|_| LiquidationError::Overflow)?;
-    let incentive_amount = get_liquidation_incentive_amount(env, actual_debt_liquidated)
-        .map_err(|_| LiquidationError::Overflow)?;
+    let incentive_bps = calculate_dynamic_penalty(env, collateral_value_for_check, total_debt)?;
+    let incentive_amount = actual_debt_liquidated
+        .checked_mul(incentive_bps)
+        .ok_or(LiquidationError::Overflow)?
+        .checked_div(10_000)
+        .ok_or(LiquidationError::Overflow)?;
 
     // Calculate collateral to seize
     // Liquidator repays debt_liquidated amount of debt asset
@@ -540,6 +633,9 @@ pub fn liquidate(
             timestamp,
         },
     );
+
+    // Update credit score for liquidation
+    let _ = crate::credit_score::update_score_on_liquidation(env, &borrower);
 
     // Emit position updated event
     emit_position_updated_event(env, &borrower, &position);
