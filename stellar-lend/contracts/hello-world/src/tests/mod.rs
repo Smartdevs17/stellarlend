@@ -16,6 +16,8 @@ pub mod interest_accrual_test;
 pub mod interest_rate_test;
 pub mod intents_test;
 pub mod liquidate_test;
+#[cfg(test)]
+pub mod oracle_circuit_breaker_test;
 pub mod oracle_test;
 pub mod pause_test;
 pub mod rate_limiter_test;
