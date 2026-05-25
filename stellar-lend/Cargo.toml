@@ -13,7 +13,7 @@ members = [
   "contracts/institutional-wallet",
   "contracts/migration-hub",
 ]
-exclude = ["fuzz"]
+exclude = ["fuzz", "indexing_system"]
 
 [workspace.dependencies]
 soroban-sdk = "23.4.1"

@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "topic_style": "lower_snake_case",
+  "contracts": [
+    {
+      "name": "hello-world",
+      "source_globs": ["contracts/hello-world/src/**/*.rs"],
+      "active": true
+    },
+    {
+      "name": "lending",
+      "source_globs": ["contracts/lending/src/**/*.rs"],
+      "active": true
+    },
+    {
+      "name": "amm",
+      "source_globs": ["contracts/amm/src/**/*.rs"],
+      "active": true
+    },
+    {
+      "name": "bridge",
+      "source_globs": ["contracts/bridge/src/**/*.rs"],
+      "active": true
+    },
+    {
+      "name": "stablecoin",
+      "source_globs": ["contracts/stablecoin/src/**/*.rs"],
+      "active": true
+    },
+    {
+      "name": "common",
+      "source_globs": ["contracts/common/src/**/*.rs"],
+      "active": true
+    }
+  ],
+  "allow_overloaded_topics": [
+    {
+      "contract": "lending",
+      "topic": "deposit_event",
+      "reason": "Vault deposits and borrow-collateral deposits predate this schema and are distinguished by payload shape."
+    }
+  ],
+  "legacy_manual_events": [
+    {
+      "contract": "hello-world",
+      "topic": "bridge",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "hello-world",
+      "topic": "mon_hlth",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "hello-world",
+      "topic": "mon_init",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "hello-world",
+      "topic": "mon_perf",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "hello-world",
+      "topic": "mon_sec",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "hello-world",
+      "topic": "rep_add",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "hello-world",
+      "topic": "rep_del",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "lending",
+      "topic": "bad_debt",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "lending",
+      "topic": "bad_debt_recovered",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "lending",
+      "topic": "yield_compounded",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "lending",
+      "topic": "yield_deposit",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "stablecoin",
+      "topic": "stablecoin_initialized",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "stablecoin",
+      "topic": "shutdown_set",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "stablecoin",
+      "topic": "reserve_ratio_set",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "stablecoin",
+      "topic": "collateral_deposited",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "stablecoin",
+      "topic": "stablecoin_minted",
+      "format": "legacy_tuple"
+    },
+    {
+      "contract": "stablecoin",
+      "topic": "stablecoin_redeemed",
+      "format": "legacy_tuple"
+    }
+  ],
+  "field_semantics": {
+    "user": "End-user account that initiated or owns the position-changing operation.",
+    "actor": "Authorized protocol account that performed an administrative operation.",
+    "caller": "Authenticated account that invoked an administrative or governance entrypoint.",
+    "asset": "Soroban token contract address; null/None represents the native asset where supported.",
+    "amount": "Raw integer amount in the asset's smallest unit.",
+    "fee": "Raw integer fee amount in the asset's smallest unit.",
+    "timestamp": "Ledger timestamp in seconds.",
+    "bps": "Basis points, where 10000 is 100%."
+  }
+}

@@ -45,6 +45,11 @@ jobs:
           cd stellar-lend
           cargo fmt --all -- --check
 
+      - name: Check event schema compliance
+        run: |
+          cd stellar-lend
+          python3 scripts/check_event_schemas.py
+
       - name: Run clippy
         run: |
           cd stellar-lend

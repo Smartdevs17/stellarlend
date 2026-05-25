@@ -20,6 +20,7 @@
     "deploy:verify": "bash scripts/verify-deployment.sh",
     "deploy:rollback": "bash scripts/rollback.sh",
     "verify:contract": "bash scripts/verify-contract.sh",
+    "contracts:event-schema:check": "python stellar-lend/scripts/check_event_schemas.py",
     "mutation:api": "npm --workspace api run mutation:test",
     "mutation:api:check": "npm --workspace api run mutation:check"
   },

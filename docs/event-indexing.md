@@ -2,6 +2,13 @@
 
 This guide documents the event surfaces that exist in the current StellarLend workspace and how to consume them safely.
 
+The canonical event compatibility rules live in
+[`stellar-lend/docs/event-schema.md`](../stellar-lend/docs/event-schema.md), with the
+machine-readable schema in
+[`stellar-lend/docs/event-schema.v1.json`](../stellar-lend/docs/event-schema.v1.json).
+CI runs `stellar-lend/scripts/check_event_schemas.py` to keep `#[contractevent]` definitions,
+legacy manual topics, and the schema version constants in sync.
+
 It is written around the code that exists today:
 
 - `stellar-lend/contracts/hello-world` is the main protocol contract currently used by the API.
@@ -26,6 +33,8 @@ For this repo there are two emission styles:
 
 Important decoding notes:
 
+- Decoded rows should include `_schema_version: 1` and `_event_topic` metadata when persisted by
+  indexers. The prototype `indexing_system` annotates parsed payloads with these fields.
 - `Option<Address>` means the native asset can appear as `None`.
 - Amounts are raw integer amounts in the token's smallest unit.
 - Risk parameters and reserve factors are basis points unless the source struct says otherwise.

@@ -1,6 +1,7 @@
 /// Event parser for decoding smart contract events
 use crate::error::{IndexerError, IndexerResult};
 use crate::models::CreateEvent;
+use crate::schema::annotate_event_payload;
 use ethers::abi::{Abi, Event as AbiEvent, RawLog};
 use ethers::prelude::*;
 use serde_json::Value;
@@ -100,6 +101,7 @@ impl EventParser {
             let value = self.token_to_json(&param.value)?;
             event_data.insert(param.name, value);
         }
+        annotate_event_payload(&mut event_data, &event_def.name);
 
         Ok(Some(CreateEvent {
             contract_address,

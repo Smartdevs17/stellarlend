@@ -8,6 +8,7 @@ pub mod parallel_indexer;
 pub mod parser;
 pub mod query;
 pub mod repository;
+pub mod schema;
 
 #[cfg(test)]
 pub mod tests;
@@ -20,10 +21,16 @@ pub use metrics::{IndexingMetrics, MetricsSnapshot};
 pub use models::{
     CreateEvent, Event, EventQuery, EventStats, EventUpdate, IndexingMetadata, UpdateType,
 };
-pub use parallel_indexer::{BlockProcessor, BlockRangeResult, BlockRangeTask, ParallelIndexer, StateManager};
+pub use parallel_indexer::{
+    BlockProcessor, BlockRangeResult, BlockRangeTask, ParallelIndexer, StateManager,
+};
 pub use parser::{create_erc20_abi, EventParser};
 pub use query::QueryService;
 pub use repository::EventRepository;
+pub use schema::{
+    annotate_event_payload, load_standard_event_schema, normalize_event_topic, EventSchemaDocument,
+    STANDARD_EVENT_SCHEMA_VERSION,
+};
 
 pub fn init_tracing() {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -77,12 +84,9 @@ pub async fn run_migrations(database_url: &str) -> IndexerResult<()> {
 ///
 /// This is the main initialization function that should be called
 /// to set up the entire indexing system.
-pub async fn initialize_system(config: &Config) -> IndexerResult<(
-    EventRepository,
-    CacheService,
-    QueryService,
-    IndexerService,
-)> {
+pub async fn initialize_system(
+    config: &Config,
+) -> IndexerResult<(EventRepository, CacheService, QueryService, IndexerService)> {
     info!("Initializing indexing system...");
 
     // Run database migrations first

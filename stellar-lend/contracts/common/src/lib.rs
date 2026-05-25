@@ -1,6 +1,7 @@
 #![no_std]
 #![allow(deprecated)]
 pub mod cache;
+pub mod event_schema;
 pub mod events;
 pub mod message_bus;
 pub mod shared_types;
