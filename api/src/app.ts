@@ -1,6 +1,7 @@
 import express, { Application, Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
+import compression from 'compression';
 import rateLimit, { MemoryStore } from 'express-rate-limit';
 import { config } from './config';
 import { bodySizeLimitMiddleware } from './middleware/bodySizeLimit';
@@ -50,6 +51,7 @@ if (config.server.env === 'production') {
 }
 
 app.use(cors());
+app.use(compression());
 app.use(express.json({ limit: config.bodySizeLimit.limit }));
 app.use(express.urlencoded({ extended: true, limit: config.bodySizeLimit.limit }));
 app.use(sanitizeInput);
