@@ -47,6 +47,12 @@ pub enum DataKey {
     CircuitBreakerConfig,
     CircuitBreakerState,
     CircuitBreakerWhitelist,
+
+    // Liquidation queue keys
+    LiquidationQueueConfig,
+    NextLiquidationQueueId,
+    LiquidationQueueEntry(u64),
+    LiquidatorRegistration(Address),
 }
 
 #[derive(Clone)]
@@ -56,12 +62,4 @@ pub struct GuardianConfig {
     pub threshold: u32,
 }
 
-#[derive(Clone)]
-#[contracttype]
-pub enum DataKey {
-    // Liquidation queue keys
-    LiquidationQueueConfig,
-    NextLiquidationQueueId,
-    LiquidationQueueEntry(u64),
-    LiquidatorRegistration(Address),
-}
+
