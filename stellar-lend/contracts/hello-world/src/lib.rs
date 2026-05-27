@@ -37,6 +37,7 @@ pub mod safe_math;
 pub mod storage;
 pub mod timelock;
 pub mod treasury;
+pub mod test_utils;
 pub mod tests;
 pub mod types;
 pub mod withdraw;
@@ -252,7 +253,8 @@ impl HelloContract {
         asset: Option<Address>,
         amount: i128,
     ) -> Result<(), LendingError> {
-        cross_asset::cross_asset_deposit(&env, user, asset, amount).map_err(|_| LendingError::from)
+        cross_asset::cross_asset_deposit(&env, user, asset, amount).map_err(Into::into)?;
+        Ok(())
     }
 
     pub fn set_risk_params(
@@ -315,7 +317,7 @@ impl HelloContract {
         asset: Option<Address>,
         amount: i128,
     ) -> Result<(), LendingError> {
-        cross_asset::cross_asset_withdraw(&env, user, asset, amount).map_err(|_| LendingError::from)?;
+        cross_asset::cross_asset_withdraw(&env, user, asset, amount).map_err(Into::into)?;
         Ok(())
     }
 
