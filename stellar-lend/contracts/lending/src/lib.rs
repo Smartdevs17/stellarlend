@@ -45,11 +45,12 @@ mod insurance;
 mod upgrade;
 
 use insurance::{
-    collect_premium as insurance_collect_premium, evaluate_claim as insurance_evaluate_claim,
-    fund_pool as insurance_fund_pool, get_analytics as insurance_get_analytics,
-    get_claim_by_id as insurance_get_claim, get_coverage_limit as insurance_get_coverage_limit,
-    get_premium_rate as insurance_get_premium_rate,
-    initialize as insurance_initialize,
+    cancel_claim as insurance_cancel_claim, collect_premium as insurance_collect_premium,
+    evaluate_claim as insurance_evaluate_claim, fund_pool as insurance_fund_pool,
+    get_all_claim_ids as insurance_get_all_claim_ids, get_all_claims as insurance_get_all_claims,
+    get_analytics as insurance_get_analytics, get_claim_by_id as insurance_get_claim,
+    get_coverage_limit as insurance_get_coverage_limit,
+    get_premium_rate as insurance_get_premium_rate, initialize as insurance_initialize,
     set_coverage_limit as insurance_set_coverage_limit,
     submit_claim as insurance_submit_claim, InsuranceAnalytics, InsuranceClaim, InsuranceError,
 };
@@ -411,5 +412,24 @@ impl LendingContract {
     /// Get insurance pool analytics.
     pub fn insurance_get_analytics(env: Env) -> InsuranceAnalytics {
         insurance_get_analytics(&env)
+    }
+
+    /// Cancel a pending claim (claimant only).
+    pub fn insurance_cancel_claim(
+        env: Env,
+        claimant: Address,
+        claim_id: u64,
+    ) -> Result<(), InsuranceError> {
+        insurance_cancel_claim(&env, claimant, claim_id)
+    }
+
+    /// Get all claim IDs for history iteration.
+    pub fn insurance_get_all_claim_ids(env: Env) -> Vec<u64> {
+        insurance_get_all_claim_ids(&env)
+    }
+
+    /// Get all claims (full history).
+    pub fn insurance_get_all_claims(env: Env) -> Vec<InsuranceClaim> {
+        insurance_get_all_claims(&env)
     }
 }

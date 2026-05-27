@@ -101,3 +101,33 @@ pub fn set_recovery_request(env: &Env, request: Option<crate::types::RecoveryReq
         None => env.storage().instance().remove(&DataKey::RecoveryRequest),
     }
 }
+
+pub fn get_last_activity(env: &Env) -> u64 {
+    env.storage().instance().get(&DataKey::LastActivity).unwrap_or(0)
+}
+
+pub fn set_last_activity(env: &Env, timestamp: u64) {
+    env.storage().instance().set(&DataKey::LastActivity, &timestamp);
+}
+
+pub fn get_pending_guardian_invites(env: &Env) -> Vec<Address> {
+    env.storage()
+        .instance()
+        .get(&DataKey::PendingGuardianInvites)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn set_pending_guardian_invites(env: &Env, guardians: &Vec<Address>) {
+    env.storage().instance().set(&DataKey::PendingGuardianInvites, guardians);
+}
+
+pub fn get_guardian_acceptance(env: &Env, guardian: &Address) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::GuardianAcceptances(guardian.clone()))
+        .unwrap_or(false)
+}
+
+pub fn set_guardian_acceptance(env: &Env, guardian: Address, accepted: bool) {
+    env.storage().instance().set(&DataKey::GuardianAcceptances(guardian), &accepted);
+}

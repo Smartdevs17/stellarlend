@@ -15,6 +15,13 @@ pub enum WalletError {
     InsufficientApprovals = 9,
     ExecutionFailed = 10,
     InvalidBatch = 11,
+    GuardianAcceptanceRequired = 12,
+    GuardianNotAccepted = 13,
+    RecoveryNotActive = 14,
+    RecoveryAlreadyExists = 15,
+    GuardianRotationFailed = 16,
+    EmergencyTimeoutActive = 17,
+    RecoveryCancelledByOwner = 18,
 }
 
 #[contracttype]
@@ -29,6 +36,11 @@ pub enum DataKey {
     Guardians,
     GuardianThreshold,
     RecoveryRequest,
+    PendingGuardianInvites,
+    GuardianAcceptances(Address),
+    LastActivity,
+    GuardianApprovals,
+    RecoveryCancelRequest,
 }
 
 #[contracttype]

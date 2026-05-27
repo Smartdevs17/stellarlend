@@ -4,6 +4,7 @@
 use soroban_sdk::{contract, contractimpl, Address, Env, IntoVal, String, Vec};
 
 pub mod admin;
+pub mod amm;
 pub mod analytics;
 pub mod borrow;
 pub mod bridge;
@@ -945,6 +946,110 @@ impl HelloContract {
         reserve::get_reserve_amm_lp_balance(&env, asset)
     }
 
+    // -------------------------------------------------------------------------
+    // AMM Lending Integration (Issue #336)
+    // -------------------------------------------------------------------------
+
+    /// Initialize AMM lending integration (admin only)
+    pub fn initialize_amm_lending(env: Env, admin: Address) -> Result<(), LendingError> {
+        amm::initialize_amm_lending(&env, admin).map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Wrap lending pool deposits into AMM LP tokens
+    pub fn amm_wrap_deposit_to_lp(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        amount: i128,
+        amm_protocol: Address,
+    ) -> Result<amm::LpTokenPosition, LendingError> {
+        amm::wrap_deposit_to_lp(&env, admin, asset, amount, amm_protocol)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Unwrap LP tokens back to lending pool assets
+    pub fn amm_unwrap_lp_to_deposit(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        lp_tokens: i128,
+    ) -> Result<i128, LendingError> {
+        amm::unwrap_lp_to_deposit(&env, admin, asset, lp_tokens)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Get LP token balance for an asset
+    pub fn amm_get_lp_token_balance(env: Env, asset: Address) -> i128 {
+        amm::get_lp_token_balance(&env, &asset)
+    }
+
+    /// Set withdrawal buffer for an asset (admin only)
+    pub fn amm_set_withdrawal_buffer(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        buffer_bps: i128,
+    ) -> Result<(), LendingError> {
+        amm::set_withdrawal_buffer(&env, admin, asset, buffer_bps)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Get withdrawal buffer for an asset
+    pub fn amm_get_withdrawal_buffer(env: Env, asset: Address) -> i128 {
+        amm::get_withdrawal_buffer(&env, &asset)
+    }
+
+    /// Calculate optimal AMM allocation based on pool utilization
+    pub fn amm_calculate_optimal_allocation(
+        env: Env,
+        asset: Address,
+        total_liquidity: i128,
+        borrowed_amount: i128,
+    ) -> Result<amm::AllocationSuggestion, LendingError> {
+        amm::calculate_optimal_allocation(&env, &asset, total_liquidity, borrowed_amount)
+            .map_err(|_| LendingError::InvalidParameter)
+    }
+
+    /// Execute automated AMM rebalancing
+    pub fn amm_auto_rebalance_allocation(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        total_liquidity: i128,
+        borrowed_amount: i128,
+        current_amm_balance: i128,
+    ) -> Result<i128, LendingError> {
+        amm::auto_rebalance_allocation(&env, admin, asset, total_liquidity, borrowed_amount, current_amm_balance)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Record LP fees accrued for distribution
+    pub fn amm_record_lp_fees(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        fee_amount: i128,
+    ) -> Result<(), LendingError> {
+        amm::record_lp_fees(&env, admin, asset, fee_amount)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Get accrued LP fees for an asset
+    pub fn amm_get_accrued_lp_fees(env: Env, asset: Address) -> i128 {
+        amm::get_accrued_lp_fees(&env, &asset)
+    }
+
+    /// Update impermanent loss tracking
+    pub fn amm_update_il_tracking(env: Env, asset: Address, current_price: i128) -> Result<bool, LendingError> {
+        amm::update_il_tracking(&env, &asset, current_price)
+            .map_err(|_| LendingError::InvalidParameter)
+    }
+
+    /// Get impermanent loss snapshot
+    pub fn amm_get_il_snapshot(env: Env, asset: Address) -> Option<amm::IlSnapshot> {
+        amm::get_il_snapshot(&env, &asset)
+    }
+
     /// Withdraw protocol reserves to a recipient (admin-only)
     pub fn claim_reserves(
         env: Env,
@@ -1530,6 +1635,46 @@ mod treasury_test;
     /// Get all pending timelock operations
     pub fn get_pending_timelock_operations(env: Env) -> Vec<timelock::TimelockOperation> {
         timelock::get_pending_timelock_operations(&env)
+    }
+
+    /// Queue a batch timelock operation (multiple proposal types)
+    pub fn queue_batch_timelock_operation(
+        env: Env,
+        proposer: Address,
+        actions: Vec<types::ProposalType>,
+        description: String,
+        custom_delay: Option<u64>,
+    ) -> Result<u64, LendingError> {
+        timelock::queue_batch_timelock_operation(&env, proposer, actions, description, custom_delay)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Execute a batch timelock operation
+    pub fn execute_batch_timelock_operation(
+        env: Env,
+        executor: Address,
+        operation_id: u64,
+    ) -> Result<(), LendingError> {
+        timelock::execute_batch_timelock_operation(&env, executor, operation_id)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Get the priority-ordered timelock queue
+    pub fn get_timelock_queue(env: Env) -> Vec<timelock::PriorityQueueEntry> {
+        timelock::get_timelock_queue(&env)
+    }
+
+    /// Clean expired timelock queue entries
+    pub fn clean_timelock_queue(env: Env) -> u32 {
+        timelock::clean_timelock_queue(&env)
+    }
+
+    /// Get a batch timelock operation
+    pub fn get_batch_timelock_operation(
+        env: Env,
+        operation_id: u64,
+    ) -> Option<timelock::BatchTimelockOperation> {
+        timelock::get_batch_timelock_operation(&env, operation_id)
     }
 
     // -------------------------------------------------------------------------

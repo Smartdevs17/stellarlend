@@ -34,6 +34,7 @@ pub enum GovernanceDataKey {
     TimelockConfig,
     NextTimelockId,
     TimelockOperation(u64),
+    TimelockQueue,
 }
 
 #[derive(Clone)]

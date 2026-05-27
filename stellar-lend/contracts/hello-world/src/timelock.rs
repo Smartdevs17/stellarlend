@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, String, Vec, contracttype};
+use soroban_sdk::{Address, Env, String, Vec, contracttype, IntoVal};
 
 use crate::errors::GovernanceError;
 use crate::storage;
@@ -123,6 +123,19 @@ pub fn queue_timelock_operation(
 
     let operation_key = storage::GovernanceDataKey::TimelockOperation(operation_id);
     env.storage().persistent().set(&operation_key, &operation);
+
+    // Add to priority queue
+    let priority = operation_id;
+    let queue_entry = PriorityQueueEntry {
+        operation_id,
+        is_batch: false,
+        ready_at,
+        priority,
+    };
+    let queue_key = storage::GovernanceDataKey::TimelockQueue;
+    let mut queue: Vec<PriorityQueueEntry> = env.storage().persistent().get(&queue_key).unwrap_or_else(|| Vec::new(env));
+    queue.push_back(queue_entry);
+    env.storage().persistent().set(&queue_key, &queue);
 
     env.storage()
         .instance()
@@ -279,6 +292,210 @@ pub fn update_timelock_config(
     env.storage().instance().set(&key, &config);
 
     Ok(())
+}
+
+#[derive(Clone, Debug)]
+#[contracttype]
+pub struct BatchTimelockOperation {
+    pub id: u64,
+    pub actions: Vec<ProposalType>,
+    pub description: String,
+    pub proposer: Address,
+    pub queued_at: u64,
+    pub ready_at: u64,
+    pub expires_at: u64,
+    pub status: TimelockStatus,
+    pub delay: u64,
+}
+
+#[derive(Clone, Debug)]
+#[contracttype]
+pub struct PriorityQueueEntry {
+    pub operation_id: u64,
+    pub is_batch: bool,
+    pub ready_at: u64,
+    pub priority: u64,
+}
+
+/// Queue a batch timelock operation with multiple actions
+pub fn queue_batch_timelock_operation(
+    env: &Env,
+    proposer: Address,
+    actions: Vec<ProposalType>,
+    description: String,
+    custom_delay: Option<u64>,
+) -> Result<u64, GovernanceError> {
+    proposer.require_auth();
+
+    let config = get_timelock_config(env);
+    let delay = custom_delay.unwrap_or(config.default_delay);
+
+    if delay < config.min_delay || delay > config.max_delay {
+        return Err(GovernanceError::InvalidTimelockDelay);
+    }
+
+    let next_id_key = storage::GovernanceDataKey::NextTimelockId;
+    let operation_id: u64 = env.storage().instance().get(&next_id_key).unwrap_or(0);
+
+    let now = env.ledger().timestamp();
+    let ready_at = now + delay;
+    let expires_at = ready_at + config.grace_period;
+
+    let operation = BatchTimelockOperation {
+        id: operation_id,
+        actions,
+        description,
+        proposer: proposer.clone(),
+        queued_at: now,
+        ready_at,
+        expires_at,
+        status: TimelockStatus::Pending,
+        delay,
+    };
+
+    let operation_key = storage::GovernanceDataKey::TimelockOperation(operation_id);
+    env.storage().persistent().set(&operation_key, &operation);
+
+    // Add to priority queue
+    let priority = operation_id;
+    let queue_entry = PriorityQueueEntry {
+        operation_id,
+        is_batch: true,
+        ready_at,
+        priority,
+    };
+    let queue_key = storage::GovernanceDataKey::TimelockQueue;
+    let mut queue: Vec<PriorityQueueEntry> = env.storage().persistent().get(&queue_key).unwrap_or_else(|| Vec::new(env));
+    queue.push_back(queue_entry);
+    env.storage().persistent().set(&queue_key, &queue);
+
+    env.storage()
+        .instance()
+        .set(&next_id_key, &(operation_id + 1));
+
+    crate::events::TimelockQueuedEvent {
+        operation_id,
+        proposer,
+        ready_at,
+        expires_at,
+        delay,
+        timestamp: now,
+    }
+    .publish(env);
+
+    Ok(operation_id)
+}
+
+/// Execute a batch timelock operation
+pub fn execute_batch_timelock_operation(
+    env: &Env,
+    executor: Address,
+    operation_id: u64,
+) -> Result<(), GovernanceError> {
+    executor.require_auth();
+
+    let operation_key = storage::GovernanceDataKey::TimelockOperation(operation_id);
+    let mut operation: BatchTimelockOperation = env
+        .storage()
+        .persistent()
+        .get(&operation_key)
+        .ok_or(GovernanceError::TimelockNotFound)?;
+
+    if operation.status != TimelockStatus::Pending && operation.status != TimelockStatus::Ready {
+        return Err(GovernanceError::InvalidTimelockStatus);
+    }
+
+    let now = env.ledger().timestamp();
+
+    if now < operation.ready_at {
+        return Err(GovernanceError::TimelockNotReady);
+    }
+
+    if now > operation.expires_at {
+        operation.status = TimelockStatus::Expired;
+        env.storage().persistent().set(&operation_key, &operation);
+        return Err(GovernanceError::TimelockExpired);
+    }
+
+    // Execute all actions in batch
+    for action in operation.actions.iter() {
+        execute_proposal_type(env, &action)?;
+    }
+
+    operation.status = TimelockStatus::Executed;
+    env.storage().persistent().set(&operation_key, &operation);
+
+    crate::events::TimelockExecutedEvent {
+        operation_id,
+        executor,
+        timestamp: now,
+    }
+    .publish(env);
+
+    Ok(())
+}
+
+/// Get timelock queue ordered by priority (ready_at ascending)
+pub fn get_timelock_queue(env: &Env) -> Vec<PriorityQueueEntry> {
+    let queue_key = storage::GovernanceDataKey::TimelockQueue;
+    let mut queue: Vec<PriorityQueueEntry> = env.storage().persistent().get(&queue_key).unwrap_or_else(|| Vec::new(env));
+
+    // Sort by ready_at ascending, then by priority (operation_id)
+    let mut sorted = Vec::new(env);
+    let len = queue.len();
+    for _ in 0..len {
+        let mut earliest: Option<PriorityQueueEntry> = None;
+        let mut earliest_idx: u32 = 0;
+        for i in 0..queue.len() {
+            let entry = queue.get(i).unwrap();
+            match &earliest {
+                None => {
+                    earliest = Some(entry.clone());
+                    earliest_idx = i;
+                }
+                Some(e) => {
+                    if entry.ready_at < e.ready_at || (entry.ready_at == e.ready_at && entry.priority < e.priority) {
+                        earliest = Some(entry.clone());
+                        earliest_idx = i;
+                    }
+                }
+            }
+        }
+        if let Some(entry) = earliest {
+            sorted.push_back(entry);
+            queue.remove(earliest_idx as u32);
+        }
+    }
+
+    sorted
+}
+
+/// Remove expired entries from the queue
+pub fn clean_timelock_queue(env: &Env) -> u32 {
+    let queue_key = storage::GovernanceDataKey::TimelockQueue;
+    let mut queue: Vec<PriorityQueueEntry> = env.storage().persistent().get(&queue_key).unwrap_or_else(|| Vec::new(env));
+    let now = env.ledger().timestamp();
+    let mut removed: u32 = 0;
+
+    let mut i = 0;
+    while i < queue.len() {
+        let entry = queue.get(i).unwrap();
+        if entry.ready_at + get_timelock_config(env).grace_period < now {
+            queue.remove(i);
+            removed += 1;
+        } else {
+            i += 1;
+        }
+    }
+
+    env.storage().persistent().set(&queue_key, &queue);
+    removed
+}
+
+/// Get batch timelock operation details
+pub fn get_batch_timelock_operation(env: &Env, operation_id: u64) -> Option<BatchTimelockOperation> {
+    let operation_key = storage::GovernanceDataKey::TimelockOperation(operation_id);
+    env.storage().persistent().get(&operation_key)
 }
 
 /// Execute proposal type (internal helper)
