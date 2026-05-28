@@ -192,3 +192,32 @@ export const depositValidation = createLendingValidation();
 export const borrowValidation = createLendingValidation();
 export const repayValidation = createLendingValidation();
 export const withdrawValidation = createLendingValidation();
+
+export const createRecurringSubscriptionValidation = [
+  body('userAddress')
+    .isString()
+    .notEmpty()
+    .withMessage('userAddress is required')
+    .custom((value) => {
+      if (!StrKey.isValidEd25519PublicKey(value)) {
+        throw new Error('Invalid Stellar address');
+      }
+      return true;
+    }),
+  body('action')
+    .isIn(['deposit', 'borrow', 'repay'])
+    .withMessage('action must be one of: deposit, borrow, repay'),
+  ...amountValidation,
+  body('interval')
+    .isIn(['daily', 'weekly', 'monthly', 'quarterly', 'yearly'])
+    .withMessage('interval must be one of: daily, weekly, monthly, quarterly, yearly'),
+  body('frequency')
+    .optional()
+    .isInt({ min: 1, max: 365 })
+    .withMessage('frequency must be an integer between 1 and 365'),
+  body('startDate').optional().isISO8601().withMessage('startDate must be ISO 8601'),
+  body('endDate').optional().isISO8601().withMessage('endDate must be ISO 8601'),
+  body('assetAddress').optional().isString(),
+  body('maxRetries').optional().isInt({ min: 0, max: 100 }),
+  validateRequest,
+];

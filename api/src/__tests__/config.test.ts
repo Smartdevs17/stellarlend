@@ -15,7 +15,7 @@ describe('Config Validation', () => {
 
     expect(() => {
       require('../config/index');
-    }).toThrow('CONTRACT_ID environment variable is required');
+    }).toThrow('Config validation failed: CONTRACT_ID is required');
   });
 
   it('should not throw an error if CONTRACT_ID and secure JWT_SECRET are present', () => {
@@ -33,7 +33,7 @@ describe('Config Validation', () => {
 
     expect(() => {
       require('../config/index');
-    }).toThrow('JWT_SECRET must be set to a strong secret (min 32 chars)');
+    }).toThrow('Config validation failed: JWT_SECRET must be at least 32 characters');
   });
 
   it('should throw an error if JWT_SECRET is the default insecure value', () => {
@@ -42,7 +42,7 @@ describe('Config Validation', () => {
 
     expect(() => {
       require('../config/index');
-    }).toThrow('JWT_SECRET must be set to a strong secret (min 32 chars)');
+    }).toThrow('Config validation failed: JWT_SECRET must be at least 32 characters');
   });
 
   it('should throw an error if JWT_SECRET is too short', () => {
@@ -51,6 +51,6 @@ describe('Config Validation', () => {
 
     expect(() => {
       require('../config/index');
-    }).toThrow('JWT_SECRET must be set to a strong secret (min 32 chars)');
+    }).toThrow('Config validation failed: JWT_SECRET must be at least 32 characters');
   });
 });

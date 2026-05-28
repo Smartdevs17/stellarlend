@@ -15,6 +15,8 @@ import transactionRoutes from './routes/transaction.routes';
 import merkleRoutes from './routes/merkle.routes';
 import zkProofRoutes from './routes/zkProof.routes';
 import verificationRoutes from './routes/verification.routes';
+import configRoutes from './routes/config.routes';
+import analyticsRoutes from './routes/analytics.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { swaggerSpec } from './config/swagger';
@@ -107,6 +109,8 @@ app.use('/api/transactions', transactionRoutes);
 app.use('/api/merkle', merkleRoutes);
 app.use('/api/zk', zkProofRoutes);
 app.use('/api/verification', verificationRoutes);
+app.use('/api/config', configRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 app.use(errorHandler);
 

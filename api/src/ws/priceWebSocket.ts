@@ -11,8 +11,10 @@ import {
   WsSubscribeMessage,
   WsUnsubscribeMessage,
 } from '../types';
+import { WsAnalyticsMessage } from '../types/analytics';
 
 const SUPPORTED_ASSETS = ['XLM', 'USDC', 'BTC', 'ETH', 'SOL'];
+const ANALYTICS_CHANNELS = ['apy', 'utilization', 'revenue'] as const;
 
 const COINGECKO_IDS: Record<string, string> = {
   XLM: 'stellar',
@@ -25,6 +27,7 @@ const COINGECKO_IDS: Record<string, string> = {
 export class PriceWebSocketServer {
   private wss: WebSocketServer;
   private clientSubscriptions: Map<WebSocket, Set<string>> = new Map();
+  private analyticsSubscriptions: Map<WebSocket, Set<string>> = new Map();
   private lastPrices: Map<string, PriceData> = new Map();
   private pollIntervalId?: ReturnType<typeof setInterval>;
   private heartbeatIntervalId?: ReturnType<typeof setInterval>;
@@ -41,6 +44,7 @@ export class PriceWebSocketServer {
     this.wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
       logger.info('WebSocket client connected', { ip: req.socket.remoteAddress });
       this.clientSubscriptions.set(ws, new Set());
+      this.analyticsSubscriptions.set(ws, new Set());
 
       ws.on('message', (data) => {
         try {
@@ -53,12 +57,14 @@ export class PriceWebSocketServer {
 
       ws.on('close', () => {
         this.clientSubscriptions.delete(ws);
+        this.analyticsSubscriptions.delete(ws);
         logger.info('WebSocket client disconnected');
       });
 
       ws.on('error', (err) => {
         logger.error('WebSocket client error', { error: err.message });
         this.clientSubscriptions.delete(ws);
+        this.analyticsSubscriptions.delete(ws);
       });
     });
   }
@@ -98,6 +104,27 @@ export class PriceWebSocketServer {
         const assets = (msg as WsUnsubscribeMessage).assets.map((a) => a.toUpperCase());
         assets.forEach((a) => subs.delete(a));
         this.send(ws, { type: 'unsubscribed', assets });
+        break;
+      }
+
+      case 'subscribe_analytics': {
+        const analyticsSubs = this.analyticsSubscriptions.get(ws);
+        if (!analyticsSubs) return;
+        const channels = (msg as any).channels as string[];
+        const valid = channels.filter((c: string) =>
+          ANALYTICS_CHANNELS.includes(c as typeof ANALYTICS_CHANNELS[number])
+        );
+        valid.forEach((c: string) => analyticsSubs.add(c));
+        this.send(ws, { type: 'subscribed_analytics', channels: valid } as any);
+        break;
+      }
+
+      case 'unsubscribe_analytics': {
+        const analyticsSubs = this.analyticsSubscriptions.get(ws);
+        if (!analyticsSubs) return;
+        const channels = (msg as any).channels as string[];
+        channels.forEach((c: string) => analyticsSubs.delete(c));
+        this.send(ws, { type: 'unsubscribed_analytics', channels } as any);
         break;
       }
 
@@ -170,6 +197,20 @@ export class PriceWebSocketServer {
 
       if (changed) {
         this.broadcastPriceUpdate(asset, update);
+      }
+    });
+  }
+
+  broadcastAnalyticsUpdate(channel: string, data: unknown): void {
+    const msg: WsAnalyticsMessage = {
+      type: 'analytics_update',
+      channel: channel as WsAnalyticsMessage['channel'],
+      data: data as any,
+      timestamp: Date.now(),
+    };
+    this.analyticsSubscriptions.forEach((subs, ws) => {
+      if (subs.has(channel)) {
+        this.send(ws, msg as any);
       }
     });
   }
