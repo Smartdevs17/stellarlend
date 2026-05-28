@@ -23,6 +23,9 @@ use deposit::{
 };
 use flash_loan::{
     flash_loan as flash_loan_logic, set_flash_loan_fee_bps as set_flash_loan_fee_logic,
+    set_manipulation_config as set_flash_manipulation_config,
+    record_price_sample as flash_record_price_sample,
+    ManipulationConfig as FlashManipulationConfig,
     FlashLoanError,
 };
 use pause::{is_paused, set_pause as set_pause_logic, PauseType};
@@ -275,15 +278,40 @@ impl LendingContract {
         get_borrow_admin(&env)
     }
 
-    /// Execute a flash loan
+    /// Execute a flash loan with attack-prevention guards.
+    ///
+    /// `spot_price` is the current oracle price of `asset` and is used for
+    /// TWAP-deviation detection. Pass 0 to skip the TWAP check (not recommended
+    /// in production).
     pub fn flash_loan(
         env: Env,
         receiver: Address,
         asset: Address,
         amount: i128,
+        spot_price: i128,
         params: Bytes,
     ) -> Result<(), FlashLoanError> {
-        flash_loan_logic(&env, receiver, asset, amount, params)
+        flash_loan_logic(&env, receiver, asset, amount, spot_price, params)
+    }
+
+    /// Record an oracle price sample for a given asset (used to maintain the TWAP).
+    /// Should be called by the oracle feed on each price update.
+    pub fn flash_record_price(env: Env, asset: Address, price: i128) {
+        flash_record_price_sample(&env, &asset, price);
+    }
+
+    /// Update the flash loan attack-prevention config (admin only).
+    pub fn set_flash_manipulation_config(
+        env: Env,
+        admin: Address,
+        config: FlashManipulationConfig,
+    ) -> Result<(), FlashLoanError> {
+        let current_admin = get_borrow_admin(&env).ok_or(FlashLoanError::Unauthorized)?;
+        if admin != current_admin {
+            return Err(FlashLoanError::Unauthorized);
+        }
+        admin.require_auth();
+        set_flash_manipulation_config(&env, config)
     }
 
     /// Set the flash loan fee in basis points (admin only)
