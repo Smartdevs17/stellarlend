@@ -280,6 +280,28 @@ pub struct UpgradeRollbackEvent {
     pub prev_version: u32,
 }
 
+#[contractevent(topics = ["up_tlock"], data_format = "single-value")]
+#[derive(Clone, Debug)]
+pub struct UpgradeTimelockQueuedEvent {
+    #[topic]
+    pub caller: Address,
+    #[topic]
+    pub proposal_id: u64,
+    pub execute_after: u64,
+    pub is_emergency: bool,
+}
+
+#[contractevent(topics = ["up_emrg"], data_format = "single-value")]
+#[derive(Clone, Debug)]
+pub struct UpgradeEmergencyProposedEvent {
+    #[topic]
+    pub caller: Address,
+    #[topic]
+    pub id: u64,
+    pub new_version: u32,
+    pub execute_after: u64,
+}
+
 #[allow(deprecated)]
 pub fn emit_bad_debt(env: &Env, user: &Address, amount: i128) {
     env.events().publish(("bad_debt",), (user.clone(), amount));
