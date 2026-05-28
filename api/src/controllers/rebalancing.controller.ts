@@ -87,7 +87,11 @@ export const executeRebalancing = async (req: Request, res: Response, next: Next
   }
 };
 
-export const getRebalancingConfig = async (req: Request, res: Response) => {
+export const getRebalancingConfig = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     const { userAddress } = req.query as any;
 
