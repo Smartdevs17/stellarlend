@@ -2,6 +2,14 @@ import { body, param, query, validationResult, check } from 'express-validator';
 import { Request, Response, NextFunction } from 'express';
 import { ValidationError } from '../utils/errors';
 import { StrKey } from '@stellar/stellar-sdk';
+import {
+  LendingOperationDto,
+  PrepareRequestDto,
+  SubmitRequestDto,
+  RelayDelegatedDto,
+  CreateSubscriptionDto,
+  PaginationQueryDto,
+} from '../dto';
 
 const VALID_OPERATIONS = ['deposit', 'borrow', 'repay', 'withdraw'];
 const VALID_IMPORT_FORMATS = ['csv', 'json'];
@@ -16,6 +24,93 @@ export const validateRequest = (req: Request, res: Response, next: NextFunction)
       .join(', ');
     throw new ValidationError(errorMessages);
   }
+  next();
+};
+
+// ─── DTO-based validation middleware ─────────────────────────────────────────
+
+/** Validates a lending operation (deposit/borrow/repay/withdraw) body via DTO. */
+export const validateLendingOperationDto = (req: Request, res: Response, next: NextFunction) => {
+  const source = { ...req.query, ...req.body } as Record<string, unknown>;
+  const result = LendingOperationDto.validate({
+    userAddress: source.userAddress as string,
+    amount: source.amount as string,
+    assetAddress: source.assetAddress as string | undefined,
+  });
+  if (!result.isValid) {
+    throw new ValidationError(result.toErrorString());
+  }
+  // Attach typed DTO to request so controllers can use it without re-parsing.
+  (req as Request & { dto: LendingOperationDto }).dto = LendingOperationDto.fromBody(source);
+  next();
+};
+
+/** Validates the prepare endpoint via DTO. */
+export const validatePrepareDto = (req: Request, res: Response, next: NextFunction) => {
+  const source = { ...req.query, ...req.body, operation: req.params.operation } as Record<
+    string,
+    unknown
+  >;
+  const result = PrepareRequestDto.validate(source);
+  if (!result.isValid) {
+    throw new ValidationError(result.toErrorString());
+  }
+  (req as Request & { dto: PrepareRequestDto }).dto = PrepareRequestDto.from(
+    String(source.operation),
+    source,
+  );
+  next();
+};
+
+/** Validates the submit endpoint via DTO. */
+export const validateSubmitDto = (req: Request, res: Response, next: NextFunction) => {
+  const result = SubmitRequestDto.validate(req.body as Record<string, unknown>);
+  if (!result.isValid) {
+    throw new ValidationError(result.toErrorString());
+  }
+  (req as Request & { dto: SubmitRequestDto }).dto = SubmitRequestDto.fromBody(
+    req.body as Record<string, unknown>,
+  );
+  next();
+};
+
+/** Validates the relay-delegated endpoint via DTO. */
+export const validateRelayDelegatedDto = (req: Request, res: Response, next: NextFunction) => {
+  const result = RelayDelegatedDto.validate(req.body as Record<string, unknown>);
+  if (!result.isValid) {
+    throw new ValidationError(result.toErrorString());
+  }
+  (req as Request & { dto: RelayDelegatedDto }).dto = RelayDelegatedDto.fromBody(
+    req.body as Record<string, unknown>,
+  );
+  next();
+};
+
+/** Validates the create-subscription endpoint via DTO. */
+export const validateCreateSubscriptionDto = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  const result = CreateSubscriptionDto.validate(req.body as Record<string, unknown>);
+  if (!result.isValid) {
+    throw new ValidationError(result.toErrorString());
+  }
+  (req as Request & { dto: CreateSubscriptionDto }).dto = CreateSubscriptionDto.fromBody(
+    req.body as Record<string, unknown>,
+  );
+  next();
+};
+
+/** Validates pagination query params via DTO. */
+export const validatePaginationDto = (req: Request, res: Response, next: NextFunction) => {
+  const maxLimit = parseInt(process.env.PAGINATION_MAX_LIMIT || '100', 10);
+  const result = PaginationQueryDto.validate(req.query as Record<string, unknown>, maxLimit);
+  if (!result.isValid) {
+    throw new ValidationError(result.toErrorString());
+  }
+  (req as Request & { paginationDto: PaginationQueryDto }).paginationDto =
+    PaginationQueryDto.fromQuery(req.query as Record<string, unknown>, maxLimit);
   next();
 };
 
