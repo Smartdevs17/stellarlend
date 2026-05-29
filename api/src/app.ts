@@ -17,6 +17,7 @@ import zkProofRoutes from './routes/zkProof.routes';
 import verificationRoutes from './routes/verification.routes';
 import configRoutes from './routes/config.routes';
 import analyticsRoutes from './routes/analytics.routes';
+import mevRoutes from './routes/mev.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { swaggerSpec } from './config/swagger';
@@ -111,6 +112,7 @@ app.use('/api/zk', zkProofRoutes);
 app.use('/api/verification', verificationRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/mev', mevRoutes);
 
 app.use(errorHandler);
 

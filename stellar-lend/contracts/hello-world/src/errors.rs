@@ -277,6 +277,10 @@ impl_from_error!(MevProtectionError, {
     MevProtectionError::FeeCapExceeded => LendingError::FeeCapExceeded,
     MevProtectionError::InvalidAmount => LendingError::InvalidAmount,
     MevProtectionError::InvalidOperation => LendingError::InvalidState,
+    MevProtectionError::DeadlineExpired => LendingError::CommitExpired,
+    MevProtectionError::SlippageExceeded => LendingError::LimitExceeded,
+    MevProtectionError::AuctionWindowOpen => LendingError::InvalidState,
+    MevProtectionError::NoBidsInAuction => LendingError::DataNotFound,
 });
 
 impl_from_error!(RepayError, {
