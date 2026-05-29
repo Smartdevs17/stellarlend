@@ -5,15 +5,15 @@
  * using weighted median calculation.
  */
 
-import type { RawPriceData, PriceData, AggregatedPrice } from '../types/index.js';
-import { BasePriceProvider } from '../providers/base-provider.js';
-import { PriceValidator } from './price-validator.js';
-import { PriceCache } from './cache.js';
-import { PriceHistoryService } from './price-history.js';
-import { CircuitBreaker, CircuitState, createCircuitBreaker } from './circuit-breaker.js';
-import type { CircuitBreakerConfig, CircuitBreakerMetrics } from './circuit-breaker.js';
-import { scalePrice } from '../config.js';
-import { logger } from '../utils/logger.js';
+import type { RawPriceData, PriceData, AggregatedPrice } from '@/types';
+import { BasePriceProvider } from '@/providers/base-provider';
+import { PriceValidator } from './price-validator';
+import { PriceCache } from './cache';
+import { PriceHistoryService } from './price-history';
+import { CircuitBreaker, CircuitState, createCircuitBreaker } from './circuit-breaker';
+import type { CircuitBreakerConfig, CircuitBreakerMetrics } from './circuit-breaker';
+import { scalePrice } from '@/config';
+import { logger } from '@/utils/logger';
 
 /**
  * Aggregator configuration

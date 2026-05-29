@@ -4,13 +4,20 @@
   "description": "StellarLend monorepo – pre-commit tooling and workspace scripts",
   "private": true,
   "workspaces": [
-    "api"
+    "api",
+    "oracle"
   ],
   "scripts": {
     "prepare": "husky",
     "lint:api": "npm run lint --workspace=api",
     "format:api": "npm run format --workspace=api",
-    "typecheck:api": "npm run typecheck --workspace=api"
+    "typecheck:api": "npm run typecheck --workspace=api",
+    "lint:oracle": "npm run lint --workspace=oracle",
+    "format:oracle": "npm run format --workspace=oracle",
+    "typecheck:oracle": "npm run typecheck --workspace=oracle",
+    "lint:all": "npm run lint:api && npm run lint:oracle",
+    "format:all": "npm run format:api && npm run format:oracle",
+    "typecheck:all": "npm run typecheck:api && npm run typecheck:oracle"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.3.0",
@@ -23,6 +30,11 @@
       "npm run lint --workspace=api --",
       "npm run format:check --workspace=api --",
       "npm run typecheck --workspace=api"
+    ],
+    "oracle/src/**/*.ts": [
+      "npm run lint --workspace=oracle --",
+      "npm run format:check --workspace=oracle --",
+      "npm run typecheck --workspace=oracle"
     ],
     "contract/**/*.rs": [
       "cargo check --manifest-path contract/Cargo.toml"
