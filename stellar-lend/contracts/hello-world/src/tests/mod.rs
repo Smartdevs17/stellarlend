@@ -48,3 +48,11 @@ pub mod cross_asset_tests;
 pub mod debt_token_tests;
 pub mod rebalancing_tests;
 pub mod test_utils;
+
+// Property-based tests (proptest)
+pub mod prop_arithmetic_test;
+pub mod prop_interest_test;
+pub mod prop_liquidation_test;
+pub mod prop_fees_test;
+pub mod prop_supply_cap_test;
+mod prop_deposit_test;
