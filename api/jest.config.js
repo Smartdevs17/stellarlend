@@ -4,6 +4,9 @@ module.exports = {
   roots: ['<rootDir>/src', '<rootDir>/src/__tests__'],
   testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
   setupFiles: ['<rootDir>/jest.setup.ts'],
+  // Force Jest to exit after all tests complete so open handles (Redis client,
+  // WebSocket server) don't cause the process to hang indefinitely.
+  forceExit: true,
   transform: {
     '^.+\\.ts$': 'ts-jest',
   },

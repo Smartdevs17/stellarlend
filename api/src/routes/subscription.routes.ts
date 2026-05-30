@@ -8,7 +8,97 @@ import { requireRole } from '../middleware/rbac';
 
 const router = Router();
 
-// ─── Recurring Operations CRUD ─────────────────────────────────────────────────
+// ─── Import/Export Routes ───────────────────────────────────────────────────
+// IMPORTANT: static-segment routes must be registered BEFORE dynamic /:param
+// routes, otherwise Express matches /:userAddress first and returns 404.
+
+/**
+ * @openapi
+ * /subscriptions/import/validate:
+ *   post:
+ *     summary: Validate an import payload without persisting
+ *     tags:
+ *       - Subscriptions
+ */
+router.post(
+  '/import/validate',
+  importRequestValidation,
+  subscriptionController.validateImportRequest
+);
+
+/**
+ * @openapi
+ * /subscriptions/import/preview:
+ *   post:
+ *     summary: Preview rows that would be created/updated by an import
+ *     tags:
+ *       - Subscriptions
+ */
+router.post(
+  '/import/preview',
+  importRequestValidation,
+  subscriptionController.previewImportRequest
+);
+
+/**
+ * @openapi
+ * /subscriptions/import:
+ *   post:
+ *     summary: Import subscriptions from CSV or JSON
+ *     tags:
+ *       - Subscriptions
+ */
+router.post(
+  '/import',
+  importRequestValidation,
+  subscriptionController.importSubscriptionsRequest
+);
+
+/**
+ * @openapi
+ * /subscriptions/export/{merchantId}:
+ *   get:
+ *     summary: Export subscriptions for a merchant
+ *     tags:
+ *       - Subscriptions
+ */
+router.get(
+  '/export/:merchantId',
+  merchantParamValidation,
+  subscriptionController.exportSubscriptionsRequest
+);
+
+/**
+ * @openapi
+ * /subscriptions/import/history/{merchantId}:
+ *   get:
+ *     summary: Get import history for a merchant
+ *     tags:
+ *       - Subscriptions
+ */
+router.get(
+  '/import/history/:merchantId',
+  merchantParamValidation,
+  subscriptionController.getImportHistoryRequest
+);
+
+// ─── Keeper endpoint (static path before dynamic params) ───────────────────
+
+/**
+ * @openapi
+ * /subscriptions/execute-due:
+ *   post:
+ *     summary: Execute all due subscriptions (keeper endpoint)
+ *     tags:
+ *       - Subscriptions
+ */
+router.post(
+  '/execute-due',
+  requireRole('operator'),
+  subscriptionController.executeDueSubscriptions
+);
+
+// ─── Recurring Operations CRUD ─────────────────────────────────────────────
 
 /**
  * @openapi
@@ -27,20 +117,6 @@ router.post('/', subscriptionController.createSubscription);
  *     summary: List all subscriptions for a user
  *     tags:
  *       - Subscriptions
- *     parameters:
- *       - in: path
- *         name: userAddress
- *         required: true
- *         schema:
- *           type: string
- *       - in: query
- *         name: status
- *         schema:
- *           type: string
- *       - in: query
- *         name: action
- *         schema:
- *           type: string
  */
 router.get('/:userAddress', subscriptionController.listSubscriptions);
 
@@ -94,7 +170,7 @@ router.post('/:userAddress/:subscriptionId/resume', subscriptionController.resum
  */
 router.post('/:userAddress/:subscriptionId/cancel', subscriptionController.cancelSubscription);
 
-// ─── Execution ─────────────────────────────────────────────────────────────────
+// ─── Execution ─────────────────────────────────────────────────────────────
 
 /**
  * @openapi
@@ -107,20 +183,6 @@ router.post('/:userAddress/:subscriptionId/cancel', subscriptionController.cance
 router.post(
   '/:userAddress/:subscriptionId/execute',
   subscriptionController.triggerManualExecution
-);
-
-/**
- * @openapi
- * /subscriptions/execute-due:
- *   post:
- *     summary: Execute all due subscriptions (keeper endpoint)
- *     tags:
- *       - Subscriptions
- */
-router.post(
-  '/execute-due',
-  requireRole('operator'),
-  subscriptionController.executeDueSubscriptions
 );
 
 /**
@@ -142,33 +204,5 @@ router.get('/:subscriptionId/history', subscriptionController.getExecutionHistor
  *       - Subscriptions
  */
 router.get('/:userAddress/analytics', subscriptionController.getSubscriptionAnalytics);
-
-// ─── Import/Export Routes (preserved) ──────────────────────────────────────────
-
-router.post(
-  '/import/validate',
-  importRequestValidation,
-  subscriptionController.validateImportRequest
-);
-router.post(
-  '/import/preview',
-  importRequestValidation,
-  subscriptionController.previewImportRequest
-);
-router.post(
-  '/import',
-  importRequestValidation,
-  subscriptionController.importSubscriptionsRequest
-);
-router.get(
-  '/export/:merchantId',
-  merchantParamValidation,
-  subscriptionController.exportSubscriptionsRequest
-);
-router.get(
-  '/import/history/:merchantId',
-  merchantParamValidation,
-  subscriptionController.getImportHistoryRequest
-);
 
 export default router;

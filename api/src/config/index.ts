@@ -10,6 +10,19 @@ dotenv.config();
 
 let configSource = 'environment';
 
+function parseCorsOrigins(): string[] {
+  const raw = process.env.ALLOWED_ORIGINS;
+  if (raw) {
+    return raw
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean);
+  }
+  // In production, default to restrictive (empty = deny all unlisted origins).
+  // In other environments, allow all origins via wildcard sentinel '*'.
+  return process.env.NODE_ENV === 'production' ? [] : ['*'];
+}
+
 const envConfigMap: Record<string, Partial<AppConfig>> = {
   development: developmentOverrides,
   staging: stagingOverrides,
@@ -150,6 +163,10 @@ function buildConfig(): AppConfig {
         10
       ),
       ...(envOverrides.subscriptions || {}),
+    },
+    cors: {
+      allowedOrigins: parseCorsOrigins(),
+      ...(envOverrides.cors || {}),
     },
   };
 
