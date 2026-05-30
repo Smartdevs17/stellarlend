@@ -1,6 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import { StellarService } from '../services/stellar.service';
-import { analyzePortfolio, toCSV } from '../services/portfolio.service';
+import {
+  analyzePortfolio,
+  toCSV,
+  computeInterestAccrualProjection,
+  computeLiquidationPrice,
+  getHealthFactorMonitor,
+} from '../services/portfolio.service';
 import { PortfolioAnalyticsResponse } from '../types/portfolio';
 import { redisCacheService } from '../services/redisCache.service';
 import { config } from '../config';
@@ -125,6 +131,74 @@ export const exportPortfolio = async (
       userAddress,
       analytics,
       transactions: history.data,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getInterestProjection = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { userAddress } = req.params;
+    const stellarService = new StellarService();
+    const position = await stellarService.getUserPosition(userAddress);
+    const borrowApy = req.query.borrowApy ? Number(req.query.borrowApy) : 0.05;
+
+    const projection = computeInterestAccrualProjection(position, borrowApy);
+    res.status(200).json({
+      userAddress,
+      projection,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getLiquidationPrice = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { userAddress } = req.params;
+    const currentPrice = req.query.price ? Number(req.query.price) : 1;
+
+    const stellarService = new StellarService();
+    const position = await stellarService.getUserPosition(userAddress);
+
+    const liquidation = computeLiquidationPrice(position, currentPrice);
+    res.status(200).json({
+      userAddress,
+      currentPrice,
+      liquidation,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getHealthFactorMonitor = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { userAddress } = req.params;
+
+    const stellarService = new StellarService();
+    const position = await stellarService.getUserPosition(userAddress);
+
+    const monitor = getHealthFactorMonitor(position);
+    res.status(200).json({
+      userAddress,
+      ...monitor,
+      generatedAt: new Date().toISOString(),
     });
   } catch (error) {
     next(error);
