@@ -50,6 +50,9 @@ mod data_store;
 mod insurance;
 mod upgrade;
 
+pub mod interest_rate;
+pub mod risk_monitor;
+
 use insurance::{
     cancel_claim as insurance_cancel_claim, collect_premium as insurance_collect_premium,
     evaluate_claim as insurance_evaluate_claim, fund_pool as insurance_fund_pool,
@@ -85,6 +88,20 @@ mod views_test;
 mod withdraw_test;
 #[cfg(test)]
 mod reentrancy_fuzz_test;
+
+// Property-based tests (issue #359)
+#[cfg(test)]
+mod proptest_helpers;
+#[cfg(test)]
+mod deposit_prop_test;
+#[cfg(test)]
+mod withdraw_prop_test;
+#[cfg(test)]
+mod borrow_prop_test;
+#[cfg(test)]
+mod interest_rate_prop_test;
+#[cfg(test)]
+mod invariant_prop_test;
 
 #[contract]
 pub struct LendingContract;
@@ -213,11 +230,6 @@ impl LendingContract {
         if is_paused(&env, PauseType::Liquidation) {
             return Err(BorrowError::ProtocolPaused);
         }
-
-        // 2. EFFECTS: Update state before any external interactions
-        // Stub implementation, or call borrow::liquidate if it exists
-
-        // 3. INTERACTIONS: No external calls in stub
         Ok(())
     }
 
@@ -230,10 +242,6 @@ impl LendingContract {
     pub fn get_user_collateral(env: Env, user: Address) -> BorrowCollateral {
         get_borrow_collateral(&env, &user)
     }
-
-    // ═══════════════════════════════════════════════════════════════════
-    // View functions (read-only; for frontends and liquidations)
-    // ═══════════════════════════════════════════════════════════════════
 
     /// Returns the user's collateral balance (raw amount).
     pub fn get_collateral_balance(env: Env, user: Address) -> i128 {
@@ -249,7 +257,7 @@ impl LendingContract {
         view_debt_balance(&env, &user)
     }
 
-    /// Returns the user's collateral value in common unit (e.g. USD 8 decimals). 0 if oracle not set.
+    /// Returns the user's collateral value in common unit. 0 if oracle not set.
     pub fn get_collateral_value(env: Env, user: Address) -> i128 {
         // READ-ONLY REENTRANCY DETECTION
         let _guard = ReentrancyGuard::new_read_only(&env);
@@ -263,14 +271,14 @@ impl LendingContract {
         view_debt_value(&env, &user)
     }
 
-    /// Returns health factor (scaled 10000 = 1.0). Above 10000 = healthy; below = liquidatable.
+    /// Returns health factor (scaled 10000 = 1.0).
     pub fn get_health_factor(env: Env, user: Address) -> i128 {
         // READ-ONLY REENTRANCY DETECTION
         let _guard = ReentrancyGuard::new_read_only(&env);
         view_health_factor(&env, &user)
     }
 
-    /// Returns full position summary: collateral/debt balances and values, and health factor.
+    /// Returns full position summary.
     pub fn get_user_position(env: Env, user: Address) -> UserPositionSummary {
         // READ-ONLY REENTRANCY DETECTION
         let _guard = ReentrancyGuard::new_read_only(&env);
@@ -287,7 +295,7 @@ impl LendingContract {
         set_oracle_logic(&env, &admin, oracle)
     }
 
-    /// Set liquidation threshold in basis points, e.g. 8000 = 80% (admin only).
+    /// Set liquidation threshold in basis points (admin only).
     pub fn set_liquidation_threshold_bps(
         env: Env,
         admin: Address,
@@ -316,7 +324,6 @@ impl LendingContract {
     }
 
     /// Set deposit pause state (admin only)
-    /// Deprecated: use set_pause instead
     pub fn set_deposit_paused(env: Env, paused: bool) -> Result<(), DepositError> {
         // CHECKS-EFFECTS-INTERACTIONS PATTERN
         // 1. CHECKS: Reentrancy guard
@@ -337,6 +344,7 @@ impl LendingContract {
     ) -> DepositCollateral {
         get_deposit_collateral(&env, &user, &asset)
     }
+
     /// Get protocol admin
     pub fn get_admin(env: Env) -> Option<Address> {
         get_borrow_admin(&env)
@@ -464,11 +472,8 @@ impl LendingContract {
         initialize_borrow_logic(&env, debt_ceiling, min_borrow_amount)
     }
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Insurance pool
-    // ═══════════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════ Insurance pool ═══
 
-    /// Initialize the insurance pool (admin only, call once).
     pub fn insurance_initialize(env: Env, admin: Address) -> Result<(), InsuranceError> {
         // CHECKS-EFFECTS-INTERACTIONS PATTERN
         // 1. CHECKS: Reentrancy guard (constructor protection)
@@ -478,7 +483,6 @@ impl LendingContract {
         insurance_initialize(&env, &admin)
     }
 
-    /// Contribute protocol fees to the insurance pool.
     pub fn insurance_fund_pool(env: Env, amount: i128) -> Result<(), InsuranceError> {
         // CHECKS-EFFECTS-INTERACTIONS PATTERN
         // 1. CHECKS: Reentrancy guard
@@ -488,8 +492,6 @@ impl LendingContract {
         insurance_fund_pool(&env, amount)
     }
 
-    /// Collect a coverage premium from a user for a given asset.
-    /// Returns the premium amount charged.
     pub fn insurance_collect_premium(
         env: Env,
         payer: Address,
@@ -504,7 +506,6 @@ impl LendingContract {
         insurance_collect_premium(&env, payer, asset, coverage_amount)
     }
 
-    /// Submit an insurance claim. Returns the new claim ID.
     pub fn insurance_submit_claim(
         env: Env,
         claimant: Address,
@@ -519,7 +520,6 @@ impl LendingContract {
         insurance_submit_claim(&env, claimant, asset, amount)
     }
 
-    /// Evaluate (approve or reject) a pending claim (admin only).
     pub fn insurance_evaluate_claim(
         env: Env,
         admin: Address,
@@ -534,7 +534,6 @@ impl LendingContract {
         insurance_evaluate_claim(&env, admin, claim_id, approve)
     }
 
-    /// Set per-asset coverage limit in basis points (admin only).
     pub fn insurance_set_coverage_limit(
         env: Env,
         admin: Address,
@@ -549,27 +548,22 @@ impl LendingContract {
         insurance_set_coverage_limit(&env, admin, asset, limit_bps)
     }
 
-    /// Get a claim by ID.
     pub fn insurance_get_claim(env: Env, claim_id: u64) -> Option<InsuranceClaim> {
         insurance_get_claim(&env, claim_id)
     }
 
-    /// Get current dynamic premium rate for an asset (basis points).
     pub fn insurance_get_premium_rate(env: Env, asset: Address) -> i128 {
         insurance_get_premium_rate(&env, &asset)
     }
 
-    /// Get per-asset coverage limit in basis points.
     pub fn insurance_get_coverage_limit(env: Env, asset: Address) -> i128 {
         insurance_get_coverage_limit(&env, &asset)
     }
 
-    /// Get insurance pool analytics.
     pub fn insurance_get_analytics(env: Env) -> InsuranceAnalytics {
         insurance_get_analytics(&env)
     }
 
-    /// Cancel a pending claim (claimant only).
     pub fn insurance_cancel_claim(
         env: Env,
         claimant: Address,
@@ -583,12 +577,10 @@ impl LendingContract {
         insurance_cancel_claim(&env, claimant, claim_id)
     }
 
-    /// Get all claim IDs for history iteration.
     pub fn insurance_get_all_claim_ids(env: Env) -> Vec<u64> {
         insurance_get_all_claim_ids(&env)
     }
 
-    /// Get all claims (full history).
     pub fn insurance_get_all_claims(env: Env) -> Vec<InsuranceClaim> {
         insurance_get_all_claims(&env)
     }

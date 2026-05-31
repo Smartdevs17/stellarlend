@@ -74,6 +74,10 @@ export interface SubscriptionConfig {
   executionIntervalMs: number;
 }
 
+export interface CorsConfig {
+  allowedOrigins: string[];
+}
+
 export interface AppConfig {
   server: ServerConfig;
   stellar: StellarConfig;
@@ -88,6 +92,7 @@ export interface AppConfig {
   emergency: EmergencyConfig;
   analytics: AnalyticsConfig;
   subscriptions: SubscriptionConfig;
+  cors: CorsConfig;
 }
 
 export interface ConfigAuditEntry {
