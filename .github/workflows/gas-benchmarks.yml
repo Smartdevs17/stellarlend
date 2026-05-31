@@ -128,6 +128,13 @@ jobs:
               failed = report["failed"]
               out.write(f"\n**Total:** {total} | **Passed:** {passed} | **Failed:** {failed}\n")
           EOF
+          
+          # Also append markdown report to summary if available
+          if [ -f benchmark-results.md ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "---" >> $GITHUB_STEP_SUMMARY
+            cat benchmark-results.md >> $GITHUB_STEP_SUMMARY
+          fi
           fi
 
       - name: Upload benchmark results
@@ -137,6 +144,8 @@ jobs:
           name: gas-benchmark-results-${{ github.sha }}
           path: |
             stellar-lend/benchmark-results.json
+            stellar-lend/benchmark-results.md
+            stellar-lend/benchmarks/history.json
             stellar-lend/benchmark-output.log
             stellar-lend/benchmark-comparison.log
           retention-days: 90
