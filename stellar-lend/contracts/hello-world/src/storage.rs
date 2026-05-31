@@ -1,65 +1,19 @@
-use soroban_sdk::{contracttype, Address, Vec};
+use soroban_sdk::{Env, IntoVal, TryFromVal, Val};
 
-#[derive(Clone)]
-#[contracttype]
-pub enum GovernanceDataKey {
-    Admin,
-    Config,
-    NextProposalId,
-    MultisigConfig,
-    MultisigAdmins,
-    MultisigThreshold,
-    GuardianConfig,
-    Guardians,
-    GuardianThreshold,
-
-    Proposal(u64),
-    Vote(u64, Address),
-    VotePowerSnapshot(u64, Address),
-    VoteLock(Address),
-    DelegationRecord(Address),
-    ProposalWindowStart(Address),
-    ProposalCreationCount(Address),
-    GovernanceAnalytics,
-    ProposalApprovals(u64),
-    UserProposals(Address, u64),
-
-    ProposalSimulationCache(u64),
-    ParameterOptimizationCache,
-
-    RecoveryRequest,
-    RecoveryApprovals,
-
-    // Timelock keys
-    TimelockConfig,
-    NextTimelockId,
-    TimelockOperation(u64),
-    TimelockQueue,
+#[soroban_sdk::contracttype]
+pub struct SnapshotValue {
+    pub value: Val,
+    pub timestamp: u64,
 }
 
-#[derive(Clone)]
-#[contracttype]
-pub enum DataKey {
-    // Credit scoring keys
-    CreditScore(Address),
-    
-    // Circuit breaker keys
-    CircuitBreakerConfig,
-    CircuitBreakerState,
-    CircuitBreakerWhitelist,
+pub fn get_snapshot<K, T>(e: &Env, key: &K, force_direct: bool) -> Option<T>
+where
+    K: IntoVal<Env, Val> + TryFromVal<Env, Val>,
+    T: IntoVal<Env, Val> + TryFromVal<Env, Val>,
+{
+    if force_direct {
+        return e.storage().persistent().get::<K, SnapshotValue>(key).map(|s| s.value.into_val(e));
+    }
 
-    // Liquidation queue keys
-    LiquidationQueueConfig,
-    NextLiquidationQueueId,
-    LiquidationQueueEntry(u64),
-    LiquidatorRegistration(Address),
+    None
 }
-
-#[derive(Clone)]
-#[contracttype]
-pub struct GuardianConfig {
-    pub guardians: Vec<Address>,
-    pub threshold: u32,
-}
-
-

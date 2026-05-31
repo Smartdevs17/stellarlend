@@ -57,3 +57,21 @@ pub struct UpgradeRollbackEvent {
     pub proposal_id: u64,
     pub prev_version: u32,
 }
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct UpgradeTimelockQueuedEvent {
+    pub caller: Address,
+    pub proposal_id: u64,
+    pub execute_after: u64,
+    pub is_emergency: bool,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct UpgradeEmergencyProposedEvent {
+    pub caller: Address,
+    pub id: u64,
+    pub new_version: u32,
+    pub execute_after: u64,
+}

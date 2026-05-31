@@ -22,11 +22,13 @@ import { idempotencyMiddleware } from './middleware/idempotency';
 import { swaggerSpec } from './config/swagger';
 import logger from './utils/logger';
 import { requestIdMiddleware } from './middleware/requestId';
+import { requestLogger } from './middleware/requestLogger';
 import { sanitizeInput } from './middleware/sanitizeInput';
 import { redisCacheService } from './services/redisCache.service';
 
 const app: Application = express();
 app.use(requestIdMiddleware);
+app.use(requestLogger);
 
 const ipRateLimitStore = new MemoryStore();
 const userRateLimitStore = new MemoryStore();
@@ -51,7 +53,19 @@ if (config.server.env === 'production') {
   });
 }
 
-app.use(cors());
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    const allowed = config.cors.allowedOrigins;
+    // Allow server-to-server (no Origin header) and wildcard in non-production
+    if (!origin || allowed.includes('*') || allowed.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS: origin '${origin}' not allowed`));
+    }
+  },
+  credentials: true,
+};
+app.use(cors(corsOptions));
 app.use(express.json({ limit: config.bodySizeLimit.limit }));
 app.use(express.urlencoded({ extended: true, limit: config.bodySizeLimit.limit }));
 app.use(sanitizeInput);
