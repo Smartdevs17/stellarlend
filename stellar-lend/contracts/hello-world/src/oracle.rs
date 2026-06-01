@@ -19,6 +19,8 @@
 //!   and removes outliers beyond a configured deviation band.
 //! - A per-asset circuit breaker can halt pricing when deviations are extreme.
 //! - TWAP is computed over a configurable time window from stored observations.
+//! - Oracle incidents are stored and emitted whenever source divergence,
+//!   stale data, or short-window volatility requires operator action.
 
 #![allow(unused)]
 use crate::admin::get_admin;
@@ -91,6 +93,12 @@ pub enum OracleDataKey {
     /// Circuit breaker state per asset
     /// Value type: CircuitBreakerState
     CircuitBreaker(Address),
+    /// Latest incident report per asset
+    /// Value type: OracleIncidentReport
+    IncidentReport(Address),
+    /// Number of post-cooldown stable observations for gradual unpause
+    /// Value type: u32
+    StabilityCount(Address),
 }
 
 /// Price feed data structure
@@ -159,6 +167,12 @@ const DEFAULT_MIN_SOURCES: u32 = 1;
 const DEFAULT_OUTLIER_DEVIATION_BPS: i128 = 1000; // 10%
 const DEFAULT_BREAKER_DEVIATION_BPS: i128 = 2500; // 25%
 const DEFAULT_BREAKER_COOLDOWN_SECONDS: u64 = 600; // 10 minutes
+const SOURCE_ALERT_DEVIATION_BPS: i128 = 200; // 2%
+const SOURCE_PAUSE_DEVIATION_BPS: i128 = 1000; // 10%
+const VOLATILITY_WINDOW_SECONDS: u64 = 600; // 10 minutes
+const VOLATILITY_BREAKER_BPS: i128 = 2000; // 20%
+const STABLE_DEVIATION_BPS: i128 = 200; // 2%
+const STABILIZATION_REQUIRED_OBSERVATIONS: u32 = 3;
 
 /// Get default oracle configuration
 fn get_default_config() -> OracleConfig {
@@ -281,6 +295,32 @@ pub struct CircuitBreakerState {
     pub last_trip_timestamp: u64,
 }
 
+/// Classifies the latest oracle safety incident for off-chain responders.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum OracleIncidentKind {
+    SourceDeviationAlert,
+    SourceDeviationPause,
+    StalePrice,
+    VolatilityPause,
+    BreakerDeviationPause,
+    PriceStabilized,
+}
+
+/// Stored incident summary that can be queried by monitoring infrastructure.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct OracleIncidentReport {
+    pub asset: Address,
+    pub kind: OracleIncidentKind,
+    pub observed_bps: i128,
+    pub threshold_bps: i128,
+    pub reference_price: i128,
+    pub observed_price: i128,
+    pub timestamp: u64,
+    pub open_until: u64,
+}
+
 fn get_breaker_state(env: &Env, asset: &Address) -> CircuitBreakerState {
     let key = OracleDataKey::CircuitBreaker(asset.clone());
     env.storage()
@@ -298,9 +338,107 @@ fn set_breaker_state(env: &Env, asset: &Address, state: &CircuitBreakerState) {
     env.storage().persistent().set(&key, state);
 }
 
+fn get_stability_count(env: &Env, asset: &Address) -> u32 {
+    let key = OracleDataKey::StabilityCount(asset.clone());
+    env.storage()
+        .persistent()
+        .get::<OracleDataKey, u32>(&key)
+        .unwrap_or(0)
+}
+
+fn set_stability_count(env: &Env, asset: &Address, count: u32) {
+    let key = OracleDataKey::StabilityCount(asset.clone());
+    env.storage().persistent().set(&key, &count);
+}
+
 fn is_breaker_open(env: &Env, asset: &Address) -> bool {
     let state = get_breaker_state(env, asset);
-    env.ledger().timestamp() < state.open_until
+    if state.open_until == 0 || state.open_until <= state.last_trip_timestamp {
+        return false;
+    }
+    if env.ledger().timestamp() < state.open_until {
+        return true;
+    }
+    get_stability_count(env, asset) < STABILIZATION_REQUIRED_OBSERVATIONS
+}
+
+fn price_deviation_bps(reference_price: i128, observed_price: i128) -> Result<i128, OracleError> {
+    if reference_price <= 0 || observed_price <= 0 {
+        return Err(OracleError::InvalidPrice);
+    }
+
+    let diff = if observed_price > reference_price {
+        observed_price
+            .checked_sub(reference_price)
+            .ok_or(OracleError::Overflow)?
+    } else {
+        reference_price
+            .checked_sub(observed_price)
+            .ok_or(OracleError::Overflow)?
+    };
+
+    diff.checked_mul(10000)
+        .ok_or(OracleError::Overflow)?
+        .checked_div(reference_price)
+        .ok_or(OracleError::Overflow)
+}
+
+fn write_incident_report(
+    env: &Env,
+    asset: &Address,
+    kind: OracleIncidentKind,
+    observed_bps: i128,
+    threshold_bps: i128,
+    reference_price: i128,
+    observed_price: i128,
+    open_until: u64,
+) {
+    let report = OracleIncidentReport {
+        asset: asset.clone(),
+        kind,
+        observed_bps,
+        threshold_bps,
+        reference_price,
+        observed_price,
+        timestamp: env.ledger().timestamp(),
+        open_until,
+    };
+    let key = OracleDataKey::IncidentReport(asset.clone());
+    env.storage().persistent().set(&key, &report);
+    env.events()
+        .publish((Symbol::new(env, "oracle_incident"), asset.clone()), report);
+}
+
+fn open_breaker_with_report(
+    env: &Env,
+    asset: &Address,
+    kind: OracleIncidentKind,
+    observed_bps: i128,
+    threshold_bps: i128,
+    reference_price: i128,
+    observed_price: i128,
+) {
+    let config = get_oracle_config(env);
+    let now = env.ledger().timestamp();
+    let open_until = now.saturating_add(config.breaker_cooldown_seconds);
+    let mut state = get_breaker_state(env, asset);
+    state.open_until = open_until;
+    state.last_trip_timestamp = now;
+    if state.last_safe_price <= 0 && reference_price > 0 {
+        state.last_safe_price = reference_price;
+    }
+    set_breaker_state(env, asset, &state);
+    set_stability_count(env, asset, 0);
+    write_incident_report(
+        env,
+        asset,
+        kind,
+        observed_bps,
+        threshold_bps,
+        reference_price,
+        observed_price,
+        open_until,
+    );
 }
 
 fn maybe_trip_breaker(
@@ -342,10 +480,15 @@ fn maybe_trip_breaker(
         .ok_or(OracleError::Overflow)?;
 
     if deviation_bps > config.breaker_deviation_bps {
-        let now = env.ledger().timestamp();
-        state.open_until = now.saturating_add(config.breaker_cooldown_seconds);
-        state.last_trip_timestamp = now;
-        set_breaker_state(env, asset, &state);
+        open_breaker_with_report(
+            env,
+            asset,
+            OracleIncidentKind::BreakerDeviationPause,
+            deviation_bps,
+            config.breaker_deviation_bps,
+            state.last_safe_price,
+            candidate_price,
+        );
         return Err(OracleError::CircuitBreakerOpen);
     }
 
@@ -414,6 +557,216 @@ fn append_observation(env: &Env, asset: &Address, price: i128) {
         history.pop_front();
     }
     save_history(env, asset, &history);
+}
+
+fn note_stale_feed(env: &Env, asset: &Address, feed: &PriceFeed) {
+    write_incident_report(
+        env,
+        asset,
+        OracleIncidentKind::StalePrice,
+        env.ledger().timestamp().saturating_sub(feed.last_updated) as i128,
+        get_oracle_config(env).max_staleness_seconds as i128,
+        feed.price,
+        feed.price,
+        get_breaker_state(env, asset).open_until,
+    );
+}
+
+fn update_source_deviation_candidate(
+    env: &Env,
+    asset: &Address,
+    new_feed: &PriceFeed,
+    existing_feed: &PriceFeed,
+    max_deviation_bps: &mut i128,
+    reference_price: &mut i128,
+) -> Result<(), OracleError> {
+    if existing_feed.oracle == new_feed.oracle {
+        return Ok(());
+    }
+    if is_price_stale(env, existing_feed.last_updated) {
+        note_stale_feed(env, asset, existing_feed);
+        return Ok(());
+    }
+
+    let deviation = price_deviation_bps(existing_feed.price, new_feed.price)?;
+    if deviation > *max_deviation_bps {
+        *max_deviation_bps = deviation;
+        *reference_price = existing_feed.price;
+    }
+
+    Ok(())
+}
+
+fn monitor_source_deviation(
+    env: &Env,
+    asset: &Address,
+    new_feed: &PriceFeed,
+) -> Result<bool, OracleError> {
+    let mut max_deviation_bps = 0;
+    let mut reference_price = 0;
+
+    let primary_key = OracleDataKey::PriceFeed(asset.clone());
+    if let Some(feed) = env
+        .storage()
+        .persistent()
+        .get::<OracleDataKey, PriceFeed>(&primary_key)
+    {
+        update_source_deviation_candidate(
+            env,
+            asset,
+            new_feed,
+            &feed,
+            &mut max_deviation_bps,
+            &mut reference_price,
+        )?;
+    }
+
+    let fallback_key = OracleDataKey::FallbackFeed(asset.clone());
+    if let Some(feed) = env
+        .storage()
+        .persistent()
+        .get::<OracleDataKey, PriceFeed>(&fallback_key)
+    {
+        update_source_deviation_candidate(
+            env,
+            asset,
+            new_feed,
+            &feed,
+            &mut max_deviation_bps,
+            &mut reference_price,
+        )?;
+    }
+
+    let sources = get_oracle_sources(env, asset);
+    for src in sources.iter() {
+        if let Some(feed) = get_source_feed(env, asset, &src) {
+            update_source_deviation_candidate(
+                env,
+                asset,
+                new_feed,
+                &feed,
+                &mut max_deviation_bps,
+                &mut reference_price,
+            )?;
+        }
+    }
+
+    let state = get_breaker_state(env, asset);
+    let stabilizing_after_cooldown = state.open_until != 0
+        && env.ledger().timestamp() >= state.open_until
+        && get_stability_count(env, asset) < STABILIZATION_REQUIRED_OBSERVATIONS;
+
+    if max_deviation_bps > SOURCE_PAUSE_DEVIATION_BPS && !stabilizing_after_cooldown {
+        open_breaker_with_report(
+            env,
+            asset,
+            OracleIncidentKind::SourceDeviationPause,
+            max_deviation_bps,
+            SOURCE_PAUSE_DEVIATION_BPS,
+            reference_price,
+            new_feed.price,
+        );
+        return Ok(true);
+    } else if max_deviation_bps > SOURCE_ALERT_DEVIATION_BPS {
+        write_incident_report(
+            env,
+            asset,
+            if max_deviation_bps > SOURCE_PAUSE_DEVIATION_BPS {
+                OracleIncidentKind::SourceDeviationPause
+            } else {
+                OracleIncidentKind::SourceDeviationAlert
+            },
+            max_deviation_bps,
+            if max_deviation_bps > SOURCE_PAUSE_DEVIATION_BPS {
+                SOURCE_PAUSE_DEVIATION_BPS
+            } else {
+                SOURCE_ALERT_DEVIATION_BPS
+            },
+            reference_price,
+            new_feed.price,
+            state.open_until,
+        );
+    }
+
+    Ok(max_deviation_bps > SOURCE_PAUSE_DEVIATION_BPS)
+}
+
+fn maybe_trip_volatility_breaker(
+    env: &Env,
+    asset: &Address,
+    candidate_price: i128,
+) -> Result<bool, OracleError> {
+    let now = env.ledger().timestamp();
+    let window_start = now.saturating_sub(VOLATILITY_WINDOW_SECONDS);
+    let history = load_history(env, asset);
+    let mut max_deviation_bps = 0;
+    let mut reference_price = 0;
+
+    for obs in history.iter() {
+        if obs.timestamp < window_start || obs.price <= 0 {
+            continue;
+        }
+        let deviation = price_deviation_bps(obs.price, candidate_price)?;
+        if deviation > max_deviation_bps {
+            max_deviation_bps = deviation;
+            reference_price = obs.price;
+        }
+    }
+
+    if max_deviation_bps > VOLATILITY_BREAKER_BPS {
+        open_breaker_with_report(
+            env,
+            asset,
+            OracleIncidentKind::VolatilityPause,
+            max_deviation_bps,
+            VOLATILITY_BREAKER_BPS,
+            reference_price,
+            candidate_price,
+        );
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+fn record_stable_observation(
+    env: &Env,
+    asset: &Address,
+    candidate_price: i128,
+) -> Result<(), OracleError> {
+    let mut state = get_breaker_state(env, asset);
+    if state.open_until == 0
+        || state.open_until <= state.last_trip_timestamp
+        || env.ledger().timestamp() < state.open_until
+        || state.last_safe_price <= 0
+    {
+        return Ok(());
+    }
+
+    let deviation_bps = price_deviation_bps(state.last_safe_price, candidate_price)?;
+    if deviation_bps > STABLE_DEVIATION_BPS {
+        set_stability_count(env, asset, 0);
+        return Ok(());
+    }
+
+    let stable_count = get_stability_count(env, asset).saturating_add(1);
+    set_stability_count(env, asset, stable_count);
+    if stable_count >= STABILIZATION_REQUIRED_OBSERVATIONS {
+        state.open_until = 0;
+        set_breaker_state(env, asset, &state);
+        write_incident_report(
+            env,
+            asset,
+            OracleIncidentKind::PriceStabilized,
+            deviation_bps,
+            STABLE_DEVIATION_BPS,
+            state.last_safe_price,
+            candidate_price,
+            0,
+        );
+    }
+
+    Ok(())
 }
 
 fn median_i128(env: &Env, mut values: Vec<i128>) -> Result<i128, OracleError> {
@@ -492,6 +845,7 @@ fn aggregate_spot_price(env: &Env, asset: &Address) -> Result<i128, OracleError>
         if !is_price_stale(env, feed.last_updated) {
             candidates.push_back(feed.price);
         } else {
+            note_stale_feed(env, asset, &feed);
             saw_stale_feed = true;
         }
     }
@@ -508,6 +862,7 @@ fn aggregate_spot_price(env: &Env, asset: &Address) -> Result<i128, OracleError>
             if feed.oracle == fallback_oracle && !is_price_stale(env, feed.last_updated) {
                 candidates.push_back(feed.price);
             } else if is_price_stale(env, feed.last_updated) {
+                note_stale_feed(env, asset, &feed);
                 saw_stale_feed = true;
             }
         }
@@ -521,6 +876,7 @@ fn aggregate_spot_price(env: &Env, asset: &Address) -> Result<i128, OracleError>
             if !is_price_stale(env, feed.last_updated) {
                 candidates.push_back(feed.price);
             } else {
+                note_stale_feed(env, asset, &feed);
                 saw_stale_feed = true;
             }
         }
@@ -760,6 +1116,17 @@ pub fn update_price_feed(
     // This lets the protocol aggregate across multiple configured sources.
     write_source_feed(env, &asset, &oracle, &new_feed);
 
+    // Source-level monitoring: >2% records an alert, >10% opens the breaker.
+    let source_pause_triggered = monitor_source_deviation(env, &asset, &new_feed)?;
+
+    // Short-window volatility guard: >20% movement inside 10 minutes pauses reads.
+    let volatility_pause_triggered = maybe_trip_volatility_breaker(env, &asset, price)?;
+
+    // Updates are still accepted while the breaker is open so independent sources
+    // can demonstrate stabilization and gradually restore reads after cooldown.
+    record_stable_observation(env, &asset, price)?;
+    append_observation(env, &asset, price);
+
     // When admin submits a price, register the oracle address as the primary oracle
     // for the asset so subsequent calls from that oracle are authorized.
     if is_admin {
@@ -767,8 +1134,10 @@ pub fn update_price_feed(
         env.storage().persistent().set(&primary_key, &oracle);
     }
 
-    // Update cache
-    cache_price(env, &asset, price);
+    if !source_pause_triggered && !volatility_pause_triggered && !is_breaker_open(env, &asset) {
+        cache_price(env, &asset, price);
+        record_safe_price(env, &asset, price);
+    }
 
     // Emit price update event
     emit_price_updated(
@@ -807,6 +1176,11 @@ pub fn get_price(env: &Env, asset: &Address) -> Result<i128, OracleError> {
 
     // Aggregate spot from available sources, apply outlier removal.
     let spot = aggregate_spot_price(env, asset)?;
+
+    maybe_trip_volatility_breaker(env, asset, spot)?;
+    if is_breaker_open(env, asset) {
+        return Err(OracleError::CircuitBreakerOpen);
+    }
 
     // Circuit breaker trip check against last safe price.
     maybe_trip_breaker(env, asset, spot)?;
@@ -989,4 +1363,17 @@ pub fn emergency_pause_asset_oracle(
     state.last_trip_timestamp = now;
     set_breaker_state(env, &asset, &state);
     Ok(())
+}
+
+/// Return the current circuit breaker state for an asset.
+pub fn get_oracle_circuit_breaker_state(env: &Env, asset: &Address) -> CircuitBreakerState {
+    get_breaker_state(env, asset)
+}
+
+/// Return the latest generated oracle incident report for an asset.
+pub fn get_oracle_incident_report(env: &Env, asset: &Address) -> Option<OracleIncidentReport> {
+    let key = OracleDataKey::IncidentReport(asset.clone());
+    env.storage()
+        .persistent()
+        .get::<OracleDataKey, OracleIncidentReport>(&key)
 }

@@ -58,6 +58,79 @@ impl HelloContract {
         String::from_str(&env, "Hello")
     }
 
+    pub fn update_price_feed(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        price: i128,
+        decimals: u32,
+        oracle_address: Address,
+    ) -> Result<i128, oracle::OracleError> {
+        oracle::update_price_feed(&env, caller, asset, price, decimals, oracle_address)
+    }
+
+    pub fn get_price(env: Env, asset: Address) -> Result<i128, oracle::OracleError> {
+        oracle::get_price(&env, &asset)
+    }
+
+    pub fn set_primary_oracle(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        primary_oracle: Address,
+    ) -> Result<(), oracle::OracleError> {
+        oracle::set_primary_oracle(&env, caller, asset, primary_oracle)
+    }
+
+    pub fn set_fallback_oracle(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        fallback_oracle: Address,
+    ) -> Result<(), oracle::OracleError> {
+        oracle::set_fallback_oracle(&env, caller, asset, fallback_oracle)
+    }
+
+    pub fn configure_oracle(
+        env: Env,
+        caller: Address,
+        config: oracle::OracleConfig,
+    ) -> Result<(), oracle::OracleError> {
+        oracle::configure_oracle(&env, caller, config)
+    }
+
+    pub fn set_oracle_sources(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        sources: Vec<Address>,
+    ) -> Result<(), oracle::OracleError> {
+        oracle::set_oracle_sources(&env, caller, asset, sources)
+    }
+
+    pub fn emergency_pause_asset_oracle(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        pause_seconds: u64,
+    ) -> Result<(), oracle::OracleError> {
+        oracle::emergency_pause_asset_oracle(&env, caller, asset, pause_seconds)
+    }
+
+    pub fn get_oracle_circuit_breaker_state(
+        env: Env,
+        asset: Address,
+    ) -> oracle::CircuitBreakerState {
+        oracle::get_oracle_circuit_breaker_state(&env, &asset)
+    }
+
+    pub fn get_oracle_incident_report(
+        env: Env,
+        asset: Address,
+    ) -> Option<oracle::OracleIncidentReport> {
+        oracle::get_oracle_incident_report(&env, &asset)
+    }
+
     pub fn gov_initialize(
         env: Env,
         admin: Address,
