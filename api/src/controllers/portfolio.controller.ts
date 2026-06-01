@@ -5,7 +5,7 @@ import {
   toCSV,
   computeInterestAccrualProjection,
   computeLiquidationPrice,
-  getHealthFactorMonitor,
+  getHealthFactorMonitor as buildHealthFactorMonitor,
 } from '../services/portfolio.service';
 import { PortfolioAnalyticsResponse } from '../types/portfolio';
 import { redisCacheService } from '../services/redisCache.service';
@@ -194,7 +194,7 @@ export const getHealthFactorMonitor = async (
     const stellarService = new StellarService();
     const position = await stellarService.getUserPosition(userAddress);
 
-    const monitor = getHealthFactorMonitor(position);
+    const monitor = buildHealthFactorMonitor(position);
     res.status(200).json({
       userAddress,
       ...monitor,
