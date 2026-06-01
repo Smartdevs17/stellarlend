@@ -18,6 +18,7 @@ import verificationRoutes from './routes/verification.routes';
 import configRoutes from './routes/config.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import developerRoutes from './routes/developer.routes';
+import mevRoutes from './routes/mev.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { resetSensitiveRateLimits, sensitiveOperationRateLimiter } from './middleware/rate-limit';
@@ -143,6 +144,7 @@ app.use('/api/zk', zkProofRoutes);
 app.use('/api/verification', verificationRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/mev', mevRoutes);
 
 app.use(errorHandler);
 

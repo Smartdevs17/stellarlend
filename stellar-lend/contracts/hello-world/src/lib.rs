@@ -664,6 +664,33 @@ impl HelloContract {
         .map_err(Into::into)
     }
 
+    /// Commit a borrow with explicit slippage tolerance and deadline.
+    pub fn commit_borrow_with_slippage(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+        max_fee_bps: i128,
+        hint: mev_protection::TxOrderingHint,
+        max_slippage_bps: i128,
+        deadline: u64,
+    ) -> Result<u64, LendingError> {
+        mev_protection::create_commit_with_slippage(
+            &env,
+            user,
+            mev_protection::SensitiveOperation::Borrow,
+            asset,
+            None,
+            None,
+            amount,
+            max_fee_bps,
+            hint,
+            max_slippage_bps,
+            deadline,
+        )
+        .map_err(Into::into)
+    }
+
     pub fn reveal_borrow_protected(
         env: Env,
         user: Address,
@@ -692,6 +719,33 @@ impl HelloContract {
             amount,
             max_fee_bps,
             hint,
+        )
+        .map_err(Into::into)
+    }
+
+    /// Commit a withdrawal with explicit slippage tolerance and deadline.
+    pub fn commit_withdraw_with_slippage(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+        max_fee_bps: i128,
+        hint: mev_protection::TxOrderingHint,
+        max_slippage_bps: i128,
+        deadline: u64,
+    ) -> Result<u64, LendingError> {
+        mev_protection::create_commit_with_slippage(
+            &env,
+            user,
+            mev_protection::SensitiveOperation::Withdraw,
+            asset,
+            None,
+            None,
+            amount,
+            max_fee_bps,
+            hint,
+            max_slippage_bps,
+            deadline,
         )
         .map_err(Into::into)
     }
@@ -728,6 +782,100 @@ impl HelloContract {
             hint,
         )
         .map_err(Into::into)
+    }
+
+    /// Commit a liquidation with explicit slippage tolerance and deadline.
+    pub fn commit_liquidation_with_slippage(
+        env: Env,
+        liquidator: Address,
+        borrower: Address,
+        debt_asset: Option<Address>,
+        collateral_asset: Option<Address>,
+        debt_amount: i128,
+        max_fee_bps: i128,
+        hint: mev_protection::TxOrderingHint,
+        max_slippage_bps: i128,
+        deadline: u64,
+    ) -> Result<u64, LendingError> {
+        mev_protection::create_commit_with_slippage(
+            &env,
+            liquidator,
+            mev_protection::SensitiveOperation::Liquidate,
+            debt_asset,
+            collateral_asset,
+            Some(borrower),
+            debt_amount,
+            max_fee_bps,
+            hint,
+            max_slippage_bps,
+            deadline,
+        )
+        .map_err(Into::into)
+    }
+
+    /// Place a bid in the current batch liquidation auction.
+    ///
+    /// Bids are collected during the open window and settled atomically via
+    /// `settle_batch_auction` after the window closes.
+    pub fn place_auction_bid(
+        env: Env,
+        bidder: Address,
+        borrower: Address,
+        debt_amount: i128,
+        min_collateral_out: i128,
+        max_fee_bps: i128,
+        deadline: u64,
+    ) -> Result<u64, LendingError> {
+        mev_protection::place_auction_bid(
+            &env,
+            bidder,
+            borrower,
+            debt_amount,
+            min_collateral_out,
+            max_fee_bps,
+            deadline,
+        )
+        .map_err(Into::into)
+    }
+
+    /// Settle a closed batch auction slot and return the clearing result.
+    pub fn settle_batch_auction(
+        env: Env,
+        caller: Address,
+        slot_id: u64,
+    ) -> Result<mev_protection::AuctionResult, LendingError> {
+        mev_protection::settle_batch_auction(&env, caller, slot_id).map_err(Into::into)
+    }
+
+    /// Return bids for a given auction slot.
+    pub fn get_auction_bids(
+        env: Env,
+        slot_id: u64,
+    ) -> soroban_sdk::Vec<mev_protection::AuctionBid> {
+        mev_protection::get_auction_bids(&env, slot_id)
+    }
+
+    /// Return the settled result for a given auction slot.
+    pub fn get_auction_result(
+        env: Env,
+        slot_id: u64,
+    ) -> Option<mev_protection::AuctionResult> {
+        mev_protection::get_auction_result(&env, slot_id)
+    }
+
+    /// Return the current open auction slot ID.
+    pub fn get_current_auction_slot(env: Env) -> u64 {
+        mev_protection::get_current_auction_slot(&env)
+    }
+
+    /// Return a gas bidding analysis snapshot for the given operation.
+    pub fn get_gas_bid_analysis(
+        env: Env,
+        operation: mev_protection::SensitiveOperation,
+        asset: Option<Address>,
+        amount: i128,
+    ) -> mev_protection::GasBidAnalysis {
+        mev_protection::get_gas_bid_analysis(&env, operation, asset, amount)
     }
 
     pub fn reveal_liquidation_protected(
