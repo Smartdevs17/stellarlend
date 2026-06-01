@@ -2,16 +2,16 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { IncomingMessage } from 'http';
 import { Server } from 'http';
 import axios from 'axios';
-import logger from '../utils/logger';
-import { config } from '../config';
+import logger from '@/utils/logger';
+import { config } from '@/config';
 import {
   PriceData,
   ClientMessage,
   ServerMessage,
   WsSubscribeMessage,
   WsUnsubscribeMessage,
-} from '../types';
-import { WsAnalyticsMessage } from '../types/analytics';
+} from '@/types';
+import { WsAnalyticsMessage } from '@/types/analytics';
 
 const SUPPORTED_ASSETS = ['XLM', 'USDC', 'BTC', 'ETH', 'SOL'];
 const ANALYTICS_CHANNELS = ['apy', 'utilization', 'revenue'] as const;
