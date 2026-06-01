@@ -625,3 +625,149 @@ describe('IP-based Rate Limiting (Outer Layer)', () => {
     expect(statuses.some((s: number) => s === 429)).toBe(true);
   });
 });
+
+// ─── 9. Concurrent Request Handling ──────────────────────────────────────────
+//
+// Race condition coverage:
+//  - Simultaneous deposits from the same user must each get a unique response
+//  - No double-processing: submitTransaction called exactly once per request
+//  - Idempotency key deduplication holds under concurrency
+//  - Concurrent requests from different users are isolated
+
+describe('Concurrent Request Handling', () => {
+  it('processes simultaneous deposits independently without double-processing', async () => {
+    const CONCURRENCY = 5;
+
+    const responses = await Promise.all(
+      Array.from({ length: CONCURRENCY }, () =>
+        request(app)
+          .get('/api/lending/prepare/deposit')
+          .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT })
+      )
+    );
+
+    // Every request must succeed
+    responses.forEach((res) => {
+      expect(res.status).toBe(200);
+      expect(res.body.unsignedXdr).toBe('unsigned_xdr_string');
+      expect(res.body.operation).toBe('deposit');
+    });
+
+    // buildUnsignedTransaction called exactly once per concurrent request — no merging
+    expect(mockStellarService.buildUnsignedTransaction).toHaveBeenCalledTimes(CONCURRENCY);
+  });
+
+  it('submits concurrent transactions without double-processing', async () => {
+    const CONCURRENCY = 5;
+
+    const responses = await Promise.all(
+      Array.from({ length: CONCURRENCY }, () =>
+        request(app)
+          .post('/api/lending/submit')
+          .send({ signedXdr: 'signed_xdr_payload' })
+      )
+    );
+
+    // All must succeed
+    responses.forEach((res) => {
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.transactionHash).toBe('abc123txhash');
+    });
+
+    // submitTransaction called exactly once per request — no batching or skipping
+    expect(mockStellarService.submitTransaction).toHaveBeenCalledTimes(CONCURRENCY);
+    expect(mockStellarService.monitorTransaction).toHaveBeenCalledTimes(CONCURRENCY);
+  });
+
+  it('deduplicates concurrent requests sharing the same idempotency key', async () => {
+    const idemKey = 'a1b2c3d4-e5f6-4890-abcd-ef1234567890';
+    const CONCURRENCY = 5;
+
+    const responses = await Promise.all(
+      Array.from({ length: CONCURRENCY }, () =>
+        request(app)
+          .post('/api/lending/submit')
+          .set('Idempotency-Key', idemKey)
+          .send({ signedXdr: 'signed_xdr_payload' })
+      )
+    );
+
+    // All responses must be 200
+    responses.forEach((res) => {
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    });
+
+    // Despite 5 concurrent requests, the transaction is submitted only once
+    expect(mockStellarService.submitTransaction).toHaveBeenCalledTimes(1);
+
+    // All responses carry the same transaction hash
+    const hashes = responses.map((r) => r.body.transactionHash);
+    expect(new Set(hashes).size).toBe(1);
+  });
+
+  it('isolates concurrent requests from different users', async () => {
+    const USER_A = 'GDZZJ3UPZZCKY5DBH6ZGMPMRORRBG4ECIORASBUAXPPNCL4SYRHNLYU2';
+    const USER_B = 'GBBM6BKZPEHWYO3E3YKREDPQXMS4VK35YLNU7NFBRI26RAN7GI5POFBB';
+
+    const [userAResponses, userBResponses] = await Promise.all([
+      Promise.all(
+        Array.from({ length: 3 }, () =>
+          request(app)
+            .get('/api/lending/prepare/deposit')
+            .query({ userAddress: USER_A, amount: VALID_AMOUNT })
+        )
+      ),
+      Promise.all(
+        Array.from({ length: 3 }, () =>
+          request(app)
+            .get('/api/lending/prepare/deposit')
+            .query({ userAddress: USER_B, amount: VALID_AMOUNT })
+        )
+      ),
+    ]);
+
+    // Both users get successful responses
+    [...userAResponses, ...userBResponses].forEach((res) => {
+      expect(res.status).toBe(200);
+    });
+
+    // Each request triggers exactly one service call — 6 total
+    expect(mockStellarService.buildUnsignedTransaction).toHaveBeenCalledTimes(6);
+
+    // User A's calls used USER_A address
+    const userACalls = mockStellarService.buildUnsignedTransaction.mock.calls.filter(
+      (args) => args[1] === USER_A
+    );
+    expect(userACalls).toHaveLength(3);
+
+    // User B's calls used USER_B address
+    const userBCalls = mockStellarService.buildUnsignedTransaction.mock.calls.filter(
+      (args) => args[1] === USER_B
+    );
+    expect(userBCalls).toHaveLength(3);
+  });
+
+  it('handles concurrent failures without affecting successful requests', async () => {
+    // First call fails, rest succeed
+    mockStellarService.buildUnsignedTransaction
+      .mockRejectedValueOnce(new Error('Stellar network error'))
+      .mockResolvedValue('unsigned_xdr_string');
+
+    const responses = await Promise.all(
+      Array.from({ length: 4 }, () =>
+        request(app)
+          .get('/api/lending/prepare/deposit')
+          .query({ userAddress: VALID_ADDRESS, amount: VALID_AMOUNT })
+      )
+    );
+
+    const statuses = responses.map((r) => r.status);
+
+    // Exactly one failure
+    expect(statuses.filter((s) => s === 500)).toHaveLength(1);
+    // Remaining three succeed
+    expect(statuses.filter((s) => s === 200)).toHaveLength(3);
+  });
+});
