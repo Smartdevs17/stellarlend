@@ -17,8 +17,11 @@ import zkProofRoutes from './routes/zkProof.routes';
 import verificationRoutes from './routes/verification.routes';
 import configRoutes from './routes/config.routes';
 import analyticsRoutes from './routes/analytics.routes';
+import developerRoutes from './routes/developer.routes';
+import mevRoutes from './routes/mev.routes';
 import { errorHandler } from './middleware/errorHandler';
 import { idempotencyMiddleware } from './middleware/idempotency';
+import { resetSensitiveRateLimits, sensitiveOperationRateLimiter } from './middleware/rate-limit';
 import { swaggerSpec } from './config/swagger';
 import logger from './utils/logger';
 import { requestIdMiddleware } from './middleware/requestId';
@@ -64,6 +67,15 @@ const corsOptions: cors.CorsOptions = {
     }
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: [
+    'Authorization',
+    'Content-Type',
+    'Idempotency-Key',
+    'X-API-Key',
+    'X-Developer-Id',
+    'X-User-Address',
+  ],
 };
 app.use(cors(corsOptions));
 app.use(express.json({ limit: config.bodySizeLimit.limit }));
@@ -112,9 +124,16 @@ app.get('/api/openapi.json', (_req, res) => {
   res.json(swaggerSpec);
 });
 
+app.use('/api/developer', developerRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/protocol', protocolRoutes);
-app.use('/api/lending', idempotencyMiddleware, userRateLimiter, lendingRoutes);
+app.use(
+  '/api/lending',
+  idempotencyMiddleware,
+  userRateLimiter,
+  sensitiveOperationRateLimiter,
+  lendingRoutes
+);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/portfolio', portfolioRoutes);
 app.use('/api/gas', userRateLimiter, gasRoutes);
@@ -125,12 +144,14 @@ app.use('/api/zk', zkProofRoutes);
 app.use('/api/verification', verificationRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/mev', mevRoutes);
 
 app.use(errorHandler);
 
 void redisCacheService.warmup();
 
 export async function resetRateLimiters(): Promise<void> {
+  resetSensitiveRateLimits();
   await Promise.all([ipRateLimitStore.resetAll(), userRateLimitStore.resetAll()]);
 }
 
