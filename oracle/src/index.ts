@@ -19,8 +19,10 @@ import {
   createPriceHistoryService,
   createAggregator,
   createContractUpdater,
+  createMetricsService,
   type PriceAggregator,
   type ContractUpdater,
+  type MetricsService,
 } from './services/index.js';
 import type { ProviderConfig } from './types/index.js';
 
@@ -58,6 +60,7 @@ export class OracleService {
   private intervalId?: ReturnType<typeof setInterval>;
   private isRunning: boolean = false;
   private lastSuccessfulUpdate: number | null = null;
+  private metricsService: MetricsService;
 
   constructor(config: OracleServiceConfig) {
     this.validateConfig(config);
@@ -96,6 +99,9 @@ export class OracleService {
       retryDelayMs: 1000,
     });
 
+    // Create metrics service
+    this.metricsService = createMetricsService(config.metricsPort ?? 3001);
+
     logger.info('Oracle service initialized', {
       network: config.stellarNetwork,
       contractId: config.contractId,
@@ -116,6 +122,9 @@ export class OracleService {
 
     this.isRunning = true;
     logger.info('Starting oracle service', { assets });
+
+    // Start metrics server
+    this.metricsService.start();
 
     // Run immediately on start
     await this.updatePrices(assets);
@@ -143,6 +152,9 @@ export class OracleService {
       clearInterval(this.intervalId);
       this.intervalId = undefined;
     }
+
+    // Stop metrics server
+    this.metricsService.stop();
 
     this.isRunning = false;
     logger.info('Oracle service stopped');
@@ -211,14 +223,31 @@ export class OracleService {
 
       if (successful.length > 0) {
         this.lastSuccessfulUpdate = Date.now();
+        this.metricsService.recordUpdate();
+
+        // Update asset prices in metrics
+        for (const result of successful) {
+          const price = Number(result.price) / 1_000_000; // Convert from stroops
+          this.metricsService.updateAssetPrice(result.asset, price);
+        }
       }
 
       if (failed.length > 0) {
+        this.metricsService.recordError();
         logger.warn('Some price updates failed', {
           failedAssets: failed.map((f) => f.asset),
         });
       }
+
+      // Update provider health based on circuit breaker metrics
+      const circuitBreakerMetrics = this.aggregator.getCircuitBreakerMetrics();
+      for (const metric of circuitBreakerMetrics) {
+        const health: 'healthy' | 'degraded' | 'unhealthy' =
+          metric.state === 'CLOSED' ? 'healthy' : metric.state === 'HALF_OPEN' ? 'degraded' : 'unhealthy';
+        this.metricsService.updateProviderHealth(metric.providerName, health);
+      }
     } catch (error) {
+      this.metricsService.recordError();
       logger.error('Price update cycle failed', { error });
     }
   }
