@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'crypto';
-import logger from '../utils/logger';
+import logger from '@/utils/logger';
 
 export type AuditAction =
   | 'DEPOSIT'

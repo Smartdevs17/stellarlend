@@ -21,3 +21,6 @@ export type { PriceHistoryConfig, PriceHistoryEntry, TWAPResult } from './price-
 
 export { CircuitBreaker, CircuitState, createCircuitBreaker } from './circuit-breaker.js';
 export type { CircuitBreakerConfig, CircuitBreakerMetrics } from './circuit-breaker.js';
+
+export { MetricsService, createMetricsService } from './metrics-service.js';
+export type { MetricsResponse, ProviderHealth, AssetPriceInfo } from './metrics-service.js';

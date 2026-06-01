@@ -103,6 +103,7 @@ const envSchema = z
     CIRCUIT_BREAKER_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(3),
     CIRCUIT_BREAKER_BACKOFF_MS: z.coerce.number().positive().default(30_000),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+    METRICS_PORT: z.coerce.number().int().positive().optional(),
   })
   .superRefine((env, ctx) => {
     const networkDefaults = NETWORK_DEFAULTS[env.STELLAR_NETWORK as keyof typeof NETWORK_DEFAULTS];
@@ -275,6 +276,7 @@ export function loadConfig(): OracleServiceConfig {
       failureThreshold: env.CIRCUIT_BREAKER_FAILURE_THRESHOLD,
       backoffMs: env.CIRCUIT_BREAKER_BACKOFF_MS,
     },
+    metricsPort: env.METRICS_PORT,
   };
 }
 
