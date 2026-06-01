@@ -1450,6 +1450,11 @@ impl HelloContract {
         interest_rate::get_supply_index(&env)
     }
 
+    /// Get complete interest rate configuration.
+    pub fn get_interest_rate_config(env: Env) -> Option<interest_rate::InterestRateConfig> {
+        interest_rate::get_interest_rate_config(&env)
+    }
+
     // -------------------------------------------------------------------------
     // Cross-Asset Lending Module (Issues #177, #178, #179)
     // -------------------------------------------------------------------------

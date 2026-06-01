@@ -24,3 +24,11 @@ export type { CircuitBreakerConfig, CircuitBreakerMetrics } from './circuit-brea
 
 export { MetricsService, createMetricsService } from './metrics-service.js';
 export type { MetricsResponse, ProviderHealth, AssetPriceInfo } from './metrics-service.js';
+
+export {
+    OracleIncidentMonitor,
+    IncidentSeverity,
+    IncidentType,
+    createOracleIncidentMonitor,
+} from './oracle-incident-monitor.js';
+export type { OracleIncident } from './oracle-incident-monitor.js';

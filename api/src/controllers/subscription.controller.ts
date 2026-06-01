@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
-import { ValidationError } from '../utils/errors';
-import { SubscriptionService } from '../services/subscription.service';
-import { CreateRecurringSubscriptionRequest, UpdateRecurringSubscriptionRequest } from '../types';
+import { ValidationError } from '@/utils/errors';
+import { SubscriptionService } from '@/services/subscription.service';
+import { CreateRecurringSubscriptionRequest, UpdateRecurringSubscriptionRequest } from '@/types';
 
 const subscriptionService = new SubscriptionService();
 

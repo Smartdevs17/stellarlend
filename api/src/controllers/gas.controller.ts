@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { StellarService } from '../services/stellar.service';
-import { LendingOperation } from '../types';
+import { StellarService } from '@/services/stellar.service';
+import { LendingOperation } from '@/types';
 
 const stellarService = new StellarService();
 

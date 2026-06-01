@@ -1,10 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
-import { StellarService } from '../services/stellar.service';
-import { config } from '../config';
-import logger from '../utils/logger';
-import { emergencyPauseService } from '../services/emergencyPause.service';
-import { redisCacheService } from '../services/redisCache.service';
-import { auditLogService } from '../services/auditLog.service';
+import { StellarService } from '@/services/stellar.service';
+import { config } from '@/config';
+import logger from '@/utils/logger';
+import { emergencyPauseService } from '@/services/emergencyPause.service';
+import { redisCacheService } from '@/services/redisCache.service';
+import { auditLogService } from '@/services/auditLog.service';
 
 // Rebalancing Controller
 // Handles automated collateral rebalancing operations including configuration,

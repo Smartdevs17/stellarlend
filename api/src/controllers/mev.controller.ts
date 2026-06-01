@@ -15,9 +15,9 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { mevService, SensitiveOperation, TxOrderingHint } from '../services/mev.service';
-import { ValidationError } from '../utils/errors';
-import logger from '../utils/logger';
+import { mevService, SensitiveOperation, TxOrderingHint } from '@/services/mev.service';
+import { ValidationError } from '@/utils/errors';
+import logger from '@/utils/logger';
 
 // ─── Commit ───────────────────────────────────────────────────────────────────
 

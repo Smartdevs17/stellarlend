@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { StellarService } from '../services/stellar.service';
+import { StellarService } from '@/services/stellar.service';
 import {
   LendingOperation,
   PrepareResponse,
@@ -9,21 +9,21 @@ import {
   ProtocolStatsResponse,
   TransactionHistoryQuery,
   TransactionHistoryResponse,
-} from '../types';
-import { config } from '../config';
-import logger from '../utils/logger';
-import { emergencyPauseService } from '../services/emergencyPause.service';
-import { redisCacheService } from '../services/redisCache.service';
-import { auditLogService } from '../services/auditLog.service';
-import { parsePaginationParams } from '../utils/pagination';
-import { requestCoalescingService } from '../services/requestCoalescing.service';
+} from '@/types';
+import { config } from '@/config';
+import logger from '@/utils/logger';
+import { emergencyPauseService } from '@/services/emergencyPause.service';
+import { redisCacheService } from '@/services/redisCache.service';
+import { auditLogService } from '@/services/auditLog.service';
+import { parsePaginationParams } from '@/utils/pagination';
+import { requestCoalescingService } from '@/services/requestCoalescing.service';
 import {
   assignRole,
   getCurrentRoleAssignments,
   getRbacAuditContext,
   scheduleRevocation,
   type Role,
-} from '../middleware/rbac';
+} from '@/middleware/rbac';
 
 function mapHealthResponse(services: { horizon: boolean; sorobanRpc: boolean }) {
   const isHealthy = services.horizon && services.sorobanRpc;
@@ -600,10 +600,10 @@ export const burnDebtToken = async (req: Request, res: Response, next: NextFunct
 };
 
 export const getDebtPosition = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-  ) => {
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     const { tokenId } = req.query as any;
 
@@ -632,10 +632,10 @@ export const getDebtPosition = async (
 };
 
 export const getUserDebtTokens = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-  ) => {
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     const { userAddress } = req.query as any;
 
@@ -659,10 +659,10 @@ export const getUserDebtTokens = async (
 };
 
 export const getDebtTokenTotalSupply = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-  ) => {
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     logger.info('Get debt token total supply request');
 

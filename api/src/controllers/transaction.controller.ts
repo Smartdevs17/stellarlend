@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { transactionBuilderService } from '../services/transactionBuilder.service';
+import { transactionBuilderService } from '@/services/transactionBuilder.service';
 import type {
   CreateTransactionRequest,
   ApproveStepRequest,

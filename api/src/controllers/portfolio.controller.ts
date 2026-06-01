@@ -1,15 +1,15 @@
 import { Request, Response, NextFunction } from 'express';
-import { StellarService } from '../services/stellar.service';
+import { StellarService } from '@/services/stellar.service';
 import {
   analyzePortfolio,
   toCSV,
   computeInterestAccrualProjection,
   computeLiquidationPrice,
   getHealthFactorMonitor as buildHealthFactorMonitor,
-} from '../services/portfolio.service';
-import { PortfolioAnalyticsResponse } from '../types/portfolio';
-import { redisCacheService } from '../services/redisCache.service';
-import { config } from '../config';
+} from '@/services/portfolio.service';
+import { PortfolioAnalyticsResponse } from '@/types/portfolio';
+import { redisCacheService } from '@/services/redisCache.service';
+import { config } from '@/config';
 
 const PORTFOLIO_CACHE_TTL_S = Math.floor(config.cache.positionTtlMs / 1000);
 
