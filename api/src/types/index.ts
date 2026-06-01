@@ -138,12 +138,29 @@ export interface WsPingMessage {
   type: 'ping';
 }
 
-export type ClientMessage = WsSubscribeMessage | WsUnsubscribeMessage | WsPingMessage;
+export interface WsAnalyticsSubscribeMessage {
+  type: 'subscribe_analytics';
+  channels: ('apy' | 'utilization' | 'revenue')[];
+}
+
+export interface WsAnalyticsUnsubscribeMessage {
+  type: 'unsubscribe_analytics';
+  channels: ('apy' | 'utilization' | 'revenue')[];
+}
+
+export type ClientMessage =
+  | WsSubscribeMessage
+  | WsUnsubscribeMessage
+  | WsPingMessage
+  | WsAnalyticsSubscribeMessage
+  | WsAnalyticsUnsubscribeMessage;
 
 export type ServerMessage =
   | { type: 'price_update'; asset: string; price: number; timestamp: number }
   | { type: 'subscribed'; assets: string[] }
   | { type: 'unsubscribed'; assets: string[] }
+  | { type: 'subscribed_analytics'; channels: string[] }
+  | { type: 'unsubscribed_analytics'; channels: string[] }
   | { type: 'pong' }
   | { type: 'error'; message: string };
 

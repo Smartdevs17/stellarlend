@@ -469,7 +469,11 @@ export const executeRebalancing = async (req: Request, res: Response, next: Next
   }
 };
 
-export const getRebalancingConfig = async (req: Request, res: Response) => {
+export const getRebalancingConfig = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     const { userAddress } = req.query as any;
 
@@ -595,7 +599,11 @@ export const burnDebtToken = async (req: Request, res: Response, next: NextFunct
   }
 };
 
-export const getDebtPosition = async (req: Request, res: Response) => {
+export const getDebtPosition = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ) => {
   try {
     const { tokenId } = req.query as any;
 
@@ -623,7 +631,11 @@ export const getDebtPosition = async (req: Request, res: Response) => {
   }
 };
 
-export const getUserDebtTokens = async (req: Request, res: Response) => {
+export const getUserDebtTokens = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ) => {
   try {
     const { userAddress } = req.query as any;
 
@@ -646,7 +658,11 @@ export const getUserDebtTokens = async (req: Request, res: Response) => {
   }
 };
 
-export const getDebtTokenTotalSupply = async (req: Request, res: Response) => {
+export const getDebtTokenTotalSupply = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ) => {
   try {
     logger.info('Get debt token total supply request');
 
