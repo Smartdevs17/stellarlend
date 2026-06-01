@@ -10,7 +10,7 @@ module.exports = {
   transform: {
     '^.+\\.ts$': 'ts-jest',
   },
-  moduleNameMapping: {
+  moduleNameMapper: {
     '^@/config/(.*)$': '<rootDir>/src/config/$1',
     '^@/controllers/(.*)$': '<rootDir>/src/controllers/$1',
     '^@/middleware/(.*)$': '<rootDir>/src/middleware/$1',
