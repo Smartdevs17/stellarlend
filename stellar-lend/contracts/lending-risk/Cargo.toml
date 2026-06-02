@@ -1,0 +1,17 @@
+[package]
+name = "lending-risk"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+lending-types = { path = "../lending-types" }
+
+[dev-dependencies]
+test-utils = { path = "../test-utils" }
+
+[features]
+default = []
