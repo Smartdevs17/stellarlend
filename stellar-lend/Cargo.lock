@@ -1458,6 +1458,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
+name = "lending-core"
+version = "0.1.0"
+dependencies = [
+ "lending-types",
+ "soroban-sdk",
+ "test-utils",
+]
+
+[[package]]
+name = "lending-interest"
+version = "0.1.0"
+dependencies = [
+ "lending-types",
+ "soroban-sdk",
+ "test-utils",
+]
+
+[[package]]
+name = "lending-risk"
+version = "0.1.0"
+dependencies = [
+ "lending-types",
+ "soroban-sdk",
+ "test-utils",
+]
+
+[[package]]
+name = "lending-types"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.182"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2844,6 +2878,14 @@ dependencies = [
  "quote",
  "syn 2.0.117",
  "test-case-core",
+]
+
+[[package]]
+name = "test-utils"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "soroban-token-sdk",
 ]
 
 [[package]]

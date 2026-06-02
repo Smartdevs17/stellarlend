@@ -703,6 +703,29 @@ impl HelloContract {
         .map_err(Into::into)
     }
 
+    /// Liquidate up to `MAX_BATCH_SIZE` undercollateralized positions in one transaction.
+    ///
+    /// Amortizes authentication and submission overhead across all positions.
+    /// Per-position failures are captured in the returned results and do not abort
+    /// the entire batch.
+    pub fn batch_liquidate(
+        env: Env,
+        liquidator: Address,
+        requests: soroban_sdk::Vec<liquidate::BatchLiquidationRequest>,
+    ) -> Result<soroban_sdk::Vec<liquidate::BatchLiquidationResult>, LendingError> {
+        liquidator.require_auth();
+        let pool = env.current_contract_address();
+        rate_limiter::consume(
+            &env,
+            &liquidator,
+            &liquidator,
+            &soroban_sdk::Symbol::new(&env, "batch_liquidate"),
+            &pool,
+        )
+        .map_err(|_| LendingError::LimitExceeded)?;
+        liquidate::batch_liquidate(&env, liquidator, requests).map_err(Into::into)
+    }
+
     pub fn configure_mev_protection(
         env: Env,
         caller: Address,

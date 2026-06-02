@@ -27,6 +27,7 @@ import logger from './utils/logger';
 import { requestIdMiddleware } from './middleware/requestId';
 import { requestLogger } from './middleware/requestLogger';
 import { sanitizeInput } from './middleware/sanitizeInput';
+import { fieldSelectionMiddleware } from './middleware/fieldSelection';
 import { redisCacheService } from './services/redisCache.service';
 
 const app: Application = express();
@@ -82,6 +83,7 @@ app.use(express.json({ limit: config.bodySizeLimit.limit }));
 app.use(express.urlencoded({ extended: true, limit: config.bodySizeLimit.limit }));
 app.use(sanitizeInput);
 app.use(bodySizeLimitMiddleware);
+app.use(fieldSelectionMiddleware);
 
 const limiter = rateLimit({
   windowMs: config.rateLimit.windowMs,
@@ -148,7 +150,11 @@ app.use('/api/mev', mevRoutes);
 
 app.use(errorHandler);
 
-void redisCacheService.warmup();
+void redisCacheService.warmup(async () => {
+  const { StellarService } = await import('./services/stellar.service');
+  const svc = new StellarService();
+  await svc.getProtocolStats();
+});
 
 export async function resetRateLimiters(): Promise<void> {
   resetSensitiveRateLimits();
