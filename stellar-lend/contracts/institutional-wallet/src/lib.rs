@@ -9,11 +9,14 @@ mod storage;
 mod test;
 
 use crate::types::{
-    AuditEntry, MultisigConfig, Proposal, ProposalStatus, Transaction, WalletError,
+    AuditEntry, DailySpendingLimit, MultisigConfig, Proposal, ProposalStatus, Transaction,
+    WalletError, WalletRole,
 };
 use crate::storage::{
-    add_audit_entry, get_admins, get_approvals, get_config, get_next_proposal_id, get_proposal,
-    increment_proposal_id, set_admins, set_approvals, set_config, set_proposal,
+    add_audit_entry, check_and_record_daily_spend, clear_daily_spend_tracking, get_admins,
+    get_approvals, get_config, get_next_proposal_id, get_proposal, get_role,
+    get_spending_limit_config, increment_proposal_id, remove_role, remove_spending_limit_config,
+    set_admins, set_approvals, set_config, set_proposal, set_role, set_spending_limit_config,
 };
 
 /// Emergency recovery timeout: 90 days without any admin activity.
@@ -42,9 +45,19 @@ impl InstitutionalWallet {
             return Err(WalletError::InvalidThreshold);
         }
 
-        let config = MultisigConfig { threshold };
+        let config = MultisigConfig {
+            threshold,
+            default_daily_spend_limit: 0,
+        };
         set_config(&env, &config);
         set_admins(&env, &admins);
+
+        // Assign Admin role to all initial admins
+        for i in 0..admins.len() {
+            if let Some(admin) = admins.get(i) {
+                set_role(&env, &admin, WalletRole::Admin);
+            }
+        }
         crate::storage::set_last_activity(&env, env.ledger().timestamp());
 
         Ok(())
@@ -62,6 +75,12 @@ impl InstitutionalWallet {
         let admins = get_admins(&env);
         if !admins.contains(proposer.clone()) {
             return Err(WalletError::Unauthorized);
+        }
+
+        // Role check: must be Admin or Approver to propose
+        let role = get_role(&env, &proposer).unwrap_or(WalletRole::Viewer);
+        if role != WalletRole::Admin && role != WalletRole::Approver {
+            return Err(WalletError::InsufficientRole);
         }
 
         if batch.is_empty() {
@@ -110,6 +129,12 @@ impl InstitutionalWallet {
             return Err(WalletError::Unauthorized);
         }
 
+        // Role check: must be Admin or Approver to approve
+        let role = get_role(&env, &approver).unwrap_or(WalletRole::Viewer);
+        if role != WalletRole::Admin && role != WalletRole::Approver {
+            return Err(WalletError::InsufficientRole);
+        }
+
         let proposal = get_proposal(&env, proposal_id).ok_or(WalletError::ProposalNotFound)?;
         if proposal.status != ProposalStatus::Active {
             return Err(WalletError::ProposalNotActive);
@@ -146,6 +171,12 @@ impl InstitutionalWallet {
             return Err(WalletError::Unauthorized);
         }
 
+        // Role check: must be Admin or Executor to execute
+        let role = get_role(&env, &executor).unwrap_or(WalletRole::Viewer);
+        if role != WalletRole::Admin && role != WalletRole::Executor {
+            return Err(WalletError::InsufficientRole);
+        }
+
         let mut proposal = get_proposal(&env, proposal_id).ok_or(WalletError::ProposalNotFound)?;
         if proposal.status != ProposalStatus::Active {
             return Err(WalletError::ProposalNotActive);
@@ -156,6 +187,14 @@ impl InstitutionalWallet {
 
         if approvals.len() < config.threshold {
             return Err(WalletError::InsufficientApprovals);
+        }
+
+        // Enforce daily spending limits per asset in the batch
+        for tx in proposal.batch.iter() {
+            if tx.spend_amount > 0 {
+                let asset = tx.spend_asset.clone().unwrap_or_else(|| tx.contract.clone());
+                check_and_record_daily_spend(&env, &asset, tx.spend_amount)?;
+            }
         }
 
         // Execute batch
@@ -237,6 +276,104 @@ impl InstitutionalWallet {
 
         let mut config = get_config(&env)?;
         config.threshold = threshold;
+        set_config(&env, &config);
+        Ok(())
+    }
+
+    // ─── Role Management (must be called via multisig execute) ───────────
+
+    /// Assign a role to an address (Admin only, via multisig).
+    pub fn assign_role(
+        env: Env,
+        addr: Address,
+        role: WalletRole,
+    ) -> Result<(), WalletError> {
+        env.current_contract_address().require_auth();
+
+        set_role(&env, &addr, role);
+
+        add_audit_entry(
+            &env,
+            0,
+            AuditEntry {
+                actor: addr,
+                action: symbol_short!("roleSet"),
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+        Ok(())
+    }
+
+    /// Revoke a role from an address (Admin only, via multisig).
+    pub fn revoke_role(env: Env, addr: Address) -> Result<(), WalletError> {
+        env.current_contract_address().require_auth();
+
+        if get_role(&env, &addr).is_none() {
+            return Err(WalletError::RoleNotFound);
+        }
+
+        remove_role(&env, &addr);
+
+        add_audit_entry(
+            &env,
+            0,
+            AuditEntry {
+                actor: addr,
+                action: symbol_short!("roleRev"),
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+        Ok(())
+    }
+
+    // ─── Spending Limit Management ───────────────────────────────────────
+
+    /// Set a daily spending limit for a specific asset (Admin only, via multisig).
+    pub fn set_daily_spending_limit(
+        env: Env,
+        asset: Address,
+        daily_limit: i128,
+    ) -> Result<(), WalletError> {
+        env.current_contract_address().require_auth();
+
+        if daily_limit < 0 {
+            return Err(WalletError::InvalidThreshold);
+        }
+
+        if daily_limit == 0 {
+            // Remove limit
+            remove_spending_limit_config(&env, &asset);
+            clear_daily_spend_tracking(&env, &asset);
+        } else {
+            let limit = DailySpendingLimit { daily_limit };
+            set_spending_limit_config(&env, &asset, &limit);
+        }
+
+        add_audit_entry(
+            &env,
+            0,
+            AuditEntry {
+                actor: asset,
+                action: symbol_short!("spendLim"),
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+        Ok(())
+    }
+
+    /// Set the default daily spending limit for all assets (Admin only, via multisig).
+    pub fn set_default_spending_limit(
+        env: Env,
+        daily_limit: i128,
+    ) -> Result<(), WalletError> {
+        env.current_contract_address().require_auth();
+
+        if daily_limit < 0 {
+            return Err(WalletError::InvalidThreshold);
+        }
+
+        let mut config = get_config(&env)?;
+        config.default_daily_spend_limit = daily_limit;
         set_config(&env, &config);
         Ok(())
     }
@@ -577,5 +714,20 @@ impl InstitutionalWallet {
 
     pub fn get_last_activity(env: Env) -> u64 {
         crate::storage::get_last_activity(&env)
+    }
+
+    /// Get the role assigned to an address.
+    pub fn get_role(env: Env, addr: Address) -> Option<WalletRole> {
+        get_role(&env, &addr)
+    }
+
+    /// Get the daily spending limit config for an asset.
+    pub fn get_daily_spending_limit(env: Env, asset: Address) -> Option<DailySpendingLimit> {
+        get_spending_limit_config(&env, &asset)
+    }
+
+    /// Get the default daily spending limit.
+    pub fn get_default_spending_limit(env: Env) -> i128 {
+        get_config(&env).map(|c| c.default_daily_spend_limit).unwrap_or(0)
     }
 }

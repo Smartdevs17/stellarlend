@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::{Address as _, Ledger}, vec, Address, Env, String, symbol_short};
+use soroban_sdk::{testutils::{Address as _, Ledger}, vec, Address, Env, String, Symbol, symbol_short};
 use crate::types::{Transaction, ProposalStatus};
 
 #[test]
@@ -36,6 +36,8 @@ fn test_propose_and_approve() {
         contract: Address::generate(&env),
         function: symbol_short!("test"),
         args: vec![&env],
+        spend_amount: 0,
+        spend_asset: None,
     };
     let batch = vec![&env, tx];
     
@@ -74,6 +76,8 @@ fn test_execute_insufficient_approvals() {
         contract: Address::generate(&env),
         function: symbol_short!("test"),
         args: vec![&env],
+        spend_amount: 0,
+        spend_asset: None,
     };
     let batch = vec![&env, tx];
     
@@ -157,6 +161,8 @@ fn test_recovery_flow() {
         contract: contract_id.clone(),
         function: Symbol::new(&env, "set_guardians"),
         args: (guardians.clone(), 1u32).into_val(&env),
+        spend_amount: 0,
+        spend_asset: None,
     };
     let batch = vec![&env, tx];
     let proposal_id = client.propose(&admin1, &String::from_str(&env, "Set guardians"), &batch);

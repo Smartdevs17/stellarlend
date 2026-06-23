@@ -1,5 +1,27 @@
 use soroban_sdk::{contracterror, contracttype, Address, BytesN, String, Vec, Val};
 
+/// Role-based authorization levels for institutional wallet operations.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq, Copy)]
+pub enum WalletRole {
+    /// Full access: manage signers, thresholds, roles, and spending limits
+    Admin = 0,
+    /// Can propose and approve transactions
+    Approver = 1,
+    /// Can execute approved proposals
+    Executor = 2,
+    /// Read-only access to wallet state
+    Viewer = 3,
+}
+
+/// Per-asset daily spending limit configuration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DailySpendingLimit {
+    /// Maximum amount that can be spent per day for this asset (0 = unlimited)
+    pub daily_limit: i128,
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -22,6 +44,12 @@ pub enum WalletError {
     GuardianRotationFailed = 16,
     EmergencyTimeoutActive = 17,
     RecoveryCancelledByOwner = 18,
+    /// Spending limit exceeded for the current day
+    SpendingLimitExceeded = 19,
+    /// Role assignment not found
+    RoleNotFound = 20,
+    /// Insufficient role for operation
+    InsufficientRole = 21,
 }
 
 #[contracttype]
@@ -41,6 +69,12 @@ pub enum DataKey {
     LastActivity,
     GuardianApprovals,
     RecoveryCancelRequest,
+    /// Role assignment per admin: RoleAssignments(Address) -> WalletRole
+    RoleAssignments(Address),
+    /// Daily spending limit per asset: DailySpending(asset Address, day u64) -> i128
+    DailySpending(Address, u64),
+    /// Spending limit config per asset: SpendingLimitConfig(Address) -> DailySpendingLimit
+    SpendingLimitConfig(Address),
 }
 
 #[contracttype]
@@ -55,6 +89,8 @@ pub struct RecoveryRequest {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MultisigConfig {
     pub threshold: u32,
+    /// Default daily spending limit for all assets (0 = unlimited)
+    pub default_daily_spend_limit: i128,
 }
 
 #[contracttype]
@@ -63,6 +99,10 @@ pub struct Transaction {
     pub contract: Address,
     pub function: soroban_sdk::Symbol,
     pub args: Vec<Val>,
+    /// Optional spending amount for daily limit enforcement (0 = no limit check)
+    pub spend_amount: i128,
+    /// Asset to check spending limit against (only used when spend_amount > 0)
+    pub spend_asset: Option<Address>,
 }
 
 #[contracttype]
