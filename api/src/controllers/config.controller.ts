@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
-import { config, reloadConfig, getConfigSource } from '../config';
-import { configAuditService } from '../services/configAudit.service';
-import { assertValidConfig } from '../config/validators';
-import { AppConfig } from '../config/types';
+import { config, reloadConfig, getConfigSource } from '@/config';
+import { configAuditService } from '@/services/configAudit.service';
+import { assertValidConfig } from '@/config/validators';
+import { AppConfig } from '@/config/types';
 
 export const getConfig = (_req: Request, res: Response) => {
   const safeConfig: Record<string, unknown> = JSON.parse(JSON.stringify(config));

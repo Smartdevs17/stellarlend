@@ -111,7 +111,41 @@ cargo build
 
 ---
 
-## 4. Branching
+## 4. Pre-commit Hooks
+
+StellarLend uses [Husky](https://typicode.github.io/husky/) and [lint-staged](https://github.com/lint-staged/lint-staged) to enforce code quality before every commit.
+
+### What runs on commit
+
+| Staged files          | Checks                                      |
+|-----------------------|---------------------------------------------|
+| `api/src/**/*.ts`     | ESLint, Prettier format check, TypeScript   |
+| `oracle/src/**/*.ts`  | ESLint, Prettier format check, TypeScript   |
+| `contract/**/*.rs`    | `cargo check`                               |
+
+Commit messages are also validated against the [Conventional Commits](https://www.conventionalcommits.org/) spec.
+
+### Setup
+
+After cloning, install root dependencies to activate the hooks:
+
+```bash
+npm install
+```
+
+Husky is initialised automatically via the `prepare` script.
+
+### Bypassing hooks (emergencies only)
+
+```bash
+git commit --no-verify -m "fix: emergency patch"
+```
+
+> **Note:** `--no-verify` skips both the pre-commit and commit-msg hooks. Use only when necessary.
+
+---
+
+## 5. Branching
 
 Use clear and descriptive branch names:
 
@@ -127,7 +161,7 @@ git checkout -b fix/issue-name
 
 ---
 
-## 5. Commit Messages
+## 6. Commit Messages
 
 Use the format:
 
@@ -142,7 +176,7 @@ Examples:
 
 ---
 
-## 6. Pull Request Process
+## 7. Pull Request Process
 
 1. Fork the repository
 2. Create a new branch
@@ -164,7 +198,7 @@ Closes #123
 
 ---
 
-## 7. Testing
+## 8. Testing
 
 Run tests before submitting:
 
@@ -191,7 +225,7 @@ cargo test
 
 ---
 
-## 8. Guidelines
+## 9. Guidelines
 
 * Do not commit `.env` files
 * Do not expose secrets in logs or responses
@@ -200,7 +234,7 @@ cargo test
 
 ---
 
-## 9. Additional Resources
+## 10. Additional Resources
 
 * Stellar Docs: https://developers.stellar.org/
 * Soroban Docs: https://soroban.stellar.org/

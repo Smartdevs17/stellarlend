@@ -782,3 +782,19 @@ pub struct LiquidationCancelledEvent {
     pub caller: Address,
     pub timestamp: u64,
 }
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct BatchLiquidationEvent {
+    pub liquidator: Address,
+    pub total_positions: u32,
+    pub successful: u32,
+    pub failed: u32,
+    pub total_debt_liquidated: i128,
+    pub total_collateral_seized: i128,
+    pub timestamp: u64,
+}
+
+pub fn emit_batch_liquidation(e: &Env, event: BatchLiquidationEvent) {
+    event.publish(e);
+}

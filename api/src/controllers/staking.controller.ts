@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { stakingService } from '../services/staking.service';
+import { stakingService } from '@/services/staking.service';
 import type {
   StakeRequest,
   UnstakeRequest,

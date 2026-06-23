@@ -58,6 +58,79 @@ impl HelloContract {
         String::from_str(&env, "Hello")
     }
 
+    pub fn update_price_feed(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        price: i128,
+        decimals: u32,
+        oracle_address: Address,
+    ) -> Result<i128, oracle::OracleError> {
+        oracle::update_price_feed(&env, caller, asset, price, decimals, oracle_address)
+    }
+
+    pub fn get_price(env: Env, asset: Address) -> Result<i128, oracle::OracleError> {
+        oracle::get_price(&env, &asset)
+    }
+
+    pub fn set_primary_oracle(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        primary_oracle: Address,
+    ) -> Result<(), oracle::OracleError> {
+        oracle::set_primary_oracle(&env, caller, asset, primary_oracle)
+    }
+
+    pub fn set_fallback_oracle(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        fallback_oracle: Address,
+    ) -> Result<(), oracle::OracleError> {
+        oracle::set_fallback_oracle(&env, caller, asset, fallback_oracle)
+    }
+
+    pub fn configure_oracle(
+        env: Env,
+        caller: Address,
+        config: oracle::OracleConfig,
+    ) -> Result<(), oracle::OracleError> {
+        oracle::configure_oracle(&env, caller, config)
+    }
+
+    pub fn set_oracle_sources(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        sources: Vec<Address>,
+    ) -> Result<(), oracle::OracleError> {
+        oracle::set_oracle_sources(&env, caller, asset, sources)
+    }
+
+    pub fn emergency_pause_asset_oracle(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        pause_seconds: u64,
+    ) -> Result<(), oracle::OracleError> {
+        oracle::emergency_pause_asset_oracle(&env, caller, asset, pause_seconds)
+    }
+
+    pub fn get_oracle_circuit_breaker_state(
+        env: Env,
+        asset: Address,
+    ) -> oracle::CircuitBreakerState {
+        oracle::get_oracle_circuit_breaker_state(&env, &asset)
+    }
+
+    pub fn get_oracle_incident_report(
+        env: Env,
+        asset: Address,
+    ) -> Option<oracle::OracleIncidentReport> {
+        oracle::get_oracle_incident_report(&env, &asset)
+    }
+
     pub fn gov_initialize(
         env: Env,
         admin: Address,
@@ -630,6 +703,29 @@ impl HelloContract {
         .map_err(Into::into)
     }
 
+    /// Liquidate up to `MAX_BATCH_SIZE` undercollateralized positions in one transaction.
+    ///
+    /// Amortizes authentication and submission overhead across all positions.
+    /// Per-position failures are captured in the returned results and do not abort
+    /// the entire batch.
+    pub fn batch_liquidate(
+        env: Env,
+        liquidator: Address,
+        requests: soroban_sdk::Vec<liquidate::BatchLiquidationRequest>,
+    ) -> Result<soroban_sdk::Vec<liquidate::BatchLiquidationResult>, LendingError> {
+        liquidator.require_auth();
+        let pool = env.current_contract_address();
+        rate_limiter::consume(
+            &env,
+            &liquidator,
+            &liquidator,
+            &soroban_sdk::Symbol::new(&env, "batch_liquidate"),
+            &pool,
+        )
+        .map_err(|_| LendingError::LimitExceeded)?;
+        liquidate::batch_liquidate(&env, liquidator, requests).map_err(Into::into)
+    }
+
     pub fn configure_mev_protection(
         env: Env,
         caller: Address,
@@ -660,6 +756,33 @@ impl HelloContract {
             amount,
             max_fee_bps,
             hint,
+        )
+        .map_err(Into::into)
+    }
+
+    /// Commit a borrow with explicit slippage tolerance and deadline.
+    pub fn commit_borrow_with_slippage(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+        max_fee_bps: i128,
+        hint: mev_protection::TxOrderingHint,
+        max_slippage_bps: i128,
+        deadline: u64,
+    ) -> Result<u64, LendingError> {
+        mev_protection::create_commit_with_slippage(
+            &env,
+            user,
+            mev_protection::SensitiveOperation::Borrow,
+            asset,
+            None,
+            None,
+            amount,
+            max_fee_bps,
+            hint,
+            max_slippage_bps,
+            deadline,
         )
         .map_err(Into::into)
     }
@@ -696,6 +819,33 @@ impl HelloContract {
         .map_err(Into::into)
     }
 
+    /// Commit a withdrawal with explicit slippage tolerance and deadline.
+    pub fn commit_withdraw_with_slippage(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+        max_fee_bps: i128,
+        hint: mev_protection::TxOrderingHint,
+        max_slippage_bps: i128,
+        deadline: u64,
+    ) -> Result<u64, LendingError> {
+        mev_protection::create_commit_with_slippage(
+            &env,
+            user,
+            mev_protection::SensitiveOperation::Withdraw,
+            asset,
+            None,
+            None,
+            amount,
+            max_fee_bps,
+            hint,
+            max_slippage_bps,
+            deadline,
+        )
+        .map_err(Into::into)
+    }
+
     pub fn reveal_withdraw_protected(
         env: Env,
         user: Address,
@@ -728,6 +878,100 @@ impl HelloContract {
             hint,
         )
         .map_err(Into::into)
+    }
+
+    /// Commit a liquidation with explicit slippage tolerance and deadline.
+    pub fn commit_liquidation_with_slippage(
+        env: Env,
+        liquidator: Address,
+        borrower: Address,
+        debt_asset: Option<Address>,
+        collateral_asset: Option<Address>,
+        debt_amount: i128,
+        max_fee_bps: i128,
+        hint: mev_protection::TxOrderingHint,
+        max_slippage_bps: i128,
+        deadline: u64,
+    ) -> Result<u64, LendingError> {
+        mev_protection::create_commit_with_slippage(
+            &env,
+            liquidator,
+            mev_protection::SensitiveOperation::Liquidate,
+            debt_asset,
+            collateral_asset,
+            Some(borrower),
+            debt_amount,
+            max_fee_bps,
+            hint,
+            max_slippage_bps,
+            deadline,
+        )
+        .map_err(Into::into)
+    }
+
+    /// Place a bid in the current batch liquidation auction.
+    ///
+    /// Bids are collected during the open window and settled atomically via
+    /// `settle_batch_auction` after the window closes.
+    pub fn place_auction_bid(
+        env: Env,
+        bidder: Address,
+        borrower: Address,
+        debt_amount: i128,
+        min_collateral_out: i128,
+        max_fee_bps: i128,
+        deadline: u64,
+    ) -> Result<u64, LendingError> {
+        mev_protection::place_auction_bid(
+            &env,
+            bidder,
+            borrower,
+            debt_amount,
+            min_collateral_out,
+            max_fee_bps,
+            deadline,
+        )
+        .map_err(Into::into)
+    }
+
+    /// Settle a closed batch auction slot and return the clearing result.
+    pub fn settle_batch_auction(
+        env: Env,
+        caller: Address,
+        slot_id: u64,
+    ) -> Result<mev_protection::AuctionResult, LendingError> {
+        mev_protection::settle_batch_auction(&env, caller, slot_id).map_err(Into::into)
+    }
+
+    /// Return bids for a given auction slot.
+    pub fn get_auction_bids(
+        env: Env,
+        slot_id: u64,
+    ) -> soroban_sdk::Vec<mev_protection::AuctionBid> {
+        mev_protection::get_auction_bids(&env, slot_id)
+    }
+
+    /// Return the settled result for a given auction slot.
+    pub fn get_auction_result(
+        env: Env,
+        slot_id: u64,
+    ) -> Option<mev_protection::AuctionResult> {
+        mev_protection::get_auction_result(&env, slot_id)
+    }
+
+    /// Return the current open auction slot ID.
+    pub fn get_current_auction_slot(env: Env) -> u64 {
+        mev_protection::get_current_auction_slot(&env)
+    }
+
+    /// Return a gas bidding analysis snapshot for the given operation.
+    pub fn get_gas_bid_analysis(
+        env: Env,
+        operation: mev_protection::SensitiveOperation,
+        asset: Option<Address>,
+        amount: i128,
+    ) -> mev_protection::GasBidAnalysis {
+        mev_protection::get_gas_bid_analysis(&env, operation, asset, amount)
     }
 
     pub fn reveal_liquidation_protected(
@@ -1300,6 +1544,11 @@ impl HelloContract {
     /// Current global supply index (scaled by 1e12).
     pub fn get_supply_index(env: Env) -> i128 {
         interest_rate::get_supply_index(&env)
+    }
+
+    /// Get complete interest rate configuration.
+    pub fn get_interest_rate_config(env: Env) -> Option<interest_rate::InterestRateConfig> {
+        interest_rate::get_interest_rate_config(&env)
     }
 
     // -------------------------------------------------------------------------

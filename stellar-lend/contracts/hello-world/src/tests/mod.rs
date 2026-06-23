@@ -16,6 +16,8 @@ pub mod interest_accrual_test;
 pub mod interest_rate_test;
 pub mod intents_test;
 pub mod liquidate_test;
+#[cfg(test)]
+pub mod oracle_circuit_breaker_test;
 pub mod oracle_test;
 pub mod pause_test;
 pub mod rate_limiter_test;
@@ -48,3 +50,11 @@ pub mod cross_asset_tests;
 pub mod debt_token_tests;
 pub mod rebalancing_tests;
 pub mod test_utils;
+
+// Property-based tests (proptest)
+pub mod prop_arithmetic_test;
+pub mod prop_interest_test;
+pub mod prop_liquidation_test;
+pub mod prop_fees_test;
+pub mod prop_supply_cap_test;
+mod prop_deposit_test;

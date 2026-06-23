@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { merkleProofService } from '../services/merkleProof.service';
-import type { AccountState } from '../services/merkleProof.service';
-import type { MerkleProof } from '../utils/merkleTree';
+import { merkleProofService } from '@/services/merkleProof.service';
+import type { AccountState } from '@/services/merkleProof.service';
+import type { MerkleProof } from '@/utils/merkleTree';
 
 export const upsertAccount = async (req: Request, res: Response, next: NextFunction) => {
   try {

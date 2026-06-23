@@ -7,7 +7,7 @@ import {
   getAnalyticsSummary,
   exportAnalytics,
 } from '../services/analytics.service';
-import { AnalyticsQuery } from '../types/analytics';
+import { AnalyticsQuery } from '@/types/analytics';
 
 export const historicalRates = async (
   req: Request,

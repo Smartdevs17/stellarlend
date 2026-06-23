@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { zkProofService } from '../services/zkProof.service';
+import { zkProofService } from '@/services/zkProof.service';
 import type {
   CommitRequest,
   RangeProofRequest,

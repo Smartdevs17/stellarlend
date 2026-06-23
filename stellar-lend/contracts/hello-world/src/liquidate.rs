@@ -22,10 +22,10 @@
 
 #![allow(unused)]
 use crate::events::{
-    emit_liquidation, emit_liquidation_fee_collected, LiquidationEvent,
-    LiquidationFeeCollectedEvent,
+    emit_batch_liquidation, emit_liquidation, emit_liquidation_fee_collected,
+    BatchLiquidationEvent, LiquidationEvent, LiquidationFeeCollectedEvent,
 };
-use soroban_sdk::{contracterror, Address, Env, IntoVal, Map, Symbol, Val, Vec};
+use soroban_sdk::{contracttype, contracterror, Address, Env, IntoVal, Map, Symbol, Val, Vec};
 
 use crate::deposit::{
     add_activity_log, emit_analytics_updated_event, emit_position_updated_event,
@@ -43,6 +43,31 @@ use crate::risk_params::{
 
 /// Maximum liquidation penalty cap in basis points (20%)
 const MAX_PENALTY_BPS: i128 = 2_000;
+
+/// Maximum number of positions that can be liquidated in a single batch
+pub const MAX_BATCH_SIZE: u32 = 10;
+
+/// Input item for a batch liquidation call
+#[contracttype]
+#[derive(Clone)]
+pub struct BatchLiquidationRequest {
+    pub borrower: Address,
+    pub debt_asset: Option<Address>,
+    pub collateral_asset: Option<Address>,
+    pub debt_amount: i128,
+}
+
+/// Per-position result within a batch liquidation
+#[contracttype]
+#[derive(Clone)]
+pub struct BatchLiquidationResult {
+    pub borrower: Address,
+    pub success: bool,
+    pub debt_liquidated: i128,
+    pub collateral_seized: i128,
+    /// 0 on success; LiquidationError discriminant on failure
+    pub error_code: u32,
+}
 
 /// Calculate a dynamic liquidation penalty that scales with health factor severity.
 ///
@@ -750,4 +775,89 @@ fn update_liquidation_analytics(
         .set(&protocol_analytics_key, &protocol_analytics);
 
     Ok(())
+}
+
+/// Liquidate multiple undercollateralized positions in a single atomic transaction.
+///
+/// Processes up to `MAX_BATCH_SIZE` positions in one call, reducing the per-position
+/// overhead of separate transaction submissions. Per-position failures are captured in
+/// the result and do not abort the entire batch.
+///
+/// Authorization and rate-limiting are applied once in the contract entry point
+/// (`lib.rs`), not here.
+pub fn batch_liquidate(
+    env: &Env,
+    liquidator: Address,
+    requests: Vec<BatchLiquidationRequest>,
+) -> Result<Vec<BatchLiquidationResult>, LiquidationError> {
+    if requests.is_empty() {
+        return Err(LiquidationError::InvalidAmount);
+    }
+    if requests.len() as u32 > MAX_BATCH_SIZE {
+        return Err(LiquidationError::InvalidAmount);
+    }
+
+    let timestamp = env.ledger().timestamp();
+    let mut results: Vec<BatchLiquidationResult> = Vec::new(env);
+    let mut total_debt_liquidated: i128 = 0;
+    let mut total_collateral_seized: i128 = 0;
+    let mut successful: u32 = 0;
+    let mut failed: u32 = 0;
+
+    let n = requests.len();
+    for i in 0..n {
+        let req = requests.get(i).unwrap();
+        let outcome = liquidate(
+            env,
+            liquidator.clone(),
+            req.borrower.clone(),
+            req.debt_asset.clone(),
+            req.collateral_asset.clone(),
+            req.debt_amount,
+        );
+        let result = match outcome {
+            Ok((debt_liq, col_seized, _incentive)) => {
+                total_debt_liquidated = total_debt_liquidated
+                    .checked_add(debt_liq)
+                    .unwrap_or(i128::MAX);
+                total_collateral_seized = total_collateral_seized
+                    .checked_add(col_seized)
+                    .unwrap_or(i128::MAX);
+                successful += 1;
+                BatchLiquidationResult {
+                    borrower: req.borrower,
+                    success: true,
+                    debt_liquidated: debt_liq,
+                    collateral_seized: col_seized,
+                    error_code: 0,
+                }
+            }
+            Err(e) => {
+                failed += 1;
+                BatchLiquidationResult {
+                    borrower: req.borrower,
+                    success: false,
+                    debt_liquidated: 0,
+                    collateral_seized: 0,
+                    error_code: e as u32,
+                }
+            }
+        };
+        results.push_back(result);
+    }
+
+    emit_batch_liquidation(
+        env,
+        BatchLiquidationEvent {
+            liquidator,
+            total_positions: n as u32,
+            successful,
+            failed,
+            total_debt_liquidated,
+            total_collateral_seized,
+            timestamp,
+        },
+    );
+
+    Ok(results)
 }

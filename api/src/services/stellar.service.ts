@@ -318,6 +318,25 @@ export class StellarService {
     return decodeSimulationResult(simulation);
   }
 
+  /**
+   * Get TWAP-based liquidation price for an asset.
+   * Calls the contract's get_liquidation_price function which returns TWAP
+   * with fallback to median spot price across sources on manipulation.
+   */
+  async getLiquidationPrice(asset: string): Promise<string> {
+    try {
+      const assetAddress = new Address(asset);
+      const result = await this.simulateContractCall(
+        'get_liquidation_price',
+        assetAddress.toScVal()
+      );
+      return result?.toString() ?? '0';
+    } catch (error) {
+      logger.error('Failed to get liquidation price:', error);
+      return '0';
+    }
+  }
+
   async getProtocolStats(): Promise<ProtocolStatsResponse> {
     const coalescingKey = requestCoalescingService.generateKey('getProtocolStats', {});
 

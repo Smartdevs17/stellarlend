@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { StellarService } from '../services/stellar.service';
+import { StellarService } from '@/services/stellar.service';
 import {
   LendingOperation,
   PrepareResponse,
@@ -9,21 +9,21 @@ import {
   ProtocolStatsResponse,
   TransactionHistoryQuery,
   TransactionHistoryResponse,
-} from '../types';
-import { config } from '../config';
-import logger from '../utils/logger';
-import { emergencyPauseService } from '../services/emergencyPause.service';
-import { redisCacheService } from '../services/redisCache.service';
-import { auditLogService } from '../services/auditLog.service';
-import { parsePaginationParams } from '../utils/pagination';
-import { requestCoalescingService } from '../services/requestCoalescing.service';
+} from '@/types';
+import { config } from '@/config';
+import logger from '@/utils/logger';
+import { emergencyPauseService } from '@/services/emergencyPause.service';
+import { redisCacheService } from '@/services/redisCache.service';
+import { auditLogService } from '@/services/auditLog.service';
+import { parsePaginationParams } from '@/utils/pagination';
+import { requestCoalescingService } from '@/services/requestCoalescing.service';
 import {
   assignRole,
   getCurrentRoleAssignments,
   getRbacAuditContext,
   scheduleRevocation,
   type Role,
-} from '../middleware/rbac';
+} from '@/middleware/rbac';
 
 function mapHealthResponse(services: { horizon: boolean; sorobanRpc: boolean }) {
   const isHealthy = services.horizon && services.sorobanRpc;
@@ -393,6 +393,40 @@ export const verifyAuditLogIntegrity = (_req: Request, res: Response) => {
   return res.status(result.valid ? 200 : 409).json(result);
 };
 
+/**
+ * Get TWAP-based liquidation price for an asset.
+ *
+ * Uses the oracle contract's TWAP accumulator (get_liquidation_price)
+ * to provide manipulation-resistant pricing for liquidation calculations.
+ * Falls back to median spot price across sources when manipulation is detected.
+ */
+export const getLiquidationPrice = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { asset } = req.params;
+
+    if (!asset) {
+      return res.status(400).json({
+        success: false,
+        error: 'Asset address is required',
+      });
+    }
+
+    const stellarService = new StellarService();
+    const price = await stellarService.getLiquidationPrice(asset);
+
+    return res.status(200).json({
+      success: true,
+      asset,
+      liquidationPrice: price,
+      pricingMethod: 'twap_with_median_fallback',
+      description:
+        'TWAP-based price with manipulation resistance. Falls back to median across sources when manipulation is detected.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Rebalancing Endpoints
 export const configureRebalancing = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -469,7 +503,11 @@ export const executeRebalancing = async (req: Request, res: Response, next: Next
   }
 };
 
-export const getRebalancingConfig = async (req: Request, res: Response) => {
+export const getRebalancingConfig = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     const { userAddress } = req.query as any;
 
@@ -595,7 +633,11 @@ export const burnDebtToken = async (req: Request, res: Response, next: NextFunct
   }
 };
 
-export const getDebtPosition = async (req: Request, res: Response) => {
+export const getDebtPosition = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     const { tokenId } = req.query as any;
 
@@ -623,7 +665,11 @@ export const getDebtPosition = async (req: Request, res: Response) => {
   }
 };
 
-export const getUserDebtTokens = async (req: Request, res: Response) => {
+export const getUserDebtTokens = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     const { userAddress } = req.query as any;
 
@@ -646,7 +692,11 @@ export const getUserDebtTokens = async (req: Request, res: Response) => {
   }
 };
 
-export const getDebtTokenTotalSupply = async (req: Request, res: Response) => {
+export const getDebtTokenTotalSupply = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     logger.info('Get debt token total supply request');
 

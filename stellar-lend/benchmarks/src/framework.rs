@@ -16,6 +16,7 @@
 use serde::{Deserialize, Serialize};
 use soroban_sdk::Env;
 use std::collections::HashMap;
+use std::env;
 
 /// Configuration for a benchmark run
 #[derive(Clone, Debug)]
@@ -28,11 +29,26 @@ pub struct RunConfig {
     pub iterations: u32,
     /// Gas budget thresholds per operation (instruction count)
     pub budgets: HashMap<String, u64>,
+    /// Regression threshold percentage (default: 5%)
+    pub regression_threshold: f64,
 }
 
 impl RunConfig {
     pub fn from_args(args: &[String]) -> Self {
         let mut config = Self::default();
+        
+        // Load from environment variables first
+        if let Ok(threshold) = env::var("BENCHMARK_REGRESSION_THRESHOLD") {
+            config.regression_threshold = threshold.parse().unwrap_or(5.0);
+        }
+        if let Ok(output) = env::var("BENCHMARK_OUTPUT_JSON") {
+            config.output_file = Some(output);
+        }
+        if let Ok(baseline) = env::var("BENCHMARK_BASELINE") {
+            config.compare_baseline = Some(baseline);
+        }
+        
+        // Override with command-line arguments
         let mut i = 1;
         while i < args.len() {
             match args[i].as_str() {
@@ -46,6 +62,10 @@ impl RunConfig {
                 }
                 "--iterations" if i + 1 < args.len() => {
                     config.iterations = args[i + 1].parse().unwrap_or(1);
+                    i += 1;
+                }
+                "--threshold" if i + 1 < args.len() => {
+                    config.regression_threshold = args[i + 1].parse().unwrap_or(5.0);
                     i += 1;
                 }
                 _ => {}
@@ -114,6 +134,7 @@ impl Default for RunConfig {
             output_file: None,
             iterations: 1,
             budgets: Self::default_budgets(),
+            regression_threshold: 5.0,
         }
     }
 }

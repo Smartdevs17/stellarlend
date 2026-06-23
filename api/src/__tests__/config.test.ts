@@ -53,4 +53,36 @@ describe('Config Validation', () => {
       require('../config/index');
     }).toThrow('Config validation failed: JWT_SECRET must be at least 32 characters');
   });
+
+  it('should require ALLOWED_ORIGINS in production', () => {
+    process.env.CONTRACT_ID = 'TEST_CONTRACT_ID';
+    process.env.JWT_SECRET = 'a-secure-secret-that-is-at-least-thirty-two-characters-long';
+    process.env.NODE_ENV = 'production';
+    delete process.env.ALLOWED_ORIGINS;
+
+    expect(() => {
+      require('../config/index');
+    }).toThrow('Config validation failed: ALLOWED_ORIGINS is required in production');
+  });
+
+  it('should require REDIS_URL when REDIS_ENABLED is true', () => {
+    process.env.CONTRACT_ID = 'TEST_CONTRACT_ID';
+    process.env.JWT_SECRET = 'a-secure-secret-that-is-at-least-thirty-two-characters-long';
+    process.env.REDIS_ENABLED = 'true';
+    delete process.env.REDIS_URL;
+
+    expect(() => {
+      require('../config/index');
+    }).toThrow('Config validation failed: REDIS_URL is required when REDIS_ENABLED=true');
+  });
+
+  it('should reject invalid URL values', () => {
+    process.env.CONTRACT_ID = 'TEST_CONTRACT_ID';
+    process.env.JWT_SECRET = 'a-secure-secret-that-is-at-least-thirty-two-characters-long';
+    process.env.HORIZON_URL = 'not-a-url';
+
+    expect(() => {
+      require('../config/index');
+    }).toThrow('Config validation failed: HORIZON_URL must be a valid URL');
+  });
 });
