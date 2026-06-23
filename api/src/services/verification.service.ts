@@ -1,3 +1,5 @@
+import crypto from 'crypto';
+
 export type VerificationLevel = 'basic' | 'enhanced' | 'institutional';
 export type VerificationProvider = 'civic' | 'fractal_id' | 'mock';
 export type VerificationStatus = 'pending' | 'verified' | 'rejected' | 'revoked' | 'expired';
@@ -28,8 +30,10 @@ export interface VerificationAttestation {
 const attestations = new Map<string, VerificationAttestation>();
 const WATCHLIST_TERMS = ['sanctioned', 'blocked', 'watchlist'];
 
-function annualExpiry(level: VerificationLevel): Date {
+function expiryForLevel(level: VerificationLevel): Date {
   const now = new Date();
+  // Basic and institutional attestations require annual re-verification;
+  // enhanced attestations are reviewed biannually.
   const months = level === 'enhanced' ? 6 : 12;
   now.setMonth(now.getMonth() + months);
   return now;
@@ -45,14 +49,9 @@ function buildAttestationHash(request: VerificationRequest, issuedAt: string): s
     issuedAt,
   ].join(':');
 
-  // Avoid storing raw PII. This deterministic, non-cryptographic fallback is
-  // sufficient for local/dev attestations; production should replace this with
-  // a provider-signed on-chain attestation transaction hash.
-  let hash = 0;
-  for (let i = 0; i < input.length; i += 1) {
-    hash = (hash * 31 + input.charCodeAt(i)) >>> 0;
-  }
-  return `att_${hash.toString(16).padStart(8, '0')}`;
+  // Privacy preserving: no PII is stored in the proof. Production providers can
+  // replace this with a provider-signed on-chain attestation transaction hash.
+  return `att_${crypto.createHash('sha256').update(input).digest('hex')}`;
 }
 
 function screenAml(request: VerificationRequest): { amlScreened: boolean; watchlistHit: boolean } {
@@ -66,7 +65,7 @@ function screenAml(request: VerificationRequest): { amlScreened: boolean; watchl
 export async function submitVerification(request: VerificationRequest): Promise<VerificationAttestation> {
   const { amlScreened, watchlistHit } = screenAml(request);
   const issuedAt = new Date().toISOString();
-  const expiresAt = annualExpiry(request.level).toISOString();
+  const expiresAt = expiryForLevel(request.level).toISOString();
   const attestation: VerificationAttestation = {
     userAddress: request.userAddress,
     provider: request.provider,
