@@ -4,6 +4,10 @@ import cors from 'cors';
 import rateLimit, { MemoryStore } from 'express-rate-limit';
 import { config } from './config';
 import { bodySizeLimitMiddleware } from './middleware/bodySizeLimit';
+// Versioned domain route imports (v1)
+import v1Routes from './routes/v1';
+
+// Legacy route imports for backward compatibility
 import lendingRoutes from './routes/lending.routes';
 import healthRoutes from './routes/health.routes';
 import protocolRoutes from './routes/protocol.routes';
@@ -19,10 +23,15 @@ import configRoutes from './routes/config.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import developerRoutes from './routes/developer.routes';
 import mevRoutes from './routes/mev.routes';
+
 import { errorHandler } from './middleware/errorHandler';
 import { idempotencyMiddleware } from './middleware/idempotency';
 import { resetSensitiveRateLimits, sensitiveOperationRateLimiter } from './middleware/rate-limit';
-import { swaggerSpec } from './config/swagger';
+import { swaggerSpec, versionListHandler, v1Spec } from './config/swagger';
+import {
+  versionMiddleware,
+  legacyCompatibilityMiddleware,
+} from './middleware/versioning';
 import logger from './utils/logger';
 import { requestIdMiddleware } from './middleware/requestId';
 import { requestLogger } from './middleware/requestLogger';
@@ -122,31 +131,58 @@ app.use('/api/docs', (req: Request, res: Response, next: NextFunction) => {
     .catch(next);
 });
 
+// ─── API Version listing ──────────────────────────────────────────────────
+app.get('/api/versions', versionListHandler);
+
+// ─── OpenAPI specs per version ────────────────────────────────────────────
+app.get('/api/v1/openapi.json', (_req, res) => {
+  res.json(v1Spec);
+});
+
 app.get('/api/openapi.json', (_req, res) => {
+  // Legacy: return the v1 spec with deprecation notice
+  res.setHeader('X-API-Deprecated', 'true');
+  res.setHeader('X-API-Migrate-To', '/api/v1/openapi.json');
   res.json(swaggerSpec);
 });
 
-app.use('/api/developer', developerRoutes);
-app.use('/api/health', healthRoutes);
-app.use('/api/protocol', protocolRoutes);
+// ─── Versioned v1 domain routes ──────────────────────────────────────────
+// All v1 routes are mounted under /api/v1 with version headers
+app.use('/api/v1', versionMiddleware({ version: 'v1' }), v1Routes);
+
+// ─── Legacy route compatibility (deprecated) ─────────────────────────────
+// These routes are preserved for backward compatibility.
+// Clients receive deprecation headers and should migrate to /api/v1/* paths.
+
+const legacyLendingCompat = legacyCompatibilityMiddleware('/api/v1/lending');
+const legacyProtocolCompat = legacyCompatibilityMiddleware('/api/v1/protocol');
+const legacyGovernanceCompat = legacyCompatibilityMiddleware('/api/v1/governance');
+const legacyAccountCompat = legacyCompatibilityMiddleware('/api/v1/account');
+const legacySystemCompat = legacyCompatibilityMiddleware('/api/v1/system');
+const legacySecurityCompat = legacyCompatibilityMiddleware('/api/v1/security');
+
+app.use('/api/developer', legacySystemCompat, developerRoutes);
+app.use('/api/health', legacySystemCompat, healthRoutes);
+app.use('/api/protocol', legacyProtocolCompat, protocolRoutes);
 app.use(
   '/api/lending',
+  legacyLendingCompat,
   idempotencyMiddleware,
   userRateLimiter,
   sensitiveOperationRateLimiter,
   lendingRoutes
 );
-app.use('/api/subscriptions', subscriptionRoutes);
-app.use('/api/portfolio', portfolioRoutes);
-app.use('/api/gas', userRateLimiter, gasRoutes);
-app.use('/api/staking', stakingRoutes);
-app.use('/api/transactions', transactionRoutes);
-app.use('/api/merkle', merkleRoutes);
-app.use('/api/zk', zkProofRoutes);
-app.use('/api/verification', verificationRoutes);
-app.use('/api/config', configRoutes);
-app.use('/api/analytics', analyticsRoutes);
-app.use('/api/mev', mevRoutes);
+app.use('/api/subscriptions', legacyAccountCompat, subscriptionRoutes);
+app.use('/api/portfolio', legacyAccountCompat, portfolioRoutes);
+app.use('/api/gas', legacyLendingCompat, userRateLimiter, gasRoutes);
+app.use('/api/staking', legacyGovernanceCompat, stakingRoutes);
+app.use('/api/transactions', legacyAccountCompat, transactionRoutes);
+app.use('/api/merkle', legacySecurityCompat, merkleRoutes);
+app.use('/api/zk', legacySecurityCompat, zkProofRoutes);
+app.use('/api/verification', legacySecurityCompat, verificationRoutes);
+app.use('/api/config', legacySystemCompat, configRoutes);
+app.use('/api/analytics', legacySystemCompat, analyticsRoutes);
+app.use('/api/mev', legacySecurityCompat, mevRoutes);
 
 app.use(errorHandler);
 
