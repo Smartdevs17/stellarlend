@@ -316,3 +316,69 @@ export const createRecurringSubscriptionValidation = [
   body('maxRetries').optional().isInt({ min: 0, max: 100 }),
   validateRequest,
 ];
+
+export const validatePositionImport = [
+  body('format')
+    .isIn(VALID_IMPORT_FORMATS)
+    .withMessage(`format must be one of: ${VALID_IMPORT_FORMATS.join(', ')}`),
+  body('data')
+    .custom((value) => typeof value === 'string' || Array.isArray(value))
+    .withMessage('data must be a CSV string or JSON array'),
+  body('columnMapping')
+    .optional()
+    .isObject()
+    .withMessage('columnMapping must be an object'),
+  body('options')
+    .optional()
+    .isObject()
+    .withMessage('options must be an object'),
+  body('options.validateOnly')
+    .optional()
+    .isBoolean()
+    .withMessage('validateOnly must be a boolean'),
+  body('options.allowUpdates')
+    .optional()
+    .isBoolean()
+    .withMessage('allowUpdates must be a boolean'),
+  body('options.previewLimit')
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage('previewLimit must be between 1 and 100'),
+  body('options.batchSize')
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage('batchSize must be between 1 and 100'),
+  validateRequest,
+];
+
+export const validatePositionExport = [
+  body('format')
+    .optional()
+    .isIn(VALID_IMPORT_FORMATS)
+    .withMessage(`format must be one of: ${VALID_IMPORT_FORMATS.join(', ')}`),
+  body('includeZeroBalances')
+    .optional()
+    .isBoolean()
+    .withMessage('includeZeroBalances must be a boolean'),
+  body('userAddresses')
+    .optional()
+    .isArray()
+    .withMessage('userAddresses must be an array'),
+  body('userAddresses.*')
+    .optional()
+    .custom((value) => {
+      if (!StrKey.isValidEd25519PublicKey(value) && !StrKey.isValidContract(value)) {
+        throw new Error('Invalid Stellar address');
+      }
+      return true;
+    }),
+  body('assetAddress')
+    .optional()
+    .custom((value) => {
+      if (value && !StrKey.isValidContract(value)) {
+        throw new Error('Invalid contract address');
+      }
+      return true;
+    }),
+  validateRequest,
+];

@@ -214,20 +214,6 @@ pub struct BridgeSecurityStats {
 
 #[contracttype]
 #[derive(Clone, Debug)]
-pub struct BridgeAnalytics {
-    pub bridge_id: String,
-    pub total_volume_deposited: i128,
-    pub total_volume_withdrawn: i128,
-    pub net_volume: i128,
-    pub fee_bps: u64,
-    pub total_fees_collected: i128,
-    pub active_validators: u32,
-    pub total_validators: u32,
-    pub is_active: bool,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
 pub struct SourceMessageKey {
     pub channel_id: String,
     pub source_chain: String,
