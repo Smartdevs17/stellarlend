@@ -161,7 +161,7 @@ const DEFAULT_MAX_STALENESS_SECONDS: u64 = 3600; // 1 hour
 const DEFAULT_CACHE_TTL_SECONDS: u64 = 300; // 5 minutes
 const DEFAULT_MIN_PRICE: i128 = 1;
 const DEFAULT_MAX_PRICE: i128 = i128::MAX;
-const DEFAULT_TWAP_WINDOW_SECONDS: u64 = 900; // 15 minutes
+const DEFAULT_TWAP_WINDOW_SECONDS: u64 = 1800; // 30 minutes
 const DEFAULT_MAX_OBSERVATIONS: u32 = 64;
 const DEFAULT_MIN_SOURCES: u32 = 1;
 const DEFAULT_OUTLIER_DEVIATION_BPS: i128 = 1000; // 10%
@@ -1198,6 +1198,99 @@ pub fn get_price(env: &Env, asset: &Address) -> Result<i128, OracleError> {
     record_safe_price(env, asset, twap);
 
     Ok(twap)
+}
+
+/// Get TWAP price specifically for liquidation pricing.
+///
+/// Liquidation pricing uses TWAP to resist short-term manipulation.
+/// When insufficient history exists for a full TWAP window, this function
+/// falls back to the spot price aggregated from multiple sources with
+/// outlier filtering (median across sources).
+///
+/// # Arguments
+/// * `env` - The Soroban environment
+/// * `asset` - The asset address
+///
+/// # Returns
+/// Returns the TWAP price or median spot price for liquidation calculations.
+pub fn get_liquidation_price(env: &Env, asset: &Address) -> Result<i128, OracleError> {
+    // Circuit breaker check first
+    if is_breaker_open(env, asset) {
+        return Err(OracleError::CircuitBreakerOpen);
+    }
+
+    // Try cache first (gas-efficient path)
+    if let Some(cached_price) = get_cached_price(env, asset) {
+        return Ok(cached_price);
+    }
+
+    let config = get_oracle_config(env);
+
+    // Try to compute TWAP first (most manipulation-resistant)
+    if config.twap_window_seconds > 0 {
+        let history = load_history(env, asset);
+        if !history.is_empty() {
+            // Use a spot-price anchor for TWAP computation
+            let spot = aggregate_spot_price(env, asset)?;
+            let twap = compute_twap(env, asset, spot)?;
+
+            // Validate TWAP isn't stale or extreme vs spot
+            if twap > 0 {
+                let deviation_bps = price_deviation_bps(spot, twap).unwrap_or(10000);
+                // If TWAP and spot are reasonably close, use TWAP
+                if deviation_bps <= config.breaker_deviation_bps {
+                    cache_price(env, asset, twap);
+                    record_safe_price(env, asset, twap);
+                    return Ok(twap);
+                }
+            }
+        }
+    }
+
+    // Fallback: median across multiple sources with outlier filtering
+    let spot = aggregate_spot_price(env, asset)?;
+
+    // Trip breaker check on the fallback price
+    maybe_trip_breaker(env, asset, spot)?;
+    if is_breaker_open(env, asset) {
+        return Err(OracleError::CircuitBreakerOpen);
+    }
+
+    cache_price(env, asset, spot);
+    record_safe_price(env, asset, spot);
+
+    Ok(spot)
+}
+
+/// Get raw spot price (non-TWAP) for an asset.
+/// Useful for display purposes or when instantaneous price is needed.
+pub fn get_spot_price(env: &Env, asset: &Address) -> Result<i128, OracleError> {
+    if is_breaker_open(env, asset) {
+        return Err(OracleError::CircuitBreakerOpen);
+    }
+
+    let spot = aggregate_spot_price(env, asset)?;
+    validate_price(env, spot)?;
+
+    Ok(spot)
+}
+
+/// Get the TWAP value for the current window without updating state.
+/// This is a read-only view function for off-chain monitoring.
+pub fn get_twap_view(env: &Env, asset: &Address) -> Result<i128, OracleError> {
+    let config = get_oracle_config(env);
+    if config.twap_window_seconds == 0 {
+        return aggregate_spot_price(env, asset);
+    }
+
+    let history = load_history(env, asset);
+    if history.is_empty() {
+        return aggregate_spot_price(env, asset);
+    }
+
+    // Use the latest observation as spot anchor for TWAP
+    let latest = history.get(history.len() - 1).unwrap();
+    compute_twap(env, asset, latest.price)
 }
 
 /// Get price from fallback oracle
