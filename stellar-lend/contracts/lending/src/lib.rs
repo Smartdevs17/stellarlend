@@ -10,6 +10,7 @@ mod token_receiver;
 mod withdraw;
 mod reentrancy;
 mod rounding;
+mod commitments;
 
 use borrow::{
     borrow as borrow_cmd, deposit as borrow_deposit, get_admin as get_borrow_admin,
@@ -45,6 +46,12 @@ use views::{
 use withdraw::{
     initialize_withdraw_settings as initialize_withdraw_logic,
     set_withdraw_paused as set_withdraw_paused_logic, withdraw as withdraw_logic, WithdrawError,
+};
+
+pub use commitments::{
+    cancel_borrow_commitment, create_borrow_commitment, execute_borrow_commitment,
+    get_borrow_commitment, BorrowCommitment, CommitmentError, CommitmentStatus, PriceTrigger,
+    TriggerCombiner,
 };
 mod data_store;
 mod insurance;
@@ -102,6 +109,8 @@ mod borrow_prop_test;
 mod interest_rate_prop_test;
 #[cfg(test)]
 mod invariant_prop_test;
+#[cfg(test)]
+mod commitments_test;
 
 #[contract]
 pub struct LendingContract;
@@ -602,5 +611,62 @@ impl LendingContract {
     /// Sweep dust amounts from user's withdraw position
     pub fn sweep_withdraw_dust(env: Env, user: Address, asset: Address) -> Result<i128, WithdrawError> {
         withdraw::sweep_dust(&env, user, asset)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Conditional Borrow Commitments (Issue #328)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Create a conditional borrow commitment with oracle price triggers.
+    /// The commitment will be executable by anyone once triggers are met.
+    pub fn create_borrow_commitment(
+        env: Env,
+        owner: Address,
+        triggers: Vec<PriceTrigger>,
+        combiner: TriggerCombiner,
+        borrow_asset: Address,
+        collateral_asset: Address,
+        borrow_amount: i128,
+        collateral_amount: i128,
+        min_fill_bps: u32,
+        expiry_timestamp: u64,
+    ) -> Result<u64, CommitmentError> {
+        create_borrow_commitment(
+            &env,
+            owner,
+            triggers,
+            combiner,
+            borrow_asset,
+            collateral_asset,
+            borrow_amount,
+            collateral_amount,
+            min_fill_bps,
+            expiry_timestamp,
+        )
+    }
+
+    /// Cancel a pending borrow commitment (owner only).
+    pub fn cancel_borrow_commitment(
+        env: Env,
+        owner: Address,
+        commitment_id: u64,
+    ) -> Result<(), CommitmentError> {
+        cancel_borrow_commitment(&env, owner, commitment_id)
+    }
+
+    /// Execute a borrow commitment if triggers are met (anyone can call).
+    pub fn execute_borrow_commitment(
+        env: Env,
+        commitment_id: u64,
+    ) -> Result<(), CommitmentError> {
+        execute_borrow_commitment(&env, commitment_id)
+    }
+
+    /// Get a borrow commitment by ID.
+    pub fn get_borrow_commitment(
+        env: Env,
+        commitment_id: u64,
+    ) -> Option<BorrowCommitment> {
+        get_borrow_commitment(&env, commitment_id)
     }
 }
