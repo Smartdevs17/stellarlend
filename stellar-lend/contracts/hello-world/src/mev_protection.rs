@@ -19,6 +19,7 @@
 //!   within a suspicious window increment alert counters surfaced in `OrderingStats`.
 
 use soroban_sdk::{contracterror, contracttype, Address, Env, String, Symbol};
+use stellarlend_shared_deadline::{is_expired_strict, require_strict_deadline};
 
 // ─── Error Types ─────────────────────────────────────────────────────────────
 
@@ -595,9 +596,7 @@ pub fn place_auction_bid(
     }
 
     let now = env.ledger().timestamp();
-    if deadline > 0 && deadline <= now {
-        return Err(MevProtectionError::DeadlineExpired);
-    }
+    require_strict_deadline(env, deadline, MevProtectionError::DeadlineExpired)?;
 
     let slot_id = current_slot_id(env);
     let bids_key = MevDataKey::AuctionBids(slot_id);
@@ -697,7 +696,7 @@ pub fn settle_batch_auction(
     let mut total_debt: i128 = 0;
 
     for bid in bids.iter() {
-        if bid.deadline > 0 && now > bid.deadline {
+        if is_expired_strict(env, bid.deadline) {
             continue;
         }
         valid_fee_sum = valid_fee_sum.saturating_add(bid.max_fee_bps);

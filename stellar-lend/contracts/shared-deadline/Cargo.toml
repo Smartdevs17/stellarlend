@@ -1,5 +1,5 @@
 [package]
-name = "delegation-registry"
+name = "stellarlend-shared-deadline"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -9,4 +9,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 soroban-sdk = { workspace = true }
-stellarlend-shared-deadline = { path = "../shared-deadline" }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

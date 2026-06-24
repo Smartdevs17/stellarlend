@@ -195,6 +195,32 @@ impl ReentrantFlashLoanReceiver {
     }
 }
 
+#[contract]
+pub struct SequenceJumpFlashLoanReceiver;
+
+#[contractimpl]
+impl SequenceJumpFlashLoanReceiver {
+    pub fn on_flash_loan(
+        env: Env,
+        initiator: Address,
+        asset: Address,
+        amount: i128,
+        fee: i128,
+        _params: Bytes,
+    ) -> bool {
+        let total = amount + fee;
+        let token_client = token::Client::new(&env, &asset);
+        token_client.approve(
+            &env.current_contract_address(),
+            &initiator,
+            &total,
+            &9999,
+        );
+        env.ledger().with_mut(|li| li.sequence_number += 1);
+        true
+    }
+}
+
 #[test]
 #[should_panic(expected = "HostError: Error(Context, InvalidAction)")]
 fn test_flash_loan_reentrancy() {
@@ -218,6 +244,36 @@ fn test_flash_loan_reentrancy() {
 
     let amount = 10_000;
     client.flash_loan(&receiver_address, &asset, &amount, &1_000_000, &Bytes::new(&env));
+}
+
+#[test]
+fn test_flash_loan_expired_when_sequence_changes() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LendingContract, ());
+    let client = LendingContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let asset = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    let token_admin = token::StellarAssetClient::new(&env, &asset);
+
+    let receiver_id = env.register(SequenceJumpFlashLoanReceiver, ());
+    let receiver_address = receiver_id.clone();
+
+    client.initialize(&admin, &1_000_000_000, &1000);
+    token_admin.mint(&contract_id, &100_000);
+
+    let result = client.try_flash_loan(
+        &receiver_address,
+        &asset,
+        &10_000,
+        &1_000_000,
+        &Bytes::new(&env),
+    );
+    assert!(result.is_err());
 }
 
 #[test]

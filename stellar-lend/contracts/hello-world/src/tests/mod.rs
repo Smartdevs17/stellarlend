@@ -19,6 +19,7 @@ pub mod liquidate_test;
 #[cfg(test)]
 pub mod oracle_circuit_breaker_test;
 pub mod oracle_test;
+pub mod oracle_staleness_fallback_test;
 pub mod pause_test;
 pub mod rate_limiter_test;
 pub mod risk_params_test;

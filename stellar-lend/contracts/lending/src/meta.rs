@@ -1,6 +1,7 @@
 use soroban_sdk::{contracterror, contracttype, Address, Env, IntoVal, Symbol, Vec};
 
 use crate::{borrow, deposit, pause::PauseType, withdraw};
+use stellarlend_shared_deadline::require_deadline;
 
 const BPS_DENOMINATOR: i128 = 10_000;
 
@@ -287,9 +288,7 @@ pub fn execute_delegated(
 ) -> Result<(), MetaTxError> {
     delegate.require_auth();
 
-    if deadline != 0 && env.ledger().timestamp() > deadline {
-        return Err(MetaTxError::Expired);
-    }
+    require_deadline(env, deadline, MetaTxError::Expired)?;
 
     let current = get_nonce(env, &delegator);
     if nonce != current {

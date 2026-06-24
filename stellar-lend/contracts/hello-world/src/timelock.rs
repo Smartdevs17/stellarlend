@@ -3,6 +3,7 @@ use soroban_sdk::{Address, Env, String, Vec, contracttype, IntoVal};
 use crate::errors::GovernanceError;
 use crate::storage;
 use crate::types::ProposalType;
+use stellarlend_shared_deadline::is_expired;
 
 /// Minimum timelock delay (2 hours in seconds)
 pub const MIN_TIMELOCK_DELAY: u64 = 7200;
@@ -180,7 +181,7 @@ pub fn execute_timelock_operation(
         return Err(GovernanceError::TimelockNotReady);
     }
 
-    if now > operation.expires_at {
+    if is_expired(env, operation.expires_at) {
         operation.status = TimelockStatus::Expired;
         env.storage().persistent().set(&operation_key, &operation);
         return Err(GovernanceError::TimelockExpired);
@@ -411,7 +412,7 @@ pub fn execute_batch_timelock_operation(
         return Err(GovernanceError::TimelockNotReady);
     }
 
-    if now > operation.expires_at {
+    if is_expired(env, operation.expires_at) {
         operation.status = TimelockStatus::Expired;
         env.storage().persistent().set(&operation_key, &operation);
         return Err(GovernanceError::TimelockExpired);

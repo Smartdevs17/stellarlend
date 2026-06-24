@@ -24,6 +24,7 @@ use crate::events::{
 };
 
 use crate::{interest_rate, risk_management, risk_params};
+use stellarlend_shared_deadline::{is_expired, is_expired_strict};
 
 /// Maximum byte length for a proposal description string.
 pub const MAX_DESCRIPTION_LEN: u32 = 256;
@@ -226,6 +227,17 @@ pub fn vote(
         return Err(GovernanceError::ProposalNotActive);
     }
 
+    if now < proposal.start_time {
+        return Err(GovernanceError::ProposalNotActive);
+    }
+    if is_expired_strict(env, proposal.end_time) {
+        proposal.status = ProposalStatus::Expired;
+        env.storage()
+            .persistent()
+            .set(&GovernanceDataKey::Proposal(proposal_id), &proposal);
+        return Err(GovernanceError::ProposalExpired);
+    }
+
     let vote_key = GovernanceDataKey::Vote(proposal_id, voter.clone());
     if env.storage().persistent().has(&vote_key) {
         return Err(GovernanceError::AlreadyVoted);
@@ -313,7 +325,7 @@ pub fn queue_proposal(
         _ => {}
     }
 
-    if now > proposal.end_time + DEFAULT_TIMELOCK_DURATION {
+    if is_expired(env, proposal.end_time.saturating_add(config.timelock_duration)) {
         proposal.status = ProposalStatus::Expired;
         env.storage()
             .persistent()
@@ -562,7 +574,7 @@ pub fn execute_proposal(
         return Err(GovernanceError::ExecutionTooEarly);
     }
 
-    if now > execution_time + config.timelock_duration {
+    if is_expired(env, execution_time.saturating_add(config.timelock_duration)) {
         proposal.status = ProposalStatus::Expired;
         env.storage()
             .persistent()
@@ -951,6 +963,12 @@ pub fn execute_multisig_proposal(
 ) -> Result<(), GovernanceError> {
     executor.require_auth();
 
+    let config: GovernanceConfig = env
+        .storage()
+        .instance()
+        .get(&GovernanceDataKey::Config)
+        .ok_or(GovernanceError::NotInitialized)?;
+
     let multisig_config = get_multisig_config(env).ok_or(GovernanceError::NotInitialized)?;
     if !multisig_config.admins.contains(&executor) {
         return Err(GovernanceError::Unauthorized);
@@ -964,6 +982,18 @@ pub fn execute_multisig_proposal(
 
     if proposal.status != ProposalStatus::Pending {
         return Err(GovernanceError::InvalidProposalStatus);
+    }
+
+    let now = env.ledger().timestamp();
+    if now <= proposal.end_time {
+        return Err(GovernanceError::ProposalNotReady);
+    }
+    if is_expired(env, proposal.end_time.saturating_add(config.timelock_duration)) {
+        proposal.status = ProposalStatus::Expired;
+        env.storage()
+            .persistent()
+            .set(&GovernanceDataKey::Proposal(proposal_id), &proposal);
+        return Err(GovernanceError::ProposalExpired);
     }
 
     let approvals = get_proposal_approvals(env, proposal_id).unwrap_or_else(|| Vec::new(env));

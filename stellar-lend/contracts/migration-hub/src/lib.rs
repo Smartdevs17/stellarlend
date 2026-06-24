@@ -12,6 +12,7 @@ use crate::types::{
     DataKey, MigrationAnalytics, MigrationConfig, MigrationError, MigrationRecord, MigrationStatus, ProtocolType,
 };
 use crate::adapter::{MigrationAdapter, StellarOtherLendAdapter};
+use stellarlend_shared_deadline::require_deadline;
 
 #[contract]
 pub struct MigrationHub;
@@ -65,9 +66,7 @@ impl MigrationHub {
 
         let config: MigrationConfig = env.storage().instance().get(&DataKey::Config).ok_or(MigrationError::NotInitialized)?;
         
-        if env.ledger().timestamp() > config.migration_deadline {
-            return Err(MigrationError::DeadlineExceeded);
-        }
+        require_deadline(&env, config.migration_deadline, MigrationError::DeadlineExceeded)?;
 
         // 1. Analytics & Tracking
         let id = Self::get_next_id(&env);

@@ -32,7 +32,7 @@ use crate::deposit::{
     emit_user_activity_tracked_event, update_protocol_analytics, AssetParams, DepositDataKey,
     Position, ProtocolAnalytics, UserAnalytics,
 };
-use crate::oracle::get_price;
+use crate::oracle::{get_price, OracleError};
 use crate::risk_management::{
     is_emergency_paused, is_operation_paused, require_operation_not_paused, RiskManagementError,
 };
@@ -242,11 +242,11 @@ fn accrue_interest(
 
 /// Get asset price from oracle
 /// Returns price in base units (scaled by decimals)
-/// Falls back to default price if oracle doesn't have a price set
-fn get_asset_price(env: &Env, asset: &Address) -> i128 {
-    // Try to get price from oracle, but fallback to default if not available
-    // This allows liquidation to work even when prices aren't set up in tests
-    get_price(env, asset).unwrap_or(1_00000000i128) // Default: 1 XLM with 8 decimals
+fn get_asset_price(env: &Env, asset: &Address) -> Result<i128, LiquidationError> {
+    get_price(env, asset).map_err(|err| match err {
+        OracleError::StalePrice => LiquidationError::PriceNotAvailable,
+        _ => LiquidationError::PriceNotAvailable,
+    })
 }
 
 /// Calculate collateral value in debt asset terms
@@ -409,12 +409,12 @@ pub fn liquidate(
             collateral_balance
         } else {
             let debt_price = if let Some(ref debt_addr) = debt_asset {
-                get_asset_price(env, debt_addr)
+                get_asset_price(env, debt_addr)?
             } else {
                 1i128
             };
             let collateral_price = if let Some(ref collateral_addr) = collateral_asset {
-                get_asset_price(env, collateral_addr)
+                get_asset_price(env, collateral_addr)?
             } else {
                 1i128
             };
@@ -464,13 +464,13 @@ pub fn liquidate(
     } else {
         // Need to convert between different assets using prices
         let debt_price = if let Some(ref debt_addr) = debt_asset {
-            get_asset_price(env, debt_addr)
+            get_asset_price(env, debt_addr)?
         } else {
             1i128 // Native XLM
         };
 
         let collateral_price = if let Some(ref collateral_addr) = collateral_asset {
-            get_asset_price(env, collateral_addr)
+            get_asset_price(env, collateral_addr)?
         } else {
             1i128 // Native XLM
         };

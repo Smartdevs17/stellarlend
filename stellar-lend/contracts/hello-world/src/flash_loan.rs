@@ -62,6 +62,8 @@ pub enum FlashLoanError {
     ConcurrentLoan = 13,
     /// TWAP deviation indicates price manipulation
     PriceManipulationDetected = 14,
+    /// Flash loan crossed into a later ledger sequence before completion.
+    Expired = 15,
 }
 
 /// Storage keys for flash loan-related data
@@ -137,6 +139,8 @@ pub struct FlashLoanRecord {
     pub fee: i128,
     /// Timestamp when loan was initiated
     pub timestamp: u64,
+    /// Ledger sequence when the flash loan began.
+    pub sequence_number: u32,
     /// Callback contract address
     pub callback: Address,
 }
@@ -338,6 +342,7 @@ fn record_flash_loan(
         amount,
         fee,
         timestamp: env.ledger().timestamp(),
+        sequence_number: env.ledger().sequence_number(),
         callback: callback.clone(),
     };
     env.storage().temporary().set(&loan_key, &record);
@@ -388,6 +393,7 @@ pub fn execute_flash_loan(
     // 2. Preparation
     let fee = calculate_flash_loan_fee(env, amount)?;
     let total_required = amount.checked_add(fee).ok_or(FlashLoanError::Overflow)?;
+    let start_sequence = env.ledger().sequence_number();
 
     let token_client = soroban_sdk::token::Client::new(env, &asset);
     let initial_balance = token_client.balance(&env.current_contract_address());
@@ -439,6 +445,10 @@ pub fn execute_flash_loan(
         &callback_symbol,
         (user.clone(), asset.clone(), amount, fee).into_val(env),
     );
+
+    if env.ledger().sequence_number() != start_sequence {
+        return Err(FlashLoanError::Expired);
+    }
 
     // 6. Repayment via Transfer From
     // Soroban blocks re-entry from the callback, so the callback cannot call `repay_flash_loan`.
@@ -492,6 +502,10 @@ pub fn repay_flash_loan(
         .temporary()
         .get::<Val, FlashLoanRecord>(&loan_key)
         .ok_or(FlashLoanError::NotRepaid)?;
+
+    if env.ledger().sequence_number() != record.sequence_number {
+        return Err(FlashLoanError::Expired);
+    }
 
     let total_required = record
         .amount

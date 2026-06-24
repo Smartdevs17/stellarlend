@@ -49,7 +49,9 @@ pub enum FlashLoanError {
     ConcurrentLoan = 10,
     /// TWAP price deviates too far from the spot price — manipulation detected.
     PriceManipulationDetected = 11,
-    Overflow = 12,
+    /// Flash loan crossed into a later ledger sequence before completion.
+    Expired = 12,
+    Overflow = 13,
 }
 
 /// Storage keys for flash loan data.
@@ -314,6 +316,7 @@ pub fn flash_loan(
 
     let fee = calculate_fee(env, amount);
     let initial_balance = pool_balance;
+    let start_sequence = env.ledger().sequence_number();
 
     // Record this spot price into the TWAP before dispatching.
     record_price_sample(env, &asset, spot_price);
@@ -340,6 +343,10 @@ pub fn flash_loan(
 
     if !callback_result {
         return Err(FlashLoanError::CallbackFailed);
+    }
+
+    if env.ledger().sequence_number() != start_sequence {
+        return Err(FlashLoanError::Expired);
     }
 
     // Verify repayment.
