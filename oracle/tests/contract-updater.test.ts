@@ -259,6 +259,71 @@ describe('ContractUpdater', () => {
       expect(results[1].asset).toBe('BTC');
     });
 
+    describe('retry backoff delay verification', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should apply exponential backoff delays between retries', async () => {
+    const delays: number[] = [];
+    let callCount = 0;
+
+    const mockFn = vi.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount < 3) throw new Error('Temporary failure');
+      return Promise.resolve({ success: true });
+    });
+
+    const promise = updater.updateWithRetry(mockFn, {
+      maxRetries: 3,
+      baseDelay: 1000,
+      backoffFactor: 2,
+    });
+
+    // Advance through first delay (1s)
+    await vi.advanceTimersByTimeAsync(1000);
+    delays.push(1000);
+
+    // Advance through second delay (2s)
+    await vi.advanceTimersByTimeAsync(2000);
+    delays.push(2000);
+
+    await promise;
+
+    expect(delays[0]).toBe(1000);   // 1s
+    expect(delays[1]).toBe(2000);   // 2s
+    expect(mockFn).toHaveBeenCalledTimes(3);
+  });
+
+  it('should apply 4s delay on third retry', async () => {
+    let callCount = 0;
+
+    const mockFn = vi.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount < 4) throw new Error('Temporary failure');
+      return Promise.resolve({ success: true });
+    });
+
+    const promise = updater.updateWithRetry(mockFn, {
+      maxRetries: 4,
+      baseDelay: 1000,
+      backoffFactor: 2,
+    });
+
+    await vi.advanceTimersByTimeAsync(1000); // retry 1
+    await vi.advanceTimersByTimeAsync(2000); // retry 2
+    await vi.advanceTimersByTimeAsync(4000); // retry 3
+
+    await promise;
+
+    expect(mockFn).toHaveBeenCalledTimes(4);
+  });
+});
+
     it('should handle empty price array', async () => {
       const results = await updater.updatePrices([]);
 
