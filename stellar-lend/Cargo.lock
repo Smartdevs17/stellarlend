@@ -1458,6 +1458,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
+name = "lending-core"
+version = "0.1.0"
+dependencies = [
+ "lending-types",
+ "soroban-sdk",
+ "test-utils",
+]
+
+[[package]]
+name = "lending-interest"
+version = "0.1.0"
+dependencies = [
+ "lending-types",
+ "soroban-sdk",
+ "test-utils",
+]
+
+[[package]]
+name = "lending-risk"
+version = "0.1.0"
+dependencies = [
+ "lending-types",
+ "soroban-sdk",
+ "test-utils",
+]
+
+[[package]]
+name = "lending-types"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.182"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1744,6 +1778,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "353e1ca18966c16d9deb1c69278edbc5f194139612772bd9537af60ac231e1e6"
 dependencies = [
  "elliptic-curve",
+]
+
+[[package]]
+name = "privacy-pool"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "soroban-token-sdk",
+ "stealth-address",
 ]
 
 [[package]]
@@ -2609,6 +2652,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "stealth-address"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "soroban-token-sdk",
+]
+
+[[package]]
 name = "stellar-contract-utils"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2844,6 +2895,14 @@ dependencies = [
  "quote",
  "syn 2.0.117",
  "test-case-core",
+]
+
+[[package]]
+name = "test-utils"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "soroban-token-sdk",
 ]
 
 [[package]]

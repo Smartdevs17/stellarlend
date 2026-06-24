@@ -214,6 +214,20 @@ pub struct BridgeSecurityStats {
 
 #[contracttype]
 #[derive(Clone, Debug)]
+pub struct BridgeAnalytics {
+    pub bridge_id: String,
+    pub total_volume_deposited: i128,
+    pub total_volume_withdrawn: i128,
+    pub net_volume: i128,
+    pub fee_bps: u64,
+    pub total_fees_collected: i128,
+    pub active_validators: u32,
+    pub total_validators: u32,
+    pub is_active: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
 pub struct SourceMessageKey {
     pub channel_id: String,
     pub source_chain: String,
@@ -1238,6 +1252,40 @@ impl BridgeContract {
 
     pub fn get_bridge_security_stats(env: Env) -> BridgeSecurityStats {
         Self::load_stats(&env)
+    }
+
+    pub fn get_bridge_analytics(env: Env, bridge_id: String) -> Result<BridgeAnalytics, ContractError> {
+        let bridge = Self::load_bridge(&env, &bridge_id)?;
+        let validators = Self::validator_list(&env);
+        let active_validators = validators.iter()
+            .filter_map(|v| Self::load_validator(&env, &v).ok())
+            .filter(|r| r.active)
+            .count() as u32;
+
+        Ok(BridgeAnalytics {
+            bridge_id: bridge_id.clone(),
+            total_volume_deposited: bridge.total_deposited,
+            total_volume_withdrawn: bridge.total_withdrawn,
+            net_volume: bridge.total_deposited.saturating_sub(bridge.total_withdrawn),
+            fee_bps: bridge.fee_bps,
+            total_fees_collected: Self::compute_fee(env.clone(), bridge.total_deposited, bridge.fee_bps),
+            active_validators,
+            total_validators: validators.len() as u32,
+            is_active: bridge.active,
+        })
+    }
+
+    pub fn get_all_bridge_analytics(env: Env) -> Vec<BridgeAnalytics> {
+        let bridges = Self::bridge_list(&env);
+        let mut analytics = Vec::new(&env);
+        
+        for bridge_id in bridges.iter() {
+            if let Ok(stats) = Self::get_bridge_analytics(env.clone(), bridge_id.clone()) {
+                analytics.push_back(stats);
+            }
+        }
+        
+        analytics
     }
 
     pub fn upgrade_init(

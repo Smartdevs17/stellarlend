@@ -9,11 +9,20 @@ members = [
   "contracts/delegation-registry",
   "contracts/hello-world",
   "contracts/lending",
+  "contracts/lending-core",
+  "contracts/lending-types",
+  "contracts/lending-interest",
+  "contracts/lending-risk",
   "contracts/stablecoin",
   "contracts/institutional-wallet",
   "contracts/migration-hub",
+  "contracts/test-utils",
+  "contracts/stealth-address",
+  "contracts/privacy-pool",
 ]
 exclude = ["fuzz"]
+
+[workspace.lints.rust]
 
 [workspace.dependencies]
 soroban-sdk = "23.4.1"
@@ -36,3 +45,9 @@ codegen-units = 1
 [profile.release-with-logs]
 inherits = "release"
 debug-assertions = true
+
+[profile.dev]
+incremental = true
+
+[profile.test]
+incremental = true
