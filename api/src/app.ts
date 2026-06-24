@@ -23,6 +23,7 @@ import configRoutes from './routes/config.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import developerRoutes from './routes/developer.routes';
 import mevRoutes from './routes/mev.routes';
+import reputationRoutes from './routes/reputation.routes';
 
 import { errorHandler } from './middleware/errorHandler';
 import { idempotencyMiddleware } from './middleware/idempotency';
@@ -183,6 +184,7 @@ app.use('/api/verification', legacySecurityCompat, verificationRoutes);
 app.use('/api/config', legacySystemCompat, configRoutes);
 app.use('/api/analytics', legacySystemCompat, analyticsRoutes);
 app.use('/api/mev', legacySecurityCompat, mevRoutes);
+app.use('/api/reputation', reputationRoutes);
 
 app.use(errorHandler);
 

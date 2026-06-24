@@ -2803,6 +2803,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellarlend-reputation"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+ "stellarlend-common",
+]
+
+[[package]]
 name = "stellarlend-stablecoin"
 version = "0.1.0"
 dependencies = [
