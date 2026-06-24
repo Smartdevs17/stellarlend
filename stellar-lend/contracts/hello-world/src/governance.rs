@@ -234,8 +234,6 @@ pub fn vote(
     // --- Flash loan protection: use snapshot-based voting power ---
     let voting_power =
         get_vote_power_with_delegation(env, proposal_id, &voter, &config.vote_token)?;
-    let token_client = TokenClient::new(env, &config.vote_token);
-    let voting_power = token_client.balance(&voter);
 
     if voting_power == 0 {
         return Err(GovernanceError::NoVotingPower);
