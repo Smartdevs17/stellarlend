@@ -1,4 +1,5 @@
 #![no_std]
+extern crate alloc;
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, Vec,
 };
@@ -53,6 +54,7 @@ pub struct CommitmentNote {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WithdrawalProof {
     pub nullifier: BytesN<32>,
+    pub commitment: BytesN<32>,
     pub recipient: Address,
     pub amount: i128,
     pub merkle_root: BytesN<32>,
@@ -77,9 +79,10 @@ pub enum PrivacyPoolDataKey {
     TotalWithdrawals,
     AnonymitySetSize,
     ComplianceDepositor(BytesN<32>),
+    FilledSubtree(u32),
+    ZeroHash(u32),
 }
 
-const MERKLE_DEFAULT_LEAF: [u8; 32] = [0u8; 32];
 const MIN_ANONYMITY_SET: u32 = 10;
 
 #[contract]
@@ -102,10 +105,17 @@ impl PrivacyPool {
             return Err(PrivacyPoolError::InvalidProof);
         }
 
+        for level in 0..tree_depth {
+            let zh = compute_zero_hash(&env, level);
+            env.storage()
+                .persistent()
+                .set(&PrivacyPoolDataKey::ZeroHash(level), &zh);
+        }
+
         let config = PrivacyPoolConfig {
             admin,
             asset: asset.clone(),
-            merkle_root: BytesN::from_array(&env, &MERKLE_DEFAULT_LEAF),
+            merkle_root: compute_zero_hash(&env, tree_depth - 1),
             next_leaf_index: 0,
             tree_depth,
             min_anonymity_set: MIN_ANONYMITY_SET,
@@ -130,6 +140,7 @@ impl PrivacyPool {
 
     pub fn shielded_deposit(
         env: Env,
+        from: Address,
         commitment: BytesN<32>,
         amount: i128,
         stealth_address_registry: Address,
@@ -146,6 +157,8 @@ impl PrivacyPool {
             return Err(PrivacyPoolError::InvalidAmount);
         }
 
+        from.require_auth();
+
         let stealth_client = StealthAddressRegistryClient::new(&env, &stealth_address_registry);
         if !stealth_client.is_registered(&recipient) {
             return Err(PrivacyPoolError::AssetNotSupported);
@@ -156,6 +169,9 @@ impl PrivacyPool {
         if leaf_index >= max_leaves {
             return Err(PrivacyPoolError::MerkleTreeFull);
         }
+
+        let token_client = token::Client::new(&env, &config.asset);
+        token_client.transfer(&from, env.current_contract_address(), &amount);
 
         let note = CommitmentNote {
             commitment: commitment.clone(),
@@ -257,7 +273,7 @@ impl PrivacyPool {
         let valid = verify_merkle_proof(
             &env,
             &config,
-            &proof.nullifier,
+            &proof.commitment,
             &proof.siblings,
             &proof.path_indices,
         );
@@ -362,6 +378,38 @@ impl PrivacyPool {
         Ok(())
     }
 
+    pub fn get_filled_subtree(env: Env, level: u32) -> Option<BytesN<32>> {
+        env.storage()
+            .persistent()
+            .get(&PrivacyPoolDataKey::FilledSubtree(level))
+    }
+
+    pub fn get_zero_hash(env: Env, level: u32) -> Option<BytesN<32>> {
+        env.storage()
+            .persistent()
+            .get(&PrivacyPoolDataKey::ZeroHash(level))
+    }
+
+    pub fn compute_merkle_root(
+        env: Env,
+        commitment: BytesN<32>,
+        siblings: Vec<BytesN<32>>,
+        path_indices: Vec<u32>,
+    ) -> Result<BytesN<32>, PrivacyPoolError> {
+        let config = get_config(&env)?;
+        let mut current = commitment;
+        for i in 0..config.tree_depth {
+            let sibling = siblings.get(i).unwrap();
+            let index = path_indices.get(i).unwrap_or(0);
+            current = if index == 0 {
+                hash_pair(&env, &current, &sibling)
+            } else {
+                hash_pair(&env, &sibling, &current)
+            };
+        }
+        Ok(current)
+    }
+
     pub fn set_compliance_required(
         env: Env,
         admin: Address,
@@ -420,96 +468,6 @@ fn get_anonymity_set_size(env: &Env) -> u32 {
         .unwrap_or(0)
 }
 
-fn insert_leaf(
-    env: &Env,
-    config: &PrivacyPoolConfig,
-    leaf_index: u32,
-    commitment: &BytesN<32>,
-) -> BytesN<32> {
-    let mut current_hash = commitment.clone();
-
-    for level in 0..config.tree_depth {
-        let sibling = get_sibling(env, config, leaf_index, level);
-        let is_right = (leaf_index >> level) & 1;
-
-        let parent = if is_right == 0 {
-            hash_pair(env, &current_hash, &sibling)
-        } else {
-            hash_pair(env, &sibling, &current_hash)
-        };
-
-        current_hash = parent;
-    }
-
-    current_hash
-}
-
-fn get_sibling(env: &Env, config: &PrivacyPoolConfig, leaf_index: u32, level: u32) -> BytesN<32> {
-    let is_right = (leaf_index >> level) & 1;
-    let sibling_index = if is_right == 0 {
-        leaf_index | (1u32 << level)
-    } else {
-        leaf_index & !(1u32 << level)
-    };
-
-    if sibling_index < config.next_leaf_index {
-        let mut current_hash = get_leaf_commitment(env, sibling_index)
-            .unwrap_or(BytesN::from_array(env, &MERKLE_DEFAULT_LEAF));
-
-        for l in 0..level {
-            let s = get_sibling_at_level(env, config, sibling_index, l);
-            let r = (sibling_index >> l) & 1;
-            current_hash = if r == 0 {
-                hash_pair(env, &current_hash, &s)
-            } else {
-                hash_pair(env, &s, &current_hash)
-            };
-        }
-        current_hash
-    } else {
-        BytesN::from_array(env, &MERKLE_DEFAULT_LEAF)
-    }
-}
-
-fn get_sibling_at_level(
-    env: &Env,
-    config: &PrivacyPoolConfig,
-    leaf_index: u32,
-    level: u32,
-) -> BytesN<32> {
-    let is_right = (leaf_index >> level) & 1;
-    let sibling_index = if is_right == 0 {
-        leaf_index | (1u32 << level)
-    } else {
-        leaf_index & !(1u32 << level)
-    };
-
-    if sibling_index < config.next_leaf_index {
-        let mut current_hash = get_leaf_commitment(env, sibling_index)
-            .unwrap_or(BytesN::from_array(env, &MERKLE_DEFAULT_LEAF));
-
-        for l in 0..level {
-            let s = get_sibling_at_level(env, config, sibling_index, l);
-            let r = (sibling_index >> l) & 1;
-            current_hash = if r == 0 {
-                hash_pair(env, &current_hash, &s)
-            } else {
-                hash_pair(env, &s, &current_hash)
-            };
-        }
-        current_hash
-    } else {
-        BytesN::from_array(env, &MERKLE_DEFAULT_LEAF)
-    }
-}
-
-fn get_leaf_commitment(env: &Env, leaf_index: u32) -> Option<BytesN<32>> {
-    env.storage()
-        .persistent()
-        .get::<_, CommitmentNote>(&PrivacyPoolDataKey::Commitment(leaf_index))
-        .map(|note| note.commitment)
-}
-
 fn hash_pair(env: &Env, left: &BytesN<32>, right: &BytesN<32>) -> BytesN<32> {
     let mut input = Bytes::new(env);
     let left_arr: [u8; 32] = left.clone().into();
@@ -520,14 +478,58 @@ fn hash_pair(env: &Env, left: &BytesN<32>, right: &BytesN<32>) -> BytesN<32> {
     digest.into()
 }
 
+fn compute_zero_hash(env: &Env, level: u32) -> BytesN<32> {
+    if level == 0 {
+        let zero_leaf = BytesN::from_array(env, &[0u8; 32]);
+        hash_pair(env, &zero_leaf, &zero_leaf)
+    } else {
+        let child = compute_zero_hash(env, level - 1);
+        hash_pair(env, &child, &child)
+    }
+}
+
+fn insert_leaf(
+    env: &Env,
+    config: &PrivacyPoolConfig,
+    leaf_index: u32,
+    commitment: &BytesN<32>,
+) -> BytesN<32> {
+    let mut current_hash = commitment.clone();
+    let mut index = leaf_index;
+
+    for level in 0..config.tree_depth {
+        if index & 1 == 0 {
+            let zero = env
+                .storage()
+                .persistent()
+                .get::<_, BytesN<32>>(&PrivacyPoolDataKey::ZeroHash(level))
+                .unwrap_or(BytesN::from_array(env, &[0u8; 32]));
+            env.storage()
+                .persistent()
+                .set(&PrivacyPoolDataKey::FilledSubtree(level), &current_hash);
+            current_hash = hash_pair(env, &current_hash, &zero);
+        } else {
+            let left = env
+                .storage()
+                .persistent()
+                .get::<_, BytesN<32>>(&PrivacyPoolDataKey::FilledSubtree(level))
+                .unwrap_or(BytesN::from_array(env, &[0u8; 32]));
+            current_hash = hash_pair(env, &left, &current_hash);
+        }
+        index >>= 1;
+    }
+
+    current_hash
+}
+
 fn verify_merkle_proof(
     env: &Env,
     config: &PrivacyPoolConfig,
-    nullifier: &BytesN<32>,
+    commitment: &BytesN<32>,
     siblings: &Vec<BytesN<32>>,
     path_indices: &Vec<u32>,
 ) -> bool {
-    let mut current_hash = nullifier.clone();
+    let mut current_hash = commitment.clone();
 
     for i in 0..config.tree_depth {
         let sibling = siblings.get(i).unwrap();
