@@ -70,6 +70,13 @@ pub struct AdapterVerificationResult {
     pub verification_data: Vec<u8>,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub enum AdapterDataKey {
+    Adapter(Address),
+    AdapterList,
+}
+
 /// TokenAdapterTrait - Core trait for all token adapters
 ///
 /// This trait defines the standard interface that all token adapters
@@ -93,8 +100,8 @@ pub trait TokenAdapterTrait {
     /// Get the total supply of the token
     fn total_supply(&self, env: &Env) -> Result<i128, AdapterError>;
 
-    /// Approve spender to transfer tokens
-    fn approve(&self, env: &Env, spender: &Address, amount: i128) -> Result<(), AdapterError>;
+    /// Approve spender to transfer tokens from the owner
+    fn approve(&self, env: &Env, owner: &Address, spender: &Address, amount: i128) -> Result<(), AdapterError>;
 
     /// Get approved allowance
     fn allowance(&self, env: &Env, owner: &Address, spender: &Address) -> Result<i128, AdapterError>;
@@ -124,7 +131,7 @@ pub mod factory {
     }
 
     /// Detect the type of token at the given address
-    fn detect_token_type(env: &Env, token_address: &Address) -> Result<TokenAdapterType, AdapterError> {
+    fn detect_token_type(_env: &Env, _token_address: &Address) -> Result<TokenAdapterType, AdapterError> {
         // Token type detection logic
         // In practice, this would query the token contract to determine its type
         // For now, we default to ERC20 as the most common type
@@ -139,7 +146,6 @@ pub mod factory {
         if !config.enabled {
             return Err(AdapterError::InvalidConfig);
         }
-        // Store adapter configuration
-        Ok(())
+        crate::token_adapter_verify::register_adapter(env, config)
     }
 }

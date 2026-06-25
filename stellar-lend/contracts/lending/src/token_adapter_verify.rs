@@ -120,8 +120,23 @@ pub fn register_adapter(
         return Err(AdapterError::VerificationFailed);
     }
 
-    // Store the adapter configuration
-    // In practice, this would use persistent storage
+    env.storage()
+        .persistent()
+        .set(&crate::token_adapter::AdapterDataKey::Adapter(config.token_address.clone()), &config);
+
+    let mut adapters: Vec<AdapterConfig> = env
+        .storage()
+        .persistent()
+        .get(&crate::token_adapter::AdapterDataKey::AdapterList)
+        .unwrap_or_else(|| Vec::new(env));
+
+    if !adapters.iter().any(|existing| existing.token_address == config.token_address) {
+        adapters.push_back(config.clone());
+        env.storage()
+            .persistent()
+            .set(&crate::token_adapter::AdapterDataKey::AdapterList, &adapters);
+    }
+
     Ok(())
 }
 
@@ -130,17 +145,21 @@ pub fn get_adapter(
     env: &Env,
     token_address: &Address,
 ) -> Result<Option<AdapterConfig>, AdapterError> {
-    // Retrieve adapter configuration from storage
-    // In practice, this would read from persistent storage
-    Ok(None)
+    Ok(env
+        .storage()
+        .persistent()
+        .get(&crate::token_adapter::AdapterDataKey::Adapter(token_address.clone())))
 }
 
 /// List all registered adapters
 pub fn list_adapters(
     env: &Env,
 ) -> Result<Vec<AdapterConfig>, AdapterError> {
-    // Return all registered adapters
-    Ok(Vec::new(env))
+    Ok(env
+        .storage()
+        .persistent()
+        .get(&crate::token_adapter::AdapterDataKey::AdapterList)
+        .unwrap_or_else(|| Vec::new(env)))
 }
 
 /// Upgrade path for new tokens
