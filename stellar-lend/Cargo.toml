@@ -17,6 +17,9 @@ members = [
   "contracts/institutional-wallet",
   "contracts/migration-hub",
   "contracts/test-utils",
+  "contracts/stealth-address",
+  "contracts/privacy-pool",
+  "contracts/reputation-system",
 ]
 exclude = ["fuzz"]
 

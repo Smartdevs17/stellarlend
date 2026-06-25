@@ -8,7 +8,7 @@
 //! - Maintains an emergency fund allocation
 //! - Exposes analytics for pool health monitoring
 
-use soroban_sdk::{contractevent, contracttype, Address, Env};
+use soroban_sdk::{contractevent, contracttype, Address, Env, Vec};
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 

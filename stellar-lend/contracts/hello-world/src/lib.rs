@@ -1774,7 +1774,6 @@ mod cross_contract_test;
 #[cfg(test)]
 mod flash_loan_test;
 #[cfg(test)]
-#[path = "tests/governance_test.rs"]
 mod governance_test;
 #[cfg(test)]
 #[path = "tests/isolated_pool_test.rs"]
