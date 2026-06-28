@@ -16,6 +16,8 @@ mod bridge_benchmarks;
 mod framework;
 mod hello_world_benchmarks;
 mod lending_benchmarks;
+mod pool_factory_benchmarks;
+mod reputation_benchmarks;
 mod report;
 
 use framework::{BenchmarkSuite, RunConfig};
@@ -37,6 +39,8 @@ fn main() {
     hello_world_benchmarks::register(&mut suite);
     amm_benchmarks::register(&mut suite);
     bridge_benchmarks::register(&mut suite);
+    pool_factory_benchmarks::register(&mut suite);
+    reputation_benchmarks::register(&mut suite);
 
     // Run all benchmarks
     let results = suite.run_all();
