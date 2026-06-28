@@ -28,6 +28,7 @@ import socialRoutes from './routes/social.routes';
 import notificationRoutes from './routes/notification.routes';
 import disputeRoutes from './routes/dispute.routes';
 import creditRoutes from './routes/credit.routes';
+import nonceRoutes from './routes/nonce.routes';
 
 import { errorHandler } from './middleware/errorHandler';
 import { idempotencyMiddleware } from './middleware/idempotency';
@@ -193,6 +194,7 @@ app.use('/api/social', socialRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/disputes', disputeRoutes);
 app.use('/api/credit', creditRoutes);
+app.use('/api/nonce', nonceRoutes);
 
 app.use(errorHandler);
 
