@@ -56,6 +56,8 @@ mod upgrade;
 
 pub mod interest_rate;
 pub mod risk_monitor;
+pub mod query;
+pub mod mutation;
 
 // Performance optimization suite (issues #631–#634)
 pub mod interest;
@@ -712,5 +714,45 @@ impl LendingContract {
             admin.require_auth();
         }
         Ok(lazy::migrate_initialize_all(&env))
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Query module interface — gas-efficient read-only delegates (#623)
+    // ═══════════════════════════════════════════════════════════════════
+
+    pub fn query_user_debt(env: Env, user: Address) -> DebtPosition {
+        query::query_user_debt(&env, &user)
+    }
+
+    pub fn query_user_collateral(env: Env, user: Address) -> BorrowCollateral {
+        query::query_user_collateral(&env, &user)
+    }
+
+    pub fn query_collateral_balance(env: Env, user: Address) -> i128 {
+        query::query_collateral_balance(&env, &user)
+    }
+
+    pub fn query_debt_balance(env: Env, user: Address) -> i128 {
+        query::query_debt_balance(&env, &user)
+    }
+
+    pub fn query_collateral_value(env: Env, user: Address) -> i128 {
+        query::query_collateral_value(&env, &user)
+    }
+
+    pub fn query_debt_value(env: Env, user: Address) -> i128 {
+        query::query_debt_value(&env, &user)
+    }
+
+    pub fn query_health_factor(env: Env, user: Address) -> i128 {
+        query::query_health_factor(&env, &user)
+    }
+
+    pub fn query_user_position(env: Env, user: Address) -> UserPositionSummary {
+        query::query_user_position(&env, &user)
+    }
+
+    pub fn query_admin(env: Env) -> Option<Address> {
+        query::query_admin(&env)
     }
 }
