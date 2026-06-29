@@ -36,6 +36,8 @@ members = [
   "contracts/liquidation-strategy",
   "contracts/sns-integration",
   "contracts/referral-program",
+  "contracts/token-adapter",
+  "contracts/compliance",
 ]
 exclude = ["fuzz", "formal-verification/safe-math-proofs"]
 
