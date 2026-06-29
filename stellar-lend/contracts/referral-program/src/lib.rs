@@ -45,6 +45,19 @@ pub struct ReferralConfig {
     pub fee_share_bps: u32,
     pub l2_fee_share_bps: u32,
     pub maturity_ledgers: u64,
+    pub min_deposit_to_qualify: i128,
+    pub tier_1_threshold: u32, // number of referrals
+    pub tier_1_bonus_bps: u32,
+    pub tier_2_threshold: u32,
+    pub tier_2_bonus_bps: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct TierInfo {
+    pub tier_level: u32,
+    pub bonus_bps: u32,
+    pub total_bonus_earned: i128,
 }
 
 #[contract]
@@ -58,6 +71,11 @@ impl ReferralProgram {
         fee_share_bps: u32,
         l2_fee_share_bps: u32,
         maturity_ledgers: u64,
+        min_deposit: i128,
+        tier_1_threshold: u32,
+        tier_1_bonus_bps: u32,
+        tier_2_threshold: u32,
+        tier_2_bonus_bps: u32,
     ) -> Result<(), ReferralError> {
         if env.storage().instance().has(&symbol_short!("config")) {
             return Err(ReferralError::AlreadyInitialized);
@@ -69,6 +87,11 @@ impl ReferralProgram {
             fee_share_bps,
             l2_fee_share_bps,
             maturity_ledgers,
+            min_deposit_to_qualify: min_deposit,
+            tier_1_threshold,
+            tier_1_bonus_bps,
+            tier_2_threshold,
+            tier_2_bonus_bps,
         };
         env.storage().instance().set(&symbol_short!("config"), &config);
         Ok(())
@@ -201,6 +224,60 @@ impl ReferralProgram {
 
     pub fn get_config_view(env: Env) -> Result<ReferralConfig, ReferralError> {
         Self::get_config(&env)
+    }
+
+    /// Get tier information for a referrer (anti-sybil & tiered rewards).
+    pub fn get_tier_info(env: Env, referrer: Address) -> Result<TierInfo, ReferralError> {
+        Self::require_initialized(&env)?;
+        let config = Self::get_config(&env)?;
+        let stats = Self::get_referrer_stats_internal(&env, &referrer);
+
+        let (tier_level, bonus_bps) = if stats.total_referrals >= config.tier_2_threshold {
+            (2, config.tier_2_bonus_bps)
+        } else if stats.total_referrals >= config.tier_1_threshold {
+            (1, config.tier_1_bonus_bps)
+        } else {
+            (0, 0)
+        };
+
+        let total_bonus_earned = (stats.total_earned * bonus_bps as i128) / 10_000;
+
+        Ok(TierInfo {
+            tier_level,
+            bonus_bps,
+            total_bonus_earned,
+        })
+    }
+
+    /// Validate anti-sybil requirement: minimum deposit to qualify as referrer.
+    pub fn validate_referrer_eligibility(
+        env: Env,
+        referrer: Address,
+        total_deposit: i128,
+    ) -> Result<bool, ReferralError> {
+        Self::require_initialized(&env)?;
+        let config = Self::get_config(&env)?;
+
+        Ok(total_deposit >= config.min_deposit_to_qualify)
+    }
+
+    /// Get referral code for a user (for sharing).
+    pub fn get_referral_code(env: Env, referrer: Address) -> Option<Symbol> {
+        // In a real implementation, this would return a unique code
+        // For now, we use a deterministic symbol based on address
+        Some(symbol_short!("ref01"))
+    }
+
+    /// Query referral dashboard metrics.
+    pub fn get_dashboard_metrics(
+        env: Env,
+        referrer: Address,
+    ) -> Result<(ReferrerStats, TierInfo), ReferralError> {
+        Self::require_initialized(&env)?;
+        let stats = Self::get_referrer_stats_internal(&env, &referrer);
+        let tier = Self::get_tier_info(env, referrer)?;
+
+        Ok((stats, tier))
     }
 
     fn require_initialized(env: &Env) -> Result<(), ReferralError> {

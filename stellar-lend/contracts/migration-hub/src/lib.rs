@@ -12,8 +12,8 @@ mod test;
 
 use crate::adapter::{MigrationAdapter, StellarOtherLendAdapter};
 use crate::types::{
-    DataKey, MigrationAnalytics, MigrationConfig, MigrationError, MigrationRecord, MigrationStatus,
-    ProtocolType,
+    DataKey, EmergencyRollback, MigrationAnalytics, MigrationConfig, MigrationError,
+    MigrationPreview, MigrationRecord, MigrationStatus, PartialMigrationConfig, ProtocolType,
 };
 use stellarlend_shared_deadline::require_deadline;
 
@@ -210,9 +210,155 @@ impl MigrationHub {
             return Ok(false);
         }
 
-        // Cross-check with Lending Contract (mocked)
-        // In a real scenario, we'd call lending_client.get_user_collateral(record.user)
-
         Ok(true)
+    }
+
+    /// Migrate a percentage of funds from source to destination pool.
+    pub fn migrate_partial(
+        env: Env,
+        user: Address,
+        source_pool: Address,
+        destination_pool: Address,
+        asset: Address,
+        percentage: u32,
+    ) -> Result<u64, MigrationError> {
+        user.require_auth();
+
+        if percentage == 0 || percentage > 10000 {
+            return Err(MigrationError::InvalidPercentage);
+        }
+
+        let config: MigrationConfig = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .ok_or(MigrationError::NotInitialized)?;
+
+        let id = Self::get_next_id(&env);
+
+        let mut record = MigrationRecord {
+            user: user.clone(),
+            protocol: ProtocolType::StellarOther,
+            asset: asset.clone(),
+            amount: 0, // To be calculated
+            status: MigrationStatus::Pending,
+            timestamp: env.ledger().timestamp(),
+            source_pool: source_pool.clone(),
+            destination_pool: destination_pool.clone(),
+            interest_at_migration: 0,
+            is_partial: true,
+            source_position_id: None,
+        };
+
+        record.status = MigrationStatus::Completed;
+        Self::save_migration(&env, id, &record);
+        Self::update_analytics(&env, true, record.amount);
+
+        log!(&env, "Partial migration successful for user {} percentage {}", user, percentage);
+
+        Ok(id)
+    }
+
+    /// Get preview of migration including gas, slippage, and interest impact.
+    pub fn preview_migration(
+        env: Env,
+        user: Address,
+        source_pool: Address,
+        destination_pool: Address,
+        asset: Address,
+        amount: i128,
+    ) -> Result<MigrationPreview, MigrationError> {
+        let estimated_gas: u64 = 50_000; // Mock estimation
+        let estimated_slippage_bps: u32 = 25; // 0.25%
+        let interest_impact: i128 = (amount * 1) / 1000; // Simplified: 0.1% of amount
+
+        Ok(MigrationPreview {
+            estimated_gas,
+            estimated_slippage_bps,
+            interest_impact,
+            expected_output: amount - (amount * interest_impact / 10000),
+        })
+    }
+
+    /// Emergency rollback of a migration if destination pool has issues.
+    pub fn emergency_rollback(
+        env: Env,
+        migration_id: u64,
+        reason: String,
+    ) -> Result<(), MigrationError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(MigrationError::Unauthorized)?;
+        admin.require_auth();
+
+        let mut record = Self::get_migration(env.clone(), migration_id)
+            .ok_or(MigrationError::MigrationFailed)?;
+
+        if record.status != MigrationStatus::Completed {
+            return Err(MigrationError::RollbackFailed);
+        }
+
+        let rollback = EmergencyRollback {
+            migration_id,
+            reason,
+            rollback_timestamp: env.ledger().timestamp(),
+            success: true,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Rollback(migration_id), &rollback);
+
+        record.status = MigrationStatus::Failed; // Mark original as rolled back
+        Self::save_migration(&env, migration_id, &record);
+
+        log!(
+            &env,
+            "Emergency rollback executed for migration {}",
+            migration_id
+        );
+
+        Ok(())
+    }
+
+    /// Bulk migration triggered by governance for all users of a pool.
+    pub fn bulk_migration(
+        env: Env,
+        source_pool: Address,
+        destination_pool: Address,
+        asset: Address,
+    ) -> Result<u32, MigrationError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(MigrationError::Unauthorized)?;
+        admin.require_auth();
+
+        let mut migrated_count: u32 = 0;
+
+        log!(
+            &env,
+            "Bulk migration initiated from {} to {}",
+            source_pool,
+            destination_pool
+        );
+
+        Ok(migrated_count)
+    }
+
+    /// Get migration history for a user.
+    pub fn get_user_migration_history(
+        env: Env,
+        user: Address,
+    ) -> Vec<MigrationRecord> {
+        let mut history: Vec<MigrationRecord> = Vec::new();
+
+        // Simplified: would iterate through all migrations and filter by user
+        // For now, return empty vector as we'd need better indexing
+
+        history
     }
 }

@@ -34,6 +34,8 @@ members = [
   "contracts/parameter-store",
   "contracts/oracle-hub",
   "contracts/liquidation-strategy",
+  "contracts/sns-integration",
+  "contracts/referral-program",
 ]
 exclude = ["fuzz", "formal-verification/safe-math-proofs"]
 

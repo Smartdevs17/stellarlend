@@ -19,11 +19,29 @@ interface ReferrerStats {
   claimable: number;
   lastClaimAt: number;
   referees: string[];
+  tier: number;
+  totalDeposit: number;
+}
+
+interface TierConfig {
+  tier1Threshold: number;
+  tier1BonusBps: number;
+  tier2Threshold: number;
+  tier2BonusBps: number;
+  minDepositQualify: number;
 }
 
 const FEE_SHARE_PCT = 10;
 const L2_FEE_SHARE_PCT = 3;
 const MATURITY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+const TIER_CONFIG: TierConfig = {
+  tier1Threshold: 5,
+  tier1BonusBps: 100, // +1% bonus
+  tier2Threshold: 20,
+  tier2BonusBps: 300, // +3% bonus
+  minDepositQualify: 100 * 10 ** 7, // 100 tokens minimum
+};
 
 const codes = new Map<string, string>(); // userAddress -> code
 const codeToAddress = new Map<string, string>(); // code -> userAddress
@@ -144,5 +162,47 @@ export const referralService = {
     const code = codes.get(userAddress);
     if (!code) throw new Error('No referral code found. Generate one first.');
     return `https://stellarlend.com?ref=${code}`;
+  },
+
+  calculateTier(totalReferrals: number): number {
+    if (totalReferrals >= TIER_CONFIG.tier2Threshold) return 2;
+    if (totalReferrals >= TIER_CONFIG.tier1Threshold) return 1;
+    return 0;
+  },
+
+  getTierBonus(tier: number): number {
+    if (tier === 2) return TIER_CONFIG.tier2BonusBps;
+    if (tier === 1) return TIER_CONFIG.tier1BonusBps;
+    return 0;
+  },
+
+  validateAntiSybil(userAddress: string, totalDeposit: number): boolean {
+    return totalDeposit >= TIER_CONFIG.minDepositQualify;
+  },
+
+  getConversionFunnel(userAddress: string) {
+    const s = stats.get(userAddress);
+    if (!s) return null;
+
+    return {
+      referralCode: s.code,
+      referralsGenerated: s.referees.length,
+      referralsConverted: s.totalReferrals,
+      conversionRate: s.referees.length > 0 ? (s.totalReferrals / s.referees.length * 100).toFixed(2) : '0',
+      l2Referrals: s.l2Referrals,
+    };
+  },
+
+  getAntiSybilStatus(userAddress: string, totalDeposit: number) {
+    const isEligible = this.validateAntiSybil(userAddress, totalDeposit);
+    const tier = this.calculateTier(stats.get(userAddress)?.totalReferrals ?? 0);
+
+    return {
+      isEligible,
+      totalDeposit,
+      minRequired: TIER_CONFIG.minDepositQualify,
+      currentTier: tier,
+      tierBonus: this.getTierBonus(tier),
+    };
   },
 };
