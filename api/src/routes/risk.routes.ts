@@ -19,4 +19,6 @@ router.put('/alert-config', (req, res) => riskController.updateAlertConfig(req, 
 
 router.get('/user/:address/risk-profile', (req, res) => riskController.getUserRiskProfile(req, res));
 
+router.get('/dashboard', (req, res) => riskController.getDashboard(req, res));
+
 export default router;

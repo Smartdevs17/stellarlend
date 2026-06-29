@@ -6,15 +6,15 @@ mod deposit;
 mod events;
 mod flash_loan;
 mod pause;
+mod reentrancy;
+mod rounding;
 mod token_adapter;
 mod token_adapter_erc20;
 mod token_adapter_native;
-mod token_adapter_wrapped;
 mod token_adapter_verify;
+mod token_adapter_wrapped;
 mod token_receiver;
 mod withdraw;
-mod reentrancy;
-mod rounding;
 
 use borrow::{
     borrow as borrow_cmd, deposit as borrow_deposit, get_admin as get_borrow_admin,
@@ -24,19 +24,18 @@ use borrow::{
     set_liquidation_threshold_bps as set_liquidation_threshold_logic,
     set_oracle as set_oracle_logic, BorrowCollateral, BorrowError, DebtPosition,
 };
-use reentrancy::{ReentrancyGuard, ReentrancyKey};
 use deposit::{
     deposit as deposit_logic, get_user_collateral as get_deposit_collateral,
     initialize_deposit_settings as initialize_deposit_logic, DepositCollateral, DepositError,
 };
 use flash_loan::{
-    flash_loan as flash_loan_logic, set_flash_loan_fee_bps as set_flash_loan_fee_logic,
-    set_manipulation_config as set_flash_manipulation_config,
-    record_price_sample as flash_record_price_sample,
+    flash_loan as flash_loan_logic, record_price_sample as flash_record_price_sample,
+    set_flash_loan_fee_bps as set_flash_loan_fee_logic,
+    set_manipulation_config as set_flash_manipulation_config, FlashLoanError,
     ManipulationConfig as FlashManipulationConfig,
-    FlashLoanError,
 };
 use pause::{is_paused, set_pause as set_pause_logic, PauseType};
+use reentrancy::{ReentrancyGuard, ReentrancyKey};
 use token_receiver::receive as receive_logic;
 
 mod views;
@@ -57,6 +56,19 @@ mod upgrade;
 
 pub mod interest_rate;
 pub mod risk_monitor;
+pub mod query;
+pub mod mutation;
+
+// Performance optimization suite (issues #631–#634)
+pub mod interest;
+pub mod lazy;
+pub mod liquidation;
+pub mod storage;
+
+use interest::InterestCacheError;
+use lazy::{LazyError, LazyField};
+use liquidation::{LiquidationError, LiquidationPlan, PositionSnapshot};
+use storage::{PackError, PoolConfig};
 
 use insurance::{
     cancel_claim as insurance_cancel_claim, collect_premium as insurance_collect_premium,
@@ -65,8 +77,8 @@ use insurance::{
     get_analytics as insurance_get_analytics, get_claim_by_id as insurance_get_claim,
     get_coverage_limit as insurance_get_coverage_limit,
     get_premium_rate as insurance_get_premium_rate, initialize as insurance_initialize,
-    set_coverage_limit as insurance_set_coverage_limit,
-    submit_claim as insurance_submit_claim, InsuranceAnalytics, InsuranceClaim, InsuranceError,
+    set_coverage_limit as insurance_set_coverage_limit, submit_claim as insurance_submit_claim,
+    InsuranceAnalytics, InsuranceClaim, InsuranceError,
 };
 
 #[cfg(test)]
@@ -84,6 +96,8 @@ mod math_safety_test;
 #[cfg(test)]
 mod pause_test;
 #[cfg(test)]
+mod reentrancy_fuzz_test;
+#[cfg(test)]
 mod token_receiver_test;
 #[cfg(test)]
 mod upgrade_test;
@@ -91,22 +105,20 @@ mod upgrade_test;
 mod views_test;
 #[cfg(test)]
 mod withdraw_test;
-#[cfg(test)]
-mod reentrancy_fuzz_test;
 
 // Property-based tests (issue #359)
 #[cfg(test)]
-mod proptest_helpers;
+mod borrow_prop_test;
 #[cfg(test)]
 mod deposit_prop_test;
-#[cfg(test)]
-mod withdraw_prop_test;
-#[cfg(test)]
-mod borrow_prop_test;
 #[cfg(test)]
 mod interest_rate_prop_test;
 #[cfg(test)]
 mod invariant_prop_test;
+#[cfg(test)]
+mod proptest_helpers;
+#[cfg(test)]
+mod withdraw_prop_test;
 
 #[contract]
 pub struct LendingContract;
@@ -122,8 +134,8 @@ impl LendingContract {
     ) -> Result<(), BorrowError> {
         // CHECKS-EFFECTS-INTERACTIONS PATTERN
         // 1. CHECKS: Reentrancy guard (constructor protection), validation
-        let _guard = ReentrancyGuard::new_constructor(&env)
-            .map_err(|_| BorrowError::ReentrancyDetected)?;
+        let _guard =
+            ReentrancyGuard::new_constructor(&env).map_err(|_| BorrowError::ReentrancyDetected)?;
 
         if get_borrow_admin(&env).is_some() {
             return Err(BorrowError::Unauthorized);
@@ -482,8 +494,8 @@ impl LendingContract {
     pub fn insurance_initialize(env: Env, admin: Address) -> Result<(), InsuranceError> {
         // CHECKS-EFFECTS-INTERACTIONS PATTERN
         // 1. CHECKS: Reentrancy guard (constructor protection)
-        let _guard = ReentrancyGuard::new_constructor(&env)
-            .map_err(|_| InsuranceError::Unauthorized)?;
+        let _guard =
+            ReentrancyGuard::new_constructor(&env).map_err(|_| InsuranceError::Unauthorized)?;
 
         insurance_initialize(&env, &admin)
     }
@@ -595,7 +607,11 @@ impl LendingContract {
     // ═══════════════════════════════════════════════════════════════════
 
     /// Sweep dust amounts from user's deposit position
-    pub fn sweep_deposit_dust(env: Env, user: Address, asset: Address) -> Result<i128, DepositError> {
+    pub fn sweep_deposit_dust(
+        env: Env,
+        user: Address,
+        asset: Address,
+    ) -> Result<i128, DepositError> {
         deposit::sweep_dust(&env, user, asset)
     }
 
@@ -605,7 +621,138 @@ impl LendingContract {
     }
 
     /// Sweep dust amounts from user's withdraw position
-    pub fn sweep_withdraw_dust(env: Env, user: Address, asset: Address) -> Result<i128, WithdrawError> {
+    pub fn sweep_withdraw_dust(
+        env: Env,
+        user: Address,
+        asset: Address,
+    ) -> Result<i128, WithdrawError> {
         withdraw::sweep_dust(&env, user, asset)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Performance optimization suite (issues #631–#634)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Read-optimised cumulative interest index (#631).
+    ///
+    /// Computes the index at the current ledger **without** a storage write, so
+    /// `view` callers pay no write gas.
+    pub fn interest_index(env: Env) -> i128 {
+        let _guard = ReentrancyGuard::new_read_only(&env);
+        interest::current_index(&env)
+    }
+
+    /// Advance and persist the cached interest index incrementally (#631).
+    ///
+    /// No-ops (no storage write) when already accrued in the current ledger, so
+    /// multiple operations in the same block are charged interest once (batch).
+    pub fn accrue_interest(env: Env) -> Result<i128, InterestCacheError> {
+        let _guard = ReentrancyGuard::new_with_key(&env, ReentrancyKey::GlobalLock, false)
+            .map_err(|_| InterestCacheError::Overflow)?;
+        Ok(interest::accrue(&env)?.cumulative_index)
+    }
+
+    /// Invalidate the interest cache after a rate/parameter/oracle change (#631).
+    pub fn invalidate_interest_cache(env: Env, admin: Address) -> Result<(), InterestCacheError> {
+        let _guard = ReentrancyGuard::new_with_key(&env, ReentrancyKey::GlobalLock, false)
+            .map_err(|_| InterestCacheError::Overflow)?;
+        if get_borrow_admin(&env).as_ref() == Some(&admin) {
+            admin.require_auth();
+        }
+        interest::invalidate(&env).map(|_| ())
+    }
+
+    /// Build a validated liquidation plan with cheapest-first early exits (#632).
+    ///
+    /// Pure validation entry point: runs every check (health factor,
+    /// close-factor clamp, oracle freshness, gas-vs-profit) before any state
+    /// mutation, so a doomed liquidation reverts having only read state.
+    pub fn plan_liquidation(
+        env: Env,
+        snapshot: PositionSnapshot,
+        requested_repay_value: i128,
+        max_oracle_age_secs: u64,
+        est_gas_cost: i128,
+    ) -> Result<LiquidationPlan, LiquidationError> {
+        let _guard = ReentrancyGuard::new_read_only(&env);
+        liquidation::plan_liquidation(
+            &snapshot,
+            requested_repay_value,
+            env.ledger().timestamp(),
+            max_oracle_age_secs,
+            est_gas_cost,
+        )
+    }
+
+    /// Read the packed pool configuration, if migrated (#633).
+    pub fn get_packed_config(env: Env) -> Option<PoolConfig> {
+        storage::load(&env)
+    }
+
+    /// Migrate loose configuration values into the packed two-word layout (#633).
+    pub fn migrate_packed_config(env: Env, admin: Address) -> Result<PoolConfig, PackError> {
+        let _guard = ReentrancyGuard::new_with_key(&env, ReentrancyKey::GlobalLock, false)
+            .map_err(|_| PackError::BpsFieldOverflow)?;
+        if get_borrow_admin(&env).as_ref() == Some(&admin) {
+            admin.require_auth();
+        }
+        storage::migrate_from_legacy(&env)
+    }
+
+    /// Read a lazily-initialised pool-state field, returning its default if the
+    /// slot has never been written (no storage allocation) (#634).
+    pub fn get_lazy_field(env: Env, field: LazyField) -> i128 {
+        let _guard = ReentrancyGuard::new_read_only(&env);
+        lazy::get(&env, field)
+    }
+
+    /// Eagerly initialise all deferrable fields for a pre-existing pool (#634).
+    pub fn migrate_lazy_fields(env: Env, admin: Address) -> Result<u32, LazyError> {
+        let _guard = ReentrancyGuard::new_with_key(&env, ReentrancyKey::GlobalLock, false)
+            .map_err(|_| LazyError::InvalidValue)?;
+        if get_borrow_admin(&env).as_ref() == Some(&admin) {
+            admin.require_auth();
+        }
+        Ok(lazy::migrate_initialize_all(&env))
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Query module interface — gas-efficient read-only delegates (#623)
+    // ═══════════════════════════════════════════════════════════════════
+
+    pub fn query_user_debt(env: Env, user: Address) -> DebtPosition {
+        query::query_user_debt(&env, &user)
+    }
+
+    pub fn query_user_collateral(env: Env, user: Address) -> BorrowCollateral {
+        query::query_user_collateral(&env, &user)
+    }
+
+    pub fn query_collateral_balance(env: Env, user: Address) -> i128 {
+        query::query_collateral_balance(&env, &user)
+    }
+
+    pub fn query_debt_balance(env: Env, user: Address) -> i128 {
+        query::query_debt_balance(&env, &user)
+    }
+
+    pub fn query_collateral_value(env: Env, user: Address) -> i128 {
+        query::query_collateral_value(&env, &user)
+    }
+
+    pub fn query_debt_value(env: Env, user: Address) -> i128 {
+        query::query_debt_value(&env, &user)
+    }
+
+    pub fn query_health_factor(env: Env, user: Address) -> i128 {
+        query::query_health_factor(&env, &user)
+    }
+
+    pub fn query_user_position(env: Env, user: Address) -> UserPositionSummary {
+        query::query_user_position(&env, &user)
+    }
+
+    pub fn query_admin(env: Env) -> Option<Address> {
+        query::query_admin(&env)
     }
 }

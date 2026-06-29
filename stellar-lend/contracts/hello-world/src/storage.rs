@@ -80,3 +80,62 @@ pub enum GovernanceDataKey {
 pub enum DataKey {
     CreditScore(Address),
 }
+
+// ─── Temporary transaction-local cache keys ─────────────────────────────────
+
+#[contracttype]
+#[derive(Clone)]
+pub enum TempDataKey {
+    TokenBalanceCache(Address, Address),
+    LendingIndexCache,
+}
+
+pub fn get_temp_token_balance(env: &Env, token: &Address, owner: &Address) -> Option<i128> {
+    env.storage()
+        .temporary()
+        .get::<TempDataKey, i128>(&TempDataKey::TokenBalanceCache(
+            token.clone(),
+            owner.clone(),
+        ))
+}
+
+pub fn set_temp_token_balance(env: &Env, token: &Address, owner: &Address, balance: i128) {
+    env.storage()
+        .temporary()
+        .set(&TempDataKey::TokenBalanceCache(token.clone(), owner.clone()), &balance);
+}
+
+pub fn get_temp_lending_index(env: &Env) -> Option<crate::interest_rate::LendingIndex> {
+    env.storage()
+        .temporary()
+        .get::<TempDataKey, crate::interest_rate::LendingIndex>(&TempDataKey::LendingIndexCache)
+}
+
+pub fn set_temp_lending_index(env: &Env, index: crate::interest_rate::LendingIndex) {
+    env.storage()
+        .temporary()
+        .set(&TempDataKey::LendingIndexCache, &index);
+}
+
+// ─── Temporary transaction-local cache keys ─────────────────────────────────
+
+#[contracttype]
+#[derive(Clone)]
+pub enum TempDataKey {
+    TokenBalanceCache(Address, Address),
+}
+
+pub fn get_temp_token_balance(env: &Env, token: &Address, owner: &Address) -> Option<i128> {
+    env.storage()
+        .temporary()
+        .get::<TempDataKey, i128>(&TempDataKey::TokenBalanceCache(
+            token.clone(),
+            owner.clone(),
+        ))
+}
+
+pub fn set_temp_token_balance(env: &Env, token: &Address, owner: &Address, balance: i128) {
+    env.storage()
+        .temporary()
+        .set(&TempDataKey::TokenBalanceCache(token.clone(), owner.clone()), &balance);
+}

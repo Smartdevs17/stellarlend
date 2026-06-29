@@ -1,8 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
+import { reputationService } from '../services/reputation.service';
 
 /**
  * GET /api/reputation/:address
  * Fetch the reputation score and details for a given borrower address.
+ * Calls the on-chain Soroban reputation contract via simulation; falls back
+ * to empty defaults when the contract is not configured.
  */
 export const getReputation = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -12,18 +15,7 @@ export const getReputation = async (req: Request, res: Response, next: NextFunct
       return res.status(400).json({ success: false, error: 'Address parameter is required' });
     }
 
-    // TODO: Integrate with Soroban contract client to call get_reputation(address)
-    const reputation = {
-      address,
-      total_repayments: 0,
-      on_time_repayments: 0,
-      defaults: 0,
-      total_borrowed: '0',
-      score: 0,
-      tier: 'Bronze',
-      last_activity_timestamp: 0,
-    };
-
+    const reputation = await reputationService.getReputation(address);
     return res.status(200).json({ success: true, reputation });
   } catch (err) {
     next(err);
@@ -36,7 +28,6 @@ export const getReputation = async (req: Request, res: Response, next: NextFunct
  */
 export const getReputationTiers = async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    // TODO: Integrate with Soroban contract client to call get_tier_benefits for each tier
     const tiers = [
       {
         tier: 'Bronze',
@@ -88,23 +79,13 @@ export const getReputationTiers = async (_req: Request, res: Response, next: Nex
 
 /**
  * GET /api/reputation/leaderboard
- * Return the top reputed borrowers, ordered by score descending.
- * Accepts optional query param `limit` (default 10, max 100).
+ * Return the top reputed borrowers ordered by score descending.
+ * Populated from in-memory cache built as addresses are queried.
  */
 export const getLeaderboard = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
-
-    // TODO: Integrate with an indexer or off-chain store to query top borrowers
-    const leaderboard: Array<{
-      address: string;
-      score: number;
-      tier: string;
-      total_repayments: number;
-      on_time_repayments: number;
-      defaults: number;
-    }> = [];
-
+    const leaderboard = reputationService.getLeaderboard(limit);
     return res.status(200).json({ success: true, leaderboard, total: leaderboard.length, limit });
   } catch (err) {
     next(err);

@@ -244,3 +244,38 @@ pub const DELEGATION_DEADLINE: u64 = 24 * 60 * 60; // 24 hours
 pub const MAX_DELEGATION_DEPTH: u32 = 3;
 pub const PROPOSAL_RATE_LIMIT: u32 = 5;
 pub const PROPOSAL_RATE_WINDOW: u64 = 24 * 60 * 60; // 24 hours
+
+// ========================================================================
+// Emergency Withdrawal Types
+// ========================================================================
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub enum EmergencyTrigger {
+    GovernanceVote,
+    OracleFailure,
+    AdminEmergency,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct EmergencyState {
+    pub is_active: bool,
+    pub trigger: EmergencyTrigger,
+    pub started_at: u64,
+    pub window_opens_at: u64,
+    pub window_closes_at: u64,
+    pub withdrawal_cap_bps: i128,
+    pub total_withdrawn_this_window: i128,
+    pub bad_debt: i128,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct EmergencyWithdrawal {
+    pub user: Address,
+    pub asset: Option<Address>,
+    pub amount: i128,
+    pub withdrawn_at: u64,
+    pub loss_share_bps: i128,
+}

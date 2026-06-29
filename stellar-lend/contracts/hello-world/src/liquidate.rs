@@ -511,13 +511,20 @@ pub fn liquidate(
 
     // Check liquidator has sufficient balance to repay debt
     if let Some(ref debt_addr) = debt_asset {
-        let token_client = soroban_sdk::token::Client::new(env, debt_addr);
-        let liquidator_balance = token_client.balance(&liquidator);
+        let liquidator_balance = if let Some(cached) = crate::storage::get_temp_token_balance(env, debt_addr, &liquidator) {
+            cached
+        } else {
+            let token_client = soroban_sdk::token::Client::new(env, debt_addr);
+            let balance = token_client.balance(&liquidator);
+            crate::storage::set_temp_token_balance(env, debt_addr, &liquidator, balance);
+            balance
+        };
         if liquidator_balance < actual_debt_liquidated {
             return Err(LiquidationError::InsufficientBalance);
         }
 
         // Transfer debt asset from liquidator to contract (liquidator repays debt)
+        let token_client = soroban_sdk::token::Client::new(env, debt_addr);
         token_client.transfer_from(
             &env.current_contract_address(), // spender (this contract)
             &liquidator,                     // from (liquidator)
@@ -530,13 +537,20 @@ pub fn liquidate(
 
     // Check contract has sufficient collateral to transfer
     if let Some(ref collateral_addr) = collateral_asset {
-        let token_client = soroban_sdk::token::Client::new(env, collateral_addr);
-        let contract_balance = token_client.balance(&env.current_contract_address());
+        let contract_balance = if let Some(cached) = crate::storage::get_temp_token_balance(env, collateral_addr, &env.current_contract_address()) {
+            cached
+        } else {
+            let token_client = soroban_sdk::token::Client::new(env, collateral_addr);
+            let balance = token_client.balance(&env.current_contract_address());
+            crate::storage::set_temp_token_balance(env, collateral_addr, &env.current_contract_address(), balance);
+            balance
+        };
         if contract_balance < actual_collateral_seized {
             return Err(LiquidationError::InsufficientBalance);
         }
 
         // Transfer collateral to liquidator (seized amount minus protocol fee)
+        let token_client = soroban_sdk::token::Client::new(env, collateral_addr);
         token_client.transfer(
             &env.current_contract_address(),
             &liquidator,

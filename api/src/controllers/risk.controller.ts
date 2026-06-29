@@ -87,6 +87,15 @@ export class RiskController {
       res.status(500).json({ error: 'Failed to fetch user risk profile' });
     }
   }
+
+  async getDashboard(_req: Request, res: Response): Promise<void> {
+    try {
+      const snapshot = await riskMonitoringService.getDashboard();
+      res.json(snapshot);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch dashboard snapshot' });
+    }
+  }
 }
 
 export const riskController = new RiskController();

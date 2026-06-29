@@ -36,7 +36,7 @@ pub struct RunConfig {
 impl RunConfig {
     pub fn from_args(args: &[String]) -> Self {
         let mut config = Self::default();
-        
+
         // Load from environment variables first
         if let Ok(threshold) = env::var("BENCHMARK_REGRESSION_THRESHOLD") {
             config.regression_threshold = threshold.parse().unwrap_or(5.0);
@@ -47,7 +47,7 @@ impl RunConfig {
         if let Ok(baseline) = env::var("BENCHMARK_BASELINE") {
             config.compare_baseline = Some(baseline);
         }
-        
+
         // Override with command-line arguments
         let mut i = 1;
         while i < args.len() {
@@ -123,6 +123,21 @@ impl RunConfig {
         m.insert("bridge::transfer_admin".into(), 300_000);
         m.insert("bridge::list_bridges".into(), 200_000);
         m.insert("bridge::compute_fee".into(), 100_000);
+        // Pool factory contract
+        m.insert("pool_factory::initialize".into(), 300_000);
+        m.insert("pool_factory::create_pool".into(), 800_000);
+        m.insert("pool_factory::get_pool_count".into(), 150_000);
+        m.insert("pool_factory::get_pools".into(), 500_000);
+        m.insert("pool_factory::get_pool_by_index".into(), 300_000);
+        m.insert("pool_factory::update_pool_config".into(), 700_000);
+        // Reputation system contract
+        m.insert("reputation::initialize".into(), 400_000);
+        m.insert("reputation::record_repayment".into(), 600_000);
+        m.insert("reputation::record_default".into(), 500_000);
+        m.insert("reputation::get_reputation".into(), 200_000);
+        m.insert("reputation::get_tier".into(), 250_000);
+        m.insert("reputation::get_tier_benefits".into(), 200_000);
+        m.insert("reputation::apply_decay".into(), 500_000);
         m
     }
 }

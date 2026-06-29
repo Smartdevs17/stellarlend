@@ -16,7 +16,9 @@ mod bridge_benchmarks;
 mod framework;
 mod hello_world_benchmarks;
 mod lending_benchmarks;
+mod pool_factory_benchmarks;
 mod report;
+mod reputation_benchmarks;
 
 use framework::{BenchmarkSuite, RunConfig};
 use std::env;
@@ -37,6 +39,8 @@ fn main() {
     hello_world_benchmarks::register(&mut suite);
     amm_benchmarks::register(&mut suite);
     bridge_benchmarks::register(&mut suite);
+    pool_factory_benchmarks::register(&mut suite);
+    reputation_benchmarks::register(&mut suite);
 
     // Run all benchmarks
     let results = suite.run_all();
@@ -46,7 +50,8 @@ fn main() {
 
     // Compare against baseline if provided
     if let Some(ref baseline_path) = config.compare_baseline {
-        let regressions = report::compare_baseline(&results, baseline_path, config.regression_threshold);
+        let regressions =
+            report::compare_baseline(&results, baseline_path, config.regression_threshold);
         if !regressions.is_empty() {
             eprintln!("\n[REGRESSION DETECTED] The following operations exceeded gas budgets:");
             for r in &regressions {

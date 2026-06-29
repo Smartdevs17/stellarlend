@@ -795,6 +795,65 @@ pub struct BatchLiquidationEvent {
     pub timestamp: u64,
 }
 
+// ============================================================================
+// Emergency Withdrawal Events
+// ============================================================================
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct EmergencyTriggeredEvent {
+    pub trigger: crate::types::EmergencyTrigger,
+    pub started_at: u64,
+    pub window_opens_at: u64,
+    pub window_closes_at: u64,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct EmergencyCancelledEvent {
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct EmergencyWithdrawalEvent {
+    pub user: Address,
+    pub asset: Option<Address>,
+    pub amount: i128,
+    pub loss_share_bps: i128,
+    pub timestamp: u64,
+}
+
+pub fn emit_emergency_triggered(e: &Env, state: crate::types::EmergencyState) {
+    EmergencyTriggeredEvent {
+        trigger: state.trigger,
+        started_at: state.started_at,
+        window_opens_at: state.window_opens_at,
+        window_closes_at: state.window_closes_at,
+        timestamp: e.ledger().timestamp(),
+    }
+    .publish(e);
+}
+
+pub fn emit_emergency_cancelled(e: &Env) {
+    EmergencyCancelledEvent {
+        timestamp: e.ledger().timestamp(),
+    }
+    .publish(e);
+}
+
+pub fn emit_emergency_withdrawal(e: &Env, withdrawal: crate::types::EmergencyWithdrawal) {
+    EmergencyWithdrawalEvent {
+        user: withdrawal.user,
+        asset: withdrawal.asset,
+        amount: withdrawal.amount,
+        loss_share_bps: withdrawal.loss_share_bps,
+        timestamp: withdrawal.withdrawn_at,
+    }
+    .publish(e);
+}
+
 pub fn emit_batch_liquidation(e: &Env, event: BatchLiquidationEvent) {
     event.publish(e);
 }

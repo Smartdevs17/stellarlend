@@ -474,10 +474,16 @@ pub fn get_lending_index(env: &Env) -> LendingIndex {
 ///
 /// Idempotent within the same ledger second (returns stored value unchanged).
 pub fn update_lending_index(env: &Env) -> Result<LendingIndex, InterestRateError> {
+    // Transaction-local cache for lending index avoids repeated global store reads
+    if let Some(cached_index) = crate::storage::get_temp_lending_index(env) {
+        return Ok(cached_index);
+    }
+
     let mut idx = get_lending_index(env);
     let current_time = env.ledger().timestamp();
 
     if current_time <= idx.last_update {
+        set_temp_lending_index(env, idx.clone());
         return Ok(idx);
     }
 
@@ -522,12 +528,16 @@ pub fn update_lending_index(env: &Env) -> Result<LendingIndex, InterestRateError
     env.storage()
         .persistent()
         .set(&InterestRateDataKey::LendingIndex, &idx);
+    set_temp_lending_index(env, idx.clone());
 
     Ok(idx)
 }
 
 /// Return the current borrow index (scaled by INDEX_SCALE).
 pub fn get_borrow_index(env: &Env) -> i128 {
+    if let Some(cached_index) = crate::storage::get_temp_lending_index(env) {
+        return cached_index.borrow_index;
+    }
     get_lending_index(env).borrow_index
 }
 

@@ -48,3 +48,15 @@ pub use fixed_point::{
     bps_ratio, fp_add, fp_div, fp_mul, fp_pow, fp_sqrt, fp_sub, simple_interest, SECONDS_PER_YEAR,
     WAD,
 };
+
+pub mod compound;
+pub mod exponential;
+pub mod mul_div;
+pub mod precision;
+pub mod rounding;
+
+pub use compound::{compound_interest, compound_interest_continuous};
+pub use exponential::{wad_exp, wad_ln};
+pub use mul_div::{mul_div, mul_div_ceil, mul_div_floor, mul_div_round_up};
+pub use precision::{PrecisionLoss, PrecisionTracker};
+pub use rounding::{round_down, round_nearest, round_up, RoundingMode};

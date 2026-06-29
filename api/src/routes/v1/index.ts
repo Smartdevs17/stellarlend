@@ -13,6 +13,7 @@
  *   /api/v1/notifications -> notification domain
  *   /api/v1/disputes    -> dispute resolution domain
  *   /api/v1/credit      -> credit delegation domain
+ *   /api/v1/compliance  -> compliance/regulatory domain
  */
 
 import { Router } from 'express';
@@ -27,6 +28,7 @@ import socialRoutes from '../social.routes';
 import notificationRoutes from '../notification.routes';
 import disputeRoutes from '../dispute.routes';
 import creditRoutes from '../credit.routes';
+import complianceV1Routes from './compliance';
 
 const router = Router();
 
@@ -41,5 +43,6 @@ router.use('/social', socialRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/disputes', disputeRoutes);
 router.use('/credit', creditRoutes);
+router.use('/compliance', complianceV1Routes);
 
 export default router;

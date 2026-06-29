@@ -20,9 +20,11 @@ import {
   createAggregator,
   createContractUpdater,
   createMetricsService,
+  createTWAPService,
   type PriceAggregator,
   type ContractUpdater,
   type MetricsService,
+  type TWAPService,
 } from './services/index.js';
 import type { ProviderConfig } from './types/index.js';
 
@@ -56,6 +58,7 @@ export class OracleService {
   private config: OracleServiceConfig;
   private aggregator: PriceAggregator;
   private contractUpdater: ContractUpdater;
+  private twapService: TWAPService;
   private providers: ProviderConfig[];
   private intervalId?: ReturnType<typeof setInterval>;
   private isRunning: boolean = false;
@@ -83,6 +86,13 @@ export class OracleService {
 
     const cache = createPriceCache(config.cacheTtlSeconds);
     const priceHistory = createPriceHistoryService();
+
+    this.twapService = createTWAPService(priceHistory, {
+      windowSeconds: 1800,    // 30-minute TWAP window
+      maxDeviationBps: 500,   // 5% deviation triggers fallback
+      minDataPoints: 3,
+      fallbackToMedian: true,
+    });
 
     this.aggregator = createAggregator(providers, validator, cache, priceHistory, {
       circuitBreaker: config.circuitBreaker,
@@ -192,7 +202,25 @@ export class OracleService {
       });
 
       const priceArray = Array.from(prices.values());
-      const serializedPrices = serializePricesForLog(priceArray);
+
+      // Record spot-price observations for TWAP accumulation, then compute
+      // TWAP-smoothed prices to send to the contract.  This resists flash-loan
+      // or low-liquidity spot-price manipulation.
+      const twapPrices = priceArray.map((p) => {
+        this.twapService.recordObservation(p.asset, p.price);
+        const twapStatus = this.twapService.getTWAPStatus(p.asset, p.price);
+        if (twapStatus?.manipulationDetected) {
+          logger.warn('Spot-price manipulation detected, using TWAP for contract update', {
+            asset: p.asset,
+            spotPrice: p.price.toString(),
+            twapPrice: twapStatus.twap.toString(),
+            deviationBps: twapStatus.deviationBps,
+          });
+        }
+        return { ...p, price: twapStatus?.twap ?? p.price };
+      });
+
+      const serializedPrices = serializePricesForLog(twapPrices);
 
       if (this.config.dryRun) {
         this.lastSuccessfulUpdate = Date.now();
@@ -208,8 +236,8 @@ export class OracleService {
         return;
       }
 
-      // Update contract
-      const results = await this.contractUpdater.updatePrices(priceArray);
+      // Update contract with TWAP-smoothed prices
+      const results = await this.contractUpdater.updatePrices(twapPrices);
 
       // Log results
       const successful = results.filter((r) => r.success);
