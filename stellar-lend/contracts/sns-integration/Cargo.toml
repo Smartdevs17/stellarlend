@@ -7,9 +7,8 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-soroban-sdk = { version = "20.9", features = ["alloc"] }
-soroban-sdk-macros = "20.9"
-stellarlend-common = { path = "../../packages/common" }
+soroban-sdk = { workspace = true, features = ["alloc"] }
+stellarlend-common = { path = "../common" }
 stellarlend-shared-deadline = { path = "../shared-deadline" }
 
 [dev-dependencies]

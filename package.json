@@ -5,7 +5,8 @@
   "private": true,
   "workspaces": [
     "api",
-    "oracle"
+    "oracle",
+    "packages/sdk"
   ],
   "scripts": {
     "prepare": "husky || true",
