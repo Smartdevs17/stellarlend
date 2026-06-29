@@ -14,6 +14,7 @@ pub mod credit_score;
 pub mod cross_asset;
 pub mod debt_token;
 pub mod deposit;
+pub mod emergency_withdrawal;
 pub mod errors;
 pub mod events;
 pub mod flash_loan;
@@ -298,14 +299,43 @@ impl HelloContract {
         risk_management::initialize_risk_management(&env, admin.clone())?;
         risk_params::initialize_risk_params(&env)
             .map_err(|_| RiskManagementError::InvalidParameter)?;
-        interest_rate::initialize_interest_rate_config(&env, admin).map_err(|e| {
+        interest_rate::initialize_interest_rate_config(&env, admin.clone()).map_err(|e| {
             if e == InterestRateError::AlreadyInitialized {
                 RiskManagementError::AlreadyInitialized
             } else {
                 RiskManagementError::Unauthorized
             }
         })?;
+        emergency_withdrawal::initialize_emergency_withdrawal(&env);
         Ok(())
+    }
+
+    pub fn trigger_emergency(
+        env: Env,
+        caller: Address,
+        trigger: emergency_withdrawal::EmergencyTrigger,
+        withdrawal_cap_bps: Option<i128>,
+        bad_debt: Option<i128>,
+    ) -> Result<(), LendingError> {
+        emergency_withdrawal::trigger_emergency(&env, caller, trigger, withdrawal_cap_bps, bad_debt)
+            .map_err(Into::into)
+    }
+
+    pub fn cancel_emergency(env: Env, caller: Address) -> Result<(), LendingError> {
+        emergency_withdrawal::cancel_emergency(&env, caller).map_err(Into::into)
+    }
+
+    pub fn get_emergency_state(env: Env) -> emergency_withdrawal::EmergencyState {
+        emergency_withdrawal::get_emergency_state(&env)
+    }
+
+    pub fn emergency_withdraw(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+    ) -> Result<i128, LendingError> {
+        emergency_withdrawal::emergency_withdraw(&env, user, asset, amount)
     }
 
     pub fn transfer_admin(
