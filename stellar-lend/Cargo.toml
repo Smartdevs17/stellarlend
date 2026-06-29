@@ -4,6 +4,7 @@ members = [
   "benchmarks",
   "client",
   "packages/oracle-client",
+  "packages/test-framework",
   "contracts/amm",
   "contracts/bridge",
   "contracts/common",
@@ -30,6 +31,9 @@ members = [
   "contracts/shared-signatures",
   "contracts/margin",
   "contracts/swap-router",
+  "contracts/parameter-store",
+  "contracts/oracle-hub",
+  "contracts/liquidation-strategy",
 ]
 exclude = ["fuzz", "formal-verification/safe-math-proofs"]
 
