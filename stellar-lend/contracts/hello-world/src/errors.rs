@@ -18,6 +18,7 @@ use crate::risk_management::RiskManagementError;
 use crate::risk_params::RiskParamsError;
 use crate::treasury::TreasuryError;
 use crate::withdraw::WithdrawError;
+use crate::emergency_withdrawal::EmergencyWithdrawalError;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -383,3 +384,14 @@ impl From<CrossAssetError> for LendingError {
         }
     }
 }
+
+impl_from_error!(EmergencyWithdrawalError, {
+    EmergencyWithdrawalError::NotActive => LendingError::InvalidState,
+    EmergencyWithdrawalError::AlreadyActive => LendingError::AlreadyExists,
+    EmergencyWithdrawalError::WindowNotOpen => LendingError::InvalidState,
+    EmergencyWithdrawalError::NotAuthorized => LendingError::Unauthorized,
+    EmergencyWithdrawalError::InsufficientBalance => LendingError::InsufficientBalance,
+    EmergencyWithdrawalError::ExceedsWithdrawalCap => LendingError::LimitExceeded,
+    EmergencyWithdrawalError::InvalidParameter => LendingError::InvalidParameter,
+    EmergencyWithdrawalError::AlreadyWithdrawn => LendingError::AlreadyExists,
+});
