@@ -105,6 +105,8 @@ mod insurance_test;
 #[cfg(test)]
 mod math_safety_test;
 #[cfg(test)]
+mod migration_verification_test;
+#[cfg(test)]
 mod pause_test;
 #[cfg(test)]
 mod reentrancy_fuzz_test;
