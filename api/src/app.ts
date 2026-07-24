@@ -31,6 +31,7 @@ import notificationRoutes from './routes/notification.routes';
 import disputeRoutes from './routes/dispute.routes';
 import creditRoutes from './routes/credit.routes';
 import nonceRoutes from './routes/nonce.routes';
+import riskEngineRoutes from './routes/riskEngine.routes';
 
 import compression from 'compression';
 import { errorHandler } from './middleware/errorHandler';
@@ -206,6 +207,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/disputes', disputeRoutes);
 app.use('/api/credit', creditRoutes);
 app.use('/api/nonce', nonceRoutes);
+app.use('/api/risk', riskEngineRoutes);
 
 app.use(errorHandler);
 
