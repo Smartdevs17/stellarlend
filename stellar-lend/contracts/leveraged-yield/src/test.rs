@@ -332,6 +332,93 @@ fn test_set_config() {
 }
 
 #[test]
+fn test_adjust_leverage_invalid_range() {
+    let (_env, _admin, client) = setup();
+    let owner = Address::generate(&_env);
+    let pool = Address::generate(&_env);
+    let deposit_asset = Address::generate(&_env);
+    let borrow_asset = Address::generate(&_env);
+
+    let position_id = client.open_position(
+        &owner,
+        &pool,
+        &deposit_asset,
+        &borrow_asset,
+        &500_000,
+        &10_000,
+        &15_000,
+    );
+
+    let result = client.try_adjust_leverage(
+        &owner,
+        &position_id,
+        &60_000,
+        &100_000,
+        &15_000,
+    );
+    assert_eq!(result, Err(Ok(LeveragedYieldError::LeverageOutOfRange)));
+}
+
+#[test]
+fn test_adjust_leverage_unauthorized() {
+    let (_env, _admin, client) = setup();
+    let owner = Address::generate(&_env);
+    let other = Address::generate(&_env);
+    let pool = Address::generate(&_env);
+    let deposit_asset = Address::generate(&_env);
+    let borrow_asset = Address::generate(&_env);
+
+    let position_id = client.open_position(
+        &owner,
+        &pool,
+        &deposit_asset,
+        &borrow_asset,
+        &500_000,
+        &10_000,
+        &15_000,
+    );
+
+    let result = client.try_adjust_leverage(
+        &other,
+        &position_id,
+        &15_000,
+        &100_000,
+        &15_000,
+    );
+    assert_eq!(result, Err(Ok(LeveragedYieldError::Unauthorized)));
+}
+
+#[test]
+fn test_adjust_leverage_closed_position() {
+    let (_env, _admin, client) = setup();
+    let owner = Address::generate(&_env);
+    let pool = Address::generate(&_env);
+    let deposit_asset = Address::generate(&_env);
+    let borrow_asset = Address::generate(&_env);
+
+    let position_id = client.open_position(
+        &owner,
+        &pool,
+        &deposit_asset,
+        &borrow_asset,
+        &500_000,
+        &10_000,
+        &15_000,
+    );
+
+    client.close_position(&owner, &position_id, &0);
+
+    let result = client.try_adjust_leverage(
+        &owner,
+        &position_id,
+        &15_000,
+        &100_000,
+        &15_000,
+    );
+    assert_eq!(result, Err(Ok(LeveragedYieldError::PositionNotActive)));
+}
+
+#[test]
 fn test_open_position_zero_collateral() {
     let (_env, _admin, client) = setup();
     let owner = Address::generate(&_env);
