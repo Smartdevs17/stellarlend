@@ -25,8 +25,8 @@ export class HistoricalRateStore {
     const now = Date.now();
     const dayMs = 86400 * 1000;
 
-    let baseUtil = asset === 'USDC' ? 7500 : asset === 'USDT' ? 7000 : 5500;
-    let baseTvl = asset === 'XLM' ? 50000000 : 100000000;
+    const baseUtil = asset === 'USDC' ? 7500 : asset === 'USDT' ? 7000 : 5500;
+    const baseTvl = asset === 'XLM' ? 50000000 : 100000000;
 
     for (let i = 90; i >= 0; i--) {
       const ts = now - i * dayMs;

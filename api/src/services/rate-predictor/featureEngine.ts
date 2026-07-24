@@ -28,7 +28,7 @@ export class FeatureEngine {
       };
     }
 
-    const latest = history[history.length - 1];
+    const latest = history[history.length - 1]!;
     const n = history.length;
 
     // 7-day subset
@@ -42,7 +42,7 @@ export class FeatureEngine {
     const util30dMean = Math.round(util30dSum / last30d.length);
 
     // Rate velocity over 7d
-    const oldest7d = last7d[0];
+    const oldest7d = last7d[0]!;
     const rateDiff = latest.borrowRateBps - oldest7d.borrowRateBps;
     const daysDiff = Math.max(1, (latest.timestamp - oldest7d.timestamp) / (86400 * 1000));
     const rate7dVelocity = Math.round((rateDiff / daysDiff) * 100) / 100;
@@ -54,7 +54,7 @@ export class FeatureEngine {
     const volatility30d = Math.round((Math.sqrt(variance) / meanRate) * 10000) / 10000;
 
     // TVL growth 30d
-    const oldest30d = last30d[0];
+    const oldest30d = last30d[0]!;
     const tvlGrowthRate30d = oldest30d.totalValueLocked > 0
       ? Math.round(((latest.totalValueLocked - oldest30d.totalValueLocked) / oldest30d.totalValueLocked) * 10000) / 100
       : 0;

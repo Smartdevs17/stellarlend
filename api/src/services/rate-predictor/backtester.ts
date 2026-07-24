@@ -32,8 +32,8 @@ export class BacktestingFramework {
     let totalSqError = 0;
 
     for (let i = 0; i < n; i++) {
-      const actual = actualSnapshots[i].borrowRateBps;
-      const pred = predictedBorrowRatesBps[i];
+      const actual = actualSnapshots[i]!.borrowRateBps;
+      const pred = predictedBorrowRatesBps[i]!;
 
       const absError = Math.abs(actual - pred);
       totalAbsError += absError;
