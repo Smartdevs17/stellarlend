@@ -49,7 +49,12 @@ members = [
   "contracts/pool-interfaces",
   "contracts/yield-router",
 ]
-exclude = ["fuzz", "formal-verification/safe-math-proofs"]
+exclude = [
+  "fuzz",
+  "formal-verification/safe-math-proofs",
+  "formal-verification/interest-rate-model-proofs",
+  "formal-verification/liquidation-math-proofs",
+]
 
 [workspace.lints.rust]
 
