@@ -37,6 +37,11 @@ import rateForecastRoutes from './routes/rateForecast.routes';
 import liquidationDashboardRoutes from './routes/liquidationDashboard.routes';
 import opportunityExplorerRoutes from './routes/opportunityExplorer.routes';
 import { treasuryRoutes } from './routes/treasury.routes';
+import auditFindingsRoutes from './routes/audit-findings.routes';
+import securityRoutes from './routes/security.routes';
+import { invariantMonitorService } from './services/invariant-monitor';
+import { SupplyCheck } from './services/invariant-monitor/checks/supply.check';
+import { HealthCheck } from './services/invariant-monitor/checks/health.check';
 
 import compression from 'compression';
 import { errorHandler } from './middleware/errorHandler';
@@ -218,6 +223,8 @@ app.use('/api/rates', rateForecastRoutes);
 app.use('/api/liquidations', liquidationDashboardRoutes);
 app.use('/api/liquidations', opportunityExplorerRoutes);
 app.use('/api/treasury', treasuryRoutes);
+app.use('/api/audit-findings', auditFindingsRoutes);
+app.use('/api/security-reports', securityRoutes);
 
 app.use(errorHandler);
 
@@ -225,6 +232,11 @@ void redisCacheService.warmup(async () => {
   const { StellarService } = await import('./services/stellar.service.js');
   const svc = new StellarService();
   await svc.getProtocolStats();
+  
+  // Initialize invariant monitor
+  invariantMonitorService.registerCheck(new SupplyCheck());
+  invariantMonitorService.registerCheck(new HealthCheck());
+  invariantMonitorService.start(60000); // 1 minute interval
 });
 
 export async function resetRateLimiters(): Promise<void> {
