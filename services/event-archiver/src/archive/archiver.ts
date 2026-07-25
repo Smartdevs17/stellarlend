@@ -2,7 +2,7 @@ import { normalizeEvent, groupCountsByLedger } from './normalize.js';
 import { verifyLedgerIntegrity, summarizeIntegrity } from './integrity.js';
 import type { EventFetcher } from '../rpc/event-fetcher.js';
 import type { EventRepository } from '../db/repository.js';
-import type { EventArchiverConfig, SyncState } from '../types.js';
+import { PROTOCOL_EVENT_TOPICS, type EventArchiverConfig, type SyncState } from '../types.js';
 import type { Logger } from '../utils/logger.js';
 
 export interface ArchiveCycleResult {
@@ -88,10 +88,21 @@ export class EventArchiver {
     );
     const archived = await this.repo.insertEvents(contractSk, normalized);
 
-    const counts = groupCountsByLedger(normalized);
+    // Integrity: RPC protocol events per ledger vs successfully normalized rows.
+    // Mismatch means decode/filter dropped events for that ledger.
+    const expectedByLedger = new Map<number, number>();
+    for (const event of raw) {
+      if ((PROTOCOL_EVENT_TOPICS as readonly string[]).includes(event.topic)) {
+        expectedByLedger.set(event.ledger, (expectedByLedger.get(event.ledger) ?? 0) + 1);
+      }
+    }
+    const archivedByLedger = groupCountsByLedger(normalized);
     let integrityFailed = 0;
-    for (const [ledger, count] of counts) {
-      const check = verifyLedgerIntegrity(ledger, count, count);
+    const ledgers = new Set([...expectedByLedger.keys(), ...archivedByLedger.keys()]);
+    for (const ledger of ledgers) {
+      const expectedCount = expectedByLedger.get(ledger) ?? 0;
+      const archivedCount = archivedByLedger.get(ledger) ?? 0;
+      const check = verifyLedgerIntegrity(ledger, archivedCount, expectedCount);
       await this.repo.recordLedgerIntegrity(
         check.ledger,
         check.archivedCount,
@@ -111,8 +122,12 @@ export class EventArchiver {
     }
 
     const summary = summarizeIntegrity(
-      [...counts.entries()].map(([ledger, count]) =>
-        verifyLedgerIntegrity(ledger, count, count)
+      [...ledgers].map((ledger) =>
+        verifyLedgerIntegrity(
+          ledger,
+          archivedByLedger.get(ledger) ?? 0,
+          expectedByLedger.get(ledger) ?? 0
+        )
       )
     );
 

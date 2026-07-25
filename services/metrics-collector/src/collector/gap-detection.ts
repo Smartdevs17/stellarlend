@@ -20,11 +20,12 @@ export function detectGaps(
     const curr = sorted[i]!;
     const delta = curr.getTime() - prev.getTime();
     if (delta > tolerance) {
-      gaps.push({
-        metricFamily,
-        gapStart: new Date(prev.getTime() + intervalMs),
-        gapEnd: new Date(curr.getTime() - intervalMs),
-      });
+      const gapStart = new Date(prev.getTime() + intervalMs);
+      const gapEnd = new Date(curr.getTime() - intervalMs);
+      // Skip inverted / empty windows (can happen when delta is only slightly over tolerance)
+      if (gapEnd.getTime() >= gapStart.getTime()) {
+        gaps.push({ metricFamily, gapStart, gapEnd });
+      }
     }
   }
 

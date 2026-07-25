@@ -49,11 +49,11 @@ describe('partitioning', () => {
 });
 
 describe('parquet encode/decode', () => {
-  it('round-trips columnar parquet buffers', () => {
+  it('round-trips columnar parquet buffers', async () => {
     const rows = toParquetRows([sample(), sample({ txHash: 'tx2', eventIndex: 1 })]);
     const buffer = encodeParquet(rows);
     expect(buffer.subarray(0, 4).toString()).toBe('PAR1');
-    const decoded = decodeParquet(buffer);
+    const decoded = await decodeParquet(buffer);
     expect(decoded).toHaveLength(2);
     expect(decoded[0]!.tx_hash).toBe('tx1');
     expect(decoded[1]!.event_index).toBe(1);

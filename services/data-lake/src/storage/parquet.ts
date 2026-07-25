@@ -1,3 +1,5 @@
+import { parquetWriteBuffer } from 'hyparquet-writer';
+import { parquetReadObjects } from 'hyparquet';
 import { CURRENT_SCHEMA_VERSION, type RawLakeRecord } from '../types.js';
 
 export interface FlatParquetRow {
@@ -33,78 +35,54 @@ export function toParquetRows(records: RawLakeRecord[]): FlatParquetRow[] {
   }));
 }
 
-/**
- * Encode rows as an uncompressed single-row-group Parquet file (PLAIN encoding).
- * Compatible with DuckDB / Spark / Athena readers for this flat schema.
- */
-export function encodeParquet(rows: FlatParquetRow[]): Buffer {
-  // Minimal Parquet writer for primitive columns used by StellarLend raw tables.
-  // Format: PAR1 magic | row-group JSON payload (deflate-free) | footer length | PAR1
-  // The payload embeds schema + columnar arrays so catalog tools can inspect it;
-  // production Spark jobs may rewrite to snappy-compressed Parquet in-place.
-  const columns = {
-    ledger: rows.map((r) => r.ledger),
-    tx_hash: rows.map((r) => r.tx_hash),
-    contract_id: rows.map((r) => r.contract_id),
-    event_type: rows.map((r) => r.event_type),
-    event_index: rows.map((r) => r.event_index),
-    block_timestamp: rows.map((r) => r.block_timestamp),
-    user_address: rows.map((r) => r.user_address),
-    asset_address: rows.map((r) => r.asset_address),
-    amount: rows.map((r) => r.amount),
-    payload_json: rows.map((r) => r.payload_json),
-    schema_version: rows.map((r) => r.schema_version),
-  };
-
-  const body = Buffer.from(
-    JSON.stringify({
-      version: 1,
-      format: 'stellarlend-parquet-v1',
-      created_at: new Date().toISOString(),
-      num_rows: rows.length,
-      schema: 'schemas/raw_transactions.json',
-      columns,
-    }),
-    'utf8'
-  );
-
-  const magic = Buffer.from('PAR1');
-  const len = Buffer.alloc(4);
-  len.writeUInt32LE(body.length, 0);
-  return Buffer.concat([magic, body, len, magic]);
+function toArrayBuffer(buffer: Buffer): ArrayBuffer {
+  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
 }
 
-export function decodeParquet(buffer: Buffer): FlatParquetRow[] {
-  if (buffer.subarray(0, 4).toString() !== 'PAR1') {
-    throw new Error('Invalid Parquet magic header');
-  }
-  if (buffer.subarray(buffer.length - 4).toString() !== 'PAR1') {
-    throw new Error('Invalid Parquet magic footer');
-  }
-  const bodyLen = buffer.readUInt32LE(buffer.length - 8);
-  const body = buffer.subarray(4, 4 + bodyLen).toString('utf8');
-  const parsed = JSON.parse(body) as {
-    num_rows: number;
-    columns: Record<string, unknown[]>;
-  };
-  const cols = parsed.columns;
-  const rows: FlatParquetRow[] = [];
-  for (let i = 0; i < parsed.num_rows; i++) {
-    rows.push({
-      ledger: Number(cols.ledger?.[i]),
-      tx_hash: String(cols.tx_hash?.[i]),
-      contract_id: String(cols.contract_id?.[i]),
-      event_type: String(cols.event_type?.[i]),
-      event_index: Number(cols.event_index?.[i]),
-      block_timestamp: Number(cols.block_timestamp?.[i]),
-      user_address: (cols.user_address?.[i] as string | null) ?? null,
-      asset_address: (cols.asset_address?.[i] as string | null) ?? null,
-      amount: (cols.amount?.[i] as string | null) ?? null,
-      payload_json: String(cols.payload_json?.[i]),
-      schema_version: Number(cols.schema_version?.[i]),
-    });
-  }
-  return rows;
+/**
+ * Encode rows as real Apache Parquet (readable by Athena / Spark / DuckDB / hyparquet).
+ */
+export function encodeParquet(rows: FlatParquetRow[]): Buffer {
+  const arrayBuffer = parquetWriteBuffer({
+    columnData: [
+      { name: 'ledger', data: rows.map((r) => BigInt(r.ledger)), type: 'INT64' },
+      { name: 'tx_hash', data: rows.map((r) => r.tx_hash), type: 'BYTE_ARRAY' },
+      { name: 'contract_id', data: rows.map((r) => r.contract_id), type: 'BYTE_ARRAY' },
+      { name: 'event_type', data: rows.map((r) => r.event_type), type: 'BYTE_ARRAY' },
+      { name: 'event_index', data: rows.map((r) => r.event_index), type: 'INT32' },
+      {
+        name: 'block_timestamp',
+        data: rows.map((r) => BigInt(r.block_timestamp)),
+        type: 'INT64',
+      },
+      { name: 'user_address', data: rows.map((r) => r.user_address), type: 'BYTE_ARRAY' },
+      { name: 'asset_address', data: rows.map((r) => r.asset_address), type: 'BYTE_ARRAY' },
+      { name: 'amount', data: rows.map((r) => r.amount), type: 'BYTE_ARRAY' },
+      { name: 'payload_json', data: rows.map((r) => r.payload_json), type: 'BYTE_ARRAY' },
+      { name: 'schema_version', data: rows.map((r) => r.schema_version), type: 'INT32' },
+    ],
+  });
+  return Buffer.from(arrayBuffer);
+}
+
+export async function decodeParquet(buffer: Buffer): Promise<FlatParquetRow[]> {
+  const objects = await parquetReadObjects({ file: toArrayBuffer(buffer) });
+  return objects.map((row) => {
+    const r = row as Record<string, unknown>;
+    return {
+      ledger: Number(r.ledger),
+      tx_hash: String(r.tx_hash ?? ''),
+      contract_id: String(r.contract_id ?? ''),
+      event_type: String(r.event_type ?? ''),
+      event_index: Number(r.event_index ?? 0),
+      block_timestamp: Number(r.block_timestamp ?? 0),
+      user_address: r.user_address == null ? null : String(r.user_address),
+      asset_address: r.asset_address == null ? null : String(r.asset_address),
+      amount: r.amount == null ? null : String(r.amount),
+      payload_json: String(r.payload_json ?? '{}'),
+      schema_version: Number(r.schema_version ?? CURRENT_SCHEMA_VERSION),
+    };
+  });
 }
 
 /**
@@ -115,9 +93,8 @@ export function evolveSchema(
   incomingFields: string[]
 ): { fields: string[]; added: string[]; removed: string[] } {
   const existing = new Set(existingFields);
-  const incoming = new Set(incomingFields);
   const added = incomingFields.filter((f) => !existing.has(f));
-  const removed = existingFields.filter((f) => !incoming.has(f));
+  const removed = existingFields.filter((f) => !incomingFields.includes(f));
   if (removed.length > 0) {
     throw new Error(
       `Breaking schema change: removed fields ${removed.join(', ')}. Additive evolution only.`

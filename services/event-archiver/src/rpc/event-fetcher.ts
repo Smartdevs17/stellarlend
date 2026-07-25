@@ -9,7 +9,7 @@ export interface EventFetcher {
 
 function topicToString(topic: unknown): string {
   if (typeof topic === 'string') return topic;
-  if (topic && typeof topic === 'object' && 'toString' in topic) {
+  if (topic && typeof topic === 'object') {
     try {
       const native = scValToNative(topic as Parameters<typeof scValToNative>[0]);
       if (typeof native === 'string') return native;
@@ -45,15 +45,20 @@ export class SorobanEventFetcher implements EventFetcher {
       nativeToScVal(topic, { type: 'symbol' }).toXDR('base64')
     );
 
+    const filters = [
+      {
+        type: 'contract' as const,
+        contractIds: [this.contractId],
+        // OR across protocol topics at topic position 0
+        topics: [topicFilters],
+      },
+    ];
+
+    // SDK types require either startLedger or cursor; always pin a concrete startLedger.
+    const effectiveStart = startLedger > 0 ? startLedger : 1;
     const page = await this.server.getEvents({
-      startLedger: startLedger > 0 ? startLedger : undefined,
-      filters: [
-        {
-          type: 'contract',
-          contractIds: [this.contractId],
-          topics: [topicFilters],
-        },
-      ],
+      startLedger: effectiveStart,
+      filters,
       limit,
     });
 
@@ -84,11 +89,16 @@ export class SorobanEventFetcher implements EventFetcher {
           ? new Date(event.ledgerClosedAt)
           : new Date();
 
+        const contractId =
+          typeof event.contractId === 'string'
+            ? event.contractId
+            : this.contractId;
+
         events.push({
           ledger,
           txHash: event.txHash ?? '',
           eventIndex: typeof event.id === 'string' ? i : Number(event.id ?? i),
-          contractId: event.contractId ?? this.contractId,
+          contractId,
           topic: primaryTopic,
           topics: topicsNative,
           value,
