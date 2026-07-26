@@ -38,6 +38,7 @@ members = [
   "contracts/liquidation-strategy",
   "contracts/sns-integration",
   "contracts/referral-program",
+  "contracts/insurance-marketplace",
   "contracts/token-adapter",
   "contracts/compliance",
   "contracts/leveraged-yield",
@@ -51,6 +52,10 @@ members = [
   "contracts/yield-router",
   "contracts/dutch-auction",
   "contracts/debt-token",
+  "contracts/shared-math",
+  "contracts/shared-storage",
+  "tests/simulation/multi-user",
+  "tests/integration/flash-loan-liquidation",
 ]
 exclude = [
   "fuzz",
