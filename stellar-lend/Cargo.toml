@@ -17,6 +17,7 @@ members = [
   "contracts/lending-interest",
   "contracts/lending-risk",
   "contracts/safe-math",
+  "contracts/math",
   "contracts/stablecoin",
   "contracts/institutional-wallet",
   "contracts/migration-hub",
@@ -37,6 +38,7 @@ members = [
   "contracts/liquidation-strategy",
   "contracts/sns-integration",
   "contracts/referral-program",
+  "contracts/insurance-marketplace",
   "contracts/token-adapter",
   "contracts/compliance",
   "contracts/leveraged-yield",
@@ -48,6 +50,14 @@ members = [
   "contracts/auto-compound-vault",
   "contracts/pool-interfaces",
   "contracts/yield-router", "contracts/shared-events",
+  "contracts/yield-router",
+  "contracts/dutch-auction",
+  "contracts/debt-token",
+  "contracts/shared-math",
+  "contracts/shared-storage",
+  "contracts/earnings-reinvest",
+  "tests/simulation/multi-user",
+  "tests/integration/flash-loan-liquidation",
 ]
 exclude = [
   "fuzz",
@@ -61,6 +71,7 @@ exclude = [
 [workspace.dependencies]
 soroban-sdk = "23.4.1"
 stellarlend-safe-math = { path = "contracts/safe-math" }
+stellarlend-math = { path = "contracts/math" }
 soroban-token-sdk = { version = "23.4.1" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

@@ -21,6 +21,9 @@ import zkProofRoutes from './routes/zkProof.routes';
 import verificationRoutes from './routes/verification.routes';
 import configRoutes from './routes/config.routes';
 import analyticsRoutes from './routes/analytics.routes';
+import gasUsageAnalyticsRoutes from './routes/gasUsageAnalytics.routes';
+import poolPerformanceRoutes from './routes/poolPerformance.routes';
+import migrationRoutes from './routes/migration.routes';
 import ratesRoutes from './routes/rates.routes';
 import crossProtocolRoutes from './routes/crossProtocol.routes';
 import developerRoutes from './routes/developer.routes';
@@ -37,10 +40,24 @@ import rateForecastRoutes from './routes/rateForecast.routes';
 import liquidationDashboardRoutes from './routes/liquidationDashboard.routes';
 import opportunityExplorerRoutes from './routes/opportunityExplorer.routes';
 import { treasuryRoutes } from './routes/treasury.routes';
+import auditFindingsRoutes from './routes/audit-findings.routes';
+import securityRoutes from './routes/security.routes';
+import { invariantMonitorService } from './services/invariant-monitor';
+import { SupplyCheck } from './services/invariant-monitor/checks/supply.check';
+import { HealthCheck } from './services/invariant-monitor/checks/health.check';
+import metricsRoutes from './routes/metrics.routes';
 import referralRoutes from './routes/referral.routes';
 import snsRoutes from './routes/sns.routes';
 import simulatorRoutes from './routes/simulator.routes';
 import emergencyRoutes from './routes/emergency.routes';
+import liquidationProfitCalculatorRoutes from './routes/liquidationProfitCalculator.routes';
+import tvlDecompositionRoutes from './routes/tvlDecomposition.routes';
+import userBehaviorAnalyticsRoutes from './routes/userBehaviorAnalytics.routes';
+import pnlRoutes from './routes/pnl.routes';
+import insuranceRoutes from './routes/insurance.routes';
+import plannerRoutes from './routes/planner.routes';
+import feeTierRoutes from './routes/fee-tiers.routes';
+import reinvestmentRoutes from './routes/reinvestment.routes';
 
 import compression from 'compression';
 import { errorHandler } from './middleware/errorHandler';
@@ -207,6 +224,9 @@ app.use('/api/zk', legacySecurityCompat, zkProofRoutes);
 app.use('/api/verification', legacySecurityCompat, verificationRoutes);
 app.use('/api/config', legacySystemCompat, configRoutes);
 app.use('/api/analytics', legacySystemCompat, analyticsRoutes);
+app.use('/api/analytics/gas', legacySystemCompat, gasUsageAnalyticsRoutes);
+app.use('/api/pool-performance', legacySystemCompat, poolPerformanceRoutes);
+app.use('/api/migration', legacySystemCompat, migrationRoutes);
 app.use('/api/rates', legacySystemCompat, ratesRoutes);
 app.use('/api/cross-protocol', legacySystemCompat, crossProtocolRoutes);
 app.use('/api/mev', legacySecurityCompat, mevRoutes);
@@ -222,10 +242,21 @@ app.use('/api/rates', rateForecastRoutes);
 app.use('/api/liquidations', liquidationDashboardRoutes);
 app.use('/api/liquidations', opportunityExplorerRoutes);
 app.use('/api/treasury', treasuryRoutes);
+app.use('/api/audit-findings', auditFindingsRoutes);
+app.use('/api/security-reports', securityRoutes);
+app.use('/api/metrics', legacySystemCompat, metricsRoutes);
 app.use('/api/referral', referralRoutes);
 app.use('/api/sns', snsRoutes);
 app.use('/api/simulator', simulatorRoutes);
 app.use('/api/emergency', emergencyRoutes);
+app.use('/api/liquidations', liquidationProfitCalculatorRoutes);
+app.use('/api/analytics/tvl', tvlDecompositionRoutes);
+app.use('/api/analytics/users', userBehaviorAnalyticsRoutes);
+app.use('/api/pnl', pnlRoutes);
+app.use('/api/insurance', insuranceRoutes);
+app.use('/api/planner', plannerRoutes);
+app.use('/api/fee-tiers', feeTierRoutes);
+app.use('/api/reinvestment', reinvestmentRoutes);
 
 app.use(errorHandler);
 
@@ -233,6 +264,11 @@ void redisCacheService.warmup(async () => {
   const { StellarService } = await import('./services/stellar.service.js');
   const svc = new StellarService();
   await svc.getProtocolStats();
+  
+  // Initialize invariant monitor
+  invariantMonitorService.registerCheck(new SupplyCheck());
+  invariantMonitorService.registerCheck(new HealthCheck());
+  invariantMonitorService.start(60000); // 1 minute interval
 });
 
 export async function resetRateLimiters(): Promise<void> {
