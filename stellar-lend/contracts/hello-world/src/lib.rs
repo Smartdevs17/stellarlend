@@ -753,6 +753,182 @@ impl HelloContract {
     // -------------------------------------------------------------------------
 
     // -------------------------------------------------------------------------
+    // Debt Token Marketplace — Secondary Trading  (Issue #787)
+    // -------------------------------------------------------------------------
+
+    /// Mint a new debt-position NFT.
+    pub fn dt_mint(
+        env: Env,
+        user: Address,
+        collateral_asset: Option<Address>,
+        principal: i128,
+        interest_rate_bps: i128,
+    ) -> Result<u64, LendingError> {
+        use crate::debt_token::{mint_debt_token, DebtTokenError};
+        mint_debt_token(&env, user, collateral_asset, principal, interest_rate_bps)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Direct transfer of a debt token.
+    pub fn dt_transfer(
+        env: Env,
+        from: Address,
+        to: Address,
+        token_id: u64,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::{transfer_debt_token, DebtTokenError};
+        transfer_debt_token(&env, from, to, token_id)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Burn a debt token (debt repaid/liquidated).
+    pub fn dt_burn(
+        env: Env,
+        user: Address,
+        token_id: u64,
+        reason: soroban_sdk::Symbol,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::{burn_debt_token, DebtTokenError};
+        burn_debt_token(&env, user, token_id, reason)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// List a debt token at a fixed price (with marketplace stats bookkeeping).
+    pub fn dt_list(
+        env: Env,
+        seller: Address,
+        token_id: u64,
+        price: i128,
+        payment_token: Address,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::list_debt_token_tracked;
+        list_debt_token_tracked(&env, seller, token_id, price, payment_token)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Cancel an active fixed-price listing.
+    pub fn dt_cancel_listing(
+        env: Env,
+        seller: Address,
+        token_id: u64,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::{cancel_listing, DebtTokenError};
+        cancel_listing(&env, seller, token_id)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Buy a listed debt token at its fixed asking price (with price discovery recording).
+    pub fn dt_buy(
+        env: Env,
+        buyer: Address,
+        token_id: u64,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::buy_listed_debt_token_tracked;
+        buy_listed_debt_token_tracked(&env, buyer, token_id)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Place a bid (purchase offer) on a debt token.
+    pub fn dt_place_bid(
+        env: Env,
+        bidder: Address,
+        token_id: u64,
+        price: i128,
+        payment_token: Address,
+        expires_at: u64,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::place_bid;
+        place_bid(&env, bidder, token_id, price, payment_token, expires_at)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Cancel an active bid.
+    pub fn dt_cancel_bid(
+        env: Env,
+        bidder: Address,
+        token_id: u64,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::cancel_bid;
+        cancel_bid(&env, bidder, token_id)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Accept a bidder's offer and transfer the token.
+    pub fn dt_accept_bid(
+        env: Env,
+        seller: Address,
+        token_id: u64,
+        bidder: Address,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::accept_bid;
+        accept_bid(&env, seller, token_id, bidder)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Read-only: get a specific bid.
+    pub fn dt_get_bid(
+        env: Env,
+        token_id: u64,
+        bidder: Address,
+    ) -> Option<crate::debt_token::DebtTokenBid> {
+        crate::debt_token::get_bid(&env, token_id, bidder)
+    }
+
+    /// Read-only: get all bidder addresses for a token.
+    pub fn dt_get_bidders(env: Env, token_id: u64) -> Vec<Address> {
+        crate::debt_token::get_bidders(&env, token_id)
+    }
+
+    /// Read-only: last traded price for a token.
+    pub fn dt_get_last_trade_price(
+        env: Env,
+        token_id: u64,
+    ) -> Option<crate::debt_token::TradePrice> {
+        crate::debt_token::get_last_trade_price(&env, token_id)
+    }
+
+    /// Read-only: TWAP over the last 20 trades for a token.
+    pub fn dt_get_twap(env: Env, token_id: u64) -> Option<i128> {
+        crate::debt_token::get_twap_price(&env, token_id)
+    }
+
+    /// Read-only: global marketplace analytics snapshot.
+    pub fn dt_get_marketplace_analytics(env: Env) -> crate::debt_token::MarketplaceStats {
+        crate::debt_token::get_marketplace_analytics(&env)
+    }
+
+    /// Read-only: bounded log of recent trades across all tokens.
+    pub fn dt_get_recent_trades(env: Env) -> Vec<crate::debt_token::TradeRecord> {
+        crate::debt_token::get_recent_trades(&env)
+    }
+
+    /// Read-only: get the active listing for a token (if any).
+    pub fn dt_get_listing(
+        env: Env,
+        token_id: u64,
+    ) -> Option<crate::debt_token::DebtTokenListing> {
+        crate::debt_token::get_listing(&env, token_id)
+    }
+
+    /// Read-only: get a user's debt token IDs.
+    pub fn dt_get_user_tokens(env: Env, user: Address) -> Vec<u64> {
+        crate::debt_token::get_user_debt_tokens(&env, &user)
+    }
+
+    /// Read-only: get a debt position.
+    pub fn dt_get_position(
+        env: Env,
+        token_id: u64,
+    ) -> Option<crate::debt_token::DebtPosition> {
+        crate::debt_token::get_debt_position(&env, token_id)
+    }
+
+    /// Read-only: total supply of debt tokens.
+    pub fn dt_total_supply(env: Env) -> u64 {
+        crate::debt_token::get_total_supply(&env)
+    }
+
+    // -------------------------------------------------------------------------
     // Rate Limiter Administration  (Issue #790)
     // -------------------------------------------------------------------------
 
