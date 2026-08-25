@@ -62,6 +62,7 @@ import dutchAuctionRoutes from './routes/dutchAuction.routes';
 import autoCompoundVaultRoutes from './routes/autoCompoundVault.routes';
 import riskScoringRoutes from './routes/riskScoring.routes';
 import collateralRatioRoutes from './routes/collateralRatio.routes';
+import rateLimitRoutes from './routes/rateLimit.routes';
 import complianceRoutes from './routes/v1/compliance';
 
 import compression from 'compression';
@@ -267,6 +268,7 @@ app.use('/api/vault', autoCompoundVaultRoutes);
 app.use('/api/risk-scoring', riskScoringRoutes);
 app.use('/api/collateral-ratio', collateralRatioRoutes);
 app.use('/api/compliance', complianceRoutes);
+app.use('/api/rate-limit', rateLimitRoutes);
 
 app.use(errorHandler);
 

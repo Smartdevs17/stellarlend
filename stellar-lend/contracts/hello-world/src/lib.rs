@@ -752,6 +752,121 @@ impl HelloContract {
     // Analytics
     // -------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // Rate Limiter Administration  (Issue #790)
+    // -------------------------------------------------------------------------
+
+    /// Configure default rate-limit parameters for an operation (admin-only).
+    pub fn rl_configure_operation(
+        env: Env,
+        caller: Address,
+        op: soroban_sdk::Symbol,
+        cfg: rate_limiter::RateLimitConfig,
+    ) -> Result<(), LendingError> {
+        rate_limiter::configure_operation_limit(&env, caller, op, cfg)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Configure per-pool rate-limit override for an operation (admin-only).
+    pub fn rl_configure_pool(
+        env: Env,
+        caller: Address,
+        op: soroban_sdk::Symbol,
+        pool: Address,
+        cfg: rate_limiter::RateLimitConfig,
+    ) -> Result<(), LendingError> {
+        rate_limiter::configure_pool_limit(&env, caller, op, pool, cfg)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Enable/disable grace burst for a (user, operation) pair (admin-only).
+    pub fn rl_set_user_grace(
+        env: Env,
+        caller: Address,
+        user: Address,
+        op: soroban_sdk::Symbol,
+        enabled: bool,
+    ) -> Result<(), LendingError> {
+        rate_limiter::set_user_grace(&env, caller, user, op, enabled)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Configure congestion-based adaptive throttling (admin-only).
+    pub fn rl_configure_congestion(
+        env: Env,
+        caller: Address,
+        cfg: rate_limiter::CongestionConfig,
+    ) -> Result<(), LendingError> {
+        rate_limiter::configure_congestion(&env, caller, cfg)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Report network congestion index in bps — callable by congestion_reporter role.
+    pub fn rl_report_congestion(
+        env: Env,
+        caller: Address,
+        congestion_bps: i128,
+    ) -> Result<(), LendingError> {
+        rate_limiter::report_congestion(&env, caller, congestion_bps)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Read-only: current congestion adaptation state (for dashboards).
+    pub fn rl_get_congestion_state(env: Env) -> rate_limiter::CongestionState {
+        rate_limiter::get_congestion_state(&env)
+    }
+
+    /// Read-only: current effective rate-limit status for a user.
+    pub fn rl_get_user_status(
+        env: Env,
+        user: Address,
+        op: soroban_sdk::Symbol,
+        pool: Address,
+    ) -> rate_limiter::RateLimitStatus {
+        rate_limiter::get_user_status(&env, user, op, pool)
+    }
+
+    /// Read-only: current effective rate-limit status for the global pool bucket.
+    pub fn rl_get_global_status(
+        env: Env,
+        op: soroban_sdk::Symbol,
+        pool: Address,
+    ) -> rate_limiter::RateLimitStatus {
+        rate_limiter::get_global_status(&env, op, pool)
+    }
+
+    /// Read-only: aggregated analytics snapshot for an (op, pool) pair (Issue #790).
+    pub fn rl_get_analytics(
+        env: Env,
+        op: soroban_sdk::Symbol,
+        pool: Address,
+    ) -> rate_limiter::RateLimitAnalytics {
+        rate_limiter::get_rate_limit_analytics(&env, op, pool)
+    }
+
+    /// Admin-only: reset a user's rate-limit bucket to full capacity.
+    pub fn rl_reset_user_bucket(
+        env: Env,
+        caller: Address,
+        user: Address,
+        op: soroban_sdk::Symbol,
+        pool: Address,
+    ) -> Result<(), LendingError> {
+        rate_limiter::reset_user_bucket(&env, caller, user, op, pool)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Admin-only: reset the global-per-pool rate-limit bucket to full capacity.
+    pub fn rl_reset_global_bucket(
+        env: Env,
+        caller: Address,
+        op: soroban_sdk::Symbol,
+        pool: Address,
+    ) -> Result<(), LendingError> {
+        rate_limiter::reset_global_bucket(&env, caller, op, pool)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
     /// Read-only user health factor query (collateral/debt in basis points).
     pub fn get_health_factor(env: Env, user: Address) -> Result<i128, LendingError> {
         analytics::calculate_health_factor(&env, &user).map_err(Into::into)
