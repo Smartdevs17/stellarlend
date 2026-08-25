@@ -1077,6 +1077,98 @@ impl HelloContract {
         analytics::get_recent_activity(&env, limit, offset).map_err(Into::into)
     }
 
+    /// Read-only: full real-time dashboard snapshot (Issue #795).
+    pub fn get_dashboard_snapshot(
+        env: Env,
+    ) -> Result<analytics::DashboardSnapshot, LendingError> {
+        analytics::get_dashboard_snapshot(&env).map_err(Into::into)
+    }
+
+    /// Read-only: risk-level distribution across sampled users (Issue #795).
+    pub fn get_risk_distribution(env: Env) -> analytics::RiskDistributionSummary {
+        analytics::get_risk_distribution(&env)
+    }
+
+    /// Read-only: protocol volume summary from activity log (Issue #795).
+    pub fn get_volume_summary(env: Env) -> analytics::VolumeSummary {
+        analytics::get_volume_summary(&env)
+    }
+
+    /// Record a historical metrics snapshot (callable by off-chain keeper).
+    pub fn record_metrics_snapshot(
+        env: Env,
+    ) -> Result<analytics::MetricsSnapshot, LendingError> {
+        analytics::record_metrics_snapshot(&env).map_err(Into::into)
+    }
+
+    /// Read-only: metrics snapshot history (oldest-first).
+    pub fn get_metrics_history(env: Env) -> Vec<analytics::MetricsSnapshot> {
+        analytics::get_metrics_history(&env)
+    }
+
+    /// Read-only: linear TVL forecast.
+    pub fn forecast_tvl(env: Env, periods_ahead: u32) -> Result<i128, LendingError> {
+        analytics::forecast_tvl(&env, periods_ahead).map_err(Into::into)
+    }
+
+    /// Admin-only: configure a metric alert threshold.
+    pub fn set_metric_alert_threshold(
+        env: Env,
+        admin: Address,
+        metric: soroban_sdk::Symbol,
+        threshold: i128,
+    ) -> Result<(), LendingError> {
+        analytics::set_metric_alert_threshold(&env, admin, metric, threshold)
+            .map_err(Into::into)
+    }
+
+    /// Read-only: all configured alert thresholds.
+    pub fn get_metric_alert_thresholds(
+        env: Env,
+    ) -> Vec<analytics::MetricAlertThreshold> {
+        analytics::get_metric_alert_thresholds(&env)
+    }
+
+    /// Read-only: triggered alert log.
+    pub fn get_triggered_alerts(env: Env) -> Vec<analytics::TriggeredAlert> {
+        analytics::get_triggered_alerts(&env)
+    }
+
+    /// Check current metrics against alert thresholds; returns breached metric names.
+    pub fn check_metric_alerts(env: Env) -> Result<Vec<soroban_sdk::Symbol>, LendingError> {
+        analytics::check_metric_alerts(&env).map_err(Into::into)
+    }
+
+    /// Record a collateral ratio snapshot for an asset.
+    pub fn record_collateral_ratio_snapshot(
+        env: Env,
+        asset: soroban_sdk::Symbol,
+        current_ratio: i128,
+        required_ratio: i128,
+        collateral_value: i128,
+        debt_value: i128,
+    ) -> Result<analytics::CollateralRatioSnapshot, LendingError> {
+        analytics::record_collateral_ratio_snapshot(
+            &env, asset, current_ratio, required_ratio, collateral_value, debt_value,
+        )
+        .map_err(Into::into)
+    }
+
+    /// Read-only: all current collateral ratio snapshots.
+    pub fn get_collateral_ratio_snapshots(
+        env: Env,
+    ) -> Vec<analytics::CollateralRatioSnapshot> {
+        analytics::get_collateral_ratio_snapshots(&env)
+    }
+
+    /// Read-only: historical collateral ratio trend for an asset.
+    pub fn get_collateral_ratio_history(
+        env: Env,
+        asset: soroban_sdk::Symbol,
+    ) -> Vec<analytics::CollateralRatioTrend> {
+        analytics::get_collateral_ratio_history(&env, asset)
+    }
+
     /// Read-only: get next expected nonce for off-chain intents.
     pub fn get_intent_nonce(env: Env, user: Address, operation: soroban_sdk::Symbol) -> u64 {
         intents::get_next_nonce(&env, user, operation)
