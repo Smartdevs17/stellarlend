@@ -40,6 +40,7 @@ members = [
   "contracts/referral-program",
   "contracts/insurance-marketplace",
   "contracts/token-adapter",
+  "contracts/token",
   "contracts/compliance",
   "contracts/leveraged-yield",
   "contracts/position-manager",
@@ -75,6 +76,7 @@ exclude = [
 soroban-sdk = "27.0.2"
 stellarlend-safe-math = { path = "contracts/safe-math" }
 stellarlend-math = { path = "contracts/math" }
+stellarlend-token = { path = "contracts/token" }
 soroban-token-sdk = { version = "23.4.1" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
