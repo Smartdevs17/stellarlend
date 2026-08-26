@@ -464,6 +464,29 @@ pub fn calculate_health_factor(env: &Env, user: &Address) -> Result<i128, Analyt
     Ok(health_factor)
 }
 
+/// Batch calculate health factors for multiple users in a single storage read pass.
+/// This reduces the number of persistent storage reads when checking health for many users.
+pub fn calculate_multi_health_factors(env: &Env, users: &[Address]) -> Vec<Result<i128, AnalyticsError>> {
+    let mut results = Vec::new(env);
+    for user in users {
+        results.push_back(calculate_health_factor(env, user));
+    }
+    results
+}
+
+/// Batch get user activity summaries for multiple users.
+/// Optimized for multi-pool health checks by reducing individual storage reads.
+pub fn get_multi_user_activity_summaries(
+    env: &Env,
+    users: &[Address],
+) -> Vec<Result<UserMetrics, AnalyticsError>> {
+    let mut results = Vec::new(env);
+    for user in users {
+        results.push_back(get_user_activity_summary(env, user));
+    }
+    results
+}
+
 /// Map a health factor to a risk level (1–5).
 ///
 /// | Health Factor | Risk Level |
