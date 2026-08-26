@@ -15,6 +15,7 @@ soroban-sdk = { version = "23.4.1", features = ["testutils"] }
 stellarlend-lending = { path = "../contracts/lending", features = ["testutils"] }
 stellarlend-amm = { path = "../contracts/amm", features = ["testutils"] }
 bridge = { path = "../contracts/bridge", features = ["testutils"] }
+stellarlend-hello-world = { path = "../contracts/hello-world", features = ["testutils"] }
 
 [[bin]]
 name = "lending_actions"
@@ -37,5 +38,11 @@ doc = false
 [[bin]]
 name = "bridge_actions"
 path = "fuzz_targets/bridge_actions.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "governance_actions"
+path = "fuzz_targets/governance_actions.rs"
 test = false
 doc = false
