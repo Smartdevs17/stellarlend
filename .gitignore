@@ -45,6 +45,7 @@ lerna-debug.log*
 # Build error logs
 build_errors*.txt
 TEST_FIX.txt
+**/dist/
 
 # IDE / Tools
 .claude/
@@ -61,6 +62,7 @@ stellar-lend/fuzz/coverage/
 **/.nyc_output/
 **/test-results/
 *.lcov
+tests/e2e/e2e-report.json
 
 # Database files
 *.db

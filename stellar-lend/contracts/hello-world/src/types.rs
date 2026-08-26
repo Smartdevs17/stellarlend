@@ -154,12 +154,34 @@ pub struct ProposalSimulationResult {
     pub note: String,
 }
 
+/// Dry-run execution preview with state diff and impact metrics (Issue #662).
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct StateDiffEntry {
+    pub field: String,
+    pub current_value: i128,
+    pub proposed_value: i128,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct ProposalDryRunResult {
+    pub proposal_id: u64,
+    pub would_succeed: bool,
+    pub tvl_delta: i128,
+    pub apy_delta_bps: i128,
+    pub risk_score_delta: i128,
+    pub gas_units_estimate: u64,
+    pub diffs: Vec<StateDiffEntry>,
+    pub simulated_at: u64,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub struct ParameterOptimizationRecommendation {
     pub generated_at: u64,
     pub suggested_quorum_bps: u32,
-    pub suggested_vote_threshold: i128,
+    pub suggested_vote_threshold_bps: i128,
     pub suggested_voting_period: u64,
     pub transparency_note: String,
 }

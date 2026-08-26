@@ -1533,3 +1533,109 @@ fn test_phase7_vote_reversal_scenario() {
     let p2 = client.gov_get_proposal(&pid2).unwrap();
     assert!(matches!(p2.status, ProposalStatus::Queued));
 }
+
+#[test]
+fn test_vote_rejected_after_voting_period_expires() {
+    let (env, admin, proposer, voter1, _, _) = create_test_env();
+    env.mock_all_auths();
+
+    let token = create_test_token(&env, &admin);
+    mint_tokens(&env, &token, &proposer, 1_000);
+    mint_tokens(&env, &token, &voter1, 1_000);
+
+    let contract_id = env.register_contract(None, HelloContract);
+    let client = HelloContractClient::new(&env, &contract_id);
+
+    client.initialize(&admin);
+    client.gov_initialize(
+        &admin,
+        &token,
+        &Some(1),
+        &Some(1),
+        &Some(400),
+        &Some(100),
+        &Some(7 * 24 * 3600),
+        &Some(5000),
+    );
+
+    let proposal_id = client.gov_create_proposal(
+        &proposer,
+        &ProposalType::EmergencyPause(true),
+        &String::from_str(&env, "Short voting window"),
+        &None,
+    );
+
+    env.ledger().with_mut(|li| li.timestamp = 2);
+
+    let result = client.try_gov_vote(&voter1, &proposal_id, &VoteType::For);
+    assert!(result.is_err());
+
+    let proposal = client.gov_get_proposal(&proposal_id).unwrap();
+    assert_eq!(proposal.status, ProposalStatus::Expired);
+}
+
+#[test]
+fn test_vote_rejected_at_voting_period_boundary() {
+    let (env, admin, proposer, voter1, _, _) = create_test_env();
+    env.mock_all_auths();
+
+    let token = create_test_token(&env, &admin);
+    mint_tokens(&env, &token, &proposer, 1_000);
+    mint_tokens(&env, &token, &voter1, 1_000);
+
+    let contract_id = env.register_contract(None, HelloContract);
+    let client = HelloContractClient::new(&env, &contract_id);
+
+    client.initialize(&admin);
+    client.gov_initialize(
+        &admin,
+        &token,
+        &Some(1),
+        &Some(1),
+        &Some(400),
+        &Some(100),
+        &Some(7 * 24 * 3600),
+        &Some(5000),
+    );
+
+    let proposal_id = client.gov_create_proposal(
+        &proposer,
+        &ProposalType::EmergencyPause(true),
+        &String::from_str(&env, "Boundary voting window"),
+        &None,
+    );
+
+    env.ledger().with_mut(|li| li.timestamp = 1);
+
+    let result = client.try_gov_vote(&voter1, &proposal_id, &VoteType::For);
+    assert!(result.is_err());
+
+    let proposal = client.gov_get_proposal(&proposal_id).unwrap();
+    assert_eq!(proposal.status, ProposalStatus::Expired);
+}
+
+#[test]
+fn test_simulate_proposal_dry_run_emergency_pause_impact() {
+    let (env, admin, proposer, _, _, _) = create_test_env();
+    env.mock_all_auths();
+
+    let token = create_test_token(&env, &admin);
+    mint_tokens(&env, &token, &proposer, 1000);
+
+    let client = setup_governance(&env, &admin, &token);
+    let proposal_id = client.gov_create_proposal(
+        &proposer,
+        &ProposalType::EmergencyPause(true),
+        &String::from_str(&env, "Pause protocol"),
+        &None,
+    );
+
+    let dry = client.gov_simulate_proposal_dry_run(&proposal_id);
+    assert_eq!(dry.proposal_id, proposal_id);
+    assert!(dry.gas_units_estimate > 0);
+    assert!(!dry.diffs.is_empty());
+
+    let cached = client.gov_get_dry_run_cache(&proposal_id);
+    assert!(cached.is_some());
+    assert_eq!(cached.unwrap().proposal_id, proposal_id);
+}

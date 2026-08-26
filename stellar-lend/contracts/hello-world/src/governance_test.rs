@@ -4,6 +4,7 @@ use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env,
 
 use crate::{
     errors::GovernanceError,
+    governance,
     storage::{GovernanceDataKey, GuardianConfig},
     types::{
         DelegationRecord, GovernanceConfig, MultisigConfig, Proposal, ProposalOutcome,
@@ -64,6 +65,27 @@ fn create_test_env() -> (Env, Address, Address, Address, Address, Address) {
     let voter2 = Address::generate(&env);
     let voter3 = Address::generate(&env);
     (env, admin, proposer, voter1, voter2, voter3)
+}
+
+fn create_token_with_balance(env: &Env, admin: &Address, to: &Address, amount: i128) -> Address {
+    let token = env.register_stellar_asset_contract(admin.clone());
+    StellarAssetClient::new(env, &token).mint(to, &amount);
+    token
+}
+
+fn init_governance(env: &Env, admin: &Address, vote_token: &Address) {
+    governance::initialize(
+        env,
+        admin.clone(),
+        vote_token.clone(),
+        Some(300),   // voting_period: 300s
+        Some(100),   // execution_delay: 100s
+        Some(4000),  // quorum_bps: 40%
+        Some(0),     // proposal_threshold: 0 (no token requirement to create)
+        Some(1000),  // timelock_duration: 1000s
+        Some(5000),  // default_voting_threshold: 50%
+    )
+    .unwrap();
 }
 
 // ============================================================================
@@ -1078,6 +1100,18 @@ fn test_phase4_multisig_remove_admin() {
 }
 
 #[test]
+fn test_phase4_multisig_cannot_self_remove() {
+    let env = create_test_env();
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+    init_governance(&env, &admin, &token);
+
+    // Empty admins list is invalid
+    let result = governance::set_multisig_config(&env, admin.clone(), Vec::new(&env), 1);
+    assert_eq!(result, Err(GovernanceError::InvalidMultisigConfig));
+}
+
+#[test]
 fn test_phase4_multisig_duplicate_prevention() {
     let (env, admin, _, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
@@ -1460,6 +1494,17 @@ fn test_phase5_error_state_consistency() {
     let p = client.gov_get_proposal(&pid).unwrap();
     assert!(matches!(p.status, ProposalStatus::Pending));
     assert_eq!(p.id, pid);
+}
+
+#[test]
+fn test_phase5_error_double_initialization() {
+    let env = create_test_env();
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+    init_governance(&env, &admin, &token);
+    // Double initialization must be rejected
+    let result = governance::initialize(&env, admin.clone(), token.clone(), Some(100), Some(10), Some(4000), Some(0), Some(500), Some(5000));
+    assert_eq!(result, Err(GovernanceError::AlreadyInitialized));
 }
 
 // ============================================================================

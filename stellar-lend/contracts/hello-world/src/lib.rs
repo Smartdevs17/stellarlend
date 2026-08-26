@@ -8,26 +8,22 @@ pub mod amm;
 pub mod analytics;
 pub mod borrow;
 pub mod bridge;
-pub mod circuit_breaker;
 pub mod config;
-pub mod credit_score;
 pub mod cross_asset;
-pub mod debt_token;
 pub mod deposit;
 pub mod errors;
 pub mod events;
 pub mod flash_loan;
 pub mod governance;
+pub mod health;
 pub mod intents;
 pub mod interest_rate;
 pub mod liquidate;
-pub mod liquidation_queue;
 pub mod mev_protection;
 pub mod multi_collateral;
 pub mod multisig;
 pub mod oracle;
 pub mod rate_limiter;
-pub mod rebalancing;
 pub mod recovery;
 pub mod reentrancy;
 pub mod repay;
@@ -36,7 +32,6 @@ pub mod risk_management;
 pub mod risk_params;
 pub mod safe_math;
 pub mod storage;
-pub mod timelock;
 pub mod treasury;
 pub mod test_utils;
 pub mod tests;
@@ -232,6 +227,21 @@ impl HelloContract {
         governance::get_simulation_cache(&env, proposal_id)
     }
 
+    /// Dry-run proposal execution with state diff, impact metrics, and gas estimate.
+    pub fn gov_simulate_proposal_dry_run(
+        env: Env,
+        proposal_id: u64,
+    ) -> Result<types::ProposalDryRunResult, LendingError> {
+        governance::simulate_proposal_dry_run(&env, proposal_id).map_err(Into::into)
+    }
+
+    pub fn gov_get_dry_run_cache(
+        env: Env,
+        proposal_id: u64,
+    ) -> Option<types::ProposalDryRunResult> {
+        governance::get_dry_run_cache(&env, proposal_id)
+    }
+
     pub fn gov_get_parameter_optimization(
         env: Env,
     ) -> Result<types::ParameterOptimizationRecommendation, LendingError> {
@@ -294,6 +304,7 @@ impl HelloContract {
         cross_asset::cross_asset_deposit(&env, user, asset, amount).map_err(Into::into)?;
         Ok(())
     }
+
 
     pub fn set_risk_params(
         env: Env,
@@ -418,7 +429,7 @@ impl HelloContract {
     }
 
     /// Get reserve balance for an asset
-    pub fn get_reserve_balance(
+    pub fn get_reserve_balance_reserve(
         env: Env,
         asset: Option<Address>,
     ) -> i128 {
@@ -572,6 +583,7 @@ impl HelloContract {
     ) -> Result<(), LendingError> {
         debt_token::set_address_blocked(&env, admin, address, blocked).map_err(Into::into)
     }
+
 
     /// Meta-tx style borrow: user authorizes intent off-chain, relayer submits.
     pub fn borrow_asset_intent(
@@ -895,6 +907,47 @@ impl HelloContract {
         flash_loan::execute_flash_loan(&env, user, asset, amount, callback).map_err(Into::into)
     }
 
+    /// Pre-execution profit simulation for a flash-loan-funded liquidation.
+    pub fn simulate_flash_loan_liquidation(
+        env: Env,
+        debt_asset: Option<Address>,
+        collateral_asset: Option<Address>,
+        debt_amount: i128,
+    ) -> Result<flash_loan::FlashLoanLiquidationSim, LendingError> {
+        flash_loan::simulate_flash_loan_liquidation(&env, debt_asset, collateral_asset, debt_amount)
+            .map_err(Into::into)
+    }
+
+    /// Atomic flash loan + liquidation combo. Reverts when unprofitable.
+    pub fn execute_flash_loan_liquidation(
+        env: Env,
+        liquidator: Address,
+        borrower: Address,
+        debt_asset: Option<Address>,
+        collateral_asset: Option<Address>,
+        debt_amount: i128,
+    ) -> Result<flash_loan::FlashLoanLiquidationResult, LendingError> {
+        flash_loan::execute_flash_loan_liquidation(
+            &env,
+            liquidator,
+            borrower,
+            debt_asset,
+            collateral_asset,
+            debt_amount,
+        )
+        .map_err(Into::into)
+    }
+
+    /// Multi-asset flash loan with a single callback and atomic repayment.
+    pub fn execute_multi_asset_flash_loan(
+        env: Env,
+        user: Address,
+        legs: Vec<flash_loan::FlashLoanLeg>,
+        callback: Address,
+    ) -> Result<i128, LendingError> {
+        flash_loan::execute_multi_asset_flash_loan(&env, user, legs, callback).map_err(Into::into)
+    }
+
     pub fn repay_flash_loan(
         env: Env,
         user: Address,
@@ -1148,6 +1201,297 @@ impl HelloContract {
     // Analytics
     // -------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // Debt Token Marketplace — Secondary Trading  (Issue #787)
+    // -------------------------------------------------------------------------
+
+    /// Mint a new debt-position NFT.
+    pub fn dt_mint(
+        env: Env,
+        user: Address,
+        collateral_asset: Option<Address>,
+        principal: i128,
+        interest_rate_bps: i128,
+    ) -> Result<u64, LendingError> {
+        use crate::debt_token::{mint_debt_token, DebtTokenError};
+        mint_debt_token(&env, user, collateral_asset, principal, interest_rate_bps)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Direct transfer of a debt token.
+    pub fn dt_transfer(
+        env: Env,
+        from: Address,
+        to: Address,
+        token_id: u64,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::{transfer_debt_token, DebtTokenError};
+        transfer_debt_token(&env, from, to, token_id)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Burn a debt token (debt repaid/liquidated).
+    pub fn dt_burn(
+        env: Env,
+        user: Address,
+        token_id: u64,
+        reason: soroban_sdk::Symbol,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::{burn_debt_token, DebtTokenError};
+        burn_debt_token(&env, user, token_id, reason)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// List a debt token at a fixed price (with marketplace stats bookkeeping).
+    pub fn dt_list(
+        env: Env,
+        seller: Address,
+        token_id: u64,
+        price: i128,
+        payment_token: Address,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::list_debt_token_tracked;
+        list_debt_token_tracked(&env, seller, token_id, price, payment_token)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Cancel an active fixed-price listing.
+    pub fn dt_cancel_listing(
+        env: Env,
+        seller: Address,
+        token_id: u64,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::{cancel_listing, DebtTokenError};
+        cancel_listing(&env, seller, token_id)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Buy a listed debt token at its fixed asking price (with price discovery recording).
+    pub fn dt_buy(
+        env: Env,
+        buyer: Address,
+        token_id: u64,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::buy_listed_debt_token_tracked;
+        buy_listed_debt_token_tracked(&env, buyer, token_id)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Place a bid (purchase offer) on a debt token.
+    pub fn dt_place_bid(
+        env: Env,
+        bidder: Address,
+        token_id: u64,
+        price: i128,
+        payment_token: Address,
+        expires_at: u64,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::place_bid;
+        place_bid(&env, bidder, token_id, price, payment_token, expires_at)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Cancel an active bid.
+    pub fn dt_cancel_bid(
+        env: Env,
+        bidder: Address,
+        token_id: u64,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::cancel_bid;
+        cancel_bid(&env, bidder, token_id)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Accept a bidder's offer and transfer the token.
+    pub fn dt_accept_bid(
+        env: Env,
+        seller: Address,
+        token_id: u64,
+        bidder: Address,
+    ) -> Result<(), LendingError> {
+        use crate::debt_token::accept_bid;
+        accept_bid(&env, seller, token_id, bidder)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Read-only: get a specific bid.
+    pub fn dt_get_bid(
+        env: Env,
+        token_id: u64,
+        bidder: Address,
+    ) -> Option<crate::debt_token::DebtTokenBid> {
+        crate::debt_token::get_bid(&env, token_id, bidder)
+    }
+
+    /// Read-only: get all bidder addresses for a token.
+    pub fn dt_get_bidders(env: Env, token_id: u64) -> Vec<Address> {
+        crate::debt_token::get_bidders(&env, token_id)
+    }
+
+    /// Read-only: last traded price for a token.
+    pub fn dt_get_last_trade_price(
+        env: Env,
+        token_id: u64,
+    ) -> Option<crate::debt_token::TradePrice> {
+        crate::debt_token::get_last_trade_price(&env, token_id)
+    }
+
+    /// Read-only: TWAP over the last 20 trades for a token.
+    pub fn dt_get_twap(env: Env, token_id: u64) -> Option<i128> {
+        crate::debt_token::get_twap_price(&env, token_id)
+    }
+
+    /// Read-only: global marketplace analytics snapshot.
+    pub fn dt_get_marketplace_analytics(env: Env) -> crate::debt_token::MarketplaceStats {
+        crate::debt_token::get_marketplace_analytics(&env)
+    }
+
+    /// Read-only: bounded log of recent trades across all tokens.
+    pub fn dt_get_recent_trades(env: Env) -> Vec<crate::debt_token::TradeRecord> {
+        crate::debt_token::get_recent_trades(&env)
+    }
+
+    /// Read-only: get the active listing for a token (if any).
+    pub fn dt_get_listing(
+        env: Env,
+        token_id: u64,
+    ) -> Option<crate::debt_token::DebtTokenListing> {
+        crate::debt_token::get_listing(&env, token_id)
+    }
+
+    /// Read-only: get a user's debt token IDs.
+    pub fn dt_get_user_tokens(env: Env, user: Address) -> Vec<u64> {
+        crate::debt_token::get_user_debt_tokens(&env, &user)
+    }
+
+    /// Read-only: get a debt position.
+    pub fn dt_get_position(
+        env: Env,
+        token_id: u64,
+    ) -> Option<crate::debt_token::DebtPosition> {
+        crate::debt_token::get_debt_position(&env, token_id)
+    }
+
+    /// Read-only: total supply of debt tokens.
+    pub fn dt_total_supply(env: Env) -> u64 {
+        crate::debt_token::get_total_supply(&env)
+    }
+
+    // -------------------------------------------------------------------------
+    // Rate Limiter Administration  (Issue #790)
+    // -------------------------------------------------------------------------
+
+    /// Configure default rate-limit parameters for an operation (admin-only).
+    pub fn rl_configure_operation(
+        env: Env,
+        caller: Address,
+        op: soroban_sdk::Symbol,
+        cfg: rate_limiter::RateLimitConfig,
+    ) -> Result<(), LendingError> {
+        rate_limiter::configure_operation_limit(&env, caller, op, cfg)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Configure per-pool rate-limit override for an operation (admin-only).
+    pub fn rl_configure_pool(
+        env: Env,
+        caller: Address,
+        op: soroban_sdk::Symbol,
+        pool: Address,
+        cfg: rate_limiter::RateLimitConfig,
+    ) -> Result<(), LendingError> {
+        rate_limiter::configure_pool_limit(&env, caller, op, pool, cfg)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Enable/disable grace burst for a (user, operation) pair (admin-only).
+    pub fn rl_set_user_grace(
+        env: Env,
+        caller: Address,
+        user: Address,
+        op: soroban_sdk::Symbol,
+        enabled: bool,
+    ) -> Result<(), LendingError> {
+        rate_limiter::set_user_grace(&env, caller, user, op, enabled)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Configure congestion-based adaptive throttling (admin-only).
+    pub fn rl_configure_congestion(
+        env: Env,
+        caller: Address,
+        cfg: rate_limiter::CongestionConfig,
+    ) -> Result<(), LendingError> {
+        rate_limiter::configure_congestion(&env, caller, cfg)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Report network congestion index in bps — callable by congestion_reporter role.
+    pub fn rl_report_congestion(
+        env: Env,
+        caller: Address,
+        congestion_bps: i128,
+    ) -> Result<(), LendingError> {
+        rate_limiter::report_congestion(&env, caller, congestion_bps)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Read-only: current congestion adaptation state (for dashboards).
+    pub fn rl_get_congestion_state(env: Env) -> rate_limiter::CongestionState {
+        rate_limiter::get_congestion_state(&env)
+    }
+
+    /// Read-only: current effective rate-limit status for a user.
+    pub fn rl_get_user_status(
+        env: Env,
+        user: Address,
+        op: soroban_sdk::Symbol,
+        pool: Address,
+    ) -> rate_limiter::RateLimitStatus {
+        rate_limiter::get_user_status(&env, user, op, pool)
+    }
+
+    /// Read-only: current effective rate-limit status for the global pool bucket.
+    pub fn rl_get_global_status(
+        env: Env,
+        op: soroban_sdk::Symbol,
+        pool: Address,
+    ) -> rate_limiter::RateLimitStatus {
+        rate_limiter::get_global_status(&env, op, pool)
+    }
+
+    /// Read-only: aggregated analytics snapshot for an (op, pool) pair (Issue #790).
+    pub fn rl_get_analytics(
+        env: Env,
+        op: soroban_sdk::Symbol,
+        pool: Address,
+    ) -> rate_limiter::RateLimitAnalytics {
+        rate_limiter::get_rate_limit_analytics(&env, op, pool)
+    }
+
+    /// Admin-only: reset a user's rate-limit bucket to full capacity.
+    pub fn rl_reset_user_bucket(
+        env: Env,
+        caller: Address,
+        user: Address,
+        op: soroban_sdk::Symbol,
+        pool: Address,
+    ) -> Result<(), LendingError> {
+        rate_limiter::reset_user_bucket(&env, caller, user, op, pool)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Admin-only: reset the global-per-pool rate-limit bucket to full capacity.
+    pub fn rl_reset_global_bucket(
+        env: Env,
+        caller: Address,
+        op: soroban_sdk::Symbol,
+        pool: Address,
+    ) -> Result<(), LendingError> {
+        rate_limiter::reset_global_bucket(&env, caller, op, pool)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
     /// Read-only user health factor query (collateral/debt in basis points).
     pub fn get_health_factor(env: Env, user: Address) -> Result<i128, LendingError> {
         analytics::calculate_health_factor(&env, &user).map_err(Into::into)
@@ -1161,6 +1505,14 @@ impl HelloContract {
     /// Read-only protocol analytics report.
     pub fn get_protocol_report(env: Env) -> Result<analytics::ProtocolReport, LendingError> {
         analytics::generate_protocol_report(&env).map_err(Into::into)
+    }
+
+    /// Read-only composite protocol health score (0-100), combining
+    /// capital-efficiency and rate-stability sub-scores.
+    pub fn get_protocol_health_score(
+        env: Env,
+    ) -> Result<analytics::ProtocolHealthScore, LendingError> {
+        analytics::get_protocol_health_score(&env).map_err(Into::into)
     }
 
     /// Read-only user position query.
@@ -1180,6 +1532,98 @@ impl HelloContract {
         offset: u32,
     ) -> Result<Vec<analytics::ActivityEntry>, LendingError> {
         analytics::get_recent_activity(&env, limit, offset).map_err(Into::into)
+    }
+
+    /// Read-only: full real-time dashboard snapshot (Issue #795).
+    pub fn get_dashboard_snapshot(
+        env: Env,
+    ) -> Result<analytics::DashboardSnapshot, LendingError> {
+        analytics::get_dashboard_snapshot(&env).map_err(Into::into)
+    }
+
+    /// Read-only: risk-level distribution across sampled users (Issue #795).
+    pub fn get_risk_distribution(env: Env) -> analytics::RiskDistributionSummary {
+        analytics::get_risk_distribution(&env)
+    }
+
+    /// Read-only: protocol volume summary from activity log (Issue #795).
+    pub fn get_volume_summary(env: Env) -> analytics::VolumeSummary {
+        analytics::get_volume_summary(&env)
+    }
+
+    /// Record a historical metrics snapshot (callable by off-chain keeper).
+    pub fn record_metrics_snapshot(
+        env: Env,
+    ) -> Result<analytics::MetricsSnapshot, LendingError> {
+        analytics::record_metrics_snapshot(&env).map_err(Into::into)
+    }
+
+    /// Read-only: metrics snapshot history (oldest-first).
+    pub fn get_metrics_history(env: Env) -> Vec<analytics::MetricsSnapshot> {
+        analytics::get_metrics_history(&env)
+    }
+
+    /// Read-only: linear TVL forecast.
+    pub fn forecast_tvl(env: Env, periods_ahead: u32) -> Result<i128, LendingError> {
+        analytics::forecast_tvl(&env, periods_ahead).map_err(Into::into)
+    }
+
+    /// Admin-only: configure a metric alert threshold.
+    pub fn set_metric_alert_threshold(
+        env: Env,
+        admin: Address,
+        metric: soroban_sdk::Symbol,
+        threshold: i128,
+    ) -> Result<(), LendingError> {
+        analytics::set_metric_alert_threshold(&env, admin, metric, threshold)
+            .map_err(Into::into)
+    }
+
+    /// Read-only: all configured alert thresholds.
+    pub fn get_metric_alert_thresholds(
+        env: Env,
+    ) -> Vec<analytics::MetricAlertThreshold> {
+        analytics::get_metric_alert_thresholds(&env)
+    }
+
+    /// Read-only: triggered alert log.
+    pub fn get_triggered_alerts(env: Env) -> Vec<analytics::TriggeredAlert> {
+        analytics::get_triggered_alerts(&env)
+    }
+
+    /// Check current metrics against alert thresholds; returns breached metric names.
+    pub fn check_metric_alerts(env: Env) -> Result<Vec<soroban_sdk::Symbol>, LendingError> {
+        analytics::check_metric_alerts(&env).map_err(Into::into)
+    }
+
+    /// Record a collateral ratio snapshot for an asset.
+    pub fn record_collateral_ratio_snapshot(
+        env: Env,
+        asset: soroban_sdk::Symbol,
+        current_ratio: i128,
+        required_ratio: i128,
+        collateral_value: i128,
+        debt_value: i128,
+    ) -> Result<analytics::CollateralRatioSnapshot, LendingError> {
+        analytics::record_collateral_ratio_snapshot(
+            &env, asset, current_ratio, required_ratio, collateral_value, debt_value,
+        )
+        .map_err(Into::into)
+    }
+
+    /// Read-only: all current collateral ratio snapshots.
+    pub fn get_collateral_ratio_snapshots(
+        env: Env,
+    ) -> Vec<analytics::CollateralRatioSnapshot> {
+        analytics::get_collateral_ratio_snapshots(&env)
+    }
+
+    /// Read-only: historical collateral ratio trend for an asset.
+    pub fn get_collateral_ratio_history(
+        env: Env,
+        asset: soroban_sdk::Symbol,
+    ) -> Vec<analytics::CollateralRatioTrend> {
+        analytics::get_collateral_ratio_history(&env, asset)
     }
 
     /// Read-only: get next expected nonce for off-chain intents.
@@ -1215,72 +1659,13 @@ impl HelloContract {
         flash_loan::set_flash_loan_config(&env, caller, config).map_err(Into::into)
     }
 
-    // -------------------------------------------------------------------------
-    // Rate limiting configuration & monitoring
-    // -------------------------------------------------------------------------
-
-    /// Admin-only: configure default rate limits for an operation.
-    pub fn configure_rate_limit_operation(
+    /// Set the native asset address used when `asset = None` (admin-only).
+    pub fn set_native_asset_address(
         env: Env,
         caller: Address,
-        operation: soroban_sdk::Symbol,
-        cfg: rate_limiter::RateLimitConfig,
+        native_asset: Address,
     ) -> Result<(), LendingError> {
-        rate_limiter::configure_operation_limit(&env, caller, operation, cfg).map_err(|e| match e {
-            rate_limiter::RateLimitError::Unauthorized => LendingError::Unauthorized,
-            rate_limiter::RateLimitError::InvalidConfig => LendingError::InvalidParameter,
-            _ => LendingError::InvalidParameter,
-        })
-    }
-
-    /// Admin-only: configure global-per-pool rate limits for an operation.
-    pub fn configure_rate_limit_pool(
-        env: Env,
-        caller: Address,
-        operation: soroban_sdk::Symbol,
-        pool: Address,
-        cfg: rate_limiter::RateLimitConfig,
-    ) -> Result<(), LendingError> {
-        rate_limiter::configure_pool_limit(&env, caller, operation, pool, cfg).map_err(
-            |e| match e {
-                rate_limiter::RateLimitError::Unauthorized => LendingError::Unauthorized,
-                rate_limiter::RateLimitError::InvalidConfig => LendingError::InvalidParameter,
-                _ => LendingError::InvalidParameter,
-            },
-        )
-    }
-
-    /// Admin-only: grant/revoke extra burst capacity for a (user, operation) pair.
-    pub fn set_user_rate_limit_grace(
-        env: Env,
-        caller: Address,
-        user: Address,
-        operation: soroban_sdk::Symbol,
-        enabled: bool,
-    ) -> Result<(), LendingError> {
-        rate_limiter::set_user_grace(&env, caller, user, operation, enabled).map_err(|e| match e {
-            rate_limiter::RateLimitError::Unauthorized => LendingError::Unauthorized,
-            _ => LendingError::InvalidParameter,
-        })
-    }
-
-    /// Read-only: returns per-user bucket status.
-    pub fn get_user_rate_limit_status(
-        env: Env,
-        user: Address,
-        operation: soroban_sdk::Symbol,
-        pool: Address,
-    ) -> rate_limiter::RateLimitStatus {
-        rate_limiter::get_user_status(&env, user, operation, pool)
-    }
-
-    /// Read-only: returns global-per-pool bucket status.
-    pub fn get_global_rate_limit_status(
-        env: Env,
-        operation: soroban_sdk::Symbol,
-        pool: Address,
-    ) -> rate_limiter::RateLimitStatus {
-        rate_limiter::get_global_status(&env, operation, pool)
+        deposit::set_native_asset_address(&env, caller, native_asset).map_err(Into::into)
     }
 
     // -------------------------------------------------------------------------
@@ -1481,81 +1866,278 @@ impl HelloContract {
         cross_asset::freeze_pool(&env, caller, asset, freeze).map_err(Into::into)
     }
 
-    // -------------------------------------------------------------------------
-    // Liquidation Priority Queue (Issue #188)
-    // -------------------------------------------------------------------------
-
-    /// Initialize liquidation queue
-    pub fn initialize_liquidation_queue(
+    pub fn set_asset_correlation(
         env: Env,
-        config: liquidation_queue::QueueConfig,
+        asset_a: Option<Address>,
+        asset_b: Option<Address>,
+        correlation_bps: i128,
     ) -> Result<(), LendingError> {
-        liquidation_queue::initialize_queue(&env, config)
+        cross_asset::set_asset_correlation(&env, asset_a, asset_b, correlation_bps).map_err(Into::into)
     }
 
-    /// Register liquidator interest in unhealthy position
-    pub fn register_liquidation_interest(
+    pub fn get_asset_correlation(
         env: Env,
-        liquidator: Address,
-        borrower: Address,
+        asset_a: Option<Address>,
+        asset_b: Option<Address>,
+    ) -> i128 {
+        cross_asset::get_asset_correlation(&env, asset_a, asset_b)
+    }
+
+    pub fn set_asset_volatility(
+        env: Env,
+        asset: Option<Address>,
+        volatility_bps: i128,
+    ) -> Result<(), LendingError> {
+        cross_asset::set_asset_volatility(&env, asset, volatility_bps).map_err(Into::into)
+    }
+
+    pub fn get_dynamic_collateral_factor(
+        env: Env,
+        asset: Option<Address>,
+    ) -> Result<i128, LendingError> {
+        cross_asset::get_dynamic_collateral_factor(&env, asset).map_err(Into::into)
+    }
+
+    pub fn get_pair_liquidation_threshold(
+        env: Env,
+        debt_asset: Option<Address>,
+        collateral_asset: Option<Address>,
+    ) -> Result<i128, LendingError> {
+        cross_asset::get_pair_liquidation_threshold(&env, debt_asset, collateral_asset)
+            .map_err(Into::into)
+    }
+
+    pub fn get_unified_health_factor(
+        env: Env,
+        user: Address,
+    ) -> Result<cross_asset::UserPositionSummary, LendingError> {
+        cross_asset::get_unified_health_factor(&env, &user).map_err(Into::into)
+    }
+
+    pub fn detect_cross_asset_arbitrage(env: Env) -> Vec<cross_asset::ArbitrageOpportunity> {
+        cross_asset::detect_cross_asset_arbitrage(&env)
+    }
+
+    pub fn get_portfolio_risk_score(env: Env, user: Address) -> Result<i128, LendingError> {
+        analytics::portfolio_risk_score(&env, &user).map_err(Into::into)
+    }
+
+    // -------------------------------------------------------------------------
+    // AMM-Lending Integration: LP Wrapping & Auto-Allocation
+    // -------------------------------------------------------------------------
+
+    /// Initialise the AMM-lending module (admin-only, once).
+    pub fn amm_initialize(env: Env, admin: Address) -> Result<(), LendingError> {
+        amm::initialize_amm_lending(&env, admin)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Wrap lending pool deposits into AMM LP positions.
+    pub fn amm_wrap_deposit(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        amount: i128,
+        amm_protocol: Address,
+    ) -> Result<amm::LpTokenPosition, LendingError> {
+        amm::wrap_deposit_to_lp(&env, admin, asset, amount, amm_protocol)
+            .map_err(|_| LendingError::InvalidAmount)
+    }
+
+    /// Unwrap LP tokens back into lending pool assets.
+    pub fn amm_unwrap_deposit(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        lp_tokens: i128,
+    ) -> Result<i128, LendingError> {
+        amm::unwrap_lp_to_deposit(&env, admin, asset, lp_tokens)
+            .map_err(|_| LendingError::InvalidAmount)
+    }
+
+    /// Return the LP token balance for an asset.
+    pub fn amm_get_lp_balance(env: Env, asset: Address) -> i128 {
+        amm::get_lp_token_balance(&env, &asset)
+    }
+
+    /// Set the withdrawal buffer BPS for an asset (admin-only).
+    pub fn amm_set_withdrawal_buffer(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        buffer_bps: i128,
+    ) -> Result<(), LendingError> {
+        amm::set_withdrawal_buffer(&env, admin, asset, buffer_bps)
+            .map_err(|_| LendingError::InvalidAmount)
+    }
+
+    /// Record accrued LP fees for an asset (admin-only).
+    pub fn amm_record_lp_fees(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        fee_amount: i128,
+    ) -> Result<(), LendingError> {
+        amm::record_lp_fees(&env, admin, asset, fee_amount)
+            .map_err(|_| LendingError::InvalidAmount)
+    }
+
+    /// Auto-compound accrued LP fees back into the LP position for a single asset.
+    ///
+    /// Returns the total amount compounded (0 when nothing was accrued).
+    pub fn amm_compound_lp_fees(
+        env: Env,
+        admin: Address,
+        asset: Address,
+    ) -> Result<i128, LendingError> {
+        amm::compound_lp_fees(&env, admin, asset)
+            .map_err(|_| LendingError::InvalidAmount)
+    }
+
+    /// Calculate optimal AMM allocation given current pool utilization.
+    pub fn amm_calculate_optimal_allocation(
+        env: Env,
+        asset: Address,
+        total_liquidity: i128,
+        borrowed_amount: i128,
+    ) -> Result<amm::AllocationSuggestion, LendingError> {
+        amm::calculate_optimal_allocation(&env, &asset, total_liquidity, borrowed_amount)
+            .map_err(|_| LendingError::InvalidAmount)
+    }
+
+    /// Execute automated AMM rebalancing based on pool utilization.
+    pub fn amm_auto_rebalance(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        total_liquidity: i128,
+        borrowed_amount: i128,
+        current_amm_balance: i128,
+    ) -> Result<i128, LendingError> {
+        amm::auto_rebalance_allocation(
+            &env,
+            admin,
+            asset,
+            total_liquidity,
+            borrowed_amount,
+            current_amm_balance,
+        )
+        .map_err(|_| LendingError::InvalidAmount)
+    }
+
+    /// Run the pool allocation optimizer across a set of pool addresses and
+    /// return per-pool rebalancing recommendations.
+    pub fn amm_optimize_allocation(
+        env: Env,
+        pools: Vec<Address>,
+    ) -> Result<amm::OptimizationResult, LendingError> {
+        amm::optimize_allocation(&env, &pools)
+            .map_err(|_| LendingError::InvalidAmount)
+    }
+
+    /// Update the impermanent-loss tracking snapshot for an asset.
+    /// Returns `true` when the IL alert threshold has been crossed.
+    pub fn amm_update_il_tracking(
+        env: Env,
+        asset: Address,
+        current_price: i128,
+    ) -> Result<bool, LendingError> {
+        amm::update_il_tracking(&env, &asset, current_price)
+            .map_err(|_| LendingError::InvalidAmount)
+    }
+
+    /// Return the current IL snapshot for an asset, or `None` if not tracked.
+    pub fn amm_get_il_snapshot(env: Env, asset: Address) -> Option<amm::IlSnapshot> {
+        amm::get_il_snapshot(&env, &asset)
+    }
+
+    /// Update the utilization snapshot for a pool.
+    pub fn amm_update_pool_utilization(env: Env, asset: Address, utilization_bps: i128) {
+        amm::update_pool_utilization(&env, &asset, utilization_bps);
+    }
+
+    /// Return the current utilization snapshot for a pool.
+    pub fn amm_get_pool_utilization(env: Env, asset: Address) -> i128 {
+        amm::get_pool_utilization(&env, &asset)
+    }
+
+    // -------------------------------------------------------------------------
+    // Yield Farming Strategy Optimizer (#789)
+    // -------------------------------------------------------------------------
+
+    /// Create a new named yield farming strategy for the admin.
+    ///
+    /// Returns the newly assigned `strategy_id`.
+    pub fn yield_create_strategy(
+        env: Env,
+        admin: Address,
+        name: String,
+        objective: amm::YieldStrategyObjective,
+        risk: amm::YieldStrategyRisk,
+        compounding_interval: amm::CompoundingInterval,
+        pools: Vec<Address>,
     ) -> Result<u64, LendingError> {
-        liquidation_queue::register_liquidation_interest(&env, liquidator, borrower)
+        amm::create_yield_strategy(&env, admin, name, objective, risk, compounding_interval, pools)
+            .map_err(|_| LendingError::InvalidAmount)
     }
 
-    /// Get next liquidation from queue
-    pub fn get_next_liquidation(
+    /// Retrieve a previously created strategy by ID.
+    pub fn yield_get_strategy(
         env: Env,
-    ) -> Option<liquidation_queue::LiquidationQueueEntry> {
-        liquidation_queue::get_next_liquidation(&env)
+        admin: Address,
+        strategy_id: u64,
+    ) -> Option<amm::YieldStrategy> {
+        amm::get_yield_strategy(&env, &admin, strategy_id)
     }
 
-    /// Process liquidation from queue
-    pub fn process_queue_liquidation(
+    /// Activate or deactivate a yield farming strategy (admin-only).
+    pub fn yield_set_strategy_active(
         env: Env,
-        entry_id: u64,
-        executor: Address,
+        admin: Address,
+        strategy_id: u64,
+        active: bool,
     ) -> Result<(), LendingError> {
-        liquidation_queue::process_queue_liquidation(&env, entry_id, executor)
+        amm::set_yield_strategy_active(&env, admin, strategy_id, active)
+            .map_err(|_| LendingError::Unauthorized)
     }
 
-    /// Cancel queue entry
-    pub fn cancel_queue_entry(
+    /// Harvest and auto-compound accrued LP fees for every pool in a strategy.
+    ///
+    /// This is the primary on-chain entry point for the yield farming
+    /// auto-compounding feature.  Returns the total amount compounded.
+    pub fn yield_harvest_and_compound(
         env: Env,
-        entry_id: u64,
-        caller: Address,
-    ) -> Result<(), LendingError> {
-        liquidation_queue::cancel_queue_entry(&env, entry_id, caller)
+        admin: Address,
+        strategy_id: u64,
+    ) -> Result<i128, LendingError> {
+        amm::harvest_and_compound(&env, admin, strategy_id)
+            .map_err(|_| LendingError::InvalidAmount)
     }
 
-    /// Get all pending queue entries
-    pub fn get_pending_queue_entries(
+    /// Score a strategy based on current pool utilization and IL snapshots.
+    ///
+    /// Returns a `StrategyScore` with estimated APY, IL risk, and a composite
+    /// ranking score so callers can compare strategies and pick the best one
+    /// for the current market regime.
+    pub fn yield_score_strategy(
         env: Env,
-    ) -> Vec<liquidation_queue::LiquidationQueueEntry> {
-        liquidation_queue::get_pending_queue_entries(&env)
-    }
-
-    /// Get queue entry by ID
-    pub fn get_queue_entry(
-        env: Env,
-        entry_id: u64,
-    ) -> Option<liquidation_queue::LiquidationQueueEntry> {
-        liquidation_queue::get_queue_entry(&env, entry_id)
-    }
-
-    /// Cleanup expired entries
-    pub fn cleanup_expired_queue_entries(env: Env) -> u32 {
-        liquidation_queue::cleanup_expired_entries(&env)
-    }
-
-    /// Get queue statistics
-    pub fn get_queue_stats(env: Env) -> liquidation_queue::QueueStats {
-        liquidation_queue::get_queue_stats(&env)
+        admin: Address,
+        strategy_id: u64,
+    ) -> Result<amm::StrategyScore, LendingError> {
+        amm::score_yield_strategy(&env, &admin, strategy_id)
+            .map_err(|_| LendingError::InvalidAmount)
     }
 }
 
 #[cfg(test)]
 #[path = "tests/borrow_cap_test.rs"]
 mod borrow_cap_test;
+#[cfg(test)]
+#[path = "tests/supply_cap_test.rs"]
+mod supply_cap_test;
+#[cfg(test)]
+#[path = "tests/isolated_pool_test.rs"]
+mod isolated_pool_test;
 #[cfg(test)]
 #[path = "tests/cross_contract_test.rs"]
 mod cross_contract_test;
@@ -1565,16 +2147,10 @@ mod flash_loan_test;
 #[path = "tests/governance_test.rs"]
 mod governance_test;
 #[cfg(test)]
-#[path = "tests/isolated_pool_test.rs"]
-mod isolated_pool_test;
-#[cfg(test)]
 #[path = "tests/mev_protection_test.rs"]
 mod mev_protection_test;
 #[cfg(test)]
 mod multi_collateral_test;
-#[cfg(test)]
-#[path = "tests/supply_cap_test.rs"]
-mod supply_cap_test;
 #[cfg(test)]
 mod test_reentrancy;
 #[cfg(test)]
@@ -1777,3 +2353,14 @@ mod treasury_test;
     pub fn get_circuit_breaker_whitelist(env: Env) -> Vec<Address> {
         circuit_breaker::get_whitelist(&env)
     }
+#[cfg(test)]
+#[path = "tests/diff_harness.rs"]
+mod diff_harness;
+#[cfg(test)]
+#[path = "tests/differential_test.rs"]
+mod differential_test;
+#[cfg(test)]
+#[path = "tests/migration_verification_test.rs"]
+mod migration_verification_test;
+#[cfg(test)]
+mod cross_asset_risk_test;

@@ -1,7 +1,7 @@
 #![no_std]
-#![allow(deprecated)] // env.events().publish — migrate to #[contractevent] when stabilizing stablecoin API
+#![allow(deprecated)]
 
-use soroban_sdk::token::{StellarAssetClient, TokenClient};
+use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol};
 
 const BPS: i128 = 10_000;
@@ -29,8 +29,6 @@ pub enum DataKey {
     ReserveRatioBps,
     Shutdown,
     TotalCollateral,
-    UserCollateral(Address),
-    UserMinted(Address),
 }
 
 #[contracttype]
@@ -117,32 +115,6 @@ fn sub_total_collateral(env: &Env, amount: i128) -> Result<(), StablecoinError> 
         .instance()
         .set(&DataKey::TotalCollateral, &(current - amount));
     Ok(())
-}
-
-fn get_user_collateral(env: &Env, user: &Address) -> i128 {
-    env.storage()
-        .instance()
-        .get(&DataKey::UserCollateral(user.clone()))
-        .unwrap_or(0)
-}
-
-fn set_user_collateral(env: &Env, user: &Address, amount: i128) {
-    env.storage()
-        .instance()
-        .set(&DataKey::UserCollateral(user.clone()), &amount);
-}
-
-fn get_user_minted(env: &Env, user: &Address) -> i128 {
-    env.storage()
-        .instance()
-        .get(&DataKey::UserMinted(user.clone()))
-        .unwrap_or(0)
-}
-
-fn set_user_minted(env: &Env, user: &Address, amount: i128) {
-    env.storage()
-        .instance()
-        .set(&DataKey::UserMinted(user.clone()), &amount);
 }
 
 #[contract]
@@ -246,9 +218,6 @@ impl StablecoinContract {
             &amount,
         );
         add_total_collateral(&env, amount)?;
-        
-        let user_collateral = get_user_collateral(&env, &user);
-        set_user_collateral(&env, &user, user_collateral + amount);
 
         env.events()
             .publish((Symbol::new(&env, "collateral_deposited"), user), amount);
@@ -273,12 +242,6 @@ impl StablecoinContract {
             return Err(StablecoinError::InvalidAmount);
         }
 
-        // Check if user has enough collateral deposited
-        let user_collateral = get_user_collateral(&env, &user);
-        if user_collateral < collateral_amount {
-            return Err(StablecoinError::InsufficientCollateral);
-        }
-
         let rr = reserve_ratio_bps(&env)?;
         let mint_amount = collateral_amount
             .checked_mul(rr)
@@ -286,17 +249,6 @@ impl StablecoinContract {
             / BPS;
 
         if mint_amount <= 0 {
-            return Err(StablecoinError::InvalidAmount);
-        }
-
-        // Check if this minting would exceed the allowed ratio for the user
-        let user_minted = get_user_minted(&env, &user);
-        // Total minted cannot exceed (total collateral * ratio) / BPS
-        // Actually, if we use the input `collateral_amount` as the *basis*, 
-        // we should probably just check if the user has enough un-minted collateral.
-        // But for simplicity, let's just track total minted vs total collateral.
-        let max_mintable = user_collateral.checked_mul(rr).unwrap_or(0) / BPS;
-        if user_minted + mint_amount > max_mintable {
             return Err(StablecoinError::InvalidAmount);
         }
 
@@ -326,26 +278,9 @@ impl StablecoinContract {
             return Err(StablecoinError::InvalidAmount);
         }
 
-        let user_minted = get_user_minted(&env, &user);
-        if user_minted < burn_amount {
-            return Err(StablecoinError::InvalidAmount);
-        }
-
-        let rr = reserve_ratio_bps(&env)?;
-        // Calculate proportional collateral to return: burn_amount * BPS / rr
-        let collateral_out = burn_amount
-            .checked_mul(BPS)
-            .ok_or(StablecoinError::Overflow)?
-            / rr;
-
-        let user_collateral = get_user_collateral(&env, &user);
-        if user_collateral < collateral_out {
-            return Err(StablecoinError::InsufficientCollateral);
-        }
-
+        // Simple redemption rule: 1:1 collateral payout, bounded by actual collateral held.
+        let collateral_out = burn_amount;
         sub_total_collateral(&env, collateral_out)?;
-        set_user_collateral(&env, &user, user_collateral - collateral_out);
-        set_user_minted(&env, &user, user_minted - burn_amount);
 
         let stable = stablecoin_token(&env)?;
         TokenClient::new(&env, &stable).burn(&user, &burn_amount);

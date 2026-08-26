@@ -1,11 +1,12 @@
-import { body, param, query, validationResult, check } from 'express-validator';
+import { body, check, param, query, validationResult } from 'express-validator';
 import { Request, Response, NextFunction } from 'express';
-import { ValidationError } from '../utils/errors';
 import { StrKey } from '@stellar/stellar-sdk';
+import { ValidationError } from '../utils/errors';
 
 const VALID_OPERATIONS = ['deposit', 'borrow', 'repay', 'withdraw'];
 const VALID_IMPORT_FORMATS = ['csv', 'json'];
 const MAX_XDR_LENGTH = 20000;
+const MAX_ASSET_ID_LENGTH = 128;
 
 export const validateRequest = (req: Request, res: Response, next: NextFunction) => {
   const errors = validationResult(req);
@@ -28,7 +29,6 @@ export const amountValidation = [
 
       try {
         const str = String(value).trim();
-
         if (!/^\+?\d+$/.test(str)) {
           throw new Error(errMsg);
         }
@@ -64,35 +64,19 @@ const createLendingValidation = () => [
       return true;
     }),
   ...amountValidation,
-  check('assetAddress').optional().isString().notEmpty().withMessage('Asset address is required'),
-  validateRequest,
-];
-
-export const relayDelegatedValidation = [
-  body('delegatorAddress')
+  check('assetAddress')
+    .optional()
     .isString()
+    .trim()
     .notEmpty()
-    .withMessage('delegatorAddress is required')
-    .custom((value) => {
-      if (!StrKey.isValidEd25519PublicKey(value)) {
-        throw new Error('Invalid Stellar address');
-      }
-      return true;
-    }),
-  body('nonce').isString().notEmpty().withMessage('nonce is required'),
-  body('deadline').isString().notEmpty().withMessage('deadline is required'),
-  body('callsXdr')
-    .isString()
-    .notEmpty()
-    .isLength({ max: MAX_XDR_LENGTH })
-    .withMessage('callsXdr is required and must be <= 20000 characters'),
+    .isLength({ max: MAX_ASSET_ID_LENGTH })
+    .withMessage('Asset address must be a non-empty string <= 128 chars'),
   validateRequest,
 ];
 
 export const prepareValidation = createLendingValidation();
 
 export const submitValidation = [
-  body('signedXdr').isString().notEmpty().withMessage('signedXdr is required'),
   body('signedXdr')
     .isString()
     .notEmpty()
@@ -121,14 +105,17 @@ export const submitValidation = [
         if (!/^\+?\d+$/.test(str)) {
           throw new Error(errMsg);
         }
+
         const amount = BigInt(str);
         if (amount <= 0n) {
           throw new Error(errMsg);
         }
+
         const maxI128 = (1n << 127n) - 1n;
         if (amount > maxI128) {
           throw new Error(errMsg);
         }
+
         return true;
       } catch {
         throw new Error(errMsg);
@@ -137,8 +124,10 @@ export const submitValidation = [
   body('assetAddress')
     .optional()
     .isString()
+    .trim()
     .notEmpty()
-    .withMessage('Asset address must be a string'),
+    .isLength({ max: MAX_ASSET_ID_LENGTH })
+    .withMessage('Asset address must be a non-empty string <= 128 chars'),
   validateRequest,
 ];
 

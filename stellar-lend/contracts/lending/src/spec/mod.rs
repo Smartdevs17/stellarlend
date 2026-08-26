@@ -18,6 +18,9 @@
 //! | `rewards`            | `update_global_index`, `update_user`        |
 //! | `deposit`            | `deposit` — cap / overflow properties       |
 //! | `withdraw`           | `withdraw` — collateral-ratio post-cond     |
+//! | `oracle_spec`        | `get_price` — oracle data consumption paths |
+//! | `cross_contract_spec`| Reentrancy, flash loans, AMM callbacks      |
+//! | `upgrade_spec`       | Upgrade state machine, storage safety       |
 //!
 //! ## How to run
 //!
@@ -40,18 +43,26 @@
 //! * The oracle contract is trusted; its price return is assumed to be ≥ 0.
 
 #[cfg(any(test, feature = "spec"))]
-pub mod interest;
+pub mod accounting;
 #[cfg(any(test, feature = "spec"))]
 pub mod collateral;
 #[cfg(any(test, feature = "spec"))]
-pub mod accounting;
+pub mod deposit_spec;
 #[cfg(any(test, feature = "spec"))]
 pub mod health_factor;
 #[cfg(any(test, feature = "spec"))]
+pub mod interest;
+#[cfg(any(test, feature = "spec"))]
 pub mod liquidation;
+#[cfg(any(test, feature = "spec"))]
+pub mod protocol_invariants;
 #[cfg(any(test, feature = "spec"))]
 pub mod rewards;
 #[cfg(any(test, feature = "spec"))]
-pub mod deposit_spec;
-#[cfg(any(test, feature = "spec"))]
 pub mod withdraw_spec;
+#[cfg(any(test, feature = "spec"))]
+pub mod oracle_spec;
+#[cfg(any(test, feature = "spec"))]
+pub mod cross_contract_spec;
+#[cfg(any(test, feature = "spec"))]
+pub mod upgrade_spec;
