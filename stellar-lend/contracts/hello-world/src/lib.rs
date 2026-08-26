@@ -153,6 +153,43 @@ impl HelloContract {
         governance::get_proposal(&env, proposal_id)
     }
 
+    pub fn gov_get_config(env: Env) -> Option<types::GovernanceConfig> {
+        governance::get_config(&env)
+    }
+
+    pub fn gov_get_admin(env: Env) -> Option<Address> {
+        governance::get_admin(&env)
+    }
+
+    pub fn gov_get_vote(env: Env, proposal_id: u64, voter: Address) -> Option<types::VoteInfo> {
+        governance::get_vote(&env, proposal_id, voter)
+    }
+
+    pub fn gov_get_multisig_config(env: Env) -> Option<storage::MultisigConfig> {
+        governance::get_multisig_config(&env)
+    }
+
+    pub fn gov_set_multisig_config(
+        env: Env,
+        caller: Address,
+        admins: Vec<Address>,
+        threshold: u32,
+    ) -> Result<(), LendingError> {
+        governance::set_multisig_config(&env, caller, admins, threshold).map_err(Into::into)
+    }
+
+    pub fn gov_set_multisig_threshold(
+        env: Env,
+        caller: Address,
+        threshold: u32,
+    ) -> Result<(), LendingError> {
+        governance::set_multisig_threshold(&env, caller, threshold).map_err(Into::into)
+    }
+
+    pub fn gov_get_proposal_approvals(env: Env, proposal_id: u64) -> Option<Vec<Address>> {
+        governance::get_proposal_approvals(&env, proposal_id)
+    }
+
     pub fn gov_get_vote_lock(env: Env, voter: Address) -> Option<types::VoteLock> {
         governance::get_vote_lock(&env, &voter)
     }

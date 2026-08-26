@@ -77,6 +77,8 @@ mod upgrade_test;
 mod views_test;
 #[cfg(test)]
 mod withdraw_test;
+#[cfg(test)]
+mod invariant_prop_test;
 
 #[contract]
 pub struct LendingContract;
