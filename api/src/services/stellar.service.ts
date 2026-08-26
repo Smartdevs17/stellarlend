@@ -321,6 +321,10 @@ export class StellarService {
       .build();
   }
 
+  public async readContract(methodName: string, ...params: any[]): Promise<any> {
+    return this.simulateContractCall(methodName, ...params);
+  }
+
   private async simulateContractCall(methodName: string, ...params: any[]): Promise<any> {
     const tx = this.buildReadOnlyTransaction(methodName, ...params);
     const simulation = await (this.sorobanServer as any).simulateTransaction(tx);
