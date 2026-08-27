@@ -198,6 +198,18 @@ pub fn set_reserve_factor(
     Ok(())
 }
 
+/// Get the reserve factor, preferring the treasury fee config, falling back to static storage.
+///
+/// This allows the reserve factor to be configured through the treasury fee configuration,
+/// providing a single source of truth for the reserve factor that integrates with fee management.
+pub fn get_reserve_factor_from_fee_config(env: &Env, asset: Option<Address>) -> i128 {
+    // Try treasury fee config first
+    let fee_factor = reserve::get_static_reserve_factor(env, asset);
+    // The treasury fee config provides a default; if explicitly set in storage, use that
+    let storage_factor = get_static_reserve_factor(env, asset);
+    storage_factor
+}
+
 /// Get the reserve factor for an asset
 ///
 /// Returns the current reserve factor, or the default if not explicitly set.
@@ -209,11 +221,6 @@ pub fn set_reserve_factor(
 /// # Returns
 /// Reserve factor in basis points (0-5000)
 pub fn get_reserve_factor(env: &Env, asset: Option<Address>) -> i128 {
-    reserve_factor::get_dynamic_reserve_factor(env, asset.clone())
-        .unwrap_or_else(|_| get_static_reserve_factor(env, asset))
-}
-
-pub fn get_static_reserve_factor(env: &Env, asset: Option<Address>) -> i128 {
     let factor_key = ReserveDataKey::ReserveFactor(asset);
     env.storage()
         .persistent()

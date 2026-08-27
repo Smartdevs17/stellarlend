@@ -8,6 +8,7 @@ pub mod exponential;
 pub mod mul_div;
 pub mod precision;
 pub mod rounding;
+pub mod lending;
 
 pub use error::MathError;
 
@@ -28,3 +29,10 @@ pub use exponential::{wad_exp, wad_ln};
 pub use mul_div::{mul_div, mul_div_ceil, mul_div_floor, mul_div_round_up, mul_div_with_safety, mul_div_with_rounding};
 pub use precision::{PrecisionLoss, PrecisionTracker};
 pub use rounding::{round_down, round_nearest, round_up, RoundingMode};
+
+pub use lending::{
+    accrue_interest, BPS_DIVISOR, calculate_utilization, collateral_ratio_bps,
+    compound_interest as lending_compound_interest, health_factor_bps, is_liquidatable,
+    InterestRateModel, liquidation_bonus, ltv_bps, max_borrow_amount, max_liquidatable,
+    seize_amount, validate_collateral_ratio,
+};

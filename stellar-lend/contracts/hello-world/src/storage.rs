@@ -41,6 +41,7 @@ pub enum GovernanceDataKey {
     // Multisig
     MultisigConfig,
     MultisigAdmins,
+    MultisigThreshold,
     // Guardian / recovery
     GuardianConfig,
     Guardians,
@@ -84,7 +85,19 @@ pub enum GovernanceDataKey {
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
+    // Credit scoring keys
     CreditScore(Address),
+
+    // Circuit breaker keys
+    CircuitBreakerConfig,
+    CircuitBreakerState,
+    CircuitBreakerWhitelist,
+
+    // Liquidation queue keys
+    LiquidationQueueConfig,
+    NextLiquidationQueueId,
+    LiquidationQueueEntry(u64),
+    LiquidatorRegistration(Address),
 }
 
 // ─── Temporary transaction-local cache keys ─────────────────────────────────
@@ -121,27 +134,4 @@ pub fn set_temp_lending_index(env: &Env, index: crate::interest_rate::LendingInd
     env.storage()
         .temporary()
         .set(&TempDataKey::LendingIndexCache, &index);
-}
-
-// ─── Temporary transaction-local cache keys ─────────────────────────────────
-
-#[contracttype]
-#[derive(Clone)]
-pub enum TempDataKey {
-    TokenBalanceCache(Address, Address),
-}
-
-pub fn get_temp_token_balance(env: &Env, token: &Address, owner: &Address) -> Option<i128> {
-    env.storage()
-        .temporary()
-        .get::<TempDataKey, i128>(&TempDataKey::TokenBalanceCache(
-            token.clone(),
-            owner.clone(),
-        ))
-}
-
-pub fn set_temp_token_balance(env: &Env, token: &Address, owner: &Address, balance: i128) {
-    env.storage()
-        .temporary()
-        .set(&TempDataKey::TokenBalanceCache(token.clone(), owner.clone()), &balance);
 }

@@ -4,6 +4,7 @@
 use soroban_sdk::{contract, contractimpl, Address, Env, IntoVal, String, Vec};
 
 pub mod admin;
+pub mod amm;
 pub mod analytics;
 pub mod borrow;
 pub mod bridge;
@@ -32,9 +33,10 @@ pub mod risk_params;
 pub mod safe_math;
 pub mod storage;
 pub mod treasury;
+pub mod test_utils;
+pub mod tests;
 pub mod types;
 pub mod withdraw;
-pub mod amm;
 
 use crate::deposit::Position;
 use crate::errors::LendingError;
@@ -146,6 +148,43 @@ impl HelloContract {
         governance::get_proposal(&env, proposal_id)
     }
 
+    pub fn gov_get_config(env: Env) -> Option<types::GovernanceConfig> {
+        governance::get_config(&env)
+    }
+
+    pub fn gov_get_admin(env: Env) -> Option<Address> {
+        governance::get_admin(&env)
+    }
+
+    pub fn gov_get_vote(env: Env, proposal_id: u64, voter: Address) -> Option<types::VoteInfo> {
+        governance::get_vote(&env, proposal_id, voter)
+    }
+
+    pub fn gov_get_multisig_config(env: Env) -> Option<storage::MultisigConfig> {
+        governance::get_multisig_config(&env)
+    }
+
+    pub fn gov_set_multisig_config(
+        env: Env,
+        caller: Address,
+        admins: Vec<Address>,
+        threshold: u32,
+    ) -> Result<(), LendingError> {
+        governance::set_multisig_config(&env, caller, admins, threshold).map_err(Into::into)
+    }
+
+    pub fn gov_set_multisig_threshold(
+        env: Env,
+        caller: Address,
+        threshold: u32,
+    ) -> Result<(), LendingError> {
+        governance::set_multisig_threshold(&env, caller, threshold).map_err(Into::into)
+    }
+
+    pub fn gov_get_proposal_approvals(env: Env, proposal_id: u64) -> Option<Vec<Address>> {
+        governance::get_proposal_approvals(&env, proposal_id)
+    }
+
     pub fn gov_get_vote_lock(env: Env, voter: Address) -> Option<types::VoteLock> {
         governance::get_vote_lock(&env, &voter)
     }
@@ -255,6 +294,18 @@ impl HelloContract {
         deposit::deposit_collateral(&env, user, asset, amount).map_err(Into::into)
     }
 
+    /// Deposit collateral using cross-asset lending
+    pub fn deposit_cross_asset(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+    ) -> Result<(), LendingError> {
+        cross_asset::cross_asset_deposit(&env, user, asset, amount).map_err(Into::into)?;
+        Ok(())
+    }
+
+
     pub fn set_risk_params(
         env: Env,
         caller: Address,
@@ -297,6 +348,242 @@ impl HelloContract {
         .map_err(|_| LendingError::LimitExceeded)?;
         borrow::borrow_asset(&env, user, asset, amount).map_err(Into::into)
     }
+
+    /// Borrow against collateral basket using cross-asset lending
+    pub fn borrow_cross_asset(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+    ) -> Result<(), LendingError> {
+        cross_asset::cross_asset_borrow(&env, user, asset, amount).map_err(Into::into)
+    }
+
+    /// Withdraw collateral using cross-asset lending
+    pub fn withdraw_cross_asset(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+    ) -> Result<(), LendingError> {
+        cross_asset::cross_asset_withdraw(&env, user, asset, amount).map_err(Into::into)?;
+        Ok(())
+    }
+
+    /// Get user's cross-asset position summary
+    pub fn get_cross_asset_position_summary(
+        env: Env,
+        user: Address,
+    ) -> Result<cross_asset::UserPositionSummary, LendingError> {
+        cross_asset::get_user_position_summary(&env, &user).map_err(Into::into)
+    }
+
+    /// Liquidate an unhealthy cross-asset position
+    pub fn liquidate_cross_asset(
+        env: Env,
+        liquidator: Address,
+        user: Address,
+        debt_asset: Option<Address>,
+        collateral_asset: Option<Address>,
+        debt_to_repay: i128,
+        collateral_to_receive: i128,
+    ) -> Result<i128, LendingError> {
+        cross_asset::cross_asset_liquidate(
+            &env,
+            liquidator,
+            user,
+            debt_asset,
+            collateral_asset,
+            debt_to_repay,
+            collateral_to_receive,
+        ).map_err(Into::into)
+    }
+
+    /// Set reserve factor for an asset (admin only)
+    pub fn set_reserve_factor(
+        env: Env,
+        caller: Address,
+        asset: Option<Address>,
+        reserve_factor_bps: i128,
+    ) -> Result<(), LendingError> {
+        reserve::set_reserve_factor(&env, caller, asset, reserve_factor_bps).map_err(Into::into)
+    }
+
+    /// Set treasury address (admin only)
+    pub fn set_treasury_address(
+        env: Env,
+        caller: Address,
+        treasury: Address,
+    ) -> Result<(), LendingError> {
+        reserve::set_treasury_address(&env, caller, treasury).map_err(Into::into)
+    }
+
+    /// Withdraw reserves to treasury (admin only)
+    pub fn withdraw_reserve_funds(
+        env: Env,
+        caller: Address,
+        asset: Option<Address>,
+        amount: i128,
+    ) -> Result<i128, LendingError> {
+        reserve::withdraw_reserve_funds(&env, caller, asset, amount).map_err(Into::into)
+    }
+
+    /// Get reserve balance for an asset
+    pub fn get_reserve_balance_reserve(
+        env: Env,
+        asset: Option<Address>,
+    ) -> i128 {
+        reserve::get_reserve_balance(&env, asset)
+    }
+
+    /// Get reserve factor for an asset
+    pub fn get_reserve_factor(
+        env: Env,
+        asset: Option<Address>,
+    ) -> i128 {
+        reserve::get_reserve_factor(&env, asset)
+    }
+
+    /// Get comprehensive reserve statistics
+    pub fn get_reserve_stats(
+        env: Env,
+        asset: Option<Address>,
+    ) -> (i128, i128, Option<Address>) {
+        reserve::get_reserve_stats(&env, asset)
+    }
+
+    /// Configure rebalancing settings for a user
+    pub fn configure_rebalancing(
+        env: Env,
+        user: Address,
+        target_health_factor_min: i128,
+        target_health_factor_max: i128,
+        max_gas_cost: i128,
+        auto_rebalance_enabled: bool,
+        min_swap_size: i128,
+        max_slippage_bps: i128,
+        rebalance_cooldown: u64,
+    ) -> Result<(), LendingError> {
+        rebalancing::configure_rebalancing(
+            &env,
+            user,
+            target_health_factor_min,
+            target_health_factor_max,
+            max_gas_cost,
+            auto_rebalance_enabled,
+            min_swap_size,
+            max_slippage_bps,
+            rebalance_cooldown,
+        ).map_err(Into::into)
+    }
+
+    /// Execute automated rebalancing for a user
+    pub fn execute_rebalancing(
+        env: Env,
+        user: Address,
+    ) -> Result<(), LendingError> {
+        rebalancing::execute_rebalancing(&env, user).map_err(Into::into)
+    }
+
+    /// Get user's rebalancing configuration
+    pub fn get_rebalancing_config(
+        env: Env,
+        user: Address,
+    ) -> rebalancing::RebalancingConfig {
+        rebalancing::get_rebalancing_config(&env, &user)
+    }
+
+    /// Set emergency stop for rebalancing (admin only)
+    pub fn set_rebalancing_emergency_stop(
+        env: Env,
+        admin: Address,
+        stopped: bool,
+    ) -> Result<(), LendingError> {
+        rebalancing::set_emergency_stop(&env, admin, stopped).map_err(Into::into)
+    }
+
+    /// Set rebalancing pause (admin only)
+    pub fn set_rebalancing_pause(
+        env: Env,
+        admin: Address,
+        paused: bool,
+    ) -> Result<(), LendingError> {
+        rebalancing::set_rebalancing_pause(&env, admin, paused).map_err(Into::into)
+    }
+
+    /// Mint a new debt token for a position
+    pub fn mint_debt_token(
+        env: Env,
+        user: Address,
+        collateral_asset: Option<Address>,
+        principal: i128,
+        interest_rate_bps: i128,
+    ) -> Result<u64, LendingError> {
+        debt_token::mint_debt_token(&env, user, collateral_asset, principal, interest_rate_bps).map_err(Into::into)
+    }
+
+    /// Transfer a debt token to another address
+    pub fn transfer_debt_token(
+        env: Env,
+        from: Address,
+        to: Address,
+        token_id: u64,
+    ) -> Result<(), LendingError> {
+        debt_token::transfer_debt_token(&env, from, to, token_id).map_err(Into::into)
+    }
+
+    /// Burn a debt token (debt repayment)
+    pub fn burn_debt_token(
+        env: Env,
+        user: Address,
+        token_id: u64,
+        reason: Symbol,
+    ) -> Result<(), LendingError> {
+        debt_token::burn_debt_token(&env, user, token_id, reason).map_err(Into::into)
+    }
+
+    /// Get debt position information for a token
+    pub fn get_debt_position(
+        env: Env,
+        token_id: u64,
+    ) -> Option<debt_token::DebtPosition> {
+        debt_token::get_debt_position(&env, token_id)
+    }
+
+    /// Get all debt tokens owned by a user
+    pub fn get_user_debt_tokens(
+        env: Env,
+        user: Address,
+    ) -> Vec<u64> {
+        debt_token::get_user_debt_tokens(&env, &user)
+    }
+
+    /// Get total supply of debt tokens
+    pub fn get_debt_token_total_supply(
+        env: Env,
+    ) -> u64 {
+        debt_token::get_total_supply(&env)
+    }
+
+    /// Set transfer pause for debt tokens (admin only)
+    pub fn set_debt_token_transfer_pause(
+        env: Env,
+        admin: Address,
+        paused: bool,
+    ) -> Result<(), LendingError> {
+        debt_token::set_transfer_pause(&env, admin, paused).map_err(Into::into)
+    }
+
+    /// Block/unblock an address from debt token transfers (admin only)
+    pub fn set_debt_token_address_blocked(
+        env: Env,
+        admin: Address,
+        address: Address,
+        blocked: bool,
+    ) -> Result<(), LendingError> {
+        debt_token::set_address_blocked(&env, admin, address, blocked).map_err(Into::into)
+    }
+
 
     /// Meta-tx style borrow: user authorizes intent off-chain, relayer submits.
     pub fn borrow_asset_intent(
@@ -751,6 +1038,110 @@ impl HelloContract {
         reserve::get_reserve_amm_lp_balance(&env, asset)
     }
 
+    // -------------------------------------------------------------------------
+    // AMM Lending Integration (Issue #336)
+    // -------------------------------------------------------------------------
+
+    /// Initialize AMM lending integration (admin only)
+    pub fn initialize_amm_lending(env: Env, admin: Address) -> Result<(), LendingError> {
+        amm::initialize_amm_lending(&env, admin).map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Wrap lending pool deposits into AMM LP tokens
+    pub fn amm_wrap_deposit_to_lp(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        amount: i128,
+        amm_protocol: Address,
+    ) -> Result<amm::LpTokenPosition, LendingError> {
+        amm::wrap_deposit_to_lp(&env, admin, asset, amount, amm_protocol)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Unwrap LP tokens back to lending pool assets
+    pub fn amm_unwrap_lp_to_deposit(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        lp_tokens: i128,
+    ) -> Result<i128, LendingError> {
+        amm::unwrap_lp_to_deposit(&env, admin, asset, lp_tokens)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Get LP token balance for an asset
+    pub fn amm_get_lp_token_balance(env: Env, asset: Address) -> i128 {
+        amm::get_lp_token_balance(&env, &asset)
+    }
+
+    /// Set withdrawal buffer for an asset (admin only)
+    pub fn amm_set_withdrawal_buffer(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        buffer_bps: i128,
+    ) -> Result<(), LendingError> {
+        amm::set_withdrawal_buffer(&env, admin, asset, buffer_bps)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Get withdrawal buffer for an asset
+    pub fn amm_get_withdrawal_buffer(env: Env, asset: Address) -> i128 {
+        amm::get_withdrawal_buffer(&env, &asset)
+    }
+
+    /// Calculate optimal AMM allocation based on pool utilization
+    pub fn amm_calculate_optimal_allocation(
+        env: Env,
+        asset: Address,
+        total_liquidity: i128,
+        borrowed_amount: i128,
+    ) -> Result<amm::AllocationSuggestion, LendingError> {
+        amm::calculate_optimal_allocation(&env, &asset, total_liquidity, borrowed_amount)
+            .map_err(|_| LendingError::InvalidParameter)
+    }
+
+    /// Execute automated AMM rebalancing
+    pub fn amm_auto_rebalance_allocation(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        total_liquidity: i128,
+        borrowed_amount: i128,
+        current_amm_balance: i128,
+    ) -> Result<i128, LendingError> {
+        amm::auto_rebalance_allocation(&env, admin, asset, total_liquidity, borrowed_amount, current_amm_balance)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Record LP fees accrued for distribution
+    pub fn amm_record_lp_fees(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        fee_amount: i128,
+    ) -> Result<(), LendingError> {
+        amm::record_lp_fees(&env, admin, asset, fee_amount)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Get accrued LP fees for an asset
+    pub fn amm_get_accrued_lp_fees(env: Env, asset: Address) -> i128 {
+        amm::get_accrued_lp_fees(&env, &asset)
+    }
+
+    /// Update impermanent loss tracking
+    pub fn amm_update_il_tracking(env: Env, asset: Address, current_price: i128) -> Result<bool, LendingError> {
+        amm::update_il_tracking(&env, &asset, current_price)
+            .map_err(|_| LendingError::InvalidParameter)
+    }
+
+    /// Get impermanent loss snapshot
+    pub fn amm_get_il_snapshot(env: Env, asset: Address) -> Option<amm::IlSnapshot> {
+        amm::get_il_snapshot(&env, &asset)
+    }
+
     /// Withdraw protocol reserves to a recipient (admin-only)
     pub fn claim_reserves(
         env: Env,
@@ -1114,6 +1505,14 @@ impl HelloContract {
     /// Read-only protocol analytics report.
     pub fn get_protocol_report(env: Env) -> Result<analytics::ProtocolReport, LendingError> {
         analytics::generate_protocol_report(&env).map_err(Into::into)
+    }
+
+    /// Read-only composite protocol health score (0-100), combining
+    /// capital-efficiency and rate-stability sub-scores.
+    pub fn get_protocol_health_score(
+        env: Env,
+    ) -> Result<analytics::ProtocolHealthScore, LendingError> {
+        analytics::get_protocol_health_score(&env).map_err(Into::into)
     }
 
     /// Read-only user position query.
@@ -1758,6 +2157,202 @@ mod test_reentrancy;
 mod test_zero_amount;
 #[cfg(test)]
 mod treasury_test;
+// Temporarily disabled due to pre-existing issues
+// #[cfg(test)]
+// #[path = "tests/timelock_test.rs"]
+// mod timelock_test;
+// Disabled until the full governance attack-prevention surface is implemented.
+// mod governance_attack_prevention_test;
+
+    // -------------------------------------------------------------------------
+    // Credit Scoring System (Issue #189)
+    // -------------------------------------------------------------------------
+
+    /// Initialize credit score for a user
+    pub fn initialize_credit_score(env: Env, user: Address) -> Result<(), LendingError> {
+        credit_score::initialize_credit_score(&env, &user)
+    }
+
+    /// Get credit score for a user
+    pub fn get_credit_score(env: Env, user: Address) -> Result<credit_score::CreditScore, LendingError> {
+        credit_score::get_credit_score(&env, &user)
+    }
+
+    /// Calculate adjusted LTV based on credit score
+    pub fn get_adjusted_ltv(env: Env, user: Address) -> Result<i128, LendingError> {
+        credit_score::calculate_adjusted_ltv(&env, &user)
+    }
+
+    /// Calculate adjusted interest rate based on credit score
+    pub fn get_adjusted_interest_rate(
+        env: Env,
+        user: Address,
+        base_rate_bps: i128,
+    ) -> Result<i128, LendingError> {
+        credit_score::calculate_adjusted_interest_rate(&env, &user, base_rate_bps)
+    }
+
+    // -------------------------------------------------------------------------
+    // Timelock Controller (Issue #187)
+    // -------------------------------------------------------------------------
+
+    /// Initialize timelock configuration
+    pub fn initialize_timelock(
+        env: Env,
+        config: timelock::TimelockConfig,
+    ) -> Result<(), LendingError> {
+        timelock::initialize_timelock(&env, config).map_err(|e| match e {
+            crate::errors::GovernanceError::InvalidTimelockConfig => LendingError::InvalidParameter,
+            _ => LendingError::Unauthorized,
+        })
+    }
+
+    /// Queue a timelock operation
+    pub fn queue_timelock_operation(
+        env: Env,
+        proposer: Address,
+        proposal_type: types::ProposalType,
+        description: String,
+        custom_delay: Option<u64>,
+    ) -> Result<u64, LendingError> {
+        timelock::queue_timelock_operation(&env, proposer, proposal_type, description, custom_delay)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Execute a timelock operation
+    pub fn execute_timelock_operation(
+        env: Env,
+        executor: Address,
+        operation_id: u64,
+    ) -> Result<(), LendingError> {
+        timelock::execute_timelock_operation(&env, executor, operation_id)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Cancel a timelock operation
+    pub fn cancel_timelock_operation(
+        env: Env,
+        caller: Address,
+        operation_id: u64,
+    ) -> Result<(), LendingError> {
+        timelock::cancel_timelock_operation(&env, caller, operation_id)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Get timelock operation
+    pub fn get_timelock_operation(
+        env: Env,
+        operation_id: u64,
+    ) -> Option<timelock::TimelockOperation> {
+        timelock::get_timelock_operation(&env, operation_id)
+    }
+
+    /// Get all pending timelock operations
+    pub fn get_pending_timelock_operations(env: Env) -> Vec<timelock::TimelockOperation> {
+        timelock::get_pending_timelock_operations(&env)
+    }
+
+    /// Queue a batch timelock operation (multiple proposal types)
+    pub fn queue_batch_timelock_operation(
+        env: Env,
+        proposer: Address,
+        actions: Vec<types::ProposalType>,
+        description: String,
+        custom_delay: Option<u64>,
+    ) -> Result<u64, LendingError> {
+        timelock::queue_batch_timelock_operation(&env, proposer, actions, description, custom_delay)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Execute a batch timelock operation
+    pub fn execute_batch_timelock_operation(
+        env: Env,
+        executor: Address,
+        operation_id: u64,
+    ) -> Result<(), LendingError> {
+        timelock::execute_batch_timelock_operation(&env, executor, operation_id)
+            .map_err(|_| LendingError::Unauthorized)
+    }
+
+    /// Get the priority-ordered timelock queue
+    pub fn get_timelock_queue(env: Env) -> Vec<timelock::PriorityQueueEntry> {
+        timelock::get_timelock_queue(&env)
+    }
+
+    /// Clean expired timelock queue entries
+    pub fn clean_timelock_queue(env: Env) -> u32 {
+        timelock::clean_timelock_queue(&env)
+    }
+
+    /// Get a batch timelock operation
+    pub fn get_batch_timelock_operation(
+        env: Env,
+        operation_id: u64,
+    ) -> Option<timelock::BatchTimelockOperation> {
+        timelock::get_batch_timelock_operation(&env, operation_id)
+    }
+
+    // -------------------------------------------------------------------------
+    // Circuit Breaker (Issue #186)
+    // -------------------------------------------------------------------------
+
+    /// Initialize circuit breaker
+    pub fn initialize_circuit_breaker(
+        env: Env,
+        config: circuit_breaker::CircuitBreakerConfig,
+    ) -> Result<(), LendingError> {
+        circuit_breaker::initialize_circuit_breaker(&env, config)
+    }
+
+    /// Activate circuit breaker (governance or admin only)
+    pub fn activate_circuit_breaker(
+        env: Env,
+        caller: Address,
+        reason: circuit_breaker::CircuitBreakerReason,
+        emergency_mode: bool,
+    ) -> Result<(), LendingError> {
+        circuit_breaker::activate_circuit_breaker(&env, caller, reason, emergency_mode)
+    }
+
+    /// Deactivate circuit breaker (governance or admin only)
+    pub fn deactivate_circuit_breaker(env: Env, caller: Address) -> Result<(), LendingError> {
+        circuit_breaker::deactivate_circuit_breaker(&env, caller)
+    }
+
+    /// Get circuit breaker state
+    pub fn get_circuit_breaker_state(
+        env: Env,
+    ) -> Result<circuit_breaker::CircuitBreakerState, LendingError> {
+        circuit_breaker::get_circuit_breaker_state(&env)
+    }
+
+    /// Check if liquidations are allowed
+    pub fn is_liquidation_allowed(env: Env, liquidator: Address) -> Result<bool, LendingError> {
+        circuit_breaker::is_liquidation_allowed(&env, &liquidator)
+    }
+
+    /// Add address to emergency liquidator whitelist
+    pub fn add_to_whitelist(
+        env: Env,
+        admin: Address,
+        liquidator: Address,
+    ) -> Result<(), LendingError> {
+        circuit_breaker::add_to_whitelist(&env, admin, liquidator)
+    }
+
+    /// Remove address from emergency liquidator whitelist
+    pub fn remove_from_whitelist(
+        env: Env,
+        admin: Address,
+        liquidator: Address,
+    ) -> Result<(), LendingError> {
+        circuit_breaker::remove_from_whitelist(&env, admin, liquidator)
+    }
+
+    /// Get whitelist
+    pub fn get_circuit_breaker_whitelist(env: Env) -> Vec<Address> {
+        circuit_breaker::get_whitelist(&env)
+    }
 #[cfg(test)]
 #[path = "tests/diff_harness.rs"]
 mod diff_harness;

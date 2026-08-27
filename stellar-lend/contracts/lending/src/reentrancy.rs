@@ -10,7 +10,9 @@
 // 6. Checks-effects-interactions pattern enforcement
 // ════════════════════════════════════════════════════════════════
 
-use soroban_sdk::{contracterror, contracttype, Address, Env, Symbol};
+use soroban_sdk {
+    contracterror, contracttype, Address, Env, Symbol, Vec,
+};
 
 /// Reentrancy error
 #[contracterror]
@@ -201,28 +203,6 @@ impl<'a> ReentrancyGuard<'a> {
     pub fn is_read_only_reentrancy(&self) -> bool {
         self.is_read_only && self.state_before == GuardState::Entered
     }
-
-    /// Convert ReentrancyKey to Symbol for storage
-    fn key_to_symbol(env: &Env, key: &ReentrancyKey) -> Symbol {
-        match key {
-            ReentrancyKey::GlobalLock => Symbol::new(env, "REENTRANCY_GLOBAL"),
-            ReentrancyKey::DepositLock => Symbol::new(env, "REENTRANCY_DEPOSIT"),
-            ReentrancyKey::WithdrawLock => Symbol::new(env, "REENTRANCY_WITHDRAW"),
-            ReentrancyKey::BorrowLock => Symbol::new(env, "REENTRANCY_BORROW"),
-            ReentrancyKey::RepayLock => Symbol::new(env, "REENTRANCY_REPAY"),
-            ReentrancyKey::LiquidateLock => Symbol::new(env, "REENTRANCY_LIQUIDATE"),
-            ReentrancyKey::FlashLoanLock => Symbol::new(env, "REENTRANCY_FLASH_LOAN"),
-            ReentrancyKey::DepositCollateralLock => {
-                Symbol::new(env, "REENTRANCY_DEPOSIT_COLLATERAL")
-            }
-            ReentrancyKey::CrossContractLock(addr) => {
-                Symbol::new(env, &format!("REENTRANCY_CROSS_{}", addr))
-            }
-            ReentrancyKey::ReadOnlyLock => Symbol::new(env, "REENTRANCY_READ_ONLY"),
-            ReentrancyKey::ConstructorLock => Symbol::new(env, "REENTRANCY_CONSTRUCTOR"),
-            ReentrancyKey::DelegateCallLock => Symbol::new(env, "REENTRANCY_DELEGATE_CALL"),
-        }
-    }
 }
 
 impl<'a> Drop for ReentrancyGuard<'a> {
@@ -276,5 +256,83 @@ mod tests {
         // Guard state should transition correctly
         assert_eq!(GuardState::NotEntered, GuardState::NotEntered);
         assert_eq!(GuardState::Entered, GuardState::Entered);
+    }
+
+    #[test]
+    fn test_global_guard_prevents_reentrancy() {
+        let env = Env::default();
+        let guard1 = ReentrancyGuard::new(&env).unwrap();
+        assert!(env.storage().temporary().has(&key_to_symbol(&env, &ReentrancyKey::GlobalLock)));
+
+        // Second guard should fail (reentrancy detected)
+        let guard2 = ReentrancyGuard::new(&env);
+        assert!(guard2.is_err());
+    }
+
+    #[test]
+    fn test_cross_contract_guard() {
+        let env = Env::default();
+        let caller = Address::random(&env);
+
+        // First cross-contract guard should succeed
+        let guard1 = ReentrancyGuard::new_cross_contract(&env, &caller);
+        assert!(guard1.is_ok());
+
+        // Second guard should fail (cross-contract reentrancy detected)
+        let guard2 = ReentrancyGuard::new_cross_contract(&env, &caller);
+        assert!(guard2.is_err());
+    }
+
+    #[test]
+    fn test_read_only_guard() {
+        let env = Env::default();
+
+        // Read-only guard should succeed
+        let guard = ReentrancyGuard::new_read_only(&env).unwrap();
+        assert!(guard.is_read_only);
+        assert!(env.storage().temporary().has(&key_to_symbol(&env, &ReentrancyKey::ReadOnlyLock)));
+
+        // Can be re-entered (read-only)
+        let guard2 = ReentrancyGuard::new_read_only(&env).unwrap();
+        assert!(guard2.is_read_only);
+    }
+
+    #[test]
+    fn test_constructor_guard() {
+        let env = Env::default();
+
+        // Constructor guard should succeed
+        let guard = ReentrancyGuard::new_constructor(&env).unwrap();
+        assert!(!guard.is_read_only_reentrancy());
+    }
+
+    #[test]
+    fn test_delegate_call_guard() {
+        let env = Env::default();
+
+        // Delegate call guard should succeed
+        let guard = ReentrancyGuard::new_delegate_call(&env).unwrap();
+        assert!(!guard.is_read_only_reentrancy());
+    }
+
+    fn key_to_symbol(env: &Env, key: &ReentrancyKey) -> Symbol {
+        match key {
+            ReentrancyKey::GlobalLock => Symbol::new(env, "REENTRANCY_GLOBAL"),
+            ReentrancyKey::DepositLock => Symbol::new(env, "REENTRANCY_DEPOSIT"),
+            ReentrancyKey::WithdrawLock => Symbol::new(env, "REENTRANCY_WITHDRAW"),
+            ReentrancyKey::BorrowLock => Symbol::new(env, "REENTRANCY_BORROW"),
+            ReentrancyKey::RepayLock => Symbol::new(env, "REENTRANCY_REPAY"),
+            ReentrancyKey::LiquidateLock => Symbol::new(env, "REENTRANCY_LIQUIDATE"),
+            ReentrancyKey::FlashLoanLock => Symbol::new(env, "REENTRANCY_FLASH_LOAN"),
+            ReentrancyKey::DepositCollateralLock => {
+                Symbol::new(env, "REENTRANCY_DEPOSIT_COLLATERAL")
+            }
+            ReentrancyKey::CrossContractLock(addr) => {
+                Symbol::new(env, &format!("REENTRANCY_CROSS_{}", addr))
+            }
+            ReentrancyKey::ReadOnlyLock => Symbol::new(env, "REENTRANCY_READ_ONLY"),
+            ReentrancyKey::ConstructorLock => Symbol::new(env, "REENTRANCY_CONSTRUCTOR"),
+            ReentrancyKey::DelegateCallLock => Symbol::new(env, "REENTRANCY_DELEGATE_CALL"),
+        }
     }
 }

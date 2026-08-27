@@ -131,6 +131,12 @@ pub fn get_fee_config(env: &Env) -> TreasuryFeeConfig {
         .unwrap_or_else(default_fee_config)
 }
 
+/// Return the reserve factor from fee configuration (falls back to DEFAULT_RESERVE_FACTOR_BPS if not set)
+pub fn get_reserve_factor_from_fee_config(env: &Env) -> i128 {
+    let config = get_fee_config(env);
+    config.interest_fee_bps
+}
+
 /// Update the protocol fee configuration (admin-only)
 ///
 /// Fee values must be in range [0, 10000] basis points.
