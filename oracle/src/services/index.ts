@@ -46,3 +46,26 @@ export {
     createManipulationDetector,
 } from './manipulation-detector.js';
 export type { ManipulationAlert, ManipulationDetectorConfig } from './manipulation-detector.js';
+
+export {
+    AnomalyDetector,
+    AnomalySeverity,
+    AnomalyMethod,
+    createAnomalyDetector,
+} from './anomaly-detector.js';
+export type { AnomalyEvent, AnomalyDetectorConfig, RollingStats, AdaptiveThresholdState } from './anomaly-detector.js';
+
+export {
+    FeedCorrelation,
+    CorrelationEventType,
+    CorrelationSeverity,
+    createFeedCorrelation,
+} from './feed-correlation.js';
+export type { CorrelationEvent, CorrelationPair, CorrelationMatrix, FeedCorrelationConfig } from './feed-correlation.js';
+
+export {
+    RealtimePriceFeed,
+    FeedEventType,
+    createRealtimePriceFeed,
+} from './realtime-price-feed.js';
+export type { EnrichedPrice, FeedHealthStatus, RealtimeFeedConfig } from './realtime-price-feed.js';

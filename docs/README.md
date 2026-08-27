@@ -22,6 +22,7 @@ StellarLend is a lending and borrowing protocol built on Soroban. It features cr
 - **[Upgrade Mechanism](upgrade-mechanism.md)** - Runbook for planned and emergency upgrades, rollback handling, and storage compatibility guidance.
 
 ## Modules and Features
+- **[Real-Time Price Feed with Anomaly Detection](REALTIME_PRICE_FEED.md)** - Production-ready oracle aggregation pipeline with Z-score/IQR/velocity anomaly detection, cross-feed correlation, TWAP smoothing, health monitoring, integration tests, and performance benchmarks
 - Interest rate model with smoothing
 - Risk config and scoring
 - Cross-asset positions and oracle support
