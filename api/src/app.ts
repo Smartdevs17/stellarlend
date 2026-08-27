@@ -68,6 +68,7 @@ import rateLimitRoutes from './routes/rateLimit.routes';
 import debtTokenRoutes from './routes/debtToken.routes';
 import bridgeRoutes from './routes/bridge.routes';
 import complianceRoutes from './routes/v1/compliance';
+import eventsRoutes from './routes/events';
 
 import compression from 'compression';
 import { errorHandler } from './middleware/errorHandler';
@@ -277,6 +278,7 @@ app.use('/api/compliance', complianceRoutes);
 app.use('/api/rate-limit', rateLimitRoutes);
 app.use('/api/debt-token', debtTokenRoutes);
 app.use('/api/bridge', bridgeRoutes);
+app.use('/api/events', eventsRoutes);
 
 app.use(errorHandler);
 
