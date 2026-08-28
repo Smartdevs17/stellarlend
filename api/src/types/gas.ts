@@ -11,7 +11,8 @@ export type GasOperation =
   | 'borrow' 
   | 'repay' 
   | 'liquidation' 
-  | 'flash_loan';
+  | 'flash_loan'
+  | 'emergency_withdraw';
 
 export interface GasCostBreakdown {
   /** Base transaction cost in stroops */
@@ -198,4 +199,21 @@ export interface BatchGasEstimate {
   batchSavingsPercent: number;
   /** Recommended batch strategy */
   recommendation: string;
+}
+
+export interface GasAnalyticsReport {
+  period: string;
+  totalEstimates: number;
+  averageGasStroops: string;
+  minGasStroops: string;
+  maxGasStroops: string;
+  estimatedVsActualAccuracy: number;
+  operationsRanked: {
+    operation: GasOperation;
+    averageCost: string;
+    sampleCount: number;
+  }[];
+  peakHours: string[];
+  offPeakHours: string[];
+  cumulativeSavingsStroops: string;
 }
