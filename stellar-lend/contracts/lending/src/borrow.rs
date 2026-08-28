@@ -16,6 +16,7 @@ pub use crate::events::{BorrowCollateralDepositEvent, BorrowEvent, RepayEvent};
 pub type DepositEvent = BorrowCollateralDepositEvent;
 
 use crate::pause::{self, PauseType};
+use crate::reentrancy::ReentrancyGuard;
 use soroban_sdk::{contracterror, contracttype, Address, Env, IntoVal, Symbol, I256};
 
 #[contracttype]
@@ -53,6 +54,8 @@ pub enum BorrowError {
     PositionHealthy = 10,
     /// Insufficient reserves to recover bad debt
     InsufficientReserves = 11,
+    /// Reentrant call detected
+    ReentrancyDetected = 12,
 }
 
 /// Borrow on behalf of a user when authorization is provided via a trusted delegate.
@@ -374,6 +377,8 @@ fn borrow_inner(
     rate_type: RateType,
     auth: BorrowAuth,
 ) -> Result<(), BorrowError> {
+    let _guard = ReentrancyGuard::new(env).map_err(|_| BorrowError::ReentrancyDetected)?;
+
     if auth == BorrowAuth::RequireUserSignature {
         user.require_auth();
     }
@@ -502,6 +507,8 @@ pub fn repay_with_rate(
     amount: i128,
     rate_type: RateType,
 ) -> Result<(), BorrowError> {
+    let _guard = ReentrancyGuard::new(env).map_err(|_| BorrowError::ReentrancyDetected)?;
+
     if amount <= 0 {
         return Err(BorrowError::InvalidAmount);
     }

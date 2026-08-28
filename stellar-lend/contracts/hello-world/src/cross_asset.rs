@@ -153,6 +153,8 @@ pub enum CrossAssetError {
     InvalidCorrelation = 11,
     /// Volatility sample is missing or invalid
     VolatilityUnavailable = 12,
+    /// Reentrant call detected
+    Reentrancy = 13,
 }
 
 /// Admin address authorized for protocol management
@@ -488,6 +490,8 @@ pub fn cross_asset_deposit(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
+    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+
     user.require_auth();
 
     let asset_key = AssetKey::from_option(asset.clone());
@@ -552,6 +556,8 @@ pub fn cross_asset_borrow(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
+    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+
     user.require_auth();
 
     let asset_key = AssetKey::from_option(asset.clone());
@@ -637,6 +643,8 @@ pub fn cross_asset_withdraw(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
+    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+
     user.require_auth();
 
     let asset_key = AssetKey::from_option(asset.clone());
@@ -699,6 +707,8 @@ pub fn cross_asset_liquidate(
     debt_to_repay: i128,
     collateral_to_receive: i128,
 ) -> Result<i128, CrossAssetError> {
+    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+
     liquidator.require_auth();
 
     // Get asset configurations
@@ -775,6 +785,8 @@ pub fn cross_asset_repay(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
+    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+
     user.require_auth();
 
     let asset_key = AssetKey::from_option(asset.clone());

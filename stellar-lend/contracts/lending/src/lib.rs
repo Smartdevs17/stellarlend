@@ -3,6 +3,7 @@ use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Val, Vec};
 
 mod borrow;
 mod deposit;
+mod reentrancy;
 mod dust;
 mod events;
 mod flash_loan;
@@ -33,6 +34,7 @@ use flash_loan::{
 };
 use pause::{is_paused, set_pause as set_pause_logic, PauseType};
 use token_receiver::receive as receive_logic;
+use reentrancy::ReentrancyGuard;
 
 mod views;
 use views::{
@@ -106,6 +108,9 @@ impl LendingContract {
         debt_ceiling: i128,
         min_borrow_amount: i128,
     ) -> Result<(), BorrowError> {
+        let _guard = ReentrancyGuard::new_constructor(&env)
+            .map_err(|_| BorrowError::ReentrancyDetected)?;
+
         if get_borrow_admin(&env).is_some() {
             return Err(BorrowError::Unauthorized);
         }

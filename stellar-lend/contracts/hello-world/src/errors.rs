@@ -395,6 +395,7 @@ impl From<CrossAssetError> for LendingError {
             CrossAssetError::NotAuthorized => LendingError::Unauthorized,
             CrossAssetError::InvalidCorrelation => LendingError::InvalidParameter,
             CrossAssetError::VolatilityUnavailable => LendingError::InvalidParameter,
+            CrossAssetError::Reentrancy => LendingError::Reentrancy,
         }
     }
 }
