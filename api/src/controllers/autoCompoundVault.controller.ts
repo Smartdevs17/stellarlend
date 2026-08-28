@@ -49,6 +49,34 @@ export class AutoCompoundVaultController {
       next(err);
     }
   }
+
+  async optimizeFrequency(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const positionValue = (req.query.positionValue as string) || '100000';
+      const result = await autoCompoundVaultService.optimizeCompoundFrequency(positionValue);
+      res.status(200).json({ success: true, ...result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getGasSavings(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const savings = await autoCompoundVaultService.getGasSavings();
+      res.status(200).json({ success: true, ...savings });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getAnalytics(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const analytics = await autoCompoundVaultService.getAnalytics();
+      res.status(200).json({ success: true, analytics });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const autoCompoundVaultController = new AutoCompoundVaultController();

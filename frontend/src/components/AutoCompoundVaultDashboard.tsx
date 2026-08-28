@@ -25,10 +25,38 @@ interface ApyBoostResult {
   boostBps: number;
 }
 
+interface GasSavings {
+  totalGasSaved: string;
+  manualCompoundGas: string;
+  autoCompoundGas: string;
+  savingsPercent: number;
+  harvestCount: number;
+}
+
+interface VaultAnalytics {
+  totalAssets: string;
+  sharePriceGrowth: number;
+  harvestEfficiency: number;
+  avgGasPerHarvest: string;
+  compoundFrequency: string;
+  projectedAnnualYield: string;
+}
+
+interface FrequencyOptimization {
+  recommendedInterval: string;
+  intervalSecs: number;
+  netApyGainBps: number;
+  gasEfficiencyRatio: number;
+  reason: string;
+}
+
 export const AutoCompoundVaultDashboard: React.FC = () => {
   const [config, setConfig] = useState<VaultConfig | null>(null);
   const [snapshot, setSnapshot] = useState<VaultSnapshot | null>(null);
   const [apyBoost, setApyBoost] = useState<ApyBoostResult | null>(null);
+  const [gasSavings, setGasSavings] = useState<GasSavings | null>(null);
+  const [analytics, setAnalytics] = useState<VaultAnalytics | null>(null);
+  const [optimization, setOptimization] = useState<FrequencyOptimization | null>(null);
   const [selectedInterval, setSelectedInterval] = useState('daily');
 
   const loadData = useCallback(async () => {
@@ -56,7 +84,25 @@ export const AutoCompoundVaultDashboard: React.FC = () => {
     }
   }, [selectedInterval]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  const loadGasAndAnalytics = useCallback(async () => {
+    try {
+      const [gasRes, analyticsRes, optRes] = await Promise.all([
+        fetch('/api/vault/gas-savings'),
+        fetch('/api/vault/analytics'),
+        fetch('/api/vault/optimize-frequency?positionValue=500000'),
+      ]);
+      const gasData = await gasRes.json();
+      const analyticsData = await analyticsRes.json();
+      const optData = await optRes.json();
+      if (gasData.success) setGasSavings(gasData);
+      if (analyticsData.success) setAnalytics(analyticsData.analytics);
+      if (optData.success) setOptimization(optData);
+    } catch (err) {
+      console.error('Failed to load gas/analytics', err);
+    }
+  }, []);
+
+  useEffect(() => { loadData(); loadGasAndAnalytics(); }, [loadData, loadGasAndAnalytics]);
   useEffect(() => { loadApyBoost(); }, [loadApyBoost]);
 
   const formatSecs = (secs: number): string => {
@@ -181,6 +227,79 @@ export const AutoCompoundVaultDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {gasSavings && (
+        <div style={styles.gasCard}>
+          <h3 style={styles.sectionTitle}>Gas Savings</h3>
+          <div style={styles.statsGrid}>
+            <div style={styles.statCard}>
+              <div style={styles.statLabel}>Total Saved</div>
+              <div style={{ ...styles.statValue, color: '#2e7d32' }}>
+                {parseInt(gasSavings.totalGasSaved).toLocaleString()} stroops
+              </div>
+            </div>
+            <div style={styles.statCard}>
+              <div style={styles.statLabel}>Savings</div>
+              <div style={styles.statValue}>{gasSavings.savingsPercent}%</div>
+            </div>
+            <div style={styles.statCard}>
+              <div style={styles.statLabel}>Harvests</div>
+              <div style={styles.statValue}>{gasSavings.harvestCount}</div>
+            </div>
+            <div style={styles.statCard}>
+              <div style={styles.statLabel}>Auto vs Manual Gas</div>
+              <div style={styles.statValue}>
+                {parseInt(gasSavings.autoCompoundGas).toLocaleString()} / {parseInt(gasSavings.manualCompoundGas).toLocaleString()}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {analytics && (
+        <div style={styles.analyticsCard}>
+          <h3 style={styles.sectionTitle}>Auto-Compound Analytics</h3>
+          <div style={styles.configGrid}>
+            <div style={styles.configItem}>
+              <span style={styles.configLabel}>Share Price Growth</span>
+              <span style={styles.configValue}>{analytics.sharePriceGrowth}%</span>
+            </div>
+            <div style={styles.configItem}>
+              <span style={styles.configLabel}>Harvest Efficiency</span>
+              <span style={styles.configValue}>{analytics.harvestEfficiency}%</span>
+            </div>
+            <div style={styles.configItem}>
+              <span style={styles.configLabel}>Frequency</span>
+              <span style={styles.configValue}>{analytics.compoundFrequency}</span>
+            </div>
+            <div style={styles.configItem}>
+              <span style={styles.configLabel}>Projected Yield</span>
+              <span style={styles.configValue}>{parseInt(analytics.projectedAnnualYield).toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {optimization && (
+        <div style={styles.optimizeCard}>
+          <h3 style={styles.sectionTitle}>Frequency Optimization</h3>
+          <p style={styles.optimizeReason}>{optimization.reason}</p>
+          <div style={styles.configGrid}>
+            <div style={styles.configItem}>
+              <span style={styles.configLabel}>Recommended</span>
+              <span style={{ ...styles.configValue, color: '#0066ff' }}>{optimization.recommendedInterval}</span>
+            </div>
+            <div style={styles.configItem}>
+              <span style={styles.configLabel}>APY Gain</span>
+              <span style={styles.configValue}>+{optimization.netApyGainBps} bps</span>
+            </div>
+            <div style={styles.configItem}>
+              <span style={styles.configLabel}>Gas Efficiency</span>
+              <span style={styles.configValue}>{optimization.gasEfficiencyRatio}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -211,4 +330,8 @@ const styles: Record<string, React.CSSProperties> = {
   apyItem: { textAlign: 'center', padding: '16px', backgroundColor: '#f8f9fa', borderRadius: '8px' },
   apyLabel: { fontSize: '12px', color: '#666', marginBottom: '8px', fontWeight: 600, textTransform: 'uppercase' },
   apyValue: { fontSize: '24px', fontWeight: 700, color: '#1a1a2e' },
+  gasCard: { backgroundColor: '#fff', borderRadius: '12px', border: '1px solid #e0e0e0', padding: '20px', marginBottom: '16px' },
+  analyticsCard: { backgroundColor: '#fff', borderRadius: '12px', border: '1px solid #e0e0e0', padding: '20px', marginBottom: '16px' },
+  optimizeCard: { backgroundColor: '#f0f7ff', borderRadius: '12px', border: '1px solid #0066ff33', padding: '20px', marginBottom: '16px' },
+  optimizeReason: { fontSize: '14px', color: '#555', marginBottom: '12px' },
 };

@@ -191,6 +191,122 @@ class AutoCompoundVaultService {
       boostBps: Math.round((autoApy - baseApy) * 100),
     };
   }
+
+  /** Gas cost per harvest in stroops (estimated Soroban fee). */
+  private readonly GAS_PER_HARVEST = 50_000n;
+  /** Gas cost per manual compound in stroops. */
+  private readonly GAS_PER_MANUAL_COMPOUND = 120_000n;
+
+  async optimizeCompoundFrequency(positionValue: string): Promise<{
+    recommendedInterval: string;
+    intervalSecs: number;
+    netApyGainBps: number;
+    gasEfficiencyRatio: number;
+    reason: string;
+  }> {
+    const value = BigInt(positionValue);
+    const config = await this.getConfig();
+    const intervals = [
+      { name: 'hourly', secs: 3600 },
+      { name: 'daily', secs: 86400 },
+      { name: 'weekly', secs: 604800 },
+    ];
+
+    let best = intervals[1]!;
+    let bestRatio = 0;
+
+    for (const interval of intervals) {
+      const compoundsPerYear = (365 * 86400) / interval.secs;
+      const annualGasCost = BigInt(Math.ceil(compoundsPerYear)) * this.GAS_PER_HARVEST;
+      const annualReward = (value * 850n) / 10_000n; // 8.5% base APY
+      const gasRatio = value > 0n ? Number(annualGasCost * 10000n / annualReward) : Infinity;
+
+      if (gasRatio < 500 && gasRatio > bestRatio) {
+        bestRatio = gasRatio;
+        best = interval;
+      }
+    }
+
+    if (value < 100_000n) {
+      best = intervals[2]!;
+    } else if (value > 1_000_000n && bestRatio < 100) {
+      best = intervals[0]!;
+    }
+
+    const boost = await this.computeApyBoost(best.name);
+    return {
+      recommendedInterval: best.name,
+      intervalSecs: Math.max(best.secs, config.harvestIntervalSecs),
+      netApyGainBps: boost.boostBps,
+      gasEfficiencyRatio: Math.round(bestRatio * 100) / 100,
+      reason: value < 100_000n
+        ? 'Small position: weekly compounding minimizes gas overhead'
+        : value > 1_000_000n
+        ? 'Large position: frequent compounding maximizes yield net of gas'
+        : 'Balanced gas-to-yield ratio for position size',
+    };
+  }
+
+  async getGasSavings(): Promise<{
+    totalGasSaved: string;
+    manualCompoundGas: string;
+    autoCompoundGas: string;
+    savingsPercent: number;
+    harvestCount: number;
+  }> {
+    const snapshot = await this.getSnapshot();
+    const totalAssets = BigInt(snapshot.totalAssets);
+    const harvestCount = snapshot.lastHarvestedAt > 0 ? Math.max(1, Math.floor(totalAssets / 100_000n)) : 0;
+
+    const manualGas = BigInt(harvestCount) * this.GAS_PER_MANUAL_COMPOUND;
+    const autoGas = BigInt(harvestCount) * this.GAS_PER_HARVEST;
+    const saved = manualGas > autoGas ? manualGas - autoGas : 0n;
+
+    return {
+      totalGasSaved: saved.toString(),
+      manualCompoundGas: manualGas.toString(),
+      autoCompoundGas: autoGas.toString(),
+      savingsPercent: manualGas > 0n ? Number((saved * 100n) / manualGas) : 0,
+      harvestCount,
+    };
+  }
+
+  async getAnalytics(): Promise<{
+    totalAssets: string;
+    sharePriceGrowth: number;
+    harvestEfficiency: number;
+    avgGasPerHarvest: string;
+    compoundFrequency: string;
+    projectedAnnualYield: string;
+  }> {
+    const [snapshot, config, gasSavings] = await Promise.all([
+      this.getSnapshot(),
+      this.getConfig(),
+      this.getGasSavings(),
+    ]);
+
+    const sharePrice = Number(snapshot.sharePrice) / 1_000_000;
+    const basePrice = 1.0;
+    const growth = ((sharePrice - basePrice) / basePrice) * 100;
+
+    const intervalLabel =
+      config.harvestIntervalSecs <= 3600 ? 'hourly'
+      : config.harvestIntervalSecs <= 86400 ? 'daily'
+      : 'weekly';
+
+    const totalAssets = BigInt(snapshot.totalAssets);
+    const netApy = 8.5 * (intervalLabel === 'hourly' ? 1.35 : intervalLabel === 'daily' ? 1.28 : 1.15);
+    const projectedYield = (totalAssets * BigInt(Math.round(netApy * 100))) / 10_000n;
+
+    return {
+      totalAssets: snapshot.totalAssets,
+      sharePriceGrowth: Math.round(growth * 100) / 100,
+      harvestEfficiency: gasSavings.savingsPercent,
+      avgGasPerHarvest: this.GAS_PER_HARVEST.toString(),
+      compoundFrequency: intervalLabel,
+      projectedAnnualYield: projectedYield.toString(),
+    };
+  }
 }
 
 export const autoCompoundVaultService = new AutoCompoundVaultService();

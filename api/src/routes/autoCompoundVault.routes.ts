@@ -7,5 +7,8 @@ router.get('/config', autoCompoundVaultController.getConfig);
 router.get('/snapshot', autoCompoundVaultController.getSnapshot);
 router.get('/position/:address', autoCompoundVaultController.getUserPosition);
 router.get('/apy-boost', autoCompoundVaultController.computeApyBoost);
+router.get('/optimize-frequency', autoCompoundVaultController.optimizeFrequency);
+router.get('/gas-savings', autoCompoundVaultController.getGasSavings);
+router.get('/analytics', autoCompoundVaultController.getAnalytics);
 
 export default router;
