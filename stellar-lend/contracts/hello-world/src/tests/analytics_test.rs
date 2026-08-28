@@ -230,3 +230,71 @@ fn test_health_score_is_cached_between_calls() {
     let second = client.get_protocol_health_score();
     assert_eq!(first.overall_score, second.overall_score);
 }
+
+#[test]
+fn test_simulate_what_if_price_drop() {
+    let env = create_test_env();
+    let (_contract_id, _admin, client) = setup_contract_with_admin(&env);
+
+    let scenario = crate::analytics::PositionSimulationScenario {
+        price_change_bps: -2000, // 20% price drop
+        deposit_amount: 0,
+        withdraw_amount: 0,
+        borrow_amount: 0,
+        repay_amount: 0,
+    };
+
+    // Collateral 1000, Debt 500 => Initial Health Factor = 2.0 (20000 bps)
+    let result = client.simulate_what_if(&1000, &500, &scenario);
+    assert_eq!(result.initial_health_factor, 20_000);
+    assert_eq!(result.simulated_collateral, 800); // 1000 * 0.80
+    assert_eq!(result.simulated_debt, 500);
+    assert_eq!(result.simulated_health_factor, 16_000); // 800 * 10000 / 500 = 16000
+    assert_eq!(result.is_liquidatable, false);
+    assert_eq!(result.liquidation_price_drop_bps, 5_000); // 50% drop to liquidation
+    assert_eq!(result.max_withdrawable_amount, 500);
+}
+
+#[test]
+fn test_simulate_what_if_liquidation_trigger() {
+    let env = create_test_env();
+    let (_contract_id, _admin, client) = setup_contract_with_admin(&env);
+
+    let scenario = crate::analytics::PositionSimulationScenario {
+        price_change_bps: -6000, // 60% price drop
+        deposit_amount: 0,
+        withdraw_amount: 0,
+        borrow_amount: 0,
+        repay_amount: 0,
+    };
+
+    // Collateral 1000, Debt 500 => after 60% drop, collateral = 400, debt = 500
+    let result = client.simulate_what_if(&1000, &500, &scenario);
+    assert_eq!(result.simulated_collateral, 400);
+    assert_eq!(result.simulated_debt, 500);
+    assert_eq!(result.simulated_health_factor, 8_000); // 400 * 10000 / 500 = 8000 < 10000
+    assert_eq!(result.is_liquidatable, true);
+    assert_eq!(result.simulated_risk_level, 5); // Critical
+}
+
+#[test]
+fn test_simulate_what_if_deposit_and_repay() {
+    let env = create_test_env();
+    let (_contract_id, _admin, client) = setup_contract_with_admin(&env);
+
+    let scenario = crate::analytics::PositionSimulationScenario {
+        price_change_bps: 0,
+        deposit_amount: 500,
+        withdraw_amount: 0,
+        borrow_amount: 0,
+        repay_amount: 200,
+    };
+
+    // Collateral 1000 -> 1500, Debt 500 -> 300
+    let result = client.simulate_what_if(&1000, &500, &scenario);
+    assert_eq!(result.simulated_collateral, 1500);
+    assert_eq!(result.simulated_debt, 300);
+    assert_eq!(result.simulated_health_factor, 50_000); // 1500 * 10000 / 300 = 50000 (5.0x)
+    assert_eq!(result.is_liquidatable, false);
+}
+

@@ -172,3 +172,37 @@ export const captureSnapshot = async (
     return;
   }
 };
+
+export const calculateAprApy = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const rate = Number(req.query.rate ?? req.body.rate ?? 0.05);
+    const type = ((req.query.type ?? req.body.type ?? 'apr_to_apy') as string) as 'apr_to_apy' | 'apy_to_apr';
+    const compoundingPeriods = Number(req.query.compoundingPeriods ?? req.body.compoundingPeriods ?? 365);
+
+    const result = poolPerformanceService.calculateAprApy(rate, type, compoundingPeriods);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getHistoricalReturns = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { poolAddress } = req.params;
+    const timeRange = (req.query.timeRange as string) || '30d';
+
+    const result = await poolPerformanceService.getPoolHistoricalReturns(poolAddress, timeRange);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+};
+

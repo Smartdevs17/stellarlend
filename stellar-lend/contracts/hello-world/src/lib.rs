@@ -1525,6 +1525,25 @@ impl HelloContract {
         analytics::generate_user_report(&env, &user).map_err(Into::into)
     }
 
+    /// Read-only position health simulation for an existing account under hypothetical price/amount scenarios (Issue #731).
+    pub fn simulate_position_health(
+        env: Env,
+        user: Address,
+        scenario: analytics::PositionSimulationScenario,
+    ) -> Result<analytics::PositionSimulationResult, LendingError> {
+        analytics::simulate_position_health(&env, &user, scenario).map_err(Into::into)
+    }
+
+    /// Pure what-if analysis simulating position health given hypothetical collateral & debt (Issue #731).
+    pub fn simulate_what_if(
+        env: Env,
+        collateral: i128,
+        debt: i128,
+        scenario: analytics::PositionSimulationScenario,
+    ) -> Result<analytics::PositionSimulationResult, LendingError> {
+        analytics::simulate_what_if(&env, collateral, debt, scenario).map_err(Into::into)
+    }
+
     /// Read-only recent protocol activity feed query.
     pub fn get_recent_activity(
         env: Env,
