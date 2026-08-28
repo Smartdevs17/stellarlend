@@ -839,6 +839,32 @@ impl HelloContract {
         mev_protection::get_sandwich_report(&env)
     }
 
+    pub fn get_mev_auction_stats(env: Env) -> mev_protection::AuctionStats {
+        mev_protection::get_auction_stats(&env)
+    }
+
+    pub fn get_mev_gas_bid_stats(
+        env: Env,
+        operation: mev_protection::SensitiveOperation,
+        asset: Option<Address>,
+    ) -> mev_protection::GasBidStats {
+        mev_protection::get_gas_bid_stats(&env, operation, asset)
+    }
+
+    pub fn get_mev_liquidation_auction(
+        env: Env,
+        auction_id: u64,
+    ) -> Option<mev_protection::LiquidationAuction> {
+        mev_protection::get_liquidation_auction(&env, auction_id)
+    }
+
+    pub fn get_mev_liquidation_bid(
+        env: Env,
+        bid_id: u64,
+    ) -> Option<mev_protection::LiquidationAuctionBid> {
+        mev_protection::get_liquidation_bid(&env, bid_id)
+    }
+
     pub fn preview_mev_fee_bps(
         env: Env,
         operation: mev_protection::SensitiveOperation,

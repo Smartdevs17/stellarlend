@@ -22,7 +22,11 @@
     "typecheck:all": "npm run typecheck:api && npm run typecheck:oracle",
     "test:all": "npm run test --workspace=api && npm run test --workspace=oracle",
     "build:all": "npm run build --workspace=api && npm run build --workspace=oracle",
-    "install:all": "npm install --workspaces"
+    "install:all": "npm install --workspaces",
+    "gas:baseline": "bash scripts/gas-report.sh baseline",
+    "gas:report": "bash scripts/gas-report.sh report",
+    "gas:compare": "bash scripts/gas-report.sh compare",
+    "gas:check": "bash scripts/gas-report.sh check"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.3.0",

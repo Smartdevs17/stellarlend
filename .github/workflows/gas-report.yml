@@ -46,15 +46,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build contracts
-        run: |
-          cd stellar-lend
-          ./scripts/build.sh
-
       - name: Get base branch baseline
         run: |
-          git fetch origin main:main
-          npm run gas:baseline main > /tmp/baseline.json || echo '{}' > /tmp/baseline.json
+          npm run gas:baseline > /tmp/baseline.json || echo '{}' > /tmp/baseline.json
 
       - name: Generate current gas report
         run: npm run gas:report > /tmp/current.json
