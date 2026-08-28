@@ -8,7 +8,7 @@ use crate::borrow::{
     validate_collateral_ratio,
 };
 use crate::events::{
-    BorrowCommitmentCancelledEvent, BorrowCommitmentCreatedEvent, BorrowCommitmentExecutedEvent,
+    BorrowCommitmentCreatedEvent, BorrowCommitmentExecutedEvent, CommitmentCancelledEvent,
 };
 
 pub const MAX_TRIGGERS: u32 = 4;
@@ -231,9 +231,10 @@ pub fn cancel_borrow_commitment(
         .persistent()
         .set(&CommitmentStorageKey::Commitment(commitment_id), &c);
 
-    BorrowCommitmentCancelledEvent {
+    CommitmentCancelledEvent {
         commitment_id,
         owner,
+        timestamp: env.ledger().timestamp(),
     }
     .publish(env);
 

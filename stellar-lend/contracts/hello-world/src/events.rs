@@ -364,7 +364,7 @@ pub fn emit_liquidation_fee_collected(e: &Env, event: LiquidationFeeCollectedEve
 }
 
 /// Combo flash-loan + liquidation execution (Issue #661).
-#[contractevent]
+#[contractevent(topics = ["flash_liq_combo"])]
 #[derive(Clone, Debug)]
 pub struct FlashLoanLiquidationComboEvent {
     #[topic]

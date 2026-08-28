@@ -68,6 +68,18 @@ pub enum AnalyticsDataKey {
     /// Cached composite protocol health score
     /// Value type: ProtocolHealthScore
     ProtocolHealthScore,
+    /// Bounded snapshot history of protocol metrics: Vec<MetricsSnapshot>
+    MetricsHistory,
+    /// Configured metric alert thresholds: Vec<MetricAlertThreshold>
+    AlertThresholds,
+    /// Bounded log of previously triggered alerts: Vec<TriggeredAlert>
+    TriggeredAlerts,
+    /// Bounded historical collateral ratio trends: Vec<CollateralRatioTrend>
+    CollateralRatioHistory,
+    /// Current collateral ratio snapshots by asset: Vec<CollateralRatioSnapshot>
+    CollateralRatioSnapshots,
+    /// Collateral risk thresholds: CollateralRiskThresholds
+    CollateralRiskThresholds,
 }
 
 /// Snapshot of protocol-wide metrics.

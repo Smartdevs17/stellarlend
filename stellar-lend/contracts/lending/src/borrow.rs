@@ -440,7 +440,7 @@ fn borrow_inner(
 
     crate::risk_monitor::on_utilization_changed(env, new_total, debt_ceiling);
 
-    emit_borrow_event(env, user, asset, amount, collateral_amount);
+    emit_borrow_event(env, user, asset, amount);
 
     Ok(())
 }
@@ -562,7 +562,7 @@ pub fn repay_with_rate(
 
     RepayEvent {
         user,
-        asset,
+        asset: Some(asset),
         amount,
         timestamp: env.ledger().timestamp(),
     }
@@ -857,6 +857,44 @@ fn set_total_debt(env: &Env, amount: i128) {
         .set(&BorrowDataKey::BorrowTotalDebt, &amount);
 }
 
+/// Zero out a borrow position whose remaining principal is below the configured minimum borrow
+/// amount (economically negligible "dust"), crediting the swept amount back to the protocol's
+/// total debt. Returns the swept amount, or `0` when there is nothing to sweep.
+pub fn sweep_debt_dust(env: &Env, user: Address, asset: Address) -> Result<i128, BorrowError> {
+    for rate_type in [RateType::Variable, RateType::Stable] {
+        let key = match rate_type {
+            RateType::Variable => BorrowDataKey::BorrowUserVariableDebt(user.clone()),
+            RateType::Stable => BorrowDataKey::BorrowUserStableDebt(user.clone()),
+        };
+        let Some(mut debt_position) = env.storage().persistent().get::<_, DebtPosition>(&key)
+        else {
+            continue;
+        };
+
+        if debt_position.asset != asset || debt_position.borrowed_amount == 0 {
+            continue;
+        }
+
+        // Position is only "dust" when below the protocol's minimum borrow amount.
+        if debt_position.borrowed_amount >= get_min_borrow_amount(env) {
+            return Ok(0);
+        }
+
+        let swept = debt_position.borrowed_amount;
+        debt_position.borrowed_amount = 0;
+        env.storage().persistent().set(&key, &debt_position);
+        update_compat_user_debt(env, &user);
+
+        let total_debt = get_total_debt(env);
+        let new_total = total_debt.checked_sub(swept).ok_or(BorrowError::Overflow)?;
+        set_total_debt(env, new_total);
+
+        return Ok(swept);
+    }
+
+    Ok(0)
+}
+
 pub(crate) fn get_debt_ceiling(env: &Env) -> i128 {
     env.storage()
         .persistent()
@@ -871,12 +909,11 @@ pub(crate) fn get_min_borrow_amount(env: &Env) -> i128 {
         .unwrap_or(1000)
 }
 
-fn emit_borrow_event(env: &Env, user: Address, asset: Address, amount: i128, collateral: i128) {
+fn emit_borrow_event(env: &Env, user: Address, asset: Address, amount: i128) {
     BorrowEvent {
         user,
-        asset,
+        asset: Some(asset),
         amount,
-        collateral,
         timestamp: env.ledger().timestamp(),
     }
     .publish(env);

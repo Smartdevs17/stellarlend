@@ -196,6 +196,19 @@ pub struct GasBidStats {
     pub last_updated: u64,
 }
 
+/// One persisted record of a suspected sandwich-attack sequence (issue #725).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SandwichAttackRecord {
+    pub id: u64,
+    pub timestamp: u64,
+    pub front_actor: Address,
+    pub operation: Symbol,
+    pub asset: Option<Address>,
+    pub amount: i128,
+    pub sequence_length: u32,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MevMonitoringDashboard {
@@ -226,9 +239,12 @@ enum MevDataKey {
     LatestObservation(Symbol, Option<Address>),
     PreviousObservation(Symbol, Option<Address>),
     SmoothedFee(Symbol, Option<Address>),
+    SandwichLog,
 }
 
 const MAX_BPS: i128 = 10_000;
+/// Upper bound on the persisted sandwich-attack log (oldest entries dropped first).
+const MAX_SANDWICH_LOG: u32 = 200;
 
 pub fn default_config() -> MevProtectionConfig {
     MevProtectionConfig {
@@ -552,6 +568,90 @@ pub fn get_monitoring_dashboard(
         recommended_fee_bps,
         recommended_hint,
     }
+}
+
+/// Persisted, append-only copy of the sandwich-attack log (issue #725).
+/// Oldest entries are dropped once `MAX_SANDWICH_LOG` is reached.
+fn record_sandwich_attack(
+    env: &Env,
+    now: u64,
+    front_actor: Address,
+    operation: Symbol,
+    asset: Option<Address>,
+    amount: i128,
+    sequence_length: u32,
+) {
+    let mut log: Vec<SandwichAttackRecord> = env
+        .storage()
+        .persistent()
+        .get(&MevDataKey::SandwichLog)
+        .unwrap_or_else(|| Vec::new(env));
+    let next_id = log
+        .last()
+        .map(|r| r.id.saturating_add(1))
+        .unwrap_or(1);
+
+    log.push_back(SandwichAttackRecord {
+        id: next_id,
+        timestamp: now,
+        front_actor: front_actor.clone(),
+        operation: operation.clone(),
+        asset: asset.clone(),
+        amount,
+        sequence_length,
+    });
+    while log.len() > MAX_SANDWICH_LOG {
+        log.remove(0);
+    }
+    env.storage()
+        .persistent()
+        .set(&MevDataKey::SandwichLog, &log);
+
+    env.events().publish(
+        (
+            Symbol::new(env, "SANDWICH_ATTACK_DETECTED"),
+            operation,
+            asset.clone(),
+        ),
+        (front_actor, amount, sequence_length),
+    );
+}
+
+/// Full persisted sandwich-attack log for off-chain monitoring/analytics.
+/// Bounded to the `MAX_SANDWICH_LOG` most recent records, oldest first.
+pub fn get_sandwich_attack_log(env: &Env) -> Vec<SandwichAttackRecord> {
+    env.storage()
+        .persistent()
+        .get(&MevDataKey::SandwichLog)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Attack-reporting summary for dashboards and incident detection (issue #725).
+pub fn get_sandwich_report(env: &Env) -> SandwichAttackReport {
+    let log = get_sandwich_attack_log(env);
+    let stats = get_ordering_stats(env);
+    let now = env.ledger().timestamp();
+    let last_24h = log
+        .iter()
+        .filter(|r| now.saturating_sub(r.timestamp) <= 24 * 60 * 60)
+        .count();
+    SandwichAttackReport {
+        total_attacks: log.len() as u32,
+        attacks_last_24h: last_24h as u32,
+        last_attack_timestamp: log.last().map(|r| r.timestamp).unwrap_or(0),
+        sandwich_alerts: stats.sandwich_alerts,
+        last_alert_timestamp: stats.last_alert_timestamp,
+    }
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SandwichAttackReport {
+    pub total_attacks: u32,
+    pub attacks_last_24h: u32,
+    pub last_attack_timestamp: u64,
+    pub sandwich_alerts: u64,
+    pub last_alert_timestamp: u64,
 }
 
 pub fn record_gas_bid_sample(
@@ -1109,6 +1209,7 @@ fn record_ordering_signal(
         {
             stats.sandwich_alerts = stats.sandwich_alerts.saturating_add(1);
             stats.last_alert_timestamp = now;
+            record_sandwich_attack(env, now, actor.clone(), op_key.clone(), asset.clone(), amount, 2);
         }
     }
 
