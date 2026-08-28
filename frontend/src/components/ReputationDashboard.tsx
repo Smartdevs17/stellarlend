@@ -30,7 +30,7 @@ export const ReputationDashboard: React.FC = () => {
   const [tiers, setTiers] = useState<ReputationTier[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'search' | 'leaderboard' | 'tiers'>('search');
+  const [activeTab, setActiveTab] = useState<'search' | 'leaderboard' | 'tiers' | 'deployer'>('search');
 
   const fetchReputation = useCallback(async () => {
     if (!address) return;
@@ -90,7 +90,7 @@ export const ReputationDashboard: React.FC = () => {
       <h2 style={styles.title}>Reputation System</h2>
 
       <div style={styles.tabBar}>
-        {(['search', 'leaderboard', 'tiers'] as const).map((tab) => (
+        {(['search', 'leaderboard', 'deployer', 'tiers'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -224,6 +224,39 @@ export const ReputationDashboard: React.FC = () => {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {activeTab === 'deployer' && (
+        <div style={styles.searchSection}>
+          <p style={styles.hint}>Look up deployer reputation scores and pool deployment history.</p>
+          <div style={styles.searchRow}>
+            <input
+              style={styles.input}
+              placeholder="Deployer address (G...)"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+            />
+            <button style={styles.button} onClick={async () => {
+              if (!address) return;
+              setIsLoading(true);
+              try {
+                const res = await fetch(`/api/reputation/deployer/${address}`);
+                const data = await res.json();
+                if (data.success) setReputation(data.reputation);
+              } finally { setIsLoading(false); }
+            }} disabled={isLoading}>Search</button>
+          </div>
+          {reputation?.participant_type === 'deployer' && (
+            <div style={styles.scoreCard}>
+              <div style={styles.scoreValue}>{reputation.score}</div>
+              <div style={styles.tierBadge}>{reputation.tier} Deployer</div>
+              <div style={styles.statsGrid}>
+                <div><strong>{reputation.total_repayments}</strong><br />Successful Ops</div>
+                <div><strong>{reputation.defaults}</strong><br />Defaults</div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

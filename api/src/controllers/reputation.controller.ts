@@ -23,6 +23,30 @@ export const getReputation = async (req: Request, res: Response, next: NextFunct
   }
 };
 
+export const getDeployerReputation = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { address } = req.params;
+    if (!address) {
+      return res.status(400).json({ success: false, error: 'Address parameter is required' });
+    }
+    const reputation = await reputationService.getDeployerReputation(address);
+    return res.status(200).json({ success: true, reputation });
+  } catch (err) {
+    next(err);
+    return;
+  }
+};
+
+export const getAnalytics = async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const analytics = reputationService.getAnalytics();
+    return res.status(200).json({ success: true, analytics });
+  } catch (err) {
+    next(err);
+    return;
+  }
+};
+
 /**
  * GET /api/reputation/tiers
  * List all reputation tiers and their associated benefits.
