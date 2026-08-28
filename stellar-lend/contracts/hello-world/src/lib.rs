@@ -24,8 +24,10 @@ pub mod multi_collateral;
 pub mod multisig;
 pub mod oracle;
 pub mod rate_limiter;
+pub mod rate_guard;
 pub mod recovery;
 pub mod reentrancy;
+pub mod reputation;
 pub mod repay;
 pub mod reserve;
 pub mod risk_management;
@@ -2126,6 +2128,158 @@ impl HelloContract {
     ) -> Result<amm::StrategyScore, LendingError> {
         amm::score_yield_strategy(&env, &admin, strategy_id)
             .map_err(|_| LendingError::InvalidAmount)
+    }
+
+    // -------------------------------------------------------------------------
+    // Oracle / TWAP (Issue #727)
+    // -------------------------------------------------------------------------
+
+    pub fn configure_oracle(
+        env: Env,
+        caller: Address,
+        config: oracle::OracleConfig,
+    ) -> Result<(), LendingError> {
+        oracle::configure_oracle(&env, caller, config).map_err(oracle_err)
+    }
+
+    pub fn update_price_feed(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        price: i128,
+        decimals: u32,
+        source: Address,
+    ) -> Result<(), LendingError> {
+        oracle::update_price_feed(&env, caller, asset, price, decimals, source).map_err(oracle_err)
+    }
+
+    pub fn get_price(env: Env, asset: Address) -> Result<i128, LendingError> {
+        oracle::get_price(&env, &asset).map_err(oracle_err)
+    }
+
+    pub fn get_liquidation_price(env: Env, asset: Address) -> Result<i128, LendingError> {
+        oracle::get_liquidation_price(&env, &asset).map_err(oracle_err)
+    }
+
+    pub fn get_twap_view(env: Env, asset: Address) -> Result<i128, LendingError> {
+        oracle::get_twap_view(&env, &asset).map_err(oracle_err)
+    }
+
+    pub fn set_oracle_sources(
+        env: Env,
+        caller: Address,
+        asset: Address,
+        sources: Vec<Address>,
+    ) -> Result<(), LendingError> {
+        oracle::set_oracle_sources(&env, caller, asset, sources).map_err(oracle_err)
+    }
+
+    pub fn get_oracle_circuit_breaker_state(
+        env: Env,
+        asset: Address,
+    ) -> oracle::CircuitBreakerState {
+        oracle::get_oracle_circuit_breaker_state(&env, &asset)
+    }
+
+    pub fn get_oracle_incident_report(
+        env: Env,
+        asset: Address,
+    ) -> Option<oracle::OracleIncidentReport> {
+        oracle::get_oracle_incident_report(&env, &asset)
+    }
+
+    // -------------------------------------------------------------------------
+    // Reputation (Issue #728)
+    // -------------------------------------------------------------------------
+
+    pub fn record_deployer_success(
+        env: Env,
+        deployer: Address,
+    ) -> Result<reputation::ParticipantReputation, LendingError> {
+        reputation::record_deployer_success(&env, deployer).map_err(reputation_err)
+    }
+
+    pub fn record_user_repayment(
+        env: Env,
+        user: Address,
+        on_time: bool,
+    ) -> Result<reputation::ParticipantReputation, LendingError> {
+        reputation::record_user_repayment(&env, user, on_time).map_err(reputation_err)
+    }
+
+    pub fn get_user_reputation(
+        env: Env,
+        address: Address,
+    ) -> Result<reputation::ParticipantReputation, LendingError> {
+        reputation::get_user_reputation(&env, &address).ok_or(LendingError::DataNotFound)
+    }
+
+    pub fn get_deployer_reputation(
+        env: Env,
+        address: Address,
+    ) -> Result<reputation::ParticipantReputation, LendingError> {
+        reputation::get_deployer_reputation(&env, &address).ok_or(LendingError::DataNotFound)
+    }
+
+    pub fn get_reputation_fee_discount(env: Env, address: Address) -> u32 {
+        reputation::get_fee_discount_bps(&env, &address)
+    }
+
+    // -------------------------------------------------------------------------
+    // Rate Manipulation Guard (Issue #726)
+    // -------------------------------------------------------------------------
+
+    pub fn set_rate_guard_config(
+        env: Env,
+        admin: Address,
+        config: rate_guard::RateGuardConfig,
+    ) -> Result<rate_guard::RateGuardConfig, LendingError> {
+        rate_guard::set_config(&env, admin, config).map_err(rate_guard_err)
+    }
+
+    pub fn get_rate_guard_config(env: Env) -> rate_guard::RateGuardConfig {
+        rate_guard::get_config(&env)
+    }
+
+    pub fn get_rate_twap(env: Env) -> rate_guard::RateTwap {
+        rate_guard::get_twap(&env)
+    }
+
+    pub fn get_rate_manipulation_attempts(env: Env) -> Vec<rate_guard::RateManipulationAttempt> {
+        rate_guard::get_attempt_log(&env)
+    }
+
+    pub fn check_rate(env: Env, new_rate_bps: i128) -> Result<(i128, bool, bool), LendingError> {
+        rate_guard::check_rate(&env, new_rate_bps).map_err(rate_guard_err)
+    }
+}
+
+fn oracle_err(error: oracle::OracleError) -> LendingError {
+    match error {
+        oracle::OracleError::Unauthorized => LendingError::Unauthorized,
+        oracle::OracleError::CircuitBreakerOpen | oracle::OracleError::OraclePaused => {
+            LendingError::PriceUnavailable
+        }
+        oracle::OracleError::StalePrice => LendingError::PriceUnavailable,
+        oracle::OracleError::PriceDeviationExceeded => LendingError::LimitExceeded,
+        _ => LendingError::InvalidParameter,
+    }
+}
+
+fn reputation_err(error: reputation::ReputationError) -> LendingError {
+    match error {
+        reputation::ReputationError::Unauthorized => LendingError::Unauthorized,
+        reputation::ReputationError::NotFound => LendingError::DataNotFound,
+        reputation::ReputationError::AccessDenied => LendingError::LimitExceeded,
+    }
+}
+
+fn rate_guard_err(error: rate_guard::RateGuardError) -> LendingError {
+    match error {
+        rate_guard::RateGuardError::Unauthorized => LendingError::Unauthorized,
+        rate_guard::RateGuardError::RateChangeExceedsPauseThreshold => LendingError::LimitExceeded,
+        rate_guard::RateGuardError::InvalidThresholds => LendingError::InvalidParameter,
+        rate_guard::RateGuardError::Overflow => LendingError::Overflow,
     }
 }
 

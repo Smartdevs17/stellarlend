@@ -32,7 +32,7 @@ use crate::deposit::{
     emit_user_activity_tracked_event, update_protocol_analytics, AssetParams, DepositDataKey,
     Position, ProtocolAnalytics, UserAnalytics,
 };
-use crate::oracle::{get_price, OracleError};
+use crate::oracle::{get_liquidation_price, OracleError};
 use crate::risk_management::{
     is_emergency_paused, is_operation_paused, require_operation_not_paused, RiskManagementError,
 };
@@ -246,7 +246,7 @@ fn accrue_interest(
 /// Get asset price from oracle
 /// Returns price in base units (scaled by decimals)
 fn get_asset_price(env: &Env, asset: &Address) -> Result<i128, LiquidationError> {
-    get_price(env, asset).map_err(|err| match err {
+    get_liquidation_price(env, asset).map_err(|err| match err {
         OracleError::StalePrice => LiquidationError::PriceNotAvailable,
         _ => LiquidationError::PriceNotAvailable,
     })
