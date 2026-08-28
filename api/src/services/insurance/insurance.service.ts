@@ -148,6 +148,84 @@ class InsuranceService {
       ),
     };
   }
+
+  calculatePremium(policyId: string, riskScore: number): {
+    basePremiumBps: number;
+    riskAdjustedPremiumBps: number;
+    riskMultiplier: number;
+    estimatedPremium: number;
+    coverageAmount: number;
+  } {
+    const policy = this.policies.get(policyId);
+    if (!policy) throw new Error('Policy not found');
+
+    const basePremiumBps = policy.premiumBps;
+    let riskMultiplier = 1.0;
+    if (riskScore >= 900) riskMultiplier = 0.8;
+    else if (riskScore >= 750) riskMultiplier = 1.0;
+    else if (riskScore >= 600) riskMultiplier = 1.3;
+    else if (riskScore >= 400) riskMultiplier = 1.8;
+    else riskMultiplier = 2.5;
+
+    const riskAdjustedPremiumBps = Math.round(basePremiumBps * riskMultiplier);
+    const estimatedPremium = (policy.coverageAmount * riskAdjustedPremiumBps) / 10_000;
+
+    return {
+      basePremiumBps,
+      riskAdjustedPremiumBps,
+      riskMultiplier,
+      estimatedPremium,
+      coverageAmount: policy.coverageAmount,
+    };
+  }
+
+  listProviders(): InsuranceProvider[] {
+    return [...this.providers.values()];
+  }
+
+  getPolicy(policyId: string): InsurancePolicy | undefined {
+    return this.policies.get(policyId);
+  }
+
+  listCoverages(lender?: string): PurchasedCoverage[] {
+    const all = [...this.coverages.values()];
+    return lender ? all.filter((c) => c.lender === lender) : all;
+  }
+
+  getAnalytics(): {
+    totalProviders: number;
+    activePolicies: number;
+    totalCoverages: number;
+    totalPremiumsCollected: number;
+    totalCoverageIssued: number;
+    claimsByStatus: Record<ClaimStatus, number>;
+    avgPremiumBps: number;
+  } {
+    const activePolicies = this.listPolicies();
+    const coverages = [...this.coverages.values()];
+    const claims = [...this.claims.values()];
+
+    const totalPremiumsCollected = coverages.reduce((sum, c) => sum + c.premiumPaid, 0);
+    const totalCoverageIssued = coverages.reduce((sum, c) => sum + c.coverageAmount, 0);
+    const avgPremiumBps = activePolicies.length > 0
+      ? activePolicies.reduce((sum, p) => sum + p.premiumBps, 0) / activePolicies.length
+      : 0;
+
+    const claimsByStatus = claims.reduce<Record<ClaimStatus, number>>(
+      (a, c) => ({ ...a, [c.status]: a[c.status] + 1 }),
+      { submitted: 0, approved: 0, denied: 0, disputed: 0 }
+    );
+
+    return {
+      totalProviders: this.providers.size,
+      activePolicies: activePolicies.length,
+      totalCoverages: coverages.length,
+      totalPremiumsCollected,
+      totalCoverageIssued,
+      claimsByStatus,
+      avgPremiumBps: Math.round(avgPremiumBps * 100) / 100,
+    };
+  }
 }
 
 export const insuranceService = new InsuranceService();

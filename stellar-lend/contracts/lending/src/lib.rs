@@ -43,7 +43,10 @@ use views::{
 };
 
 use withdraw::{
+    emergency_withdraw as emergency_withdraw_logic,
+    get_emergency_stats as get_emergency_stats_logic,
     initialize_withdraw_settings as initialize_withdraw_logic,
+    set_emergency_withdraw_limit as set_emergency_withdraw_limit_logic,
     set_withdraw_paused as set_withdraw_paused_logic,
     sweep_deposit_dust as sweep_deposit_dust_logic, withdraw as withdraw_logic, WithdrawError,
 };
@@ -371,6 +374,29 @@ impl LendingContract {
             return Err(WithdrawError::WithdrawPaused);
         }
         withdraw_logic(&env, user, asset, amount)
+    }
+
+    /// Emergency withdraw collateral from the protocol with reduced fees
+    pub fn emergency_withdraw(
+        env: Env,
+        user: Address,
+        asset: Address,
+        amount: i128,
+    ) -> Result<i128, WithdrawError> {
+        emergency_withdraw_logic(&env, user, asset, amount)
+    }
+
+    /// Set emergency withdrawal limit per tx (admin only)
+    pub fn set_emergency_withdraw_limit(
+        env: Env,
+        max_amount: i128,
+    ) -> Result<(), WithdrawError> {
+        set_emergency_withdraw_limit_logic(&env, max_amount)
+    }
+
+    /// Get total emergency analytics stats (total withdrawn, total fees collected)
+    pub fn get_emergency_stats(env: Env) -> (i128, i128) {
+        get_emergency_stats_logic(&env)
     }
 
     /// Sweep an existing dust-sized deposit balance below the withdraw minimum.

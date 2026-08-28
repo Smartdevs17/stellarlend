@@ -46,6 +46,82 @@ const emergencyController = {
     }
   },
 
+  async executeEmergencyWithdrawal(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userAddress, assetAddress, amount, txHash } = req.body;
+      if (!userAddress || amount === undefined) {
+        return res.status(400).json({ success: false, error: 'userAddress and amount required' });
+      }
+      const execution = emergencyPauseService.executeEmergencyWithdrawal({
+        userAddress,
+        assetAddress,
+        amount: Number(amount),
+        txHash,
+      });
+      res.json({ success: true, data: execution });
+    } catch (error) {
+      res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Execution failed' });
+    }
+  },
+
+  async previewFee(req: Request, res: Response, next: NextFunction) {
+    try {
+      const amount = Number(req.query.amount);
+      if (isNaN(amount) || amount <= 0) {
+        return res.status(400).json({ success: false, error: 'Valid amount query parameter required' });
+      }
+      const fee = emergencyPauseService.calculateEmergencyFee(amount);
+      res.json({ success: true, data: fee });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getLimits(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const limits = emergencyPauseService.getLimits();
+      res.json({ success: true, data: limits });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async updateLimits(req: Request, res: Response, next: NextFunction) {
+    try {
+      const updated = emergencyPauseService.updateLimits(req.body);
+      res.json({ success: true, data: updated });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getAnalytics(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const analytics = emergencyPauseService.getEmergencyAnalytics();
+      res.json({ success: true, data: analytics });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getReport(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const report = emergencyPauseService.generateEmergencyReport();
+      res.json({ success: true, data: report });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getWithdrawals(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const withdrawals = emergencyPauseService.getEmergencyWithdrawals();
+      res.json({ success: true, data: withdrawals });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   async queueWithdrawal(req: Request, res: Response, next: NextFunction) {
     try {
       const { userAddress, assetAddress, amount } = req.body;
@@ -120,6 +196,14 @@ const emergencyController = {
 router.get('/status', emergencyController.getStatus);
 router.post('/pause', emergencyController.pause);
 router.post('/resume', emergencyController.resume);
+router.post('/withdraw', emergencyController.executeEmergencyWithdrawal);
+router.post('/emergency-withdraw', emergencyController.executeEmergencyWithdrawal);
+router.get('/fee-preview', emergencyController.previewFee);
+router.get('/limits', emergencyController.getLimits);
+router.put('/limits', emergencyController.updateLimits);
+router.get('/analytics', emergencyController.getAnalytics);
+router.get('/report', emergencyController.getReport);
+router.get('/withdrawals', emergencyController.getWithdrawals);
 router.post('/queue-withdrawal', emergencyController.queueWithdrawal);
 router.post('/drain-queue', emergencyController.drainQueue);
 router.get('/queue', emergencyController.getQueue);

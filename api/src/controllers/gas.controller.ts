@@ -31,7 +31,7 @@ export class GasController {
         throw new ValidationError('operation, userAddress, and amount are required');
       }
 
-      const validOperations = ['deposit', 'withdraw', 'borrow', 'repay', 'liquidation', 'flash_loan'];
+      const validOperations = ['deposit', 'withdraw', 'borrow', 'repay', 'liquidation', 'flash_loan', 'emergency_withdraw'];
       if (!validOperations.includes(request.operation)) {
         throw new ValidationError(`Invalid operation. Must be one of: ${validOperations.join(', ')}`);
       }
@@ -57,7 +57,7 @@ export class GasController {
       const { operation } = req.params!;
       const period = (req.query.period as string) || '30d';
 
-      const validOperations = ['deposit', 'withdraw', 'borrow', 'repay', 'liquidation', 'flash_loan'];
+      const validOperations = ['deposit', 'withdraw', 'borrow', 'repay', 'liquidation', 'flash_loan', 'emergency_withdraw'];
       if (!validOperations.includes(operation!)) {
         throw new ValidationError('Invalid operation');
       }
@@ -86,7 +86,7 @@ export class GasController {
       const { operation } = req.params!;
       const period = (req.query.period as string) || '7d';
 
-      const validOperations = ['deposit', 'withdraw', 'borrow', 'repay', 'liquidation', 'flash_loan'];
+      const validOperations = ['deposit', 'withdraw', 'borrow', 'repay', 'liquidation', 'flash_loan', 'emergency_withdraw'];
       if (!validOperations.includes(operation!)) {
         throw new ValidationError('Invalid operation');
       }
@@ -138,7 +138,7 @@ export class GasController {
         throw new ValidationError('operation and threshold are required');
       }
 
-      const validOperations = ['deposit', 'withdraw', 'borrow', 'repay', 'liquidation', 'flash_loan'];
+      const validOperations = ['deposit', 'withdraw', 'borrow', 'repay', 'liquidation', 'flash_loan', 'emergency_withdraw'];
       if (!validOperations.includes(config.operation)) {
         throw new ValidationError('Invalid operation');
       }
@@ -246,7 +246,7 @@ export class GasController {
     try {
       const { operation } = req.params!;
 
-      const validOperations = ['deposit', 'withdraw', 'borrow', 'repay', 'liquidation', 'flash_loan'];
+      const validOperations = ['deposit', 'withdraw', 'borrow', 'repay', 'liquidation', 'flash_loan', 'emergency_withdraw'];
       if (!validOperations.includes(operation!)) {
         throw new ValidationError('Invalid operation');
       }
@@ -262,6 +262,21 @@ export class GasController {
       } else {
         res.status(500).json({ error: 'Failed to get timing recommendation' });
       }
+    }
+  }
+
+  /**
+   * GET /api/gas/analytics
+   * Get comprehensive gas analytics report
+   */
+  async getAnalytics(req: Request, res: Response): Promise<void> {
+    try {
+      const period = (req.query.period as string) || '7d';
+      const analytics = await gasEstimatorService.getGasAnalytics(period);
+      res.json(analytics);
+    } catch (error) {
+      logger.error('Failed to get gas analytics:', error);
+      res.status(500).json({ error: 'Failed to get gas analytics' });
     }
   }
 }

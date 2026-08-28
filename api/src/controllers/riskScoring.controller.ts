@@ -64,6 +64,43 @@ export class RiskScoringController {
       next(err);
     }
   }
+
+  async getAlerts(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { severity } = req.query;
+      const alerts = await riskScoringService.getRiskAlerts(severity as string);
+      res.status(200).json({ success: true, alerts, total: alerts.length });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async acknowledgeAlert(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { alertId } = req.params;
+      if (!alertId) {
+        res.status(400).json({ error: 'Alert ID required' });
+        return;
+      }
+      const alert = riskScoringService.acknowledgeAlert(alertId);
+      if (!alert) {
+        res.status(404).json({ error: 'Alert not found' });
+        return;
+      }
+      res.status(200).json({ success: true, alert });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getAnalytics(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const analytics = await riskScoringService.getAnalytics();
+      res.status(200).json({ success: true, analytics });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const riskScoringController = new RiskScoringController();

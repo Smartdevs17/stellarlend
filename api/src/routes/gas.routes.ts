@@ -87,4 +87,12 @@ router.post('/batch-estimate', (req, res) => gasController.estimateBatchCost(req
  */
 router.get('/timing/:operation', (req, res) => gasController.getTimingRecommendation(req, res));
 
+/**
+ * @route   GET /api/gas/analytics
+ * @desc    Get gas usage analytics and optimization metrics
+ * @query   period (optional): '24h', '7d', '30d'
+ * @access  Public
+ */
+router.get('/analytics', (req, res) => gasController.getAnalytics(req, res));
+
 export default router;
