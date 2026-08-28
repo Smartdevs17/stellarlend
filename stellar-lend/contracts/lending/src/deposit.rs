@@ -6,6 +6,7 @@ pub type DepositEvent = VaultDepositEvent;
 
 use crate::dust::is_dust_amount;
 use crate::pause::{self, PauseType};
+use crate::reentrancy::ReentrancyGuard;
 use soroban_sdk::{contracterror, contracttype, Address, Env};
 
 /// Errors that can occur during deposit operations
@@ -19,6 +20,7 @@ pub enum DepositError {
     AssetNotSupported = 4,
     ExceedsDepositCap = 5,
     Unauthorized = 6,
+    ReentrancyDetected = 7,
 }
 
 /// Storage keys for deposit-related data
@@ -67,6 +69,8 @@ pub(crate) fn deposit_with_auth(
     amount: i128,
     require_auth: bool,
 ) -> Result<i128, DepositError> {
+    let _guard = ReentrancyGuard::new(env).map_err(|_| DepositError::ReentrancyDetected)?;
+
     if require_auth {
         user.require_auth();
     }

@@ -24,6 +24,10 @@ export interface ValidatorConfig {
   minPrice: number;
   maxPrice: number;
   sourceWeights: Record<string, number>;
+  /** TWAP deviation threshold for manipulation detection (default 5%). */
+  twapDeviationPercent?: number;
+  /** Rate change threshold for manipulation alerts (default 10%). */
+  rateManipulationPercent?: number;
 }
 
 /**
@@ -138,9 +142,43 @@ export class PriceValidator {
     };
   }
 
-  /**
-   * Validate multiple prices
-   */
+  validateWithTwap(raw: RawPriceData, twapPrice?: number): ValidationResult {
+    const result = this.validate(raw);
+    if (!result.isValid || twapPrice === undefined || twapPrice <= 0) {
+      return result;
+    }
+
+    const twapThreshold = this.config.twapDeviationPercent ?? 5;
+    const deviation = Math.abs((raw.price - twapPrice) / twapPrice) * 100;
+    if (deviation > twapThreshold) {
+      result.isValid = false;
+      result.errors.push({
+        code: 'PRICE_DEVIATION_TOO_HIGH' as ValidationErrorCode,
+        message: `Spot price deviates ${deviation.toFixed(2)}% from TWAP (max ${twapThreshold}%)`,
+        details: { spotPrice: raw.price, twapPrice, deviationPercent: deviation },
+      });
+    }
+    return result;
+  }
+
+  validateRateChange(oldRate: number, newRate: number): ValidationResult {
+    const errors: ValidationError[] = [];
+    const threshold = this.config.rateManipulationPercent ?? 10;
+    if (oldRate > 0) {
+      const change = Math.abs((newRate - oldRate) / oldRate) * 100;
+      if (change > threshold) {
+        errors.push({
+          code: 'PRICE_DEVIATION_TOO_HIGH' as ValidationErrorCode,
+          message: `Rate change ${change.toFixed(2)}% exceeds ${threshold}% manipulation threshold`,
+          details: { oldRate, newRate, changePercent: change },
+        });
+      }
+    }
+    return errors.length === 0
+      ? { isValid: true, errors: [] }
+      : { isValid: false, errors };
+  }
+
   validateMany(prices: RawPriceData[]): ValidationResult[] {
     return prices.map((p) => this.validate(p));
   }

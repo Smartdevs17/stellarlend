@@ -2,6 +2,7 @@ use soroban_sdk::{contracterror, contracttype, Address, Env};
 
 use crate::deposit::{DepositCollateral, DepositDataKey};
 use crate::dust::is_dust_amount;
+use crate::reentrancy::ReentrancyGuard;
 
 pub use crate::events::WithdrawEvent;
 
@@ -18,6 +19,7 @@ pub enum WithdrawError {
     Unauthorized = 6,
     DustAmount = 7,
     EmergencyLimitExceeded = 8,
+    ReentrancyDetected = 9,
 }
 
 /// Storage keys for withdraw-related data
@@ -57,6 +59,8 @@ pub(crate) fn withdraw_with_auth(
     amount: i128,
     require_auth: bool,
 ) -> Result<i128, WithdrawError> {
+    let _guard = ReentrancyGuard::new(env).map_err(|_| WithdrawError::ReentrancyDetected)?;
+
     if require_auth {
         user.require_auth();
     }
