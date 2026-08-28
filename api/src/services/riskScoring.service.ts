@@ -38,10 +38,35 @@ export interface PoolRiskProfile {
   factors: RiskFactorBreakdown;
 }
 
+export interface RiskAlert {
+  id: string;
+  pool: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  message: string;
+  currentScore: number;
+  threshold: number;
+  letterGrade: string;
+  timestamp: number;
+  acknowledged: boolean;
+}
+
+export interface RiskAnalytics {
+  totalPools: number;
+  averageScore: number;
+  distribution: Record<string, number>;
+  alertsActive: number;
+  poolsAtRisk: number;
+  trendSummary: { improving: number; stable: number; declining: number };
+}
+
+const DEFAULT_THRESHOLDS = { critical: 550, high: 700, medium: 800 };
+
 class RiskScoringService {
   private server: SorobanServer;
   private mockScores: Map<string, RiskScoreData> = new Map();
   private mockHistory: Map<string, RiskScoreData[]> = new Map();
+  private alerts: RiskAlert[] = [];
+  private alertCounter = 0;
 
   constructor() {
     this.server = new SorobanServer(config.stellar.sorobanRpcUrl);
@@ -65,7 +90,65 @@ class RiskScoringService {
         { ...score, timestamp: now - 86400 * 3, overallScore: Math.max(score.overallScore - 20, 0) },
         score,
       ]);
+      this.evaluateAlerts(score);
     }
+  }
+
+  private evaluateAlerts(score: RiskScoreData): void {
+    const thresholds = [
+      { severity: 'critical' as const, threshold: DEFAULT_THRESHOLDS.critical },
+      { severity: 'high' as const, threshold: DEFAULT_THRESHOLDS.high },
+      { severity: 'medium' as const, threshold: DEFAULT_THRESHOLDS.medium },
+    ];
+
+    for (const { severity, threshold } of thresholds) {
+      if (score.overallScore < threshold) {
+        const existing = this.alerts.find(
+          (a) => a.pool === score.pool && a.severity === severity && !a.acknowledged
+        );
+        if (!existing) {
+          this.alerts.push({
+            id: `alert-${++this.alertCounter}`,
+            pool: score.pool,
+            severity,
+            message: `Pool ${score.pool} risk score ${score.overallScore} (${score.letterGrade}) below ${severity} threshold (${threshold})`,
+            currentScore: score.overallScore,
+            threshold,
+            letterGrade: score.letterGrade,
+            timestamp: score.timestamp,
+            acknowledged: false,
+          });
+        }
+      }
+    }
+  }
+
+  refreshScores(): void {
+    const now = Math.floor(Date.now() / 1000);
+    for (const [pool, score] of this.mockScores) {
+      const jitter = Math.floor(Math.random() * 20) - 10;
+      const updated = { ...score, overallScore: Math.max(0, Math.min(1000, score.overallScore + jitter)), timestamp: now };
+      updated.letterGrade = this.scoreToGrade(updated.overallScore);
+      this.mockScores.set(pool, updated);
+      const history = this.mockHistory.get(pool) ?? [];
+      history.push(updated);
+      if (history.length > 10) history.shift();
+      this.mockHistory.set(pool, history);
+      this.evaluateAlerts(updated);
+    }
+  }
+
+  private scoreToGrade(overallScore: number): string {
+    if (overallScore >= 950) return 'A+';
+    if (overallScore >= 900) return 'A';
+    if (overallScore >= 850) return 'A-';
+    if (overallScore >= 800) return 'B+';
+    if (overallScore >= 750) return 'B';
+    if (overallScore >= 700) return 'B-';
+    if (overallScore >= 650) return 'C+';
+    if (overallScore >= 600) return 'C';
+    if (overallScore >= 550) return 'C-';
+    return 'D';
   }
 
   private computeScore(
@@ -198,6 +281,44 @@ class RiskScoringService {
       oracleDeviationWeight: 2500,
       poolUtilizationWeight: 2500,
       liquidationHistoryWeight: 2000,
+    };
+  }
+
+  async getRiskAlerts(severity?: string): Promise<RiskAlert[]> {
+    this.refreshScores();
+    const active = this.alerts.filter((a) => !a.acknowledged);
+    return severity ? active.filter((a) => a.severity === severity) : active;
+  }
+
+  acknowledgeAlert(alertId: string): RiskAlert | null {
+    const alert = this.alerts.find((a) => a.id === alertId);
+    if (!alert) return null;
+    alert.acknowledged = true;
+    return alert;
+  }
+
+  async getAnalytics(): Promise<RiskAnalytics> {
+    const scores = await this.getAllPoolScores();
+    const distribution = await this.getScoreDistribution();
+    const alerts = await this.getRiskAlerts();
+
+    const averageScore = scores.length > 0
+      ? Math.round(scores.reduce((sum, s) => sum + s.overallScore, 0) / scores.length)
+      : 0;
+
+    const trendSummary = { improving: 0, stable: 0, declining: 0 };
+    for (const [pool] of this.mockScores) {
+      const profile = await this.getPoolRiskProfile(pool);
+      if (profile) trendSummary[profile.trend]++;
+    }
+
+    return {
+      totalPools: scores.length,
+      averageScore,
+      distribution,
+      alertsActive: alerts.length,
+      poolsAtRisk: scores.filter((s) => s.overallScore < DEFAULT_THRESHOLDS.high).length,
+      trendSummary,
     };
   }
 }
