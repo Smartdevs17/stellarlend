@@ -23,6 +23,7 @@ pub mod mev_protection;
 pub mod multi_collateral;
 pub mod multisig;
 pub mod oracle;
+pub mod pool_state;
 pub mod rate_limiter;
 pub mod rate_guard;
 pub mod recovery;
@@ -327,6 +328,8 @@ impl HelloContract {
         )
         .map_err(|_| RiskManagementError::InvalidParameter)?;
 
+        // Invalidate any cached lazy pool-state snapshots (#721).
+        pool_state::bump_epoch(&env);
         Ok(())
     }
 
@@ -408,7 +411,11 @@ impl HelloContract {
         asset: Option<Address>,
         reserve_factor_bps: i128,
     ) -> Result<(), LendingError> {
-        reserve::set_reserve_factor(&env, caller, asset, reserve_factor_bps).map_err(Into::into)
+        reserve::set_reserve_factor(&env, caller, asset.clone(), reserve_factor_bps)
+            .map_err(LendingError::from)?;
+        // Invalidate any cached lazy pool-state snapshots (#721).
+        pool_state::invalidate(&env, &asset);
+        Ok(())
     }
 
     /// Set treasury address (admin only)
@@ -1713,7 +1720,50 @@ impl HelloContract {
             rate_ceiling_bps,
             spread_bps,
         )
-        .map_err(Into::into)
+        .map_err(LendingError::from)?;
+        // Invalidate any cached lazy pool-state snapshots (#721).
+        pool_state::bump_epoch(&env);
+        Ok(())
+    }
+
+    /// Lazily load the consolidated on-chain state for a pool (#721).
+    ///
+    /// The snapshot is built on first access, cached in short-lived storage
+    /// keyed by a global epoch, and served from cache on subsequent reads
+    /// until a relevant mutation bumps the epoch.
+    pub fn get_pool_state(
+        env: Env,
+        asset: Option<Address>,
+    ) -> pool_state::PoolStateSnapshot {
+        pool_state::load(&env, &asset)
+    }
+
+    /// Whether a pool's lazy state has been materialized at least once (#721).
+    pub fn is_pool_state_initialized(env: Env, asset: Option<Address>) -> bool {
+        pool_state::is_initialized(&env, &asset)
+    }
+
+    /// Current global pool-state cache epoch (#721).
+    pub fn get_pool_state_epoch(env: Env) -> u64 {
+        pool_state::current_epoch(&env)
+    }
+
+    /// Cache hit / miss / rebuild / invalidation counters for lazy pool-state
+    /// loading (#721).
+    pub fn get_pool_state_metrics(env: Env) -> pool_state::PoolStateMetrics {
+        pool_state::metrics(&env)
+    }
+
+    /// Force a rebuild of a pool's cached state on next access (admin-only, #721).
+    pub fn invalidate_pool_state(
+        env: Env,
+        caller: Address,
+        asset: Option<Address>,
+    ) -> Result<(), LendingError> {
+        risk_management::require_admin(&env, &caller)
+            .map_err(|_| LendingError::Unauthorized)?;
+        pool_state::invalidate(&env, &asset);
+        Ok(())
     }
 
     /// Current global borrow index (scaled by 1e12; starts at 1e12 = "1.0").

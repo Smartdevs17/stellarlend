@@ -100,6 +100,29 @@ pub enum DataKey {
     LiquidatorRegistration(Address),
 }
 
+// ─── Lazy pool-state keys (#721) ────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone)]
+pub enum PoolStateKey {
+    /// Global monotonic epoch. Bumped by every mutation that can change a
+    /// resolved pool-state snapshot; cached snapshots keyed by an older epoch
+    /// are transparently ignored and rebuilt on next access.
+    Epoch,
+    /// Persistent marker recording that a pool's aggregate state has been
+    /// lazily materialized at least once: `Initialized(pool) -> bool`.
+    Initialized(Option<Address>),
+    /// Cache hit / miss / rebuild / invalidation counters (`PoolStateMetrics`).
+    Metrics,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub enum PoolStateTempKey {
+    /// Short-lived resolved snapshot cache: `Snapshot(pool, epoch) -> PoolStateSnapshot`.
+    Snapshot(Option<Address>, u64),
+}
+
 // ─── Temporary transaction-local cache keys ─────────────────────────────────
 
 #[contracttype]

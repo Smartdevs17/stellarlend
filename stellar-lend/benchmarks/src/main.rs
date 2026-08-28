@@ -17,6 +17,7 @@ mod framework;
 mod hello_world_benchmarks;
 mod lending_benchmarks;
 mod pool_factory_benchmarks;
+mod pool_state_benchmarks;
 mod report;
 mod reputation_benchmarks;
 
@@ -40,6 +41,7 @@ fn main() {
     amm_benchmarks::register(&mut suite);
     bridge_benchmarks::register(&mut suite);
     pool_factory_benchmarks::register(&mut suite);
+    pool_state_benchmarks::register(&mut suite);
     reputation_benchmarks::register(&mut suite);
 
     // Run all benchmarks
