@@ -13,5 +13,5 @@ members = [
 ]
 
 [workspace.dependencies]
-soroban-sdk = { version = "22.0.0" }
-soroban-token-sdk = { version = "22.0.0" }
+soroban-sdk = { version = "22.0.0", default-features = false, features = ["alloc"] }
+soroban-token-sdk = { version = "22.0.0", default-features = false, features = ["alloc"] }
