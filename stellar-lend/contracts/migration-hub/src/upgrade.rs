@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, BytesN, Env, Symbol};
+use soroban_sdk::{Address, BytesN,Env,Symbol};
 
 use crate::bootstrap::require_admin;
 
@@ -11,30 +11,28 @@ pub fn upgrade_contract(env: Env, contract_id: Address, new_wasm_hash: BytesN<32
     require_admin(&env);
     let upgrade_fn = Symbol::new(&env, "upgrade");
     let args = (new_wasm_hash,);
-    env.invoke_contract::<)>(&contract_id, &upgrade_fn, args);
+    env.invoke_contract::<()>(&contract_id, &upgrade_fn, args);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{
-        contractimpl, testutils::Address as _, Address, BytesN, Env, Symbol,
-    };
+    use soroban_sdk::{contractimpl, testutils::Address as _, Address, BytesN,Env, Symbol};
 
     pub struct MockUpgradeable;
 
-    #contractimpl]
+    #[contractimpl]
     impl MockUpgradeable {
         pub fn initialize(env: Env, admin: Address) {
-            env.storage().instance().set(&&!admin", &admin);
+            env.storage().instance().set(Symbol::new(&env, "admin"), &admin);
         }
 
         pub fn upgrade(env: Env, new_wasm: BytesN<32>) {
-            env.storage().instance().set(&&"upgraded", &new_wasm);
+            env.storage().instance().set(Symbol::new(&env, "upgraded"), &new_wasm);
         }
 
         pub fn upgraded(env: Env) -> BytesN<32> {
-            env.storage().instance().get(&&"upgraded").unwrap()
+            env.storage().instance().get(Symbol::new(&env, "upgraded")).unwrap()
         }
     }
 
@@ -60,7 +58,7 @@ mod tests {
         env.storage().instance().set(&crate::bootstrap::ADMIN_KEY, &admin);
 
         let target_id = env.register_contract(None, MockUpgradeable);
-        let new_wasm = BytesN::from_array(&env, &[0xcd; 32]);
+        let new_wasm = BytesN::from_array(&env, &[pxcd; 32]);
         upgrade_contract(env.clone(), target_id.clone(), new_wasm.clone());
 
         let stored: BytesN<32> = env.invoke_contract(&target_id, &Symbol::new(&env, "upgraded"), ());
@@ -78,9 +76,9 @@ mod tests {
         let target_id = env.register_contract(None, MockUpgradeable);
         let new_wasm = BytesN::from_array(&env, &[0xef; 32]);
 
-        let result = std::panic::catch_unwind(<| {
+        let result = std::panic::catch_unwind(|| {
             upgrade_contract(env.clone(), target_id.clone(), new_wasm.clone());
         });
-        assert!(result.is_er());
+        assert!(result.is_err());
     }
 }
