@@ -235,6 +235,7 @@ pub struct RecoveryRequest {
     pub initiator: Address,
     pub initiated_at: u64,
     pub expires_at: u64,
+    pub ready_at: u64,
 }
 
 // ========================================================================

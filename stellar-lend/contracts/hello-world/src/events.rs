@@ -24,7 +24,36 @@ pub use shared_events::*;
 
 use soroban_sdk::{contractevent, contracttype, Address, Env, String, Symbol, Vec};
 
-use crate::types::{AssetStatus, ProposalType, VoteType};
+use crate::types::{AssetStatus, EmergencyTrigger, ProposalType, VoteType};
+
+/// Convert a local [`ProposalType`] into its shared-events representation.
+pub fn to_shared_proposal_type(proposal_type: &ProposalType) -> shared_events::ProposalType {
+    match proposal_type {
+        ProposalType::EmergencyPause(_) => shared_events::ProposalType::Emergency,
+        ProposalType::GenericAction(_) | ProposalType::PauseSwitch(..) => {
+            shared_events::ProposalType::Standard
+        }
+        _ => shared_events::ProposalType::ParameterChange,
+    }
+}
+
+/// Convert a local [`VoteType`] into its shared-events representation.
+pub fn to_shared_vote_type(vote_type: &VoteType) -> shared_events::VoteType {
+    match vote_type {
+        VoteType::For => shared_events::VoteType::For,
+        VoteType::Against => shared_events::VoteType::Against,
+        VoteType::Abstain => shared_events::VoteType::Abstain,
+    }
+}
+
+/// Convert a local [`EmergencyTrigger`] into its shared-events representation.
+pub fn to_shared_emergency_trigger(trigger: EmergencyTrigger) -> shared_events::EmergencyTrigger {
+    match trigger {
+        EmergencyTrigger::Admin => shared_events::EmergencyTrigger::Admin,
+        EmergencyTrigger::CircuitBreaker => shared_events::EmergencyTrigger::CircuitBreaker,
+        EmergencyTrigger::OracleFailure => shared_events::EmergencyTrigger::OracleFailure,
+    }
+}
 
 // ============================================================================
 // Core Lending Events (Existing)
@@ -435,7 +464,7 @@ pub fn emit_flash_loan_liquidation_combo(e: &Env, event: FlashLoanLiquidationCom
 
 pub fn emit_emergency_triggered(e: &Env, state: crate::types::EmergencyState) {
     EmergencyTriggeredEvent {
-        trigger: state.trigger,
+        trigger: to_shared_emergency_trigger(state.trigger),
         started_at: state.started_at,
         window_opens_at: state.window_opens_at,
         window_closes_at: state.window_closes_at,

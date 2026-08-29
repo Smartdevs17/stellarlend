@@ -105,7 +105,7 @@ pub fn apply_decay(env: &Env, address: Address, is_deployer: bool) -> Result<Par
     } else {
         ReputationKey::User(address.clone())
     };
-    let mut rep = env
+    let mut rep: ParticipantReputation = env
         .storage()
         .persistent()
         .get(&key)

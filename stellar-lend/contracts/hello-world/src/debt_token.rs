@@ -26,7 +26,7 @@
 //! - Audit trail through events
 
 #![allow(unused)]
-use soroban_sdk::{contracterror, contractevent, contracttype, Address, Env, Map, Symbol, Vec};
+use soroban_sdk::{contracterror, contractevent, contracttype, Address, Env, Map, Symbol, TryFromVal, Vec};
 
 use crate::deposit::DepositDataKey;
 use crate::errors::LendingError;
@@ -327,6 +327,17 @@ pub fn transfer_debt_token(
 /// require the seller's auth) plus the buyer's auth on the purchase itself, not
 /// by the seller re-signing at sale time. Callers are responsible for ensuring
 /// whatever authorization model applies to their call site before invoking this.
+fn is_zero_address(env: &Env, address: &Address) -> bool {
+    *address
+        == Address::try_from_val(
+            env,
+            &soroban_sdk::xdr::ScAddress::Contract(soroban_sdk::xdr::ContractId(
+                soroban_sdk::xdr::Hash([0u8; 32]),
+            )),
+        )
+        .unwrap()
+}
+
 fn move_debt_token_ownership(
     env: &Env,
     from: Address,
@@ -334,7 +345,7 @@ fn move_debt_token_ownership(
     token_id: u64,
 ) -> Result<(), DebtTokenError> {
     // Validate inputs
-    if to == Address::zero() {
+    if is_zero_address(env, &to) {
         return Err(DebtTokenError::ZeroAddress);
     }
 
@@ -365,9 +376,11 @@ fn move_debt_token_ownership(
 
     // Remove from current owner
     let mut from_tokens = owner_tokens;
-    let index = from_tokens.iter().position(|&id| id == token_id)
+    let index = from_tokens
+        .iter()
+        .position(|id| id == token_id)
         .ok_or(DebtTokenError::TokenNotFound)?;
-    from_tokens.remove(index);
+    from_tokens.remove(index as u32);
 
     let from_key = DebtTokenDataKey::OwnerTokens(from.clone());
     env.storage().persistent().set(&from_key, &from_tokens);
@@ -576,9 +589,11 @@ pub fn burn_debt_token(
 
     // Remove from owner's token list
     let mut user_tokens = owner_tokens;
-    let index = user_tokens.iter().position(|&id| id == token_id)
+    let index = user_tokens
+        .iter()
+        .position(|id| id == token_id)
         .ok_or(DebtTokenError::TokenNotFound)?;
-    user_tokens.remove(index);
+    user_tokens.remove(index as u32);
 
     let owner_key = DebtTokenDataKey::OwnerTokens(user.clone());
     env.storage().persistent().set(&owner_key, &user_tokens);

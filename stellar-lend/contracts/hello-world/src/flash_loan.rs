@@ -354,7 +354,7 @@ fn record_flash_loan(
         amount,
         fee,
         timestamp: env.ledger().timestamp(),
-        sequence_number: env.ledger().sequence_number(),
+        sequence_number: env.ledger().sequence(),
         callback: callback.clone(),
     };
     env.storage().temporary().set(&loan_key, &record);
@@ -405,7 +405,7 @@ pub fn execute_flash_loan(
     // 2. Preparation
     let fee = calculate_flash_loan_fee(env, amount)?;
     let total_required = amount.checked_add(fee).ok_or(FlashLoanError::Overflow)?;
-    let start_sequence = env.ledger().sequence_number();
+    let start_sequence = env.ledger().sequence();
 
     let token_client = soroban_sdk::token::Client::new(env, &asset);
     let initial_balance = token_client.balance(&env.current_contract_address());
@@ -429,8 +429,9 @@ pub fn execute_flash_loan(
     // MUST be allowed to call back into the protocol (e.g., to repay the loan).
     let lock_key: soroban_sdk::Val =
         FlashLoanDataKey::FlashLoanGuard(user.clone(), asset.clone()).into_val(env);
-    let _granular_guard = crate::reentrancy::ReentrancyGuard::new_with_key(env, lock_key)
-        .map_err(|_| FlashLoanError::Reentrancy)?;
+    let _granular_guard =
+        crate::reentrancy::ReentrancyGuard::new_with_key(env, lock_key, false)
+            .map_err(|_| FlashLoanError::Reentrancy)?;
 
     // Record the loan details for repay_flash_loan helper
     record_flash_loan(env, &user, &asset, amount, fee, &callback);
@@ -454,7 +455,7 @@ pub fn execute_flash_loan(
     let callback_client = stellarlend_flash_loan::FlashLoanReceiverClient::new(env, &callback);
     callback_client.on_flash_loan(&user, &asset, &amount, &fee);
 
-    if env.ledger().sequence_number() != start_sequence {
+    if env.ledger().sequence() != start_sequence {
         return Err(FlashLoanError::Expired);
     }
 
@@ -527,7 +528,7 @@ pub fn repay_flash_loan(
         .get::<Val, FlashLoanRecord>(&loan_key)
         .ok_or(FlashLoanError::NotRepaid)?;
 
-    if env.ledger().sequence_number() != record.sequence_number {
+    if env.ledger().sequence() != record.sequence_number {
         return Err(FlashLoanError::Expired);
     }
 
@@ -765,7 +766,7 @@ pub fn execute_flash_loan_liquidation(
     check_price_impact(env, initial_balance, debt_amount)?;
     acquire_asset_guard(env, &debt_addr)?;
 
-    let start_sequence = env.ledger().sequence_number();
+    let start_sequence = env.ledger().sequence();
 
     // Fund the liquidator from pool liquidity (the flash leg).
     token_client.transfer(&pool, &liquidator, &debt_amount);
@@ -792,7 +793,7 @@ pub fn execute_flash_loan_liquidation(
     )
     .map_err(|_| FlashLoanError::CallbackFailed)?;
 
-    if env.ledger().sequence_number() != start_sequence {
+    if env.ledger().sequence() != start_sequence {
         return Err(FlashLoanError::Expired);
     }
 
@@ -882,7 +883,7 @@ pub fn execute_multi_asset_flash_loan(
     }
 
     let config = get_flash_loan_config(env);
-    let start_sequence = env.ledger().sequence_number();
+    let start_sequence = env.ledger().sequence();
     let mut total_fees: i128 = 0;
     let pool = env.current_contract_address();
 
@@ -929,7 +930,7 @@ pub fn execute_multi_asset_flash_loan(
         (user.clone(), legs.clone(), total_fees).into_val(env),
     );
 
-    if env.ledger().sequence_number() != start_sequence {
+    if env.ledger().sequence() != start_sequence {
         return Err(FlashLoanError::Expired);
     }
 

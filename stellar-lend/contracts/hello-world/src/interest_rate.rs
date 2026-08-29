@@ -22,7 +22,7 @@
 //! bounded to ±100%.
 
 #![allow(unused)]
-use soroban_sdk::{contracterror, contracttype, Address, Env, IntoVal};
+use soroban_sdk::{contracterror, contracttype, Address, Env, IntoVal, Vec};
 
 use crate::deposit::{DepositDataKey, ProtocolAnalytics};
 use crate::storage::set_temp_lending_index;

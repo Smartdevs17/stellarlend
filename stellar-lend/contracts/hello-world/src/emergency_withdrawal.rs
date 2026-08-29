@@ -26,7 +26,7 @@ const DEFAULT_WITHDRAWAL_CAP_BPS: i128 = 3000; // 30%
 pub fn initialize_emergency_withdrawal(env: &Env) {
     let default_state = EmergencyState {
         is_active: false,
-        trigger: EmergencyTrigger::AdminEmergency,
+        trigger: EmergencyTrigger::Admin,
         started_at: 0,
         window_opens_at: 0,
         window_closes_at: 0,
@@ -101,7 +101,7 @@ pub fn get_emergency_state(env: &Env) -> EmergencyState {
         .get(&DepositDataKey::EmergencyState)
         .unwrap_or(EmergencyState {
             is_active: false,
-            trigger: EmergencyTrigger::AdminEmergency,
+            trigger: EmergencyTrigger::Admin,
             started_at: 0,
             window_opens_at: 0,
             window_closes_at: 0,

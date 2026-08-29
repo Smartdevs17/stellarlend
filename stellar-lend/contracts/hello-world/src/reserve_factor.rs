@@ -170,7 +170,7 @@ pub fn preview_reserve_factor(
         .clamp(0, BASIS_POINTS_SCALE);
     let curve = get_reserve_factor_curve(env, asset.clone());
     let dynamic = calculate_dynamic_reserve_factor(utilization, &curve)?;
-    let static_factor = crate::reserve::get_static_reserve_factor(env, asset);
+    let static_factor = crate::reserve::get_legacy_reserve_factor(env, asset);
 
     Ok(ReserveFactorPreview {
         utilization_bps: utilization,

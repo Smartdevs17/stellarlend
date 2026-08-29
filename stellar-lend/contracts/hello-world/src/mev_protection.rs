@@ -1,4 +1,4 @@
-use soroban_sdk::{contracterror, contracttype, Address, Env, String, Symbol};
+use soroban_sdk::{contracterror, contracttype, Address, Env, String, Symbol, Vec};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -1186,7 +1186,7 @@ fn record_ordering_signal(
     let op_key = operation_symbol(env, &operation);
     let latest_key = MevDataKey::LatestObservation(op_key.clone(), asset.clone());
     let previous_key = MevDataKey::PreviousObservation(op_key.clone(), asset.clone());
-    let smoothed_key = MevDataKey::SmoothedFee(op_key, asset.clone());
+    let smoothed_key = MevDataKey::SmoothedFee(op_key.clone(), asset.clone());
     let now = env.ledger().timestamp();
     let latest: Option<OrderingObservation> = env.storage().persistent().get(&latest_key);
     let previous: Option<OrderingObservation> = env.storage().persistent().get(&previous_key);

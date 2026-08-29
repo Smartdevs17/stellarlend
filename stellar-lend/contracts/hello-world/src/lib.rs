@@ -1,7 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(deprecated)]
 
-use soroban_sdk::{contract, contractimpl, Address, Env, IntoVal, String, Vec};
+use soroban_sdk::{contract, contractimpl, Address, Env, IntoVal, String, Symbol, Vec};
 
 pub mod admin;
 pub mod amm;
@@ -41,6 +41,7 @@ pub mod risk_management;
 pub mod risk_params;
 pub mod safe_math;
 pub mod storage;
+pub mod timelock;
 pub mod treasury;
 #[cfg(test)]
 mod test_utils;
@@ -171,7 +172,7 @@ impl HelloContract {
         governance::get_vote(&env, proposal_id, voter)
     }
 
-    pub fn gov_get_multisig_config(env: Env) -> Option<storage::MultisigConfig> {
+    pub fn gov_get_multisig_config(env: Env) -> Option<types::MultisigConfig> {
         governance::get_multisig_config(&env)
     }
 
@@ -312,7 +313,7 @@ impl HelloContract {
         asset: Option<Address>,
         amount: i128,
     ) -> Result<(), LendingError> {
-        cross_asset::cross_asset_deposit(&env, user, asset, amount).map_err(Into::into)?;
+        cross_asset::cross_asset_deposit(&env, user, asset, amount).map_err(LendingError::from)?;
         Ok(())
     }
 
@@ -367,7 +368,7 @@ impl HelloContract {
             close_factor_bps: 5_000,
             liquidation_incentive_bps: 1_000,
             last_update: env.ledger().timestamp(),
-            flags: storage::FLAG_BORROWING_ENABLED | storage::FLAG_COLLATERAL_ENABLED,
+            flags: (storage::FLAG_BORROWING_ENABLED | storage::FLAG_COLLATERAL_ENABLED) as u32,
         })
     }
 
@@ -399,7 +400,9 @@ impl HelloContract {
         asset: Option<Address>,
         amount: i128,
     ) -> Result<(), LendingError> {
-        cross_asset::cross_asset_borrow(&env, user, asset, amount).map_err(Into::into)
+        cross_asset::cross_asset_borrow(&env, user, asset, amount)
+            .map_err(LendingError::from)
+            .map(|_| ())
     }
 
     /// Withdraw collateral using cross-asset lending
@@ -409,7 +412,7 @@ impl HelloContract {
         asset: Option<Address>,
         amount: i128,
     ) -> Result<(), LendingError> {
-        cross_asset::cross_asset_withdraw(&env, user, asset, amount).map_err(Into::into)?;
+        cross_asset::cross_asset_withdraw(&env, user, asset, amount).map_err(LendingError::from)?;
         Ok(())
     }
 
@@ -2241,7 +2244,9 @@ impl HelloContract {
         decimals: u32,
         source: Address,
     ) -> Result<(), LendingError> {
-        oracle::update_price_feed(&env, caller, asset, price, decimals, source).map_err(oracle_err)
+        oracle::update_price_feed(&env, caller, asset, price, decimals, source)
+            .map_err(oracle_err)
+            .map(|_| ())
     }
 
     pub fn get_price(env: Env, asset: Address) -> Result<i128, LendingError> {

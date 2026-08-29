@@ -194,7 +194,7 @@ pub fn set_reserve_factor(
 /// providing a single source of truth for the reserve factor that integrates with fee management.
 pub fn get_reserve_factor_from_fee_config(env: &Env, asset: Option<Address>) -> i128 {
     // Try treasury fee config first
-    let fee_factor = get_static_reserve_factor(env, asset.clone());
+    let fee_factor = get_legacy_reserve_factor(env, asset.clone());
     // The treasury fee config provides a default; if explicitly set in storage, use that
     let storage_factor = get_reserve_factor(env, asset);
     storage_factor

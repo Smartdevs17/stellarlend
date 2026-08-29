@@ -6,6 +6,7 @@ use crate::borrow::BorrowError;
 use crate::cross_asset::CrossAssetError;
 use crate::debt_token::DebtTokenError;
 use crate::deposit::DepositError;
+use crate::emergency_withdrawal::EmergencyWithdrawalError;
 use crate::flash_loan::FlashLoanError;
 use crate::interest_rate::InterestRateError;
 use crate::liquidate::LiquidationError;
@@ -70,6 +71,10 @@ pub enum GovernanceError {
     InvalidTimelockStatus = 144,
     InvalidTimelockConfig = 145,
     InvalidTimelockDelay = 146,
+    RecoveryNotReady = 147,
+    InvalidActionTypeDelay = 148,
+    EmergencyOverrideAlreadyApproved = 149,
+    InsufficientEmergencyApprovals = 150,
 }
 
 /// Unified public contract error type for the lending interface.
@@ -380,6 +385,10 @@ impl_from_error!(DebtTokenError, {
     DebtTokenError::ZeroAddress => LendingError::InvalidParameter,
     DebtTokenError::AlreadyTokenized => LendingError::AlreadyExists,
     DebtTokenError::PositionNotFound => LendingError::DataNotFound,
+    DebtTokenError::NotListed => LendingError::DataNotFound,
+    DebtTokenError::AlreadyListed => LendingError::AlreadyExists,
+    DebtTokenError::NotSeller => LendingError::Unauthorized,
+    DebtTokenError::InvalidPrice => LendingError::InvalidParameter,
 });
 
 impl From<CrossAssetError> for LendingError {
@@ -398,6 +407,21 @@ impl From<CrossAssetError> for LendingError {
             CrossAssetError::InvalidCorrelation => LendingError::InvalidParameter,
             CrossAssetError::VolatilityUnavailable => LendingError::InvalidParameter,
             CrossAssetError::Reentrancy => LendingError::Reentrancy,
+        }
+    }
+}
+
+impl From<EmergencyWithdrawalError> for LendingError {
+    fn from(error: EmergencyWithdrawalError) -> Self {
+        match error {
+            EmergencyWithdrawalError::NotActive => LendingError::InvalidState,
+            EmergencyWithdrawalError::AlreadyActive => LendingError::AlreadyExists,
+            EmergencyWithdrawalError::WindowNotOpen => LendingError::InvalidState,
+            EmergencyWithdrawalError::NotAuthorized => LendingError::Unauthorized,
+            EmergencyWithdrawalError::InsufficientBalance => LendingError::InsufficientBalance,
+            EmergencyWithdrawalError::ExceedsWithdrawalCap => LendingError::LimitExceeded,
+            EmergencyWithdrawalError::InvalidParameter => LendingError::InvalidParameter,
+            EmergencyWithdrawalError::AlreadyWithdrawn => LendingError::AlreadyExists,
         }
     }
 }

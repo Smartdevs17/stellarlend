@@ -292,7 +292,7 @@ fn build(
         .max(0);
 
     // Reserve component.
-    let reserve_balance = crate::reserve::get_reserve_balance(env, pool.clone());
+    let reserve_balance = crate::treasury::get_reserve_balance(env, pool.clone());
     let reserve_factor_bps = crate::reserve::get_reserve_factor(env, pool.clone());
 
     PoolStateSnapshot {
