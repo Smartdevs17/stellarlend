@@ -1,11 +1,10 @@
-#c[ cfg(test)]
-
-use soroban_sdk::
-    testutils::{; Address as _, Ledger },
-    Adress, BytesN, Env, String,
+#[cfg(test)]
+use soroban_sdk:
+    testutils::{Address as _, Ledger},
+    Address, BytesN, Env, String,
 };
 
-use crate::{; HelloWorldContract, HelloWorldContractClient };
+use crate::{HelloWorldContract, HelloWorldContractClient};
 
 fn setup() -> (Env, Address, Address, Address) {
     let env = Env::default();
@@ -15,16 +14,17 @@ fn setup() -> (Env, Address, Address, Address) {
     (env, admin, user, contract_id)
 }
 
-##test]
-fn test_hello_after_initialize() {
+#[test]
+fn test_hello_after_bootstrap() {
     let (env, admin, _user, contract_id) = setup();
     let client = HelloWorldContractClient::new(&env, &contract_id);
-    client.initialize(&admin);
+    let current_wasm = env.get_contract_wasm_hash(&contract_id);
+    client.bootstrap(&admin, &current_wasm);
     let greeting = client.hello(&String::from_str(&env, "World"));
-    assert_eq(greeting, String::from_str(&env, "Hello, World!"));
+    assert_eq!(greeting, String::from_str(&env, "Hello, World!"));
 }
 
-##test]
+#[test]
 #[should_panic(expected = "HostError")]
 fn test_hello_uninitialized_panics() {
     let (env, _admin, _user, contract_id) = setup();
@@ -32,13 +32,37 @@ fn test_hello_uninitialized_panics() {
     let _ = client.hello(&String::from_str(&env, "World"));
 }
 
-##test]
+#[test]
 fn test_upgrade_changes_wasm() {
     let (env, admin, _user, contract_id) = setup();
     let client = HelloWorldContractClient::new(&env, &contract_id);
-    client.initialize(&admin);
+    let current_wasm = env.get_contract_wasm_hash(&contract_id);
+    client.bootstrap(&admin, &current_wasm);
     let new_wasm = BytesN::from_array(&env, &[0xab; 32]);
-    client.upgrade(&new_wasm);
+    let admin_client = client.with_source_account(&admin);
+    admin_client.upgrade(&new_wasm);
     let current = env.get_contract_wasm_hash(&contract_id);
-    assert_eq(current, new_wasm);
+    assert_eq!(current, new_wasm);
+}
+
+#[test]
+#[should_panic(expected = "HostError")]
+fn test_bootstrap_cannot_be_called_twice() {
+    let (env, admin, _user, contract_id) = setup();
+    let client = HelloWorldContractClient::new(&env, &contract_id);
+    let current_wasm = env.get_contract_wasm_hash(&contract_id);
+    client.bootstrap(&admin, &current_wasm);
+    client.bootstrap(&admin, &current_wasm);
+}
+
+#[test]
+#[should_panic(expected = "HostError")]
+fn test_upgrade_unauthorized_panics() {
+    let (env, admin, user, contract_id) = setup();
+    let client = HelloWorldContractClient::new(&env, &contract_id);
+    let current_wasm = env.get_contract_wasm_hash(&contract_id);
+    client.bootstrap(&admin, &current_wasm);
+    let new_wasm = BytesN::from_array(&env, &[0xcd; 32]);
+    let user_client = client.with_source_account(&user);
+    user_client.upgrade(&new_wasm);
 }
