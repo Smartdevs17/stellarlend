@@ -134,6 +134,10 @@ pub fn initialize_risk_params(env: &Env) -> Result<(), RiskParamsError> {
 pub fn get_legacy_risk_params(env: &Env) -> Option<RiskParams> {
     let config_key = RiskParamsDataKey::RiskParamsConfig;
     env.storage()
+        .persistent()
+        .get::<RiskParamsDataKey, RiskParams>(&config_key)
+}
+
 /// Get current risk parameters.
 ///
 /// Reads the packed pool-config slot (issue #722). If only the legacy spread
