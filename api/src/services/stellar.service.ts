@@ -1096,6 +1096,61 @@ export class StellarService {
     return snapshot;
   }
 
+  async getMultiplePoolStates(
+    assets: (string | null)[],
+    opts: { forceRefresh?: boolean } = {}
+  ): Promise<PoolStateSnapshot[]> {
+    const startedAt = Date.now();
+    const epoch = await this.getPoolStateEpoch();
+    
+    // Check cache first if not forcing refresh
+    if (!opts.forceRefresh) {
+      let allCached = true;
+      const cachedResults: PoolStateSnapshot[] = [];
+      for (const asset of assets) {
+        const poolKey = asset ?? NATIVE_POOL_KEY;
+        const cached = poolStateCache.get(`${poolKey}:${epoch}`);
+        if (cached) {
+          cachedResults.push(cached);
+        } else {
+          allCached = false;
+          break;
+        }
+      }
+      
+      if (allCached) {
+        poolStateCacheMetrics.hits += assets.length;
+        poolStateCacheMetrics.lastLoadMs = Date.now() - startedAt;
+        return cachedResults;
+      }
+    }
+
+    poolStateCacheMetrics.misses += assets.length;
+
+    // Build the args vector
+    const assetParams = assets.map(asset => 
+      asset ? new Address(asset).toScVal() : xdr.ScVal.scvVoid()
+    );
+    const vecParam = xdr.ScVal.scvVec(assetParams);
+
+    const raw = await this.simulateContractCall('get_multiple_pool_states', vecParam);
+    
+    const results: PoolStateSnapshot[] = [];
+    if (raw && raw.value() && Array.isArray(raw.value())) {
+      const rawArray = raw.value() as any[];
+      for (let i = 0; i < rawArray.length; i++) {
+        const poolKey = assets[i] ?? NATIVE_POOL_KEY;
+        const snapshot = normalizePoolStateSnapshot(rawArray[i], poolKey);
+        poolStateCache.set(`${poolKey}:${snapshot.epoch}`, snapshot);
+        results.push(snapshot);
+      }
+    }
+
+    poolStateCacheMetrics.rebuilds += assets.length;
+    poolStateCacheMetrics.lastLoadMs = Date.now() - startedAt;
+    return results;
+  }
+
   /**
    * Current global pool-state cache epoch. Used as part of the cache key so a
    * contract-side invalidation transparently drops every stale local entry.

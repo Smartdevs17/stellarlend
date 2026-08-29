@@ -1745,6 +1745,18 @@ impl HelloContract {
         pool_state::load(&env, &asset)
     }
 
+    /// Batch read multiple pool states in a single RPC call.
+    pub fn get_multiple_pool_states(
+        env: Env,
+        assets: Vec<Option<Address>>,
+    ) -> Vec<pool_state::PoolStateSnapshot> {
+        let mut results = Vec::new(&env);
+        for asset in assets {
+            results.push_back(pool_state::load(&env, &asset));
+        }
+        results
+    }
+
     /// Whether a pool's lazy state has been materialized at least once (#721).
     pub fn is_pool_state_initialized(env: Env, asset: Option<Address>) -> bool {
         pool_state::is_initialized(&env, &asset)
