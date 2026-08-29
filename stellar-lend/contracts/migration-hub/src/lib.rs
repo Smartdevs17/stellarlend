@@ -22,33 +22,19 @@ pub struct MigrationHub;
 
 #[contractimpl]
 impl MigrationHub {
-    pub fn bootstrap(env: Env, admin: Address) -> Result<(), MigrationError> {
-        if env.storage().instance().has(&DataKey::Admin) {
-            return Err(MigrationError::AlreadyInitialized);
-        }
-
-        env.storage().instance().set(&DataKey::Admin, &admin);
-
-        Ok(())
-    }
-
-    pub fn initialize(
+    pub fn bootstrap(
         env: Env,
+        admin: Address,
         lending_contract: Address,
         bridge_contract: Address,
         rate_limit: u32,
         deadline: u64,
     ) -> Result<(), MigrationError> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(MigrationError::NotInitialized)?;
-        admin.require_auth();
-
-        if env.storage().instance().has(&DataKey::Config) {
+        if env.storage().instance().has(&DataKey::Admin) {
             return Err(MigrationError::AlreadyInitialized);
         }
+
+        env.storage().instance().set(&DataKey::Admin, &admin);
 
         let config = MigrationConfig {
             lending_contract,
@@ -73,6 +59,8 @@ impl MigrationHub {
 
         Ok(())
     }
+
+
 
     /// Upgrade the contract implementation. Admin only.
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), MigrationError> {
