@@ -333,6 +333,36 @@ impl HelloContract {
         Ok(())
     }
 
+    /// Set pool configuration using the packed storage layout (#713)
+    pub fn set_pool_config(
+        env: Env,
+        caller: Address,
+        pool: Option<Address>,
+        config: storage::PoolConfig,
+    ) -> Result<(), LendingError> {
+        risk_management::require_admin(&env, &caller)?;
+        storage::store_pool_config(&env, &pool, &config)
+            .map_err(|_| LendingError::InvalidParameter)?;
+        pool_state::invalidate(&env, &pool);
+        Ok(())
+    }
+
+    /// Get packed pool configuration (#713)
+    pub fn get_pool_config(
+        env: Env,
+        pool: Option<Address>,
+    ) -> storage::PoolConfig {
+        storage::migrate_from_legacy(&env, &pool).unwrap_or_else(|_| storage::PoolConfig {
+            min_collateral_ratio_bps: 11_000,
+            liquidation_threshold_bps: 10_500,
+            reserve_factor_bps: 1_000,
+            close_factor_bps: 5_000,
+            liquidation_incentive_bps: 1_000,
+            last_update: env.ledger().timestamp(),
+            flags: storage::FLAG_BORROWING_ENABLED | storage::FLAG_COLLATERAL_ENABLED,
+        })
+    }
+
     pub fn borrow_asset(
         env: Env,
         user: Address,

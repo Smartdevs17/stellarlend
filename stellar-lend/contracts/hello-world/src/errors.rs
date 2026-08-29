@@ -175,6 +175,7 @@ impl_from_error!(AnalyticsError, {
     AnalyticsError::InvalidParameter => LendingError::InvalidParameter,
     AnalyticsError::Overflow => LendingError::Overflow,
     AnalyticsError::DataNotFound => LendingError::DataNotFound,
+    AnalyticsError::Unauthorized => LendingError::Unauthorized,
 });
 
 impl_from_error!(BorrowError, {
