@@ -30,7 +30,7 @@ import ratesRoutes from './routes/rates.routes';
 import crossProtocolRoutes from './routes/crossProtocol.routes';
 import developerRoutes from './routes/developer.routes';
 import mevRoutes from './routes/mev.routes';
-import reputationRoutes from './routes/reputation.routes';
+import reputationRoutes from './routes/reputation';
 import socialRoutes from './routes/social.routes';
 import notificationRoutes from './routes/notification.routes';
 import disputeRoutes from './routes/dispute.routes';
