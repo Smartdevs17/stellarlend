@@ -709,6 +709,13 @@ pub fn get_user_balance(env: &Env, user: &Address, _asset: Option<Address>) -> i
 
 /// Get total collateral supply (TVL)
 pub fn get_total_supply(env: &Env, _asset: Option<Address>) -> i128 {
+    get_protocol_analytics(env).total_value_locked
+}
+
+/// Read the aggregate protocol analytics entry, falling back to a zeroed
+/// snapshot when it has not been materialized yet. Used by the lazy pool-state
+/// module (#721) to resolve pool liquidity on demand.
+pub fn get_protocol_analytics(env: &Env) -> ProtocolAnalytics {
     let analytics_key = DepositDataKey::ProtocolAnalytics;
     env.storage()
         .persistent()
@@ -718,7 +725,6 @@ pub fn get_total_supply(env: &Env, _asset: Option<Address>) -> i128 {
             total_borrows: 0,
             total_value_locked: 0,
         })
-        .total_value_locked
 }
 
 /// Update user's collateral balance
