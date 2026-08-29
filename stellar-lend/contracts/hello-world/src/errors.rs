@@ -268,6 +268,7 @@ impl_from_error!(LiquidationError, {
     LiquidationError::PriceNotAvailable => LendingError::PriceUnavailable,
     LiquidationError::InsufficientLiquidation => LendingError::InvalidState,
     LiquidationError::Reentrancy => LendingError::Reentrancy,
+    LiquidationError::UnprofitableLiquidation => LendingError::InvalidState,
 });
 
 impl_from_error!(RateLimitError, {

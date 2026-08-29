@@ -59,22 +59,42 @@ impl<'a> ReentrancyGuard<'a> {
             return Err(ReentrancyError::ReentrancyDetected);
         }
 
-        let mut cross_contract_key = None;
-        if let Some(caller) = env.invoker() {
-            let cc_key = ReentrancyKey::CrossContractLock(caller).into_val(env);
-            if env.storage().temporary().has(&cc_key) {
-                return Err(ReentrancyError::CrossContractReentrancy);
-            }
-            env.storage().temporary().set(&cc_key, &true);
-            cross_contract_key = Some(cc_key);
-        }
-
         env.storage().temporary().set(&storage_key, &true);
 
         Ok(Self {
             env,
             key: storage_key,
-            cross_contract_key,
+            cross_contract_key: None,
+            state_before: GuardState::NotEntered,
+            is_read_only,
+        })
+    }
+
+    /// Like [`ReentrancyGuard::new_with_key`], but also arms a cross-contract lock bound to the
+    /// given caller address. Callers that know their invoker (extracted via `require_auth`) use
+    /// this variant so a re-entering contract is detected even when the same underlying
+    /// `ReentrancyKey` differs.
+    pub fn new_with_caller(
+        env: &'a Env,
+        key: ReentrancyKey,
+        caller: &Address,
+        is_read_only: bool,
+    ) -> Result<Self, ReentrancyError> {
+        let cc_key = ReentrancyKey::CrossContractLock(caller.clone()).into_val(env);
+        if env.storage().temporary().has(&cc_key) {
+            return Err(ReentrancyError::CrossContractReentrancy);
+        }
+        let storage_key = key.clone().into_val(env);
+        if env.storage().temporary().has(&storage_key) {
+            return Err(ReentrancyError::ReentrancyDetected);
+        }
+        env.storage().temporary().set(&cc_key, &true);
+        env.storage().temporary().set(&storage_key, &true);
+
+        Ok(Self {
+            env,
+            key: storage_key,
+            cross_contract_key: Some(cc_key),
             state_before: GuardState::NotEntered,
             is_read_only,
         })

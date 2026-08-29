@@ -1304,6 +1304,7 @@ dependencies = [
  "stellarlend-amm",
  "stellarlend-lending",
  "stellarlend-oracle-client",
+ "stellarlend-shared-deadline",
 ]
 
 [[package]]

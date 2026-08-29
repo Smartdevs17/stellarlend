@@ -8,9 +8,13 @@ pub mod amm;
 pub mod analytics;
 pub mod borrow;
 pub mod bridge;
+pub mod circuit_breaker;
 pub mod config;
+pub mod credit_score;
 pub mod cross_asset;
+pub mod debt_token;
 pub mod deposit;
+pub mod emergency_withdrawal;
 pub mod errors;
 pub mod events;
 pub mod flash_loan;
@@ -26,18 +30,22 @@ pub mod oracle;
 pub mod pool_state;
 pub mod rate_limiter;
 pub mod rate_guard;
+pub mod rebalancing;
 pub mod recovery;
 pub mod reentrancy;
 pub mod reputation;
 pub mod repay;
 pub mod reserve;
+pub mod reserve_factor;
 pub mod risk_management;
 pub mod risk_params;
 pub mod safe_math;
 pub mod storage;
 pub mod treasury;
-pub mod test_utils;
-pub mod tests;
+#[cfg(test)]
+mod test_utils;
+#[cfg(test)]
+mod tests;
 pub mod types;
 pub mod withdraw;
 
@@ -691,6 +699,17 @@ impl HelloContract {
         .map_err(Into::into)
     }
 
+    /// Batch liquidation — processes multiple borrower positions in one call,
+    /// skipping unprofitable items via `UnprofitableLiquidation` (issue #723).
+    pub fn batch_liquidate(
+        env: Env,
+        liquidator: Address,
+        requests: Vec<liquidate::BatchLiquidationRequest>,
+    ) -> Result<Vec<liquidate::BatchLiquidationResult>, LendingError> {
+        liquidator.require_auth();
+        liquidate::batch_liquidate(&env, liquidator, requests).map_err(Into::into)
+    }
+
     pub fn configure_mev_protection(
         env: Env,
         caller: Address,
@@ -816,6 +835,44 @@ impl HelloContract {
 
     pub fn get_mev_commit(env: Env, commit_id: u64) -> Option<mev_protection::PendingCommit> {
         mev_protection::get_commit(&env, commit_id)
+    }
+
+    pub fn get_mev_sandwich_attack_log(
+        env: Env,
+    ) -> Vec<mev_protection::SandwichAttackRecord> {
+        mev_protection::get_sandwich_attack_log(&env)
+    }
+
+    pub fn get_mev_sandwich_report(
+        env: Env,
+    ) -> mev_protection::SandwichAttackReport {
+        mev_protection::get_sandwich_report(&env)
+    }
+
+    pub fn get_mev_auction_stats(env: Env) -> mev_protection::AuctionStats {
+        mev_protection::get_auction_stats(&env)
+    }
+
+    pub fn get_mev_gas_bid_stats(
+        env: Env,
+        operation: mev_protection::SensitiveOperation,
+        asset: Option<Address>,
+    ) -> mev_protection::GasBidStats {
+        mev_protection::get_gas_bid_stats(&env, operation, asset)
+    }
+
+    pub fn get_mev_liquidation_auction(
+        env: Env,
+        auction_id: u64,
+    ) -> Option<mev_protection::LiquidationAuction> {
+        mev_protection::get_liquidation_auction(&env, auction_id)
+    }
+
+    pub fn get_mev_liquidation_bid(
+        env: Env,
+        bid_id: u64,
+    ) -> Option<mev_protection::LiquidationAuctionBid> {
+        mev_protection::get_liquidation_bid(&env, bid_id)
     }
 
     pub fn preview_mev_fee_bps(
@@ -999,6 +1056,20 @@ impl HelloContract {
     ) -> Result<(), LendingError> {
         risk_params::require_min_collateral_ratio(&env, collateral_value, debt_value)
             .map_err(Into::into)
+    }
+
+    /// Migrate any legacy (spread) pool config into the packed slot (issue #722).
+    /// Returns `true` if a migration ran. Idempotent.
+    pub fn get_risk_params_layout(
+        env: Env,
+    ) -> Result<u128, LendingError> {
+        Ok(risk_params::get_risk_params(&env)
+            .map(|p| risk_params::pack_risk_params(&p))
+            .unwrap_or(0))
+    }
+
+    pub fn migrate_pool_config_packed(env: Env) -> bool {
+        risk_params::migrate_from_legacy(&env)
     }
 
     // -------------------------------------------------------------------------
@@ -2031,28 +2102,6 @@ impl HelloContract {
         amm::get_lp_token_balance(&env, &asset)
     }
 
-    /// Set the withdrawal buffer BPS for an asset (admin-only).
-    pub fn amm_set_withdrawal_buffer(
-        env: Env,
-        admin: Address,
-        asset: Address,
-        buffer_bps: i128,
-    ) -> Result<(), LendingError> {
-        amm::set_withdrawal_buffer(&env, admin, asset, buffer_bps)
-            .map_err(|_| LendingError::InvalidAmount)
-    }
-
-    /// Record accrued LP fees for an asset (admin-only).
-    pub fn amm_record_lp_fees(
-        env: Env,
-        admin: Address,
-        asset: Address,
-        fee_amount: i128,
-    ) -> Result<(), LendingError> {
-        amm::record_lp_fees(&env, admin, asset, fee_amount)
-            .map_err(|_| LendingError::InvalidAmount)
-    }
-
     /// Auto-compound accrued LP fees back into the LP position for a single asset.
     ///
     /// Returns the total amount compounded (0 when nothing was accrued).
@@ -2062,17 +2111,6 @@ impl HelloContract {
         asset: Address,
     ) -> Result<i128, LendingError> {
         amm::compound_lp_fees(&env, admin, asset)
-            .map_err(|_| LendingError::InvalidAmount)
-    }
-
-    /// Calculate optimal AMM allocation given current pool utilization.
-    pub fn amm_calculate_optimal_allocation(
-        env: Env,
-        asset: Address,
-        total_liquidity: i128,
-        borrowed_amount: i128,
-    ) -> Result<amm::AllocationSuggestion, LendingError> {
-        amm::calculate_optimal_allocation(&env, &asset, total_liquidity, borrowed_amount)
             .map_err(|_| LendingError::InvalidAmount)
     }
 
@@ -2104,22 +2142,6 @@ impl HelloContract {
     ) -> Result<amm::OptimizationResult, LendingError> {
         amm::optimize_allocation(&env, &pools)
             .map_err(|_| LendingError::InvalidAmount)
-    }
-
-    /// Update the impermanent-loss tracking snapshot for an asset.
-    /// Returns `true` when the IL alert threshold has been crossed.
-    pub fn amm_update_il_tracking(
-        env: Env,
-        asset: Address,
-        current_price: i128,
-    ) -> Result<bool, LendingError> {
-        amm::update_il_tracking(&env, &asset, current_price)
-            .map_err(|_| LendingError::InvalidAmount)
-    }
-
-    /// Return the current IL snapshot for an asset, or `None` if not tracked.
-    pub fn amm_get_il_snapshot(env: Env, asset: Address) -> Option<amm::IlSnapshot> {
-        amm::get_il_snapshot(&env, &asset)
     }
 
     /// Update the utilization snapshot for a pool.
@@ -2576,14 +2598,5 @@ mod treasury_test;
     pub fn get_circuit_breaker_whitelist(env: Env) -> Vec<Address> {
         circuit_breaker::get_whitelist(&env)
     }
-#[cfg(test)]
-#[path = "tests/diff_harness.rs"]
-mod diff_harness;
-#[cfg(test)]
-#[path = "tests/differential_test.rs"]
-mod differential_test;
-#[cfg(test)]
-#[path = "tests/migration_verification_test.rs"]
-mod migration_verification_test;
 #[cfg(test)]
 mod cross_asset_risk_test;
