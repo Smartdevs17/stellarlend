@@ -34,6 +34,7 @@ impl MigrationHub {
             return Err(MigrationError::AlreadyInitialized);
         }
 
+        admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
 
         let config = MigrationConfig {
