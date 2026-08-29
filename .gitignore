@@ -90,3 +90,13 @@ Thumbs.db
 **/.stryker-tmp/
 **/reports/mutation/
 **/trace-output/
+
+# mimo AI tooling outputs
+.mimo/
+**/.mimo/
+mimo-session*.json
+mimo-context*.json
+mimo_*.log
+
+issue.md
+pr.md

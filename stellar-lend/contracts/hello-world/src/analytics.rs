@@ -1549,3 +1549,132 @@ pub fn portfolio_risk_score(env: &Env, user: &Address) -> Result<i128, Analytics
     };
     Ok(if hf_risk > 10_000 { 10_000 } else { hf_risk })
 }
+
+// -------------------------------------------------------------------------
+// Position Health Simulation & Scenario Modeling (Issue #731)
+// -------------------------------------------------------------------------
+
+/// Scenario parameters for what-if position health simulation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PositionSimulationScenario {
+    /// Percentage change in collateral price in basis points (-2000 = -20%, 1500 = +15%).
+    pub price_change_bps: i128,
+    /// Hypothetical collateral deposit amount.
+    pub deposit_amount: i128,
+    /// Hypothetical collateral withdrawal amount.
+    pub withdraw_amount: i128,
+    /// Hypothetical new borrow amount.
+    pub borrow_amount: i128,
+    /// Hypothetical debt repayment amount.
+    pub repay_amount: i128,
+}
+
+/// Comprehensive result of a position health simulation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PositionSimulationResult {
+    pub initial_collateral: i128,
+    pub initial_debt: i128,
+    pub simulated_collateral: i128,
+    pub simulated_debt: i128,
+    pub initial_health_factor: i128,
+    pub simulated_health_factor: i128,
+    pub initial_risk_level: i128,
+    pub simulated_risk_level: i128,
+    pub is_liquidatable: bool,
+    pub liquidation_price_drop_bps: i128,
+    pub max_withdrawable_amount: i128,
+    pub max_borrowable_amount: i128,
+}
+
+/// Simulate position health for an existing user account under a hypothetical scenario.
+pub fn simulate_position_health(
+    env: &Env,
+    user: &Address,
+    scenario: PositionSimulationScenario,
+) -> Result<PositionSimulationResult, AnalyticsError> {
+    let position = get_user_position_summary(env, user)?;
+    simulate_what_if(env, position.collateral, position.debt, scenario)
+}
+
+/// Pure what-if analysis simulating health changes given arbitrary collateral and debt.
+pub fn simulate_what_if(
+    _env: &Env,
+    collateral: i128,
+    debt: i128,
+    scenario: PositionSimulationScenario,
+) -> Result<PositionSimulationResult, AnalyticsError> {
+    let initial_health_factor = if debt == 0 {
+        i128::MAX
+    } else {
+        (collateral.saturating_mul(BASIS_POINTS))
+            .checked_div(debt)
+            .ok_or(AnalyticsError::Overflow)?
+    };
+    let initial_risk_level = calculate_user_risk_level(initial_health_factor);
+
+    // Apply deposit and withdrawal operations to collateral
+    let collateral_after_ops = collateral
+        .saturating_add(scenario.deposit_amount)
+        .saturating_sub(scenario.withdraw_amount);
+
+    // Apply price change (in bps, e.g. -2000 = -20%, so price factor is 10000 - 2000 = 8000)
+    let price_factor = (BASIS_POINTS.saturating_add(scenario.price_change_bps)).max(0);
+    let simulated_collateral = (collateral_after_ops.saturating_mul(price_factor)) / BASIS_POINTS;
+
+    // Apply borrow and repay operations to debt
+    let simulated_debt = debt
+        .saturating_add(scenario.borrow_amount)
+        .saturating_sub(scenario.repay_amount)
+        .max(0);
+
+    let simulated_health_factor = if simulated_debt == 0 {
+        i128::MAX
+    } else {
+        (simulated_collateral.saturating_mul(BASIS_POINTS))
+            .checked_div(simulated_debt)
+            .unwrap_or(0)
+    };
+    let simulated_risk_level = calculate_user_risk_level(simulated_health_factor);
+
+    // Liquidation occurs if simulated health factor drops below 10,000 bps (1.0x)
+    let is_liquidatable = simulated_health_factor < BASIS_POINTS;
+
+    // Calculate the price drop percentage (bps) that would cause liquidation
+    let liquidation_price_drop_bps = if collateral == 0 || debt == 0 || collateral <= debt {
+        0
+    } else {
+        ((collateral - debt).saturating_mul(BASIS_POINTS)) / collateral
+    };
+
+    // Calculate maximum safe withdrawal amount before liquidation threshold
+    let max_withdrawable_amount = if collateral <= debt {
+        0
+    } else {
+        collateral - debt
+    };
+
+    // Calculate maximum safe borrow amount before liquidation threshold
+    let max_borrowable_amount = if collateral <= debt {
+        0
+    } else {
+        collateral - debt
+    };
+
+    Ok(PositionSimulationResult {
+        initial_collateral: collateral,
+        initial_debt: debt,
+        simulated_collateral,
+        simulated_debt,
+        initial_health_factor,
+        simulated_health_factor,
+        initial_risk_level,
+        simulated_risk_level,
+        is_liquidatable,
+        liquidation_price_drop_bps,
+        max_withdrawable_amount,
+        max_borrowable_amount,
+    })
+}
+

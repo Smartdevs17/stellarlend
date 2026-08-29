@@ -30,7 +30,7 @@ import ratesRoutes from './routes/rates.routes';
 import crossProtocolRoutes from './routes/crossProtocol.routes';
 import developerRoutes from './routes/developer.routes';
 import mevRoutes from './routes/mev.routes';
-import reputationRoutes from './routes/reputation.routes';
+import reputationRoutes from './routes/reputation';
 import socialRoutes from './routes/social.routes';
 import notificationRoutes from './routes/notification.routes';
 import disputeRoutes from './routes/dispute.routes';
@@ -69,6 +69,9 @@ import debtTokenRoutes from './routes/debtToken.routes';
 import bridgeRoutes from './routes/bridge.routes';
 import complianceRoutes from './routes/v1/compliance';
 import eventsRoutes from './routes/events';
+import simulationRoutes from './routes/simulation';
+import yieldAggregatorRoutes from './routes/yield-aggregator.routes';
+import feesRoutes from './routes/fees.routes';
 
 import compression from 'compression';
 import { errorHandler } from './middleware/errorHandler';
@@ -279,6 +282,9 @@ app.use('/api/rate-limit', rateLimitRoutes);
 app.use('/api/debt-token', debtTokenRoutes);
 app.use('/api/bridge', bridgeRoutes);
 app.use('/api/events', eventsRoutes);
+app.use('/api/simulation', simulationRoutes);
+app.use('/api/yield-aggregator', yieldAggregatorRoutes);
+app.use('/api/fees', feesRoutes);
 
 app.use(errorHandler);
 

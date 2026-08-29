@@ -1697,6 +1697,25 @@ impl HelloContract {
         analytics::generate_user_report(&env, &user).map_err(Into::into)
     }
 
+    /// Read-only position health simulation for an existing account under hypothetical price/amount scenarios (Issue #731).
+    pub fn simulate_position_health(
+        env: Env,
+        user: Address,
+        scenario: analytics::PositionSimulationScenario,
+    ) -> Result<analytics::PositionSimulationResult, LendingError> {
+        analytics::simulate_position_health(&env, &user, scenario).map_err(Into::into)
+    }
+
+    /// Pure what-if analysis simulating position health given hypothetical collateral & debt (Issue #731).
+    pub fn simulate_what_if(
+        env: Env,
+        collateral: i128,
+        debt: i128,
+        scenario: analytics::PositionSimulationScenario,
+    ) -> Result<analytics::PositionSimulationResult, LendingError> {
+        analytics::simulate_what_if(&env, collateral, debt, scenario).map_err(Into::into)
+    }
+
     /// Read-only recent protocol activity feed query.
     pub fn get_recent_activity(
         env: Env,
@@ -2365,8 +2384,29 @@ impl HelloContract {
     }
 
     // -------------------------------------------------------------------------
-    // Reputation (Issue #728)
+    // Reputation & Lending Pool Deployer (Issue #849)
     // -------------------------------------------------------------------------
+
+    pub fn reputation_initialize(
+        env: Env,
+        admin: Address,
+    ) -> Result<(), LendingError> {
+        reputation::initialize(&env, &admin).map_err(reputation_err)
+    }
+
+    pub fn reputation_set_deployment_config(
+        env: Env,
+        admin: Address,
+        config: reputation::PoolDeploymentConfig,
+    ) -> Result<(), LendingError> {
+        reputation::set_deployment_config(&env, &admin, config).map_err(reputation_err)
+    }
+
+    pub fn reputation_get_deployment_config(
+        env: Env,
+    ) -> reputation::PoolDeploymentConfig {
+        reputation::get_deployment_config(&env)
+    }
 
     pub fn record_deployer_success(
         env: Env,
@@ -2379,14 +2419,30 @@ impl HelloContract {
         env: Env,
         user: Address,
         on_time: bool,
-    ) -> Result<reputation::ParticipantReputation, LendingError> {
+    ) -> Result<reputation::UserReputation, LendingError> {
         reputation::record_user_repayment(&env, user, on_time).map_err(reputation_err)
+    }
+
+    pub fn record_user_borrow(
+        env: Env,
+        user: Address,
+        amount: i128,
+    ) -> Result<reputation::UserReputation, LendingError> {
+        reputation::record_user_borrow(&env, user, amount).map_err(reputation_err)
+    }
+
+    pub fn record_user_default(
+        env: Env,
+        admin: Address,
+        user: Address,
+    ) -> Result<reputation::UserReputation, LendingError> {
+        reputation::record_user_default(&env, admin, user).map_err(reputation_err)
     }
 
     pub fn get_user_reputation(
         env: Env,
         address: Address,
-    ) -> Result<reputation::ParticipantReputation, LendingError> {
+    ) -> Result<reputation::UserReputation, LendingError> {
         reputation::get_user_reputation(&env, &address).ok_or(LendingError::DataNotFound)
     }
 
@@ -2397,8 +2453,90 @@ impl HelloContract {
         reputation::get_deployer_reputation(&env, &address).ok_or(LendingError::DataNotFound)
     }
 
+    pub fn get_deployer_reputation_full(
+        env: Env,
+        address: Address,
+    ) -> Result<reputation::DeployerReputation, LendingError> {
+        reputation::get_deployer_reputation_full(&env, &address).map_err(reputation_err)
+    }
+
     pub fn get_reputation_fee_discount(env: Env, address: Address) -> u32 {
         reputation::get_fee_discount_bps(&env, &address)
+    }
+
+    pub fn get_reputation_borrow_limit_multiplier(env: Env, address: Address) -> u32 {
+        reputation::get_borrow_limit_multiplier_bps(&env, &address)
+    }
+
+    pub fn check_user_reputation_access(
+        env: Env,
+        address: Address,
+        min_tier: reputation::ReputationTier,
+    ) -> Result<bool, LendingError> {
+        reputation::check_user_access(&env, &address, min_tier).map_err(reputation_err)
+    }
+
+    pub fn check_deployer_eligibility(
+        env: Env,
+        deployer: Address,
+    ) -> Result<bool, LendingError> {
+        reputation::check_deployer_eligibility(&env, &deployer).map_err(reputation_err)
+    }
+
+    // ── Lending Pool Deployer ──────────────────────────────────────────────
+
+    pub fn deploy_pool(
+        env: Env,
+        deployer: Address,
+        pool_address: Address,
+        initial_deposit: i128,
+    ) -> Result<reputation::DeployerReputation, LendingError> {
+        reputation::record_pool_deployment(&env, deployer, pool_address, initial_deposit)
+            .map_err(reputation_err)
+    }
+
+    pub fn update_pool_metrics(
+        env: Env,
+        admin: Address,
+        pool_address: Address,
+        tvl_delta: i128,
+        borrowers_delta: u32,
+        liquidation_delta: u32,
+        borrowers_add: bool,
+    ) -> Result<(), LendingError> {
+        reputation::update_pool_metrics(
+            &env,
+            admin,
+            pool_address,
+            tvl_delta,
+            borrowers_delta,
+            liquidation_delta,
+            borrowers_add,
+        )
+        .map_err(reputation_err)
+    }
+
+    pub fn record_pool_abandonment(
+        env: Env,
+        admin: Address,
+        pool_address: Address,
+    ) -> Result<reputation::DeployerReputation, LendingError> {
+        reputation::record_pool_abandonment(&env, admin, pool_address).map_err(reputation_err)
+    }
+
+    pub fn get_pool_record(
+        env: Env,
+        pool_address: Address,
+    ) -> Result<reputation::DeployerPoolRecord, LendingError> {
+        reputation::get_pool_record(&env, &pool_address).map_err(reputation_err)
+    }
+
+    pub fn reputation_apply_decay(
+        env: Env,
+        address: Address,
+        is_deployer: bool,
+    ) -> Result<(), LendingError> {
+        reputation::apply_decay(&env, address, is_deployer).map_err(reputation_err)
     }
 
     // -------------------------------------------------------------------------
@@ -2447,6 +2585,10 @@ fn reputation_err(error: reputation::ReputationError) -> LendingError {
         reputation::ReputationError::Unauthorized => LendingError::Unauthorized,
         reputation::ReputationError::NotFound => LendingError::DataNotFound,
         reputation::ReputationError::AccessDenied => LendingError::LimitExceeded,
+        reputation::ReputationError::InvalidParameter => LendingError::InvalidParameter,
+        reputation::ReputationError::AlreadyExists => LendingError::AlreadyExists,
+        reputation::ReputationError::RateLimitExceeded => LendingError::LimitExceeded,
+        reputation::ReputationError::InsufficientReputation => LendingError::InsufficientCollateral,
     }
 }
 
