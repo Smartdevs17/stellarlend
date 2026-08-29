@@ -462,7 +462,7 @@ pub enum AllocationAction {
 pub struct OptimizationResult {
     pub recommendations: Vec<AllocationRecommendation>,
     pub total_capital_efficiency_bps: i128,
-    pub estimated_yield_improvement_bps: i128,
+    pub yield_improvement_bps: i128,
 }
 
 /// Analyze pool utilization and recommend allocation changes.
@@ -553,7 +553,7 @@ pub fn optimize_allocation(
     Ok(OptimizationResult {
         recommendations,
         total_capital_efficiency_bps: efficiency,
-        estimated_yield_improvement_bps: yield_improvement,
+        yield_improvement_bps: yield_improvement,
     })
 }
 

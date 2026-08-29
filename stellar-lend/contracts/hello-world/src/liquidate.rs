@@ -128,6 +128,35 @@ pub fn calculate_dynamic_penalty(
     Ok(penalty.min(MAX_PENALTY_BPS))
 }
 
+/// Minimum net profit (in bps of the debt repaid) below which a liquidation is
+/// aborted to save gas (issue #723). 20 bps = 0.2% of the repaid debt.
+const MIN_LIQUIDATOR_PROFIT_BPS: i128 = 20;
+
+/// Early-exit guard: abort a liquidation when the liquidator's net recovery
+/// (seized collateral minus the protocol fee, in debt terms) does not clear
+/// the repaid debt plus a minimum profit floor. This skips the gas-heavy
+/// token-transfer, position-mutation and event path for unprofitable
+/// positions. `batch_liquidate` records the resulting
+/// `LiquidationError::UnprofitableLiquidation` per item instead of blocking
+/// the whole batch.
+fn abort_if_unprofitable(
+    debt_repayed: i128,
+    collateral_seized: i128,
+    protocol_fee: i128,
+) -> Result<(), LiquidationError> {
+    if debt_repayed <= 0 {
+        return Err(LiquidationError::InvalidAmount);
+    }
+    let net = collateral_seized.saturating_sub(protocol_fee);
+    let profit_floor = debt_repayed
+        .saturating_mul(MIN_LIQUIDATOR_PROFIT_BPS)
+        .saturating_div(10_000);
+    if net < debt_repayed.saturating_add(profit_floor) {
+        return Err(LiquidationError::UnprofitableLiquidation);
+    }
+    Ok(())
+}
+
 /// Errors that can occur during liquidation operations
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -157,6 +186,8 @@ pub enum LiquidationError {
     InsufficientLiquidation = 11,
     /// Reentrancy detected
     Reentrancy = 12,
+    /// Liquidation is unprofitable for the liquidator (net recovery below floor)
+    UnprofitableLiquidation = 13,
 }
 
 /// Annual interest rate in basis points (e.g., 500 = 5% per year)
@@ -511,6 +542,11 @@ pub fn liquidate(
     let liquidator_collateral = actual_collateral_seized
         .checked_sub(protocol_liquidation_fee)
         .ok_or(LiquidationError::Overflow)?;
+
+    // Early-exit: abort when the liquidation would not cover the repaid debt
+    // plus a minimum profit floor (issue #723). Saves the gas-heavy transfer,
+    // storage-mutation and event path for unprofitable positions.
+    abort_if_unprofitable(actual_debt_liquidated, collateral_seized, protocol_liquidation_fee)?;
 
     // Check liquidator has sufficient balance to repay debt
     if let Some(ref debt_addr) = debt_asset {

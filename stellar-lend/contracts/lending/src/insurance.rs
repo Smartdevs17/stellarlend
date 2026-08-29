@@ -172,7 +172,7 @@ pub struct InsuranceClaimCancelledEvent {
 
 #[contractevent(topics = ["ins_claim_history_cleared"])]
 #[derive(Clone, Debug)]
-pub struct InsuranceClaimHistoryClearedEvent {
+pub struct ClaimHistoryClearedEvent {
     pub admin: Address,
     pub timestamp: u64,
 }

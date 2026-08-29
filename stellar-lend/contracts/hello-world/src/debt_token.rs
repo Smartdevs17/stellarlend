@@ -174,7 +174,7 @@ pub struct DebtTokenListedEvent {
     pub timestamp: u64,
 }
 
-#[contractevent]
+#[contractevent(topics = ["debt_listing_cancelled"])]
 #[derive(Clone, Debug)]
 pub struct DebtTokenListingCancelledEvent {
     pub token_id: u64,

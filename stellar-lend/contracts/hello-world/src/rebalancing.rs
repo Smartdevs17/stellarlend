@@ -388,7 +388,7 @@ pub fn execute_batch_rebalancing(env: &Env, caller: Address, users: Vec<Address>
 fn execute_collateral_optimization(
     env: &Env,
     user: &Address,
-    position_summary: &cross_asset::UserPositionSummary,
+    position_summary: &crate::cross_asset::UserPositionSummary,
     config: &RebalancingConfig,
 ) -> Result<(), RebalancingError> {
     // Estimate gas cost for rebalancing
@@ -423,7 +423,7 @@ fn execute_collateral_optimization(
 fn execute_efficiency_optimization(
     env: &Env,
     user: &Address,
-    position_summary: &cross_asset::UserPositionSummary,
+    position_summary: &crate::cross_asset::UserPositionSummary,
     config: &RebalancingConfig,
 ) -> Result<(), RebalancingError> {
     // Similar to collateral optimization but focuses on efficiency
@@ -454,7 +454,7 @@ pub struct SwapDecision {
 fn calculate_optimal_swap(
     env: &Env,
     user: &Address,
-    position_summary: &cross_asset::UserPositionSummary,
+    position_summary: &crate::cross_asset::UserPositionSummary,
     config: &RebalancingConfig,
 ) -> Result<SwapDecision, RebalancingError> {
     // Simplified implementation - in production, this would:
@@ -514,7 +514,7 @@ fn execute_amm_swap(
 fn estimate_rebalancing_gas_cost(
     env: &Env,
     user: &Address,
-    position_summary: &cross_asset::UserPositionSummary,
+    position_summary: &crate::cross_asset::UserPositionSummary,
 ) -> i128 {
     // Simplified gas estimation based on position complexity
     // In production, this would be more sophisticated

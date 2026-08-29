@@ -266,3 +266,44 @@ pub const DELEGATION_DEADLINE: u64 = 24 * 60 * 60; // 24 hours
 pub const MAX_DELEGATION_DEPTH: u32 = 3;
 pub const PROPOSAL_RATE_LIMIT: u32 = 5;
 pub const PROPOSAL_RATE_WINDOW: u64 = 24 * 60 * 60; // 24 hours
+pub const MAX_DESCRIPTION_LEN: u32 = 2_000; // Max chars for governance proposal descriptions
+pub const DEFAULT_RECOVERY_DELAY: u64 = 2 * 24 * 60 * 60; // 2 days
+
+// ============================================================================
+// Emergency Withdrawal (issue #446)
+// ============================================================================
+
+/// Trigger source for an emergency state.
+#[contracttype]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum EmergencyTrigger {
+    Admin = 0,
+    CircuitBreaker = 1,
+    OracleFailure = 2,
+}
+
+/// Protocol-wide emergency state.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EmergencyState {
+    pub is_active: bool,
+    pub trigger: EmergencyTrigger,
+    pub started_at: u64,
+    pub window_opens_at: u64,
+    pub window_closes_at: u64,
+    pub withdrawal_cap_bps: i128,
+    pub total_withdrawn_this_window: i128,
+    pub bad_debt: i128,
+}
+
+/// Per-user withdrawal record during an emergency window.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EmergencyWithdrawal {
+    pub user: Address,
+    pub asset: Option<Address>,
+    pub amount: i128,
+    pub withdrawn_at: u64,
+    pub loss_share_bps: i128,
+}

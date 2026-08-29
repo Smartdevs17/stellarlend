@@ -65,16 +65,13 @@ jobs:
 
       - name: Run gas benchmark suite
         run: |
-          cd stellar-lend
-          GAS_BENCHMARK_OUTPUT=benchmarks/gas-current.json cargo test --package hello-world gas_benchmark -- --nocapture
+          bash scripts/gas-report.sh report > stellar-lend/benchmarks/gas-current.json
 
       - name: Compare gas benchmarks against baseline
         run: |
-          cd stellar-lend
-          python3 scripts/check_gas_benchmarks.py \
-            --baseline benchmarks/gas-baseline.json \
-            --current benchmarks/gas-current.json \
-            --max-regression-pct 10
+          bash scripts/gas-report.sh baseline > /tmp/gas-base.json
+          bash scripts/gas-report.sh compare /tmp/gas-base.json stellar-lend/benchmarks/gas-current.json > stellar-lend/benchmarks/gas-comparison.md
+          bash scripts/gas-report.sh check stellar-lend/benchmarks/comparison.json
 
       - name: Upload gas benchmark report
         if: always()

@@ -25,6 +25,7 @@
 use soroban_sdk::{contracterror, contracttype, Address, Env, IntoVal};
 
 use crate::deposit::{DepositDataKey, ProtocolAnalytics};
+use crate::storage::set_temp_lending_index;
 
 /// Errors that can occur during interest rate operations
 #[contracterror]

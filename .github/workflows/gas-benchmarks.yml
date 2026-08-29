@@ -21,9 +21,6 @@ on:
         description: "Compare against baseline and enforce the 10% regression gate"
         required: false
         default: "true"
-=======
-on: workflow_dispatch
->>>>>>> main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

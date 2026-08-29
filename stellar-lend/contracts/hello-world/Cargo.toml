@@ -10,10 +10,12 @@ doctest = false
 
 [dependencies]
 shared-events = { path = "../shared-events" }
+stellarlend-flash-loan = { package = "flash-loan", path = "../flash-loan" }
 soroban-sdk = { workspace = true }
 soroban-token-sdk = { workspace = true }
 stellarlend-amm = { path = "../amm" }
 stellarlend-oracle-client = { path = "../../packages/oracle-client" }
+stellarlend-shared-deadline = { path = "../shared-deadline" }
 stellar-contract-utils = { version = "0.7.2" }
 stellar-macros = { version = "0.6.0" }
 

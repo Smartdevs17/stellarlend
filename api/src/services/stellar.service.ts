@@ -46,6 +46,116 @@ const protocolStatsCache = new BoundedTtlCache<ProtocolStatsResponse>({
   maxEntries: 1,
 });
 
+// ─── Lazy pool-state loading (#721) ──────────────────────────────────────────
+
+/** Sentinel cache key for the native (XLM) pool. */
+const NATIVE_POOL_KEY = 'native';
+const POOL_STATE_EPOCH_KEY = 'pool-state-epoch';
+
+/** Consolidated on-chain pool-state snapshot, mirrored from the contract. */
+export interface PoolStateSnapshot {
+  pool: string;
+  epoch: number;
+  builtAt: number;
+  lazilyInitialized: boolean;
+  borrowRateBps: string;
+  supplyRateBps: string;
+  utilizationBps: string;
+  borrowIndex: string;
+  supplyIndex: string;
+  minCollateralRatioBps: string;
+  liquidationThresholdBps: string;
+  closeFactorBps: string;
+  liquidationIncentiveBps: string;
+  totalDeposits: string;
+  totalBorrows: string;
+  totalValueLocked: string;
+  availableLiquidity: string;
+  reserveBalance: string;
+  reserveFactorBps: string;
+}
+
+interface PoolStateCacheMetrics {
+  hits: number;
+  misses: number;
+  rebuilds: number;
+  lastLoadMs: number;
+  slowestLoadMs: number;
+  maxSeenEpoch: number;
+}
+
+const poolStateCache = new BoundedTtlCache<PoolStateSnapshot>({
+  ttlMs: config.cache.poolTtlMs,
+  maxEntries: 64,
+});
+
+// Epoch is cheap to re-read but caching it briefly keeps warm reads fast.
+const poolStateEpochCache = new BoundedTtlCache<number>({
+  ttlMs: Math.min(config.cache.poolTtlMs, 5000),
+  maxEntries: 1,
+});
+
+const poolStateCacheMetrics: PoolStateCacheMetrics = {
+  hits: 0,
+  misses: 0,
+  rebuilds: 0,
+  lastLoadMs: 0,
+  slowestLoadMs: 0,
+  maxSeenEpoch: 0,
+};
+
+function pickField(source: any, ...names: string[]): unknown {
+  if (source == null) return undefined;
+  for (const name of names) {
+    if (source[name] !== undefined && source[name] !== null) return source[name];
+  }
+  return undefined;
+}
+
+/** Normalize a raw `get_pool_state` simulation result into a typed snapshot. */
+function normalizePoolStateSnapshot(raw: any, poolKey: string): PoolStateSnapshot {
+  const src = raw ?? {};
+  const poolValue = pickField(src, 'pool');
+  return {
+    pool: poolValue ? String(poolValue) : poolKey,
+    epoch: toSafeNumber(pickField(src, 'epoch') ?? 0),
+    builtAt: toSafeNumber(pickField(src, 'built_at', 'builtAt') ?? 0),
+    lazilyInitialized: Boolean(pickField(src, 'lazily_initialized', 'lazilyInitialized')),
+    borrowRateBps: toIntegerString(pickField(src, 'borrow_rate_bps', 'borrowRateBps') ?? 0),
+    supplyRateBps: toIntegerString(pickField(src, 'supply_rate_bps', 'supplyRateBps') ?? 0),
+    utilizationBps: toIntegerString(pickField(src, 'utilization_bps', 'utilizationBps') ?? 0),
+    borrowIndex: toIntegerString(pickField(src, 'borrow_index', 'borrowIndex') ?? 0),
+    supplyIndex: toIntegerString(pickField(src, 'supply_index', 'supplyIndex') ?? 0),
+    minCollateralRatioBps: toIntegerString(
+      pickField(src, 'min_collateral_ratio_bps', 'minCollateralRatioBps') ?? 0
+    ),
+    liquidationThresholdBps: toIntegerString(
+      pickField(src, 'liquidation_threshold_bps', 'liquidationThresholdBps') ?? 0
+    ),
+    closeFactorBps: toIntegerString(pickField(src, 'close_factor_bps', 'closeFactorBps') ?? 0),
+    liquidationIncentiveBps: toIntegerString(
+      pickField(src, 'liquidation_incentive_bps', 'liquidationIncentiveBps') ?? 0
+    ),
+    totalDeposits: toIntegerString(pickField(src, 'total_deposits', 'totalDeposits') ?? 0),
+    totalBorrows: toIntegerString(pickField(src, 'total_borrows', 'totalBorrows') ?? 0),
+    totalValueLocked: toIntegerString(
+      pickField(src, 'total_value_locked', 'totalValueLocked') ?? 0
+    ),
+    availableLiquidity: toIntegerString(
+      pickField(src, 'available_liquidity', 'availableLiquidity') ?? 0
+    ),
+    reserveBalance: toIntegerString(pickField(src, 'reserve_balance', 'reserveBalance') ?? 0),
+    reserveFactorBps: toIntegerString(
+      pickField(src, 'reserve_factor_bps', 'reserveFactorBps') ?? 0
+    ),
+  };
+}
+
+export function clearPoolStateCache(): void {
+  poolStateCache.clear();
+  poolStateEpochCache.clear();
+}
+
 function toIntegerString(value: unknown): string {
   if (typeof value === 'bigint') {
     return value.toString();
@@ -932,6 +1042,157 @@ export class StellarService {
         tvl: '12000000000',
       },
     ];
+  }
+
+  // ─── Lazy pool-state loading (#721) ───────────────────────────────────────
+  //
+  // The contract exposes a consolidated `get_pool_state` snapshot that is
+  // built lazily on-chain and invalidated via a global epoch. This service
+  // mirrors that: snapshots are loaded on demand, memoised per pool keyed by
+  // the on-chain epoch, and served from the local cache (well under the 50ms
+  // target) until the epoch advances or the TTL lapses.
+
+  /**
+   * Load the consolidated on-chain state for a pool on demand.
+   *
+   * @param asset Pool asset contract id, or `undefined`/`null` for the native pool.
+   * @param opts.forceRefresh Bypass the local cache for this read.
+   */
+  async getPoolState(
+    asset?: string | null,
+    opts: { forceRefresh?: boolean } = {}
+  ): Promise<PoolStateSnapshot> {
+    const startedAt = Date.now();
+    const poolKey = asset ?? NATIVE_POOL_KEY;
+
+    if (!opts.forceRefresh) {
+      const epoch = await this.getPoolStateEpoch();
+      const cached = poolStateCache.get(`${poolKey}:${epoch}`);
+      if (cached) {
+        poolStateCacheMetrics.hits += 1;
+        poolStateCacheMetrics.lastLoadMs = Date.now() - startedAt;
+        return cached;
+      }
+    }
+
+    poolStateCacheMetrics.misses += 1;
+
+    const coalescingKey = requestCoalescingService.generateKey('getPoolState', { poolKey });
+    const snapshot = await requestCoalescingService.execute(coalescingKey, async () => {
+      const assetParam = asset ? new Address(asset).toScVal() : xdr.ScVal.scvVoid();
+      const raw = await this.simulateContractCall('get_pool_state', assetParam);
+      return normalizePoolStateSnapshot(raw, poolKey);
+    });
+
+    poolStateCache.set(`${poolKey}:${snapshot.epoch}`, snapshot);
+    if (snapshot.epoch > poolStateCacheMetrics.maxSeenEpoch) {
+      poolStateCacheMetrics.maxSeenEpoch = snapshot.epoch;
+    }
+    poolStateCacheMetrics.rebuilds += 1;
+    poolStateCacheMetrics.lastLoadMs = Date.now() - startedAt;
+    if (poolStateCacheMetrics.lastLoadMs > poolStateCacheMetrics.slowestLoadMs) {
+      poolStateCacheMetrics.slowestLoadMs = poolStateCacheMetrics.lastLoadMs;
+    }
+    return snapshot;
+  }
+
+  async getMultiplePoolStates(
+    assets: (string | null)[],
+    opts: { forceRefresh?: boolean } = {}
+  ): Promise<PoolStateSnapshot[]> {
+    const startedAt = Date.now();
+    const epoch = await this.getPoolStateEpoch();
+    
+    // Check cache first if not forcing refresh
+    if (!opts.forceRefresh) {
+      let allCached = true;
+      const cachedResults: PoolStateSnapshot[] = [];
+      for (const asset of assets) {
+        const poolKey = asset ?? NATIVE_POOL_KEY;
+        const cached = poolStateCache.get(`${poolKey}:${epoch}`);
+        if (cached) {
+          cachedResults.push(cached);
+        } else {
+          allCached = false;
+          break;
+        }
+      }
+      
+      if (allCached) {
+        poolStateCacheMetrics.hits += assets.length;
+        poolStateCacheMetrics.lastLoadMs = Date.now() - startedAt;
+        return cachedResults;
+      }
+    }
+
+    poolStateCacheMetrics.misses += assets.length;
+
+    // Build the args vector
+    const assetParams = assets.map(asset => 
+      asset ? new Address(asset).toScVal() : xdr.ScVal.scvVoid()
+    );
+    const vecParam = xdr.ScVal.scvVec(assetParams);
+
+    const raw = await this.simulateContractCall('get_multiple_pool_states', vecParam);
+    
+    const results: PoolStateSnapshot[] = [];
+    if (raw && raw.value() && Array.isArray(raw.value())) {
+      const rawArray = raw.value() as any[];
+      for (let i = 0; i < rawArray.length; i++) {
+        const poolKey = assets[i] ?? NATIVE_POOL_KEY;
+        const snapshot = normalizePoolStateSnapshot(rawArray[i], poolKey);
+        poolStateCache.set(`${poolKey}:${snapshot.epoch}`, snapshot);
+        results.push(snapshot);
+      }
+    }
+
+    poolStateCacheMetrics.rebuilds += assets.length;
+    poolStateCacheMetrics.lastLoadMs = Date.now() - startedAt;
+    return results;
+  }
+
+  /**
+   * Current global pool-state cache epoch. Used as part of the cache key so a
+   * contract-side invalidation transparently drops every stale local entry.
+   * The epoch itself is cached briefly to keep cache hits cheap.
+   */
+  async getPoolStateEpoch(): Promise<number> {
+    const cached = poolStateEpochCache.get(POOL_STATE_EPOCH_KEY);
+    if (cached !== undefined) return cached;
+    try {
+      const raw = await this.simulateContractCall('get_pool_state_epoch');
+      const epoch = toSafeNumber(raw);
+      poolStateEpochCache.set(POOL_STATE_EPOCH_KEY, epoch);
+      return epoch;
+    } catch (error) {
+      logger.warn('Failed to read pool-state epoch; treating as epoch 0', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Drop this service's cached snapshots for a pool (or all pools). The
+   * authoritative invalidation still happens on-chain via `invalidate_pool_state`.
+   */
+  invalidatePoolStateCache(asset?: string | null): void {
+    poolStateEpochCache.clear();
+    if (asset === undefined) {
+      poolStateCache.clear();
+      return;
+    }
+    const poolKey = asset ?? NATIVE_POOL_KEY;
+    for (let epoch = 0; epoch <= poolStateCacheMetrics.maxSeenEpoch + 1; epoch++) {
+      poolStateCache.delete(`${poolKey}:${epoch}`);
+    }
+  }
+
+  /** Cache hit-rate and load-latency counters for lazy pool-state loading. */
+  getPoolStateCacheMetrics(): PoolStateCacheMetrics & { hitRate: number } {
+    const total = poolStateCacheMetrics.hits + poolStateCacheMetrics.misses;
+    return {
+      ...poolStateCacheMetrics,
+      hitRate: total === 0 ? 0 : poolStateCacheMetrics.hits / total,
+    };
   }
 }
 

@@ -193,6 +193,44 @@ pub fn get_reserve_balance(env: &Env, asset: Option<Address>) -> i128 {
         .unwrap_or(0)
 }
 
+/// Accrue reserves from interest payment
+pub fn accrue_reserve(
+    env: &Env,
+    asset: Option<Address>,
+    interest_amount: i128,
+) -> Result<(i128, i128), TreasuryError> {
+    if interest_amount <= 0 {
+        return Ok((0, 0));
+    }
+
+    let reserve_factor = crate::reserve::get_reserve_factor(env, asset.clone());
+    
+    let reserve_amount = interest_amount
+        .checked_mul(reserve_factor)
+        .ok_or(TreasuryError::Overflow)?
+        .checked_div(10000)
+        .ok_or(TreasuryError::Overflow)?;
+
+    let lender_amount = interest_amount
+        .checked_sub(reserve_amount)
+        .ok_or(TreasuryError::Overflow)?;
+
+    if reserve_amount > 0 {
+        let reserve_key = DepositDataKey::ProtocolReserve(asset.clone());
+        let current_reserve = env
+            .storage()
+            .persistent()
+            .get::<DepositDataKey, i128>(&reserve_key)
+            .unwrap_or(0);
+        let new_reserve = current_reserve
+            .checked_add(reserve_amount)
+            .ok_or(TreasuryError::Overflow)?;
+        env.storage().persistent().set(&reserve_key, &new_reserve);
+    }
+
+    Ok((reserve_amount, lender_amount))
+}
+
 // ============================================================================
 // Claim Reserves
 // ============================================================================
