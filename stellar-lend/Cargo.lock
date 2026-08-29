@@ -303,7 +303,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94893f1e0c6eeab764ade8dc4c0db24caf4fe7cbbaafc0eba0a9030f447b5185"
 dependencies = [
  "num-traits",
- "rand 0.8.6",
+ "rand 0.8.8",
 ]
 
 [[package]]
@@ -313,7 +313,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "246a225cc6131e9ee4f24619af0f19d67761fff15d7ccc22e42b80846e69449a"
 dependencies = [
  "num-traits",
- "rand 0.8.6",
+ "rand 0.8.8",
 ]
 
 [[package]]
@@ -1913,7 +1913,7 @@ dependencies = [
 name = "multi-user-simulation"
 version = "0.1.0"
 dependencies = [
- "rand 0.8.6",
+ "rand 0.9.4",
  "soroban-sdk 27.0.6",
  "statrs",
  "tokio",
@@ -1931,7 +1931,7 @@ dependencies = [
  "num-complex",
  "num-rational",
  "num-traits",
- "rand 0.8.6",
+ "rand 0.8.8",
  "rand_distr",
  "simba",
  "typenum",
@@ -2303,9 +2303,9 @@ checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 
 [[package]]
 name = "rand"
-version = "0.8.6"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
+checksum = "e058c7de0b26af77780c769414d6257830bb240f3c38477dbc2c16e5f54d6d4c"
 dependencies = [
  "libc",
  "rand_chacha 0.3.1",
@@ -2367,7 +2367,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32cb0b9bc82b0a0876c2dd994a7e7a2683d3e7390ca40e6886785ef0c7e3ee31"
 dependencies = [
  "num-traits",
- "rand 0.8.6",
+ "rand 0.8.8",
 ]
 
 [[package]]
@@ -3117,7 +3117,7 @@ dependencies = [
  "num-integer",
  "num-traits",
  "p256",
- "rand 0.8.6",
+ "rand 0.8.8",
  "rand_chacha 0.3.1",
  "sec1",
  "sha2",
@@ -3154,7 +3154,7 @@ dependencies = [
  "num-integer",
  "num-traits",
  "p256",
- "rand 0.8.6",
+ "rand 0.8.8",
  "rand_chacha 0.3.1",
  "sec1",
  "sha2",
@@ -3191,7 +3191,7 @@ dependencies = [
  "num-integer",
  "num-traits",
  "p256",
- "rand 0.8.6",
+ "rand 0.8.8",
  "rand_chacha 0.3.1",
  "sec1",
  "sha2",
@@ -3271,7 +3271,7 @@ checksum = "dd1e11f9fd537f9df29ec1a66c1b78d666094df56e196565d292ebf9a72732b4"
 dependencies = [
  "bytes-lit 0.0.5",
  "crate-git-revision 0.0.6",
- "rand 0.8.6",
+ "rand 0.8.8",
  "rustc_version",
  "serde",
  "serde_json",
@@ -3290,7 +3290,7 @@ checksum = "b4ce2a22afcbfc9407fe32ce789f441636d62cd078a4cc126191932b74b1e6c4"
 dependencies = [
  "bytes-lit 0.0.5",
  "crate-git-revision 0.0.6",
- "rand 0.8.6",
+ "rand 0.8.8",
  "rustc_version",
  "serde",
  "serde_json",
@@ -3313,7 +3313,7 @@ dependencies = [
  "ctor",
  "derive_arbitrary",
  "ed25519-dalek",
- "rand 0.8.6",
+ "rand 0.8.8",
  "rustc_version",
  "serde",
  "serde_json",
@@ -3531,7 +3531,7 @@ dependencies = [
  "lazy_static",
  "nalgebra",
  "num-traits",
- "rand 0.8.6",
+ "rand 0.8.8",
 ]
 
 [[package]]
@@ -3809,7 +3809,7 @@ name = "stellarlend-migration-tests"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "rand 0.8.6",
+ "rand 0.9.4",
  "serde",
  "serde_json",
  "soroban-sdk 27.0.6",
