@@ -1,7 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(deprecated)]
 
-use soroban_sdk::{contract, contractimpl, Address, Env, IntoVal, String, Vec};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, IntoVal, String, Vec};
 
 pub mod admin;
 pub mod amm;
@@ -269,7 +269,7 @@ impl HelloContract {
             .map_err(Into::into)
     }
 
-    pub fn initialize(env: Env, admin: Address) -> Result<(), LendingError> {
+    pub fn bootstrap(env: Env, admin: Address) -> Result<(), LendingError> {
         if crate::admin::has_admin(&env) {
             return Err(LendingError::Unauthorized);
         }
@@ -285,6 +285,22 @@ impl HelloContract {
                 RiskManagementError::Unauthorized
             }
         })?;
+        Ok(())
+    }
+
+    /// Backwards-compatible alias for `bootstrap`.
+    pub fn initialize(env: Env, admin: Address) -> Result<(), LendingError> {
+        Self::bootstrap(env, admin)
+    }
+
+    /// Admin-only upgrade of the contract implementation.
+    pub fn upgrade(
+        env: Env,
+        caller: Address,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), LendingError> {
+        risk_management::require_admin(&env, &caller)?;
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
         Ok(())
     }
 
