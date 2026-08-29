@@ -217,3 +217,37 @@ export interface GasAnalyticsReport {
   offPeakHours: string[];
   cumulativeSavingsStroops: string;
 }
+
+/**
+ * A single forecast bucket returned by the gas forecasting model (issue #717).
+ */
+export interface GasForecastPoint {
+  /** ISO timestamp for the forecast bucket. */
+  timestamp: string;
+  /** Forecast cost in stroops. */
+  forecast: string;
+  /** 80% prediction-interval lower bound in stroops. */
+  lower: string;
+  /** 80% prediction-interval upper bound in stroops. */
+  upper: string;
+}
+
+/**
+ * Response shape for `GET /api/gas/forecast/:operation`.
+ */
+export interface GasForecastResponse {
+  operation: GasOperation;
+  horizon: number;
+  period: string;
+  points: GasForecastPoint[];
+  model: 'holt-winters' | 'linear-regression';
+  seasonalityDetected: boolean;
+  /** Backtest result used to validate/score the forecast model. */
+  backtest?: {
+    mape: number;
+    within10Percent: number;
+    sampleCount: number;
+  };
+  confidence: 'high' | 'medium' | 'low';
+  timestamp: string;
+}

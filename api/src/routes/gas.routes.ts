@@ -95,4 +95,12 @@ router.get('/timing/:operation', (req, res) => gasController.getTimingRecommenda
  */
 router.get('/analytics', (req, res) => gasController.getAnalytics(req, res));
 
+/**
+ * @route   GET /api/gas/forecast/:operation
+ * @desc    Forecast future gas cost for an operation (time-series model, #717)
+ * @query   horizon (optional, default 6), period (optional): '24h','7d','30d'
+ * @access  Public
+ */
+router.get('/forecast/:operation', (req, res) => gasController.forecastGas(req, res));
+
 export default router;

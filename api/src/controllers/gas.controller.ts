@@ -279,6 +279,43 @@ export class GasController {
       res.status(500).json({ error: 'Failed to get gas analytics' });
     }
   }
+
+  /**
+   * GET /api/gas/forecast/:operation
+   * Forecast future gas cost for an operation using the time-series model
+   * (issue #717)
+   */
+  async forecastGas(req: Request, res: Response): Promise<void> {
+    try {
+      const { operation } = req.params!;
+      const horizon = parseInt(req.query.horizon as string, 10) || 6;
+      const period = (req.query.period as string) || '7d';
+
+      const validOperations = ['deposit', 'withdraw', 'borrow', 'repay', 'liquidation', 'flash_loan', 'emergency_withdraw'];
+      if (!validOperations.includes(operation!)) {
+        throw new ValidationError('Invalid operation');
+      }
+
+      const validPeriods = ['24h', '7d', '30d'];
+      if (!validPeriods.includes(period)) {
+        throw new ValidationError('Invalid period. Must be one of: 24h, 7d, 30d');
+      }
+
+      const forecast = await gasEstimatorService.forecastGas(
+        operation as any,
+        horizon,
+        period as any
+      );
+      res.json(forecast);
+    } catch (error) {
+      logger.error('Failed to forecast gas:', error);
+      if (error instanceof ValidationError) {
+        res.status(400).json({ error: error.message });
+      } else {
+        res.status(500).json({ error: 'Failed to forecast gas' });
+      }
+    }
+  }
 }
 
 export const gasController = new GasController();
