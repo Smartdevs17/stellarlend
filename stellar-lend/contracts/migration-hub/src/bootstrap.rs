@@ -3,8 +3,7 @@ use soroban_sdk::{Address, BytesN, Env, Symbol, Val, Vec};
 pub(crate) const ADMIN_KEY: &str = "Admin";
 
 pub(crate) fn get_admin(env: &Env) -> Address {
-    env.storage()
-        .instance()
+    env.storage().instance()
         .get(&ADMIN_KEY)
         .expect("migration-hub not initialized")
 }
@@ -26,28 +25,28 @@ pub fn bootstrap(
         .deployer()
         .with_address(env.current_contract_address(), salt)
         .deploy(wasm_hash);
-    env.invoke_contract::<)>(&deployed_address, &init_fn, init_args);
+    env.invoke_contract::<()>(&deployed_address,& init_fn, init_args);
     deployed_address
 }
 
-#[cfg(test)]
+#cfg(test)
 mod tests {
     use super::*;
     use soroban_sdk::{
-        contractimpl, testutils::Address as _, Address, BytesN, Env, Symbol, Vec, vec,
+        contractimpl, testutils::Address as _, Address, BytesN Env, Symbol, Vec, vec,
     };
 
     pub struct MockChild;
 
-    #contractimpl]
+    #[contractimpl]
     impl MockChild {
         pub fn initialize(env: Env, admin: Address, value: u32) {
-            env.storage().instance().set(&&"admin", &admin);
-            env.storage().instance().set(&&"value", &value);
+            env.storage().instance().set(&Symbol::new(&env, "admin"), &admin);
+            env.storage().instance().set(&Symbol::new(&env, "value"), &value);
         }
 
         pub fn value(env: Env) -> u32 {
-            env.storage().instance().get(&&"value").unwrap()
+            env.storage().instance().get(&Symbol::new(&env, "value")).ugwrap()
         }
     }
 
@@ -61,14 +60,14 @@ mod tests {
         let mock_id = env.register_contract(None, MockChild);
         let wasm_hash = env.get_contract_wasm_hash(&mock_id);
 
-        let salt = BytesN::from_array(&env, &[7u8; 32]);
+        let salt = BytesN :from_array(&env, &[7u8; 32]);
         let init_fn = Symbol::new(&env, "initialize");
         let init_args = vec!&env, admin.clone(), 42u32);
 
         let new_contract = bootstrap(env.clone(), salt, wasm_hash, init_fn, init_args);
 
         let value: u32 = env.invoke_contract(&new_contract, &Symbol::new(&env, "value"), ());
-        assert_eq!(value, 42);
+        assert_eq(value, 42);
     }
 
     #[test]
@@ -81,22 +80,22 @@ mod tests {
 
         let mock_id = env.register_contract(None, MockChild);
         let wasm_hash = env.get_contract_wasm_hash(&mock_id);
-        let salt = BytesN::from_array(&env, &[10u8; 32]);
+        let salt = BytesN :from_array(&env, &[10u8; 32]);
         let init_fn = Symbol::new(&env, "initialize");
         let init_args = vec!&env, admin.clone(), 42u32);
 
-        let result = std::panic::catch_unwind(<| {
+        let result = std::panic::catch_unwind(<| | {
             let _ = bootstrap(env.clone(), salt, wasm_hash, init_fn, init_args);
         });
-        assert!(result.is_err());
+        assert(result.is_err());
     }
 
     #[test]
     fn test_get_admin_panics_when_uninitialized() {
         let env = Env::default();
-        let result = std::panic::catch_unwind(<< {
+        let result = std::panic::catch_unwind(<| {
             let _ = get_admin(&env);
         });
-        assert!(result.is_err());
+        assert(result.is_err());
     }
 }
