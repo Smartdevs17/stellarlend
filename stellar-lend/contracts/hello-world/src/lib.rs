@@ -58,6 +58,20 @@ use crate::risk_management::RiskManagementError;
 #[contract]
 pub struct HelloContract;
 
+/// Reads a varint-length-prefixed StrKey from `bytes` at `offset` and builds an
+/// `Address`. Returns `None` if the payload is truncated or malformed. Used by
+/// the packed-calldata batch path (`batch_liquidate_compressed`, issue #840).
+fn decode_address(env: &Env, bytes: &[u8], offset: &mut usize) -> Option<Address> {
+    let len = calldata_encoding::CalldataEncoder::decode_varint(bytes, offset).ok()? as usize;
+    if *offset + len > bytes.len() {
+        return None;
+    }
+    let slice = &bytes[*offset..*offset + len];
+    *offset += len;
+    let s = String::from_bytes(env, slice);
+    Some(Address::from_string(&s))
+}
+
 #[contractimpl]
 impl HelloContract {
     pub fn hello(env: Env) -> String {
@@ -707,6 +721,77 @@ impl HelloContract {
         requests: Vec<liquidate::BatchLiquidationRequest>,
     ) -> Result<Vec<liquidate::BatchLiquidationResult>, LendingError> {
         liquidator.require_auth();
+        liquidate::batch_liquidate(&env, liquidator, requests).map_err(Into::into)
+    }
+
+    /// Batch liquidation from packed calldata (issue #840). Accepts the same
+    /// positions as `batch_liquidate` but reads them from a `CompressedBatch`
+    /// produced off-chain by the `calldata-encoding` library, cutting the bytes
+    /// per position that must be serialized onto the ledger.
+    ///
+    /// Each `EncodedOperation` (`op_type == 0`) carries a `data` payload laid
+    /// out as:
+    ///   [flags: u8]
+    ///     bit0 = debt asset present, bit1 = collateral asset present
+    ///     (unset means native XLM, i.e. `None`)
+    ///   [varint borrower StrKey len][StrKey bytes]
+    ///   [varint debt-asset StrKey len][StrKey bytes]   only if bit0
+    ///   [varint collateral-asset StrKey len][bytes]    only if bit1
+    ///   [varint debt amount]
+    pub fn batch_liquidate_compressed(
+        env: Env,
+        liquidator: Address,
+        batch: calldata_encoding::CompressedBatch,
+    ) -> Result<Vec<liquidate::BatchLiquidationResult>, LendingError> {
+        liquidator.require_auth();
+        let mut requests: Vec<liquidate::BatchLiquidationRequest> = Vec::new(&env);
+        for op in batch.operations.iter() {
+            if op.op_type != 0u32 {
+                // Only liquidation ops are supported on-chain; anything else in
+                // the batch is skipped.
+                continue;
+            }
+            let bytes = op.data.to_alloc_vec();
+            let mut offset = 0usize;
+            if offset >= bytes.len() {
+                continue;
+            }
+            let flags = bytes[offset];
+            offset += 1;
+
+            let borrower = match decode_address(&env, &bytes, &mut offset) {
+                Some(a) => a,
+                None => continue,
+            };
+            let debt_asset = if flags & 0x01 != 0 {
+                decode_address(&env, &bytes, &mut offset)
+            } else {
+                None
+            };
+            let collateral_asset = if flags & 0x02 != 0 {
+                decode_address(&env, &bytes, &mut offset)
+            } else {
+                None
+            };
+
+            let amount = match calldata_encoding::CalldataEncoder::decode_varint(
+                &bytes,
+                &mut offset,
+            ) {
+                Ok(a) => a,
+                Err(_) => continue,
+            };
+
+            requests.push_back(liquidate::BatchLiquidationRequest {
+                borrower,
+                debt_asset,
+                collateral_asset,
+                debt_amount: amount as i128,
+                // `sort_by_priority` re-derives ordering from live health
+                // factors, so the packed wire format omits the hint (issue #840).
+                priority_score: 0,
+            });
+        }
         liquidate::batch_liquidate(&env, liquidator, requests).map_err(Into::into)
     }
 
