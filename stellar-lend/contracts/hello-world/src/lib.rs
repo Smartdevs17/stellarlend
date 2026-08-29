@@ -276,13 +276,23 @@ impl HelloContract {
         admin: Address,
         new_wasm_hash: BytesN<32>,
     ) -> Result<(), LendingError> {
-        Self::initialize(env.clone(), admin)?;
+        Self::initialize(env, admin, new_wasm_hash)
+    }
+
+    /// Contract initializer for the upgradeable bootstrap pattern. Initializes
+    /// storage and upgrades the deployed WASM in a single transaction.
+    pub fn initialize(
+        env: Env,
+        admin: Address,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), LendingError> {
+        Self::init_storage(env.clone(), admin)?;
         env.deployer().update_current_contract_wasm(new_wasm_hash);
         Ok(())
     }
 
-    /// Internal initialization used by `bootstrap`; not exposed directly.
-    fn initialize(env: Env, admin: Address) -> Result<(), LendingError> {
+    /// Internal storage initialization used by the upgradeable initializer.
+    fn init_storage(env: Env, admin: Address) -> Result<(), LendingError> {
         if crate::admin::has_admin(&env) {
             return Err(LendingError::Unauthorized);
         }
