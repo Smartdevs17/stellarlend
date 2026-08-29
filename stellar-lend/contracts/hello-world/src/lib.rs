@@ -448,33 +448,6 @@ impl HelloContract {
         Ok(())
     }
 
-    /// Set treasury address (admin only)
-    pub fn set_treasury_address(
-        env: Env,
-        caller: Address,
-        treasury: Address,
-    ) -> Result<(), LendingError> {
-        reserve::set_treasury_address(&env, caller, treasury).map_err(Into::into)
-    }
-
-    /// Withdraw reserves to treasury (admin only)
-    pub fn withdraw_reserve_funds(
-        env: Env,
-        caller: Address,
-        asset: Option<Address>,
-        amount: i128,
-    ) -> Result<i128, LendingError> {
-        reserve::withdraw_reserve_funds(&env, caller, asset, amount).map_err(Into::into)
-    }
-
-    /// Get reserve balance for an asset
-    pub fn get_reserve_balance_reserve(
-        env: Env,
-        asset: Option<Address>,
-    ) -> i128 {
-        reserve::get_reserve_balance(&env, asset)
-    }
-
     /// Get reserve factor for an asset
     pub fn get_reserve_factor(
         env: Env,
