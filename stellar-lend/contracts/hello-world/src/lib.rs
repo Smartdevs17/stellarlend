@@ -281,8 +281,8 @@ impl HelloContract {
         Ok(())
     }
 
-    /// Backwards-compatible initialization without upgrading the implementation.
-    pub fn initialize(env: Env, admin: Address) -> Result<(), LendingError> {
+    /// Internal initialization used by `bootstrap`; not exposed directly.
+    fn initialize(env: Env, admin: Address) -> Result<(), LendingError> {
         if crate::admin::has_admin(&env) {
             return Err(LendingError::Unauthorized);
         }
