@@ -35,7 +35,15 @@ and are completely absent from the production WASM binary.
 | `spec::withdraw_spec` | `withdraw` | W-01 â€¦ W-07 |
 | `spec::protocol_invariants` | protocol accounting, health factor, interest index | P-01 ... P-05, H-01 ... H-05, I-01 ... I-03 |
 
-**Total: 69 lemmas across 9 critical function groups**
+| `spec::oracle_spec` | `get_price` — oracle data consumption paths | ORA-001 … ORA-010 |
+| `spec::cross_contract_spec` | Reentrancy, flash loans, AMM callbacks, migration atomicity | INV-REENTRANCY … INV-MIGRATION-COMPLETENESS |
+| `spec::upgrade_spec` | Upgrade state machine, storage safety | INV-UPGRADE-VERSION … INV-UPGRADE-ROLLBACK |
+| `spec::migration_hub` | Migration deadline, rate-limit, rollback | INV-MIG-DEADLINE … INV-MIG-ANALYTICS |
+| certora `interest_rate_model.spec` | IRM boundary conditions | IRM-001 … IRM-008 |
+| certora `oracle_integration.spec` | Oracle integration contracts | ORA-001 … ORA-010 |
+
+**Total: 69 lemmas across 9 critical function groups + 18 Certora rules across 2 new spec files + 4 new Rust spec modules**
+
 
 ---
 
@@ -227,3 +235,7 @@ The workflow at `.github/workflows/formal-verification.yml` runs:
 Kani is used as the Rust/Soroban model checker for this repository. It fills
 the same role that Certora Prover fills for Solidity/EVM projects while keeping
 the verification target native to the contract language used here.
+
+
+
+

@@ -5,6 +5,8 @@ use soroban_sdk::{
 };
 
 mod adapter;
+#[cfg(any(test, feature = "spec"))]
+pub mod spec;
 mod types;
 
 #[cfg(test)]
