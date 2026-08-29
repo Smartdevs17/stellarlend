@@ -93,6 +93,8 @@ pub enum FlashLoanDataKey {
     TwapAccumulator(Address),
     /// Per-asset concurrent loan sentinel
     AssetLoanActive(Address),
+    /// Flash loan metrics tracking per asset
+    Metrics(Option<Address>),
 }
 
 /// Attack-prevention configuration for flash loans.
@@ -448,13 +450,9 @@ pub fn execute_flash_loan(
         },
     );
 
-    // 5. Invoke Callback
-    let callback_symbol = Symbol::new(env, "on_flash_loan");
-    let _: soroban_sdk::Val = env.invoke_contract(
-        &callback,
-        &callback_symbol,
-        (user.clone(), asset.clone(), amount, fee).into_val(env),
-    );
+    // 5. Invoke Callback using the standard trait
+    let callback_client = stellarlend_flash_loan::FlashLoanReceiverClient::new(env, &callback);
+    callback_client.on_flash_loan(&user, &asset, &amount, &fee);
 
     if env.ledger().sequence_number() != start_sequence {
         return Err(FlashLoanError::Expired);
@@ -484,6 +482,22 @@ pub fn execute_flash_loan(
             .ok_or(FlashLoanError::Overflow)?;
         env.storage().persistent().set(&reserve_key, &new_reserve);
     }
+
+    // 8. Record Metrics
+    let metrics_key = FlashLoanDataKey::Metrics(Some(asset.clone()));
+    let mut metrics: stellarlend_flash_loan::FlashLoanMetrics = env
+        .storage()
+        .persistent()
+        .get(&metrics_key)
+        .unwrap_or(stellarlend_flash_loan::FlashLoanMetrics {
+            total_flash_loans: 0,
+            total_volume: 0,
+            total_fees_collected: 0,
+        });
+    metrics.total_flash_loans = metrics.total_flash_loans.saturating_add(1);
+    metrics.total_volume = metrics.total_volume.saturating_add(amount);
+    metrics.total_fees_collected = metrics.total_fees_collected.saturating_add(fee);
+    env.storage().persistent().set(&metrics_key, &metrics);
 
     // Explicitly clear the record if successfully finished (optional, but cleaner)
     // The guards will still drop and do their job.
@@ -957,4 +971,14 @@ pub fn execute_multi_asset_flash_loan(
     }
 
     Ok(total_fees)
+}
+
+/// Get flash loan metrics
+pub fn get_flash_loan_metrics(env: &Env, asset: Option<Address>) -> stellarlend_flash_loan::FlashLoanMetrics {
+    let key = FlashLoanDataKey::Metrics(asset);
+    env.storage().persistent().get(&key).unwrap_or(stellarlend_flash_loan::FlashLoanMetrics {
+        total_flash_loans: 0,
+        total_volume: 0,
+        total_fees_collected: 0,
+    })
 }

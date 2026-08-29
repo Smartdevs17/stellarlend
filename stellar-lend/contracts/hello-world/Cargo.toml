@@ -10,6 +10,7 @@ doctest = false
 
 [dependencies]
 shared-events = { path = "../shared-events" }
+stellarlend-flash-loan = { package = "flash-loan", path = "../flash-loan" }
 soroban-sdk = { workspace = true }
 soroban-token-sdk = { workspace = true }
 stellarlend-amm = { path = "../amm" }

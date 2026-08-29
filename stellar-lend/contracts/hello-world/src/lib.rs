@@ -919,6 +919,10 @@ impl HelloContract {
         flash_loan::execute_flash_loan(&env, user, asset, amount, callback).map_err(Into::into)
     }
 
+    pub fn get_flash_loan_metrics(env: Env, asset: Option<Address>) -> stellarlend_flash_loan::FlashLoanMetrics {
+        flash_loan::get_flash_loan_metrics(&env, asset)
+    }
+
     /// Pre-execution profit simulation for a flash-loan-funded liquidation.
     pub fn simulate_flash_loan_liquidation(
         env: Env,
