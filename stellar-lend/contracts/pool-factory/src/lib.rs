@@ -72,7 +72,7 @@ impl PoolFactory {
 
         let pool_index = pool_count + 1;
 
-        let pool_address = Address::from_contract_id(&env.contract_id());
+        let pool_address = env.current_contract_address();
 
         let pool = Pool {
             address: pool_address.clone(),
@@ -123,8 +123,8 @@ impl PoolFactory {
             .get(&Symbol::new(&env, "pools"))
             .unwrap_or_else(|| Vec::new(&env));
 
-        if (index as usize) < pools.len() {
-            Some(pools.get(index as usize).unwrap())
+        if index < pools.len() {
+            Some(pools.get(index).unwrap())
         } else {
             None
         }
@@ -150,10 +150,10 @@ impl PoolFactory {
             .get(&pools_key)
             .unwrap_or_else(|| Vec::new(&env));
 
-        if (pool_index as usize) < pools.len() {
-            let mut pool = pools.get(pool_index as usize).unwrap();
+        if pool_index < pools.len() {
+            let mut pool = pools.get(pool_index).unwrap();
             pool.config = config;
-            pools.set(pool_index as usize, pool);
+            pools.set(pool_index, pool);
             env.storage().instance().set(&pools_key, &pools);
         }
     }

@@ -217,7 +217,7 @@ pub struct LendingBridgeStats {
 
 // ─── Events ───────────────────────────────────────────────────────────────────
 
-#[contractevent]
+#[contractevent(topics = ["cross_chain_position_opened"])]
 #[derive(Clone, Debug)]
 pub struct CrossChainPositionOpenedEvent {
     pub user: Address,
@@ -230,7 +230,7 @@ pub struct CrossChainPositionOpenedEvent {
     pub timestamp: u64,
 }
 
-#[contractevent]
+#[contractevent(topics = ["cross_chain_position_repaid"])]
 #[derive(Clone, Debug)]
 pub struct CrossChainPositionRepaidEvent {
     pub user: Address,
@@ -269,7 +269,7 @@ pub struct LiquidityRouteRegisteredEvent {
     pub timestamp: u64,
 }
 
-#[contractevent]
+#[contractevent(topics = ["remote_health_report_submitted"])]
 #[derive(Clone, Debug)]
 pub struct RemoteHealthReportSubmittedEvent {
     pub user: Address,
