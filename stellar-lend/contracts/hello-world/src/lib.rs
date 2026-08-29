@@ -269,10 +269,24 @@ impl HelloContract {
             .map_err(Into::into)
     }
 
-    pub fn bootstrap(env: Env, admin: Address) -> Result<(), LendingError> {
+    /// Upgradeable bootstrap: initializes the contract and upgrades it to the
+    /// full implementation in the same transaction. Used by the migration hub.
+    pub fn bootstrap(
+        env: Env,
+        admin: Address,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), LendingError> {
+        Self::initialize(env.clone(), admin)?;
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        Ok(())
+    }
+
+    /// Backwards-compatible initialization without upgrading the implementation.
+    pub fn initialize(env: Env, admin: Address) -> Result<(), LendingError> {
         if crate::admin::has_admin(&env) {
             return Err(LendingError::Unauthorized);
         }
+        admin.require_auth();
         crate::admin::set_admin(&env, admin.clone(), None)
             .map_err(|_| RiskManagementError::Unauthorized)?;
         risk_management::initialize_risk_management(&env, admin.clone())?;
@@ -286,11 +300,6 @@ impl HelloContract {
             }
         })?;
         Ok(())
-    }
-
-    /// Backwards-compatible alias for `bootstrap`.
-    pub fn initialize(env: Env, admin: Address) -> Result<(), LendingError> {
-        Self::bootstrap(env, admin)
     }
 
     /// Admin-only upgrade of the contract implementation.
