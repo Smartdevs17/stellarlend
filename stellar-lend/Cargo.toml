@@ -61,7 +61,9 @@ members = [
   "contracts/earnings-reinvest",
   "contracts/twap-oracle",
   "tests/simulation/multi-user",
-  "tests/integration/flash-loan-liquidation", "contracts/flash-loan",
+  "tests/integration/flash-loan-liquidation",   "contracts/flash-loan",
+  "contracts/security",
+  "contracts/lib/calldata-encoding",
 ]
 exclude = [
   "fuzz",
