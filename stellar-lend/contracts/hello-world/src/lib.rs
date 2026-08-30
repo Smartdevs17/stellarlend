@@ -667,6 +667,41 @@ impl HelloContract {
         withdraw::withdraw_collateral(&env, user, asset, amount).map_err(Into::into)
     }
 
+    pub fn emergency_withdraw(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+    ) -> Result<i128, LendingError> {
+        emergency_withdrawal::emergency_withdraw(&env, user, asset, amount).map_err(Into::into)
+    }
+
+    pub fn trigger_emergency(
+        env: Env,
+        caller: Address,
+        trigger: types::EmergencyTrigger,
+        withdrawal_cap_bps: Option<i128>,
+        bad_debt: Option<i128>,
+    ) -> Result<(), LendingError> {
+        emergency_withdrawal::trigger_emergency(&env, caller, trigger, withdrawal_cap_bps, bad_debt)
+            .map_err(Into::into)
+    }
+
+    pub fn cancel_emergency(env: Env, caller: Address) -> Result<(), LendingError> {
+        emergency_withdrawal::cancel_emergency(&env, caller).map_err(Into::into)
+    }
+
+    pub fn get_emergency_state(env: Env) -> types::EmergencyState {
+        emergency_withdrawal::get_emergency_state(&env)
+    }
+
+    pub fn get_user_emergency_withdrawals(
+        env: Env,
+        user: Address,
+    ) -> Vec<types::EmergencyWithdrawal> {
+        emergency_withdrawal::get_user_emergency_withdrawals(&env, user)
+    }
+
     pub fn liquidate(
         env: Env,
         liquidator: Address,
