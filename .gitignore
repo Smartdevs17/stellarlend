@@ -54,3 +54,17 @@ TEST_FIX.txt
 # cargo-fuzz
 stellar-lend/fuzz/artifacts/
 stellar-lend/fuzz/coverage/
+
+# Test snapshots and coverage
+**/*.snap
+**/*.snap.new
+**/test-snapshots/
+**/testsnapshots/
+**/__snapshots__/
+**/coverage/
+**/.nyc_output/
+**/test-results/
+*.lcov
+*.snap.tmp
+*.snap.bak
+tests/e2e/e2e-report.json
