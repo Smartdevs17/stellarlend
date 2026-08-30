@@ -42,6 +42,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Bytes, Env,
     String, Vec,
 };
+use stellarlend_storage_layer::{Storage, StorageTier};
 
 // ═══════════════════════════════════════════════════════
 // Constants
@@ -688,31 +689,25 @@ impl DataStore {
     pub fn get_total_assets(env: &Env) -> i128 {
         // This is a simplified implementation for invariant testing
         // In a real implementation, this would sum all tracked assets
-        env.storage()
-            .persistent()
-            .get(&StoreKey::TotalAssets)
-            .unwrap_or(0)
+        //
+        // Data access goes through the shared storage abstraction layer (#707).
+        Storage::new(env)
+            .get_or(StorageTier::Persistent, &StoreKey::TotalAssets, 0i128)
     }
 
     /// Set total assets (internal use)
     pub fn set_total_assets(env: &Env, assets: i128) {
-        env.storage()
-            .persistent()
-            .set(&StoreKey::TotalAssets, &assets);
+        Storage::new(env).set(StorageTier::Persistent, &StoreKey::TotalAssets, &assets);
     }
 
     /// Get protocol reserves (for invariant testing)
     pub fn get_protocol_reserves(env: &Env) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&StoreKey::ProtocolReserves)
-            .unwrap_or(0)
+        Storage::new(env)
+            .get_or(StorageTier::Persistent, &StoreKey::ProtocolReserves, 0i128)
     }
 
     /// Set protocol reserves (internal use)
     pub fn set_protocol_reserves(env: &Env, reserves: i128) {
-        env.storage()
-            .persistent()
-            .set(&StoreKey::ProtocolReserves, &reserves);
+        Storage::new(env).set(StorageTier::Persistent, &StoreKey::ProtocolReserves, &reserves);
     }
 }

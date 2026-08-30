@@ -401,3 +401,66 @@ impl From<CrossAssetError> for LendingError {
         }
     }
 }
+
+// ─── Shared error-framework integration (#708) ─────────────────────────────
+//
+// `LendingError` is the contract's public ABI codebook (numeric values are stable and
+// must not change). The shared `stellarlend-errors` crate supplies the cross-contract
+// normalization (IntoError -> CoreError), recovery classification and analytics. This
+// impl lets any `LendingError` flow through those shared helpers without altering any
+// numeric code, keeping the public interface fully backward compatible.
+
+impl From<LendingError> for stellarlend_errors::CoreError {
+    fn from(e: LendingError) -> Self {
+        use stellarlend_errors::CoreError;
+        match e {
+            LendingError::Unauthorized => CoreError::Unauthorized,
+            LendingError::InvalidAmount
+            | LendingError::InvalidAsset
+            | LendingError::InvalidParameter
+            | LendingError::InvalidFee => CoreError::InvalidInput,
+            LendingError::InsufficientBalance
+            | LendingError::InsufficientCollateral
+            | LendingError::InsufficientCollateralRatio
+            | LendingError::InsufficientLiquidity
+            | LendingError::InsufficientReserve => CoreError::Insufficient,
+            LendingError::Overflow => CoreError::Overflow,
+            LendingError::DivisionByZero => CoreError::DivisionByZero,
+            LendingError::ProtocolPaused => CoreError::Paused,
+            LendingError::Reentrancy => CoreError::Reentrancy,
+            LendingError::NotInitialized => CoreError::NotInitialized,
+            LendingError::AlreadyInitialized => CoreError::AlreadyInitialized,
+            LendingError::DataNotFound
+            | LendingError::CommitNotFound
+            | LendingError::NotFound => CoreError::NotFound,
+            LendingError::AlreadyExists => CoreError::AlreadyExists,
+            LendingError::LimitExceeded
+            | LendingError::FeeCapExceeded => CoreError::LimitExceeded,
+            LendingError::InvalidState
+            | LendingError::AssetNotEnabled
+            | LendingError::NoDebt
+            | LendingError::InvalidCallback
+            | LendingError::CallbackFailed
+            | LendingError::NotRepaid
+            | LendingError::CommitRequired
+            | LendingError::CommitNotReady
+            | LendingError::CommitExpired => CoreError::InvalidState,
+            LendingError::PriceUnavailable => CoreError::PriceUnavailable,
+            LendingError::TreasuryNotSet
+            | LendingError::GovernanceRequired
+            | LendingError::GovernanceError => CoreError::InvalidState,
+        }
+    }
+}
+
+impl stellarlend_errors::IntoError for LendingError {
+    fn into_core(self) -> stellarlend_errors::CoreError {
+        stellarlend_errors::CoreError::from(self)
+    }
+}
+
+/// Convenience: classify a `LendingError` into a retry/terminal decision using the
+/// shared recovery framework (see `stellarlend_errors::recovery`).
+pub fn recovery_decision(e: LendingError) -> stellarlend_errors::RecoveryDecision {
+    stellarlend_errors::recover(stellarlend_errors::CoreError::from(e))
+}

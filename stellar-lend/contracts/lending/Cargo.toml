@@ -11,6 +11,8 @@ path = "src/lib.rs"
 
 [dependencies]
 shared-events = { path = "../shared-events" }
+stellarlend-errors = { path = "../errors" }
+stellarlend-storage-layer = { path = "../storage-layer" }
 soroban-sdk = { workspace = true }
 soroban-token-sdk = { workspace = true }
 stellarlend-common = { path = "../common" }

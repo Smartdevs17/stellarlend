@@ -131,9 +131,16 @@ pub fn initialize_risk_params(env: &Env) -> Result<(), RiskParamsError> {
 }
 
 /// Get current risk parameters (legacy storage)
+///
+/// Reads the legacy (unpacked) `RiskParamsConfig` slot. Prefer [`get_risk_params`],
+/// which reads the packed slot and migrates lazily; this accessor exists only for the
+/// one-time migration path and for callers that specifically need the legacy layout.
 pub fn get_legacy_risk_params(env: &Env) -> Option<RiskParams> {
-    let config_key = RiskParamsDataKey::RiskParamsConfig;
     env.storage()
+        .persistent()
+        .get::<RiskParamsDataKey, RiskParams>(&RiskParamsDataKey::RiskParamsConfig)
+}
+
 /// Get current risk parameters.
 ///
 /// Reads the packed pool-config slot (issue #722). If only the legacy spread
