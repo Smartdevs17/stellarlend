@@ -7,7 +7,10 @@ use crate::framework::{
     fresh_env, get_budget, measure_instructions, BenchmarkResult, BenchmarkSuite, RunConfig,
 };
 use hello_world::{
-    deposit::AssetParams, flash_loan::FlashLoanConfig, HelloContract, HelloContractClient,
+    deposit::AssetParams,
+    flash_loan::FlashLoanConfig,
+    storage::{PoolConfig, FLAG_BORROWING_ENABLED, FLAG_COLLATERAL_ENABLED},
+    HelloContract, HelloContractClient,
 };
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
@@ -34,6 +37,8 @@ fn run_all(config: &RunConfig) -> Vec<BenchmarkResult> {
         bench_get_liquidation_incentive(config),
         bench_execute_flash_loan(config),
         bench_set_risk_params(config),
+        bench_set_packed_pool_config(config),
+        bench_get_packed_pool_config(config),
         bench_set_emergency_pause(config),
         bench_get_health_factor(config),
         bench_get_user_position(config),
@@ -450,6 +455,66 @@ fn bench_set_risk_params(config: &RunConfig) -> BenchmarkResult {
         true,
         get_budget(config, op),
         vec!["admin".into(), "risk".into()],
+    )
+}
+
+fn benchmark_pool_config(env: &Env) -> PoolConfig {
+    PoolConfig {
+        min_collateral_ratio_bps: 11_000,
+        liquidation_threshold_bps: 10_500,
+        reserve_factor_bps: 1_000,
+        close_factor_bps: 5_000,
+        liquidation_incentive_bps: 1_000,
+        last_update: env.ledger().timestamp(),
+        flags: (FLAG_BORROWING_ENABLED | FLAG_COLLATERAL_ENABLED) as u32,
+    }
+}
+
+fn bench_set_packed_pool_config(config: &RunConfig) -> BenchmarkResult {
+    let op = "hello_world::set_packed_pool_config";
+    let env = fresh_env();
+    let (client, admin) = setup_contract(&env);
+    let pool_config = benchmark_pool_config(&env);
+
+    let (insns, mem) = measure_instructions(&env, || {
+        client.set_pool_config(&admin, &None, &pool_config);
+    });
+
+    BenchmarkResult::new(
+        op,
+        CONTRACT,
+        "Pack five rate fields plus status metadata into one persistent entry",
+        insns,
+        mem,
+        1,
+        1,
+        true,
+        get_budget(config, op),
+        vec!["storage".into(), "packed_config".into(), "write".into()],
+    )
+}
+
+fn bench_get_packed_pool_config(config: &RunConfig) -> BenchmarkResult {
+    let op = "hello_world::get_packed_pool_config";
+    let env = fresh_env();
+    let (client, admin) = setup_contract(&env);
+    client.set_pool_config(&admin, &None, &benchmark_pool_config(&env));
+
+    let (insns, mem) = measure_instructions(&env, || {
+        client.get_pool_config(&None);
+    });
+
+    BenchmarkResult::new(
+        op,
+        CONTRACT,
+        "Read and unpack the consolidated pool configuration entry",
+        insns,
+        mem,
+        1,
+        0,
+        false,
+        get_budget(config, op),
+        vec!["storage".into(), "packed_config".into(), "read".into()],
     )
 }
 
