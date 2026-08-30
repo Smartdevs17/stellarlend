@@ -4,9 +4,8 @@ version = "0.0.0"
 publish = false
 edition = "2021"
 
-[package.metadata.cargo-fuzz]
-workspace = ".."
-target-dir = "../target/fuzz"
+[package.metadata]
+cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
@@ -16,10 +15,17 @@ soroban-sdk = { version = "23.4.1", features = ["testutils"] }
 stellarlend-lending = { path = "../contracts/lending", features = ["testutils"] }
 stellarlend-amm = { path = "../contracts/amm", features = ["testutils"] }
 bridge = { path = "../contracts/bridge", features = ["testutils"] }
+stellarlend-hello-world = { path = "../contracts/hello-world", features = ["testutils"] }
 
 [[bin]]
 name = "lending_actions"
 path = "fuzz_targets/lending_actions.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "lending_critical"
+path = "fuzz_targets/lending_critical.rs"
 test = false
 doc = false
 
@@ -32,5 +38,11 @@ doc = false
 [[bin]]
 name = "bridge_actions"
 path = "fuzz_targets/bridge_actions.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "governance_actions"
+path = "fuzz_targets/governance_actions.rs"
 test = false
 doc = false

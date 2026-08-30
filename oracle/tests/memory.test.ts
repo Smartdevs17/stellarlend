@@ -13,9 +13,9 @@ import type { OracleServiceConfig } from '../src/config.js';
 
 vi.mock('../src/services/contract-updater.js', () => ({
   createContractUpdater: vi.fn(() => ({
-    updatePrices: vi.fn().mockResolvedValue([
-      { success: true, asset: 'XLM', price: 150000n, timestamp: Date.now() },
-    ]),
+    updatePrices: vi
+      .fn()
+      .mockResolvedValue([{ success: true, asset: 'XLM', price: 150000n, timestamp: Date.now() }]),
     healthCheck: vi.fn().mockResolvedValue(true),
     getAdminPublicKey: vi.fn().mockReturnValue('GTEST123'),
   })),
@@ -92,8 +92,8 @@ describe('OracleService Memory Stability', () => {
     service = new OracleService({ ...BASE_CONFIG });
   });
 
-  afterEach(() => {
-    service.stop();
+  afterEach(async () => {
+    await service.stop();
     vi.useRealTimers();
     vi.clearAllMocks();
   });
@@ -119,7 +119,7 @@ describe('OracleService Memory Stability', () => {
     await service.start(['XLM']);
     expect(service.getStatus().isRunning).toBe(true);
 
-    service.stop();
+    await service.stop();
 
     expect(clearIntervalSpy).toHaveBeenCalledTimes(1);
     expect(service.getStatus().isRunning).toBe(false);
@@ -132,7 +132,7 @@ describe('OracleService Memory Stability', () => {
 
     for (let i = 0; i < 10; i++) {
       await service.start(['XLM']);
-      service.stop();
+      await service.stop();
       // Re-create service to simulate repeated instantiation
       service = new OracleService({ ...BASE_CONFIG });
     }
@@ -160,7 +160,7 @@ describe('OracleService Memory Stability', () => {
     await service.start(['XLM']);
     const callsAfterStart = updateSpy.mock.calls.length;
 
-    service.stop();
+    await service.stop();
 
     // Advance time well past the interval — no additional calls expected
     await vi.advanceTimersByTimeAsync(BASE_CONFIG.updateIntervalMs * 10);

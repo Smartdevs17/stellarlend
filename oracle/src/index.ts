@@ -19,8 +19,12 @@ import {
   createPriceHistoryService,
   createAggregator,
   createContractUpdater,
+  createMetricsService,
+  createTWAPService,
   type PriceAggregator,
   type ContractUpdater,
+  type MetricsService,
+  type TWAPService,
 } from './services/index.js';
 import type { ProviderConfig } from './types/index.js';
 
@@ -29,13 +33,15 @@ import type { ProviderConfig } from './types/index.js';
  */
 const DEFAULT_ASSETS = ['XLM', 'USDC', 'BTC', 'ETH', 'SOL'];
 
-function serializePricesForLog(prices: {
-  asset: string;
-  price: bigint;
-  timestamp: number;
-  confidence: number;
-  sources: { source: string }[];
-}[]) {
+function serializePricesForLog(
+  prices: {
+    asset: string;
+    price: bigint;
+    timestamp: number;
+    confidence: number;
+    sources: { source: string }[];
+  }[]
+) {
   return prices.map((price) => ({
     asset: price.asset,
     price: price.price.toString(),
@@ -52,24 +58,25 @@ export class OracleService {
   private config: OracleServiceConfig;
   private aggregator: PriceAggregator;
   private contractUpdater: ContractUpdater;
+  private twapService: TWAPService;
+  private providers: ProviderConfig[];
   private intervalId?: ReturnType<typeof setInterval>;
   private isRunning: boolean = false;
   private lastSuccessfulUpdate: number | null = null;
+  private metricsService: MetricsService;
 
   constructor(config: OracleServiceConfig) {
+    this.validateConfig(config);
+
     // Store config but never log adminSecretKey directly
     this.config = config;
+    this.providers = this.normalizeProviders(config.providers);
 
     // Configure logging
     configureLogger(config.logLevel);
 
-    // Create providers
-    const providers: BasePriceProvider[] = [
-      createCoinGeckoProvider(
-        config.providers.find((p: ProviderConfig) => p.name === 'coingecko')?.apiKey
-      ),
-      createBinanceProvider(),
-    ];
+    // Create runtime providers for supported integrations only.
+    const providers = this.createRuntimeProviders(this.providers);
 
     // Create services
     const validator = createValidator({
@@ -79,6 +86,13 @@ export class OracleService {
 
     const cache = createPriceCache(config.cacheTtlSeconds);
     const priceHistory = createPriceHistoryService();
+
+    this.twapService = createTWAPService(priceHistory, {
+      windowSeconds: 1800,    // 30-minute TWAP window
+      maxDeviationBps: 500,   // 5% deviation triggers fallback
+      minDataPoints: 3,
+      fallbackToMedian: true,
+    });
 
     this.aggregator = createAggregator(providers, validator, cache, priceHistory, {
       circuitBreaker: config.circuitBreaker,
@@ -95,12 +109,15 @@ export class OracleService {
       retryDelayMs: 1000,
     });
 
+    // Create metrics service
+    this.metricsService = createMetricsService(config.metricsPort ?? 3001);
+
     logger.info('Oracle service initialized', {
       network: config.stellarNetwork,
       contractId: config.contractId,
       dryRun: !!config.dryRun,
       updateInterval: config.updateIntervalMs,
-      providers: this.aggregator.getProviders(),
+      providers: this.providers.map((provider) => provider.name),
     });
   }
 
@@ -115,6 +132,9 @@ export class OracleService {
 
     this.isRunning = true;
     logger.info('Starting oracle service', { assets });
+
+    // Start metrics server
+    this.metricsService.start();
 
     // Run immediately on start
     await this.updatePrices(assets);
@@ -132,18 +152,22 @@ export class OracleService {
   /**
    * Stop the oracle service
    */
-  stop(): void {
+  async stop(): Promise<void> {
     if (!this.isRunning) {
       logger.warn('Oracle service is not running');
       return;
     }
+
+    this.isRunning = false;
 
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = undefined;
     }
 
-    this.isRunning = false;
+    // Stop metrics server
+    await this.metricsService.stop();
+
     logger.info('Oracle service stopped');
   }
 
@@ -179,7 +203,25 @@ export class OracleService {
       });
 
       const priceArray = Array.from(prices.values());
-      const serializedPrices = serializePricesForLog(priceArray);
+
+      // Record spot-price observations for TWAP accumulation, then compute
+      // TWAP-smoothed prices to send to the contract.  This resists flash-loan
+      // or low-liquidity spot-price manipulation.
+      const twapPrices = priceArray.map((p) => {
+        this.twapService.recordObservation(p.asset, p.price);
+        const twapStatus = this.twapService.getTWAPStatus(p.asset, p.price);
+        if (twapStatus?.manipulationDetected) {
+          logger.warn('Spot-price manipulation detected, using TWAP for contract update', {
+            asset: p.asset,
+            spotPrice: p.price.toString(),
+            twapPrice: twapStatus.twap.toString(),
+            deviationBps: twapStatus.deviationBps,
+          });
+        }
+        return { ...p, price: twapStatus?.twap ?? p.price };
+      });
+
+      const serializedPrices = serializePricesForLog(twapPrices);
 
       if (this.config.dryRun) {
         this.lastSuccessfulUpdate = Date.now();
@@ -195,8 +237,8 @@ export class OracleService {
         return;
       }
 
-      // Update contract
-      const results = await this.contractUpdater.updatePrices(priceArray);
+      // Update contract with TWAP-smoothed prices
+      const results = await this.contractUpdater.updatePrices(twapPrices);
 
       // Log results
       const successful = results.filter((r) => r.success);
@@ -210,14 +252,31 @@ export class OracleService {
 
       if (successful.length > 0) {
         this.lastSuccessfulUpdate = Date.now();
+        this.metricsService.recordUpdate();
+
+        // Update asset prices in metrics
+        for (const result of successful) {
+          const price = Number(result.price) / 1_000_000; // Convert from stroops
+          this.metricsService.updateAssetPrice(result.asset, price);
+        }
       }
 
       if (failed.length > 0) {
+        this.metricsService.recordError();
         logger.warn('Some price updates failed', {
           failedAssets: failed.map((f) => f.asset),
         });
       }
+
+      // Update provider health based on circuit breaker metrics
+      const circuitBreakerMetrics = this.aggregator.getCircuitBreakerMetrics();
+      for (const metric of circuitBreakerMetrics) {
+        const health: 'healthy' | 'degraded' | 'unhealthy' =
+          metric.state === 'CLOSED' ? 'healthy' : metric.state === 'HALF_OPEN' ? 'degraded' : 'unhealthy';
+        this.metricsService.updateProviderHealth(metric.providerName, health);
+      }
     } catch (error) {
+      this.metricsService.recordError();
       logger.error('Price update cycle failed', { error });
     }
   }
@@ -232,9 +291,9 @@ export class OracleService {
       network: safe.stellarNetwork,
       contractId: safe.contractId,
       adminSecretKey: safe.adminSecretKey, // masked value
-      providers: this.aggregator.getProviders(),
+      providers: this.providers.map((provider) => ({ ...provider })),
       aggregatorStats: this.aggregator.getStats(),
-      circuitBreakers: this.aggregator.getCircuitBreakerMetrics(),
+      circuitBreakers: this.aggregator.getCircuitBreakerMetrics?.() ?? [],
     };
   }
 
@@ -243,6 +302,51 @@ export class OracleService {
    */
   async fetchPrice(asset: string) {
     return this.aggregator.getPrice(asset);
+  }
+
+  private validateConfig(config: OracleServiceConfig): void {
+    if (config.stellarNetwork !== 'testnet' && config.stellarNetwork !== 'mainnet') {
+      throw new Error(`Invalid stellar network: ${String(config.stellarNetwork)}`);
+    }
+
+    try {
+      new URL(config.stellarRpcUrl);
+    } catch {
+      throw new Error('Invalid stellar RPC URL');
+    }
+
+    if (!config.contractId?.trim()) {
+      throw new Error('Contract ID is required');
+    }
+  }
+
+  private normalizeProviders(providers: ProviderConfig[]): ProviderConfig[] {
+    if (providers.length === 1) {
+      return [{ ...providers[0], weight: 1 } as ProviderConfig];
+    }
+
+    return providers.map((provider) => ({ ...provider } as ProviderConfig));
+  }
+
+  private createRuntimeProviders(configuredProviders: ProviderConfig[]): BasePriceProvider[] {
+    const runtimeProviders: BasePriceProvider[] = [];
+
+    for (const provider of configuredProviders) {
+      if (!provider.enabled) {
+        continue;
+      }
+
+      if (provider.name === 'coingecko') {
+        runtimeProviders.push(createCoinGeckoProvider(provider.apiKey));
+        continue;
+      }
+
+      if (provider.name === 'binance') {
+        runtimeProviders.push(createBinanceProvider());
+      }
+    }
+
+    return runtimeProviders;
   }
 }
 

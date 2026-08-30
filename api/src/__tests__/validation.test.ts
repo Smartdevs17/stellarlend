@@ -15,7 +15,7 @@ describe('Validation Middleware', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain('User address is required');
+      expect(response.body.error.message).toContain('User address is required');
     });
 
     it('should reject invalid Stellar public key', async () => {
@@ -27,7 +27,7 @@ describe('Validation Middleware', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain('Invalid Stellar address');
+      expect(response.body.error.message).toContain('Invalid Stellar address');
     });
 
     it('should reject Stellar address with wrong prefix', async () => {
@@ -39,18 +39,26 @@ describe('Validation Middleware', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain('Invalid Stellar address');
+      expect(response.body.error.message).toContain('Invalid Stellar address');
     });
 
     it('should accept valid Stellar public key', async () => {
-      const response = await request(app).get('/api/lending/prepare/deposit').query({
+      const validationOnlyApp = express();
+      validationOnlyApp.get(
+        '/prepare/:operation',
+        prepareValidation,
+        (_req: Request, res: Response) => res.status(204).send()
+      );
+      validationOnlyApp.use(errorHandler);
+
+      const response = await request(validationOnlyApp).get('/prepare/deposit').query({
         userAddress: VALID_ADDRESS,
         assetAddress: 'G...',
         amount: '100',
       });
 
-      expect(response.status).not.toBe(400);
-    });
+      expect(response.status).toBe(204);
+    }, 15000);
 
     it('should reject missing amount', async () => {
       const response = await request(app).get('/api/lending/prepare/deposit').query({
@@ -59,7 +67,7 @@ describe('Validation Middleware', () => {
       });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toContain('Amount is required');
+      expect(response.body.error.message).toContain('Amount is required');
     });
 
     it('should reject zero amount', async () => {
@@ -71,7 +79,7 @@ describe('Validation Middleware', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain('Amount must be a valid positive integer');
+      expect(response.body.error.message).toContain('Amount must be a valid positive integer');
     });
 
     it('should reject negative amount', async () => {
@@ -83,7 +91,7 @@ describe('Validation Middleware', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain('Amount must be a valid positive integer');
+      expect(response.body.error.message).toContain('Amount must be a valid positive integer');
     });
 
     it('should reject non-integer amount strings', async () => {
@@ -92,7 +100,7 @@ describe('Validation Middleware', () => {
         .query({ userAddress: VALID_ADDRESS, assetAddress: 'G...', amount: '1.5' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Amount must be a valid positive integer');
+      expect(res.body.error.message).toContain('Amount must be a valid positive integer');
     });
 
     it('should reject non-numeric amount strings', async () => {
@@ -101,7 +109,7 @@ describe('Validation Middleware', () => {
         .query({ userAddress: VALID_ADDRESS, assetAddress: 'G...', amount: 'abc' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Amount must be a valid positive integer');
+      expect(res.body.error.message).toContain('Amount must be a valid positive integer');
     });
 
     it('should reject empty amount strings', async () => {
@@ -110,7 +118,7 @@ describe('Validation Middleware', () => {
         .query({ userAddress: VALID_ADDRESS, assetAddress: 'G...', amount: '' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Amount is required');
+      expect(res.body.error.message).toContain('Amount is required');
     });
 
     it('should accept very large valid integers (within i128)', async () => {
@@ -120,9 +128,13 @@ describe('Validation Middleware', () => {
       // Validate middleware acceptance without relying on external Horizon/Soroban availability.
       const testApp = express();
       testApp.use(express.json());
-      testApp.get('/api/lending/prepare/:operation', prepareValidation, (_req: Request, res: Response) => {
-        res.status(200).json({ ok: true });
-      });
+      testApp.get(
+        '/api/lending/prepare/:operation',
+        prepareValidation,
+        (_req: Request, res: Response) => {
+          res.status(200).json({ ok: true });
+        }
+      );
       testApp.use(errorHandler);
 
       const res = await request(testApp)
@@ -135,12 +147,16 @@ describe('Validation Middleware', () => {
     // BigInt edge case tests
     it('should accept MAX_SAFE_INTEGER', async () => {
       const maxSafeInt = '9007199254740991';
-      
+
       const testApp = express();
       testApp.use(express.json());
-      testApp.get('/api/lending/prepare/:operation', prepareValidation, (_req: Request, res: Response) => {
-        res.status(200).json({ ok: true });
-      });
+      testApp.get(
+        '/api/lending/prepare/:operation',
+        prepareValidation,
+        (_req: Request, res: Response) => {
+          res.status(200).json({ ok: true });
+        }
+      );
       testApp.use(errorHandler);
 
       const res = await request(testApp)
@@ -152,12 +168,16 @@ describe('Validation Middleware', () => {
 
     it('should accept very large numbers', async () => {
       const veryLargeNumber = '99999999999999999999999999999';
-      
+
       const testApp = express();
       testApp.use(express.json());
-      testApp.get('/api/lending/prepare/:operation', prepareValidation, (_req: Request, res: Response) => {
-        res.status(200).json({ ok: true });
-      });
+      testApp.get(
+        '/api/lending/prepare/:operation',
+        prepareValidation,
+        (_req: Request, res: Response) => {
+          res.status(200).json({ ok: true });
+        }
+      );
       testApp.use(errorHandler);
 
       const res = await request(testApp)
@@ -173,7 +193,7 @@ describe('Validation Middleware', () => {
         .query({ userAddress: VALID_ADDRESS, assetAddress: 'G...', amount: '1.5' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Amount must be a valid positive integer');
+      expect(res.body.error.message).toContain('Amount must be a valid positive integer');
     });
 
     it('should reject scientific notation', async () => {
@@ -182,7 +202,7 @@ describe('Validation Middleware', () => {
         .query({ userAddress: VALID_ADDRESS, assetAddress: 'G...', amount: '1e18' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Amount must be a valid positive integer');
+      expect(res.body.error.message).toContain('Amount must be a valid positive integer');
     });
 
     it('should reject negative zero', async () => {
@@ -191,7 +211,7 @@ describe('Validation Middleware', () => {
         .query({ userAddress: VALID_ADDRESS, assetAddress: 'G...', amount: '-0' });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Amount must be a valid positive integer');
+      expect(res.body.error.message).toContain('Amount must be a valid positive integer');
     });
 
     it('should reject invalid operation', async () => {

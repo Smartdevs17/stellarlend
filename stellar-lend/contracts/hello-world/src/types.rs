@@ -86,6 +86,43 @@ pub struct VoteInfo {
 
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]
+pub struct VotePowerSnapshot {
+    pub proposal_id: u64,
+    pub voter: Address,
+    pub balance: i128,
+    pub snapshot_time: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct VoteLock {
+    pub voter: Address,
+    pub locked_until: u64,
+    pub locked_amount: i128,
+    pub proposal_id: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct DelegationRecord {
+    pub delegator: Address,
+    pub delegatee: Address,
+    pub delegated_at: u64,
+    pub depth: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct GovernanceAnalytics {
+    pub total_proposals: u64,
+    pub total_votes: u64,
+    pub suspicious_proposals: u64,
+    pub last_suspicious_at: u64,
+    pub max_single_voter_power: i128,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
 pub struct ProposalOutcome {
     pub proposal_id: u64,
     pub succeeded: bool,
@@ -94,6 +131,59 @@ pub struct ProposalOutcome {
     pub abstain_votes: i128,
     pub quorum_reached: bool,
     pub quorum_required: i128,
+}
+
+// ========================================================================
+// Proposal Simulation + Optimization
+// ========================================================================
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct ProposalSimulationResult {
+    pub proposal_id: u64,
+    pub now: u64,
+    pub would_succeed: bool,
+    pub quorum_required: i128,
+    pub quorum_reached: bool,
+    pub threshold_votes: i128,
+    pub threshold_met: bool,
+    pub for_votes: i128,
+    pub against_votes: i128,
+    pub abstain_votes: i128,
+    pub total_voting_power: i128,
+    pub note: String,
+}
+
+/// Dry-run execution preview with state diff and impact metrics (Issue #662).
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct StateDiffEntry {
+    pub field: String,
+    pub current_value: i128,
+    pub proposed_value: i128,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct ProposalDryRunResult {
+    pub proposal_id: u64,
+    pub would_succeed: bool,
+    pub tvl_delta: i128,
+    pub apy_delta_bps: i128,
+    pub risk_score_delta: i128,
+    pub gas_units_estimate: u64,
+    pub diffs: Vec<StateDiffEntry>,
+    pub simulated_at: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct ParameterOptimizationRecommendation {
+    pub generated_at: u64,
+    pub suggested_quorum_bps: u32,
+    pub suggested_vote_threshold_bps: i128,
+    pub suggested_voting_period: u64,
+    pub transparency_note: String,
 }
 
 /// Asset status for carbon credit or tokenized assets
@@ -172,3 +262,48 @@ pub const DEFAULT_VOTING_THRESHOLD: i128 = 5_000; // 50% default threshold
 pub const DEFAULT_TIMELOCK_DURATION: u64 = 7 * 24 * 60 * 60; // 7 days
 pub const DEFAULT_RECOVERY_PERIOD: u64 = 3 * 24 * 60 * 60; // 3 days
 pub const MIN_TIMELOCK_DELAY: u64 = 24 * 60 * 60; // 24 hours
+pub const DELEGATION_DEADLINE: u64 = 24 * 60 * 60; // 24 hours
+pub const MAX_DELEGATION_DEPTH: u32 = 3;
+pub const PROPOSAL_RATE_LIMIT: u32 = 5;
+pub const PROPOSAL_RATE_WINDOW: u64 = 24 * 60 * 60; // 24 hours
+pub const MAX_DESCRIPTION_LEN: u32 = 2_000; // Max chars for governance proposal descriptions
+pub const DEFAULT_RECOVERY_DELAY: u64 = 2 * 24 * 60 * 60; // 2 days
+
+// ============================================================================
+// Emergency Withdrawal (issue #446)
+// ============================================================================
+
+/// Trigger source for an emergency state.
+#[contracttype]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum EmergencyTrigger {
+    Admin = 0,
+    CircuitBreaker = 1,
+    OracleFailure = 2,
+}
+
+/// Protocol-wide emergency state.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EmergencyState {
+    pub is_active: bool,
+    pub trigger: EmergencyTrigger,
+    pub started_at: u64,
+    pub window_opens_at: u64,
+    pub window_closes_at: u64,
+    pub withdrawal_cap_bps: i128,
+    pub total_withdrawn_this_window: i128,
+    pub bad_debt: i128,
+}
+
+/// Per-user withdrawal record during an emergency window.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EmergencyWithdrawal {
+    pub user: Address,
+    pub asset: Option<Address>,
+    pub amount: i128,
+    pub withdrawn_at: u64,
+    pub loss_share_bps: i128,
+}

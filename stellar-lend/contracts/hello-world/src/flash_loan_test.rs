@@ -161,3 +161,121 @@ impl CheapReceiver {
         );
     }
 }
+
+#[contract]
+pub struct SequenceJumpReceiver;
+
+#[contractimpl]
+impl SequenceJumpReceiver {
+    pub fn on_flash_loan(env: Env, _user: Address, asset: Address, amount: i128, fee: i128) {
+        let total = amount + fee;
+        let token = token::TokenClient::new(&env, &asset);
+        let target_key = Symbol::new(&env, "CORE_CONTRACT");
+        let core_contract = env
+            .storage()
+            .temporary()
+            .get::<Symbol, Address>(&target_key)
+            .unwrap();
+        token.approve(
+            &env.current_contract_address(),
+            &core_contract,
+            &total,
+            &9999,
+        );
+
+        // Simulate a late callback that crosses into a later ledger sequence.
+        env.ledger().with_mut(|li| li.sequence_number += 1);
+    }
+}
+
+#[test]
+fn test_flash_loan_sequence_expiry_rejects_late_callback() {
+    let (env, contract_id, _admin, user, token_address) = setup_with_balance(10_000_000);
+
+    let receiver_id = env.register(SequenceJumpReceiver, ());
+    let target_key = Symbol::new(&env, "CORE_CONTRACT");
+    env.as_contract(&receiver_id, || {
+        env.storage().temporary().set(&target_key, &contract_id);
+    });
+
+    let token_asset_client = token::StellarAssetClient::new(&env, &token_address);
+    token_asset_client.mint(&receiver_id, &900);
+
+    let result = env.as_contract(&contract_id, || {
+        execute_flash_loan(
+            &env,
+            user.clone(),
+            token_address.clone(),
+            1_000_000,
+            receiver_id,
+        )
+    });
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_simulate_flash_loan_liquidation_profitable_at_default_fee() {
+    let (env, contract_id, _admin, _user, token_address) = setup_with_balance(10_000_000);
+
+    let sim = env
+        .as_contract(&contract_id, || {
+            crate::flash_loan::simulate_flash_loan_liquidation(
+                &env,
+                Some(token_address.clone()),
+                Some(token_address.clone()),
+                1_000_000,
+            )
+        })
+        .unwrap();
+
+    assert!(sim.profitable);
+    assert!(sim.estimated_profit > 0);
+    assert_eq!(sim.debt_amount, 1_000_000);
+    assert!(sim.flash_fee > 0);
+    assert!(sim.gas_units_estimate > 0);
+}
+
+#[test]
+fn test_simulate_flash_loan_liquidation_unprofitable_when_fee_exceeds_incentive() {
+    let (env, contract_id, admin, _user, token_address) = setup_with_balance(10_000_000);
+
+    env.as_contract(&contract_id, || {
+        crate::flash_loan::set_flash_loan_config(
+            &env,
+            admin,
+            crate::flash_loan::FlashLoanConfig {
+                fee_bps: 5_000,
+                max_amount: 1_000_000_000_000,
+                min_amount: 100,
+            },
+        )
+        .unwrap();
+    });
+
+    let sim = env
+        .as_contract(&contract_id, || {
+            crate::flash_loan::simulate_flash_loan_liquidation(
+                &env,
+                Some(token_address.clone()),
+                Some(token_address.clone()),
+                1_000_000,
+            )
+        })
+        .unwrap();
+
+    assert!(!sim.profitable);
+    assert!(sim.flash_fee >= sim.incentive_amount);
+}
+
+#[test]
+fn test_multi_asset_flash_loan_rejects_empty_legs() {
+    let (env, contract_id, _admin, user, _token_address) = setup_with_balance(10_000_000);
+    let callback = Address::generate(&env);
+    let legs = soroban_sdk::Vec::new(&env);
+
+    let result = env.as_contract(&contract_id, || {
+        crate::flash_loan::execute_multi_asset_flash_loan(&env, user, legs, callback)
+    });
+    assert_eq!(result, Err(crate::flash_loan::FlashLoanError::EmptyLegs));
+}

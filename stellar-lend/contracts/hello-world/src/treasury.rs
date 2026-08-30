@@ -131,6 +131,12 @@ pub fn get_fee_config(env: &Env) -> TreasuryFeeConfig {
         .unwrap_or_else(default_fee_config)
 }
 
+/// Return the reserve factor from fee configuration (falls back to DEFAULT_RESERVE_FACTOR_BPS if not set)
+pub fn get_reserve_factor_from_fee_config(env: &Env) -> i128 {
+    let config = get_fee_config(env);
+    config.interest_fee_bps
+}
+
 /// Update the protocol fee configuration (admin-only)
 ///
 /// Fee values must be in range [0, 10000] basis points.
@@ -185,6 +191,44 @@ pub fn get_reserve_balance(env: &Env, asset: Option<Address>) -> i128 {
         .persistent()
         .get::<DepositDataKey, i128>(&DepositDataKey::ProtocolReserve(asset))
         .unwrap_or(0)
+}
+
+/// Accrue reserves from interest payment
+pub fn accrue_reserve(
+    env: &Env,
+    asset: Option<Address>,
+    interest_amount: i128,
+) -> Result<(i128, i128), TreasuryError> {
+    if interest_amount <= 0 {
+        return Ok((0, 0));
+    }
+
+    let reserve_factor = crate::reserve::get_reserve_factor(env, asset.clone());
+    
+    let reserve_amount = interest_amount
+        .checked_mul(reserve_factor)
+        .ok_or(TreasuryError::Overflow)?
+        .checked_div(10000)
+        .ok_or(TreasuryError::Overflow)?;
+
+    let lender_amount = interest_amount
+        .checked_sub(reserve_amount)
+        .ok_or(TreasuryError::Overflow)?;
+
+    if reserve_amount > 0 {
+        let reserve_key = DepositDataKey::ProtocolReserve(asset.clone());
+        let current_reserve = env
+            .storage()
+            .persistent()
+            .get::<DepositDataKey, i128>(&reserve_key)
+            .unwrap_or(0);
+        let new_reserve = current_reserve
+            .checked_add(reserve_amount)
+            .ok_or(TreasuryError::Overflow)?;
+        env.storage().persistent().set(&reserve_key, &new_reserve);
+    }
+
+    Ok((reserve_amount, lender_amount))
 }
 
 // ============================================================================

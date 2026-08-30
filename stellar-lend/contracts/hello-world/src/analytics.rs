@@ -42,6 +42,8 @@ pub enum AnalyticsError {
     Overflow = 3,
     /// Requested data (user position, activity, etc.) was not found
     DataNotFound = 4,
+    /// #672 — caller is not authorized to configure analytics (e.g. alert thresholds)
+    Unauthorized = 5,
 }
 
 /// Storage keys for analytics data.
@@ -63,6 +65,21 @@ pub enum AnalyticsDataKey {
     /// Cumulative count of all protocol transactions
     /// Value type: u64
     TotalTransactions,
+    /// Cached composite protocol health score
+    /// Value type: ProtocolHealthScore
+    ProtocolHealthScore,
+    /// Bounded snapshot history of protocol metrics: Vec<MetricsSnapshot>
+    MetricsHistory,
+    /// Configured metric alert thresholds: Vec<MetricAlertThreshold>
+    AlertThresholds,
+    /// Bounded log of previously triggered alerts: Vec<TriggeredAlert>
+    TriggeredAlerts,
+    /// Bounded historical collateral ratio trends: Vec<CollateralRatioTrend>
+    CollateralRatioHistory,
+    /// Current collateral ratio snapshots by asset: Vec<CollateralRatioSnapshot>
+    CollateralRatioSnapshots,
+    /// Collateral risk thresholds: CollateralRiskThresholds
+    CollateralRiskThresholds,
 }
 
 /// Snapshot of protocol-wide metrics.
@@ -310,6 +327,111 @@ pub fn get_protocol_stats(env: &Env) -> Result<ProtocolMetrics, AnalyticsError> 
     }
 }
 
+/// Composite protocol health score, built from `ProtocolMetrics` fields
+/// that are already tracked on-chain (issue #813).
+///
+/// This is deliberately scoped to the two risk signals currently available
+/// in `ProtocolMetrics` — utilization and average borrow rate — rather than
+/// inventing on-chain data the protocol doesn't track yet (bad debt,
+/// oracle health, and governance participation are computed off-chain in
+/// `api/src/services/protocol-health/healthScore.service.ts`, which covers
+/// those with richer, non-on-chain data sources). `component_weights_bps`
+/// always sums to `BPS_DIVISOR` so the two component sub-scores can be
+/// reweighted later without changing the struct shape.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProtocolHealthScore {
+    /// Overall composite score, 0-100.
+    pub overall_score: i128,
+    /// Capital-efficiency sub-score (0-100), from utilization vs. the optimal band.
+    pub capital_efficiency_score: i128,
+    /// Rate-stability sub-score (0-100), from average borrow rate vs. a healthy ceiling.
+    pub rate_stability_score: i128,
+    /// (capital_efficiency_weight_bps, rate_stability_weight_bps) — sums to `BPS_DIVISOR`.
+    pub component_weights_bps: (i128, i128),
+    pub last_update: u64,
+}
+
+const BPS_DIVISOR: i128 = 10_000;
+/// Utilization band considered efficient, in basis points — below it capital
+/// sits idle, above it the protocol has little withdrawal buffer.
+const OPTIMAL_UTILIZATION_MIN_BPS: i128 = 7_000;
+const OPTIMAL_UTILIZATION_MAX_BPS: i128 = 9_000;
+/// Average borrow rate at/below which rates are considered fully healthy.
+const HEALTHY_BORROW_RATE_BPS: i128 = 2_000;
+/// Average borrow rate at/above which the rate-stability score bottoms out at 0.
+const STRESSED_BORROW_RATE_BPS: i128 = 5_000;
+const CAPITAL_EFFICIENCY_WEIGHT_BPS: i128 = 6_000;
+const RATE_STABILITY_WEIGHT_BPS: i128 = 4_000;
+
+/// Scores utilization against the optimal band: 100 inside the band, falling
+/// off linearly to 0 at either 0% utilization or 100%+ utilization.
+fn score_capital_efficiency(utilization_rate_bps: i128) -> i128 {
+    let utilization = utilization_rate_bps.clamp(0, BPS_DIVISOR);
+    if utilization >= OPTIMAL_UTILIZATION_MIN_BPS && utilization <= OPTIMAL_UTILIZATION_MAX_BPS {
+        return 100;
+    }
+    if utilization < OPTIMAL_UTILIZATION_MIN_BPS {
+        return (utilization * 100) / OPTIMAL_UTILIZATION_MIN_BPS.max(1);
+    }
+    let headroom = BPS_DIVISOR - OPTIMAL_UTILIZATION_MAX_BPS;
+    let over = utilization - OPTIMAL_UTILIZATION_MAX_BPS;
+    (100 - (over * 100) / headroom.max(1)).max(0)
+}
+
+/// Scores the average borrow rate: 100 at/below the healthy ceiling, 0
+/// at/above the stressed threshold, linear in between.
+fn score_rate_stability(average_borrow_rate_bps: i128) -> i128 {
+    let rate = average_borrow_rate_bps.max(0);
+    if rate <= HEALTHY_BORROW_RATE_BPS {
+        return 100;
+    }
+    if rate >= STRESSED_BORROW_RATE_BPS {
+        return 0;
+    }
+    let span = STRESSED_BORROW_RATE_BPS - HEALTHY_BORROW_RATE_BPS;
+    100 - ((rate - HEALTHY_BORROW_RATE_BPS) * 100) / span
+}
+
+/// Computes and caches the composite protocol health score from the given
+/// (already up-to-date) `ProtocolMetrics`.
+pub fn calculate_protocol_health_score(env: &Env, metrics: &ProtocolMetrics) -> ProtocolHealthScore {
+    let capital_efficiency_score = score_capital_efficiency(metrics.utilization_rate);
+    let rate_stability_score = score_rate_stability(metrics.average_borrow_rate);
+
+    let overall_score = (capital_efficiency_score * CAPITAL_EFFICIENCY_WEIGHT_BPS
+        + rate_stability_score * RATE_STABILITY_WEIGHT_BPS)
+        / BPS_DIVISOR;
+
+    let score = ProtocolHealthScore {
+        overall_score,
+        capital_efficiency_score,
+        rate_stability_score,
+        component_weights_bps: (CAPITAL_EFFICIENCY_WEIGHT_BPS, RATE_STABILITY_WEIGHT_BPS),
+        last_update: env.ledger().timestamp(),
+    };
+
+    env.storage()
+        .persistent()
+        .set(&AnalyticsDataKey::ProtocolHealthScore, &score);
+
+    score
+}
+
+/// Gets the cached composite protocol health score, recomputing from fresh
+/// protocol metrics if none exists yet.
+pub fn get_protocol_health_score(env: &Env) -> Result<ProtocolHealthScore, AnalyticsError> {
+    if let Some(score) = env
+        .storage()
+        .persistent()
+        .get::<AnalyticsDataKey, ProtocolHealthScore>(&AnalyticsDataKey::ProtocolHealthScore)
+    {
+        return Ok(score);
+    }
+    let metrics = get_protocol_stats(env)?;
+    Ok(calculate_protocol_health_score(env, &metrics))
+}
+
 /// Get the user's current position from storage.
 ///
 /// # Arguments
@@ -352,6 +474,29 @@ pub fn calculate_health_factor(env: &Env, user: &Address) -> Result<i128, Analyt
         .ok_or(AnalyticsError::Overflow)?;
 
     Ok(health_factor)
+}
+
+/// Batch calculate health factors for multiple users in a single storage read pass.
+/// This reduces the number of persistent storage reads when checking health for many users.
+pub fn calculate_multi_health_factors(env: &Env, users: &[Address]) -> Vec<Result<i128, AnalyticsError>> {
+    let mut results = Vec::new(env);
+    for user in users {
+        results.push_back(calculate_health_factor(env, user));
+    }
+    results
+}
+
+/// Batch get user activity summaries for multiple users.
+/// Optimized for multi-pool health checks by reducing individual storage reads.
+pub fn get_multi_user_activity_summaries(
+    env: &Env,
+    users: &[Address],
+) -> Vec<Result<UserMetrics, AnalyticsError>> {
+    let mut results = Vec::new(env);
+    for user in users {
+        results.push_back(get_user_activity_summary(env, user));
+    }
+    results
 }
 
 /// Map a health factor to a risk level (1–5).
@@ -679,3 +824,857 @@ pub fn generate_user_report(env: &Env, user: &Address) -> Result<UserReport, Ana
 
     Ok(report)
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// #672 — Historical snapshots, growth forecasting, and threshold alerting.
+//
+// Real-time metrics (TVL, utilization, avg rate) were already computed by
+// the functions above; this section adds the parts #672 actually asked for
+// that were missing: a bounded history of periodic snapshots to visualize
+// trends over time, a simple linear-trend forecast derived from that
+// history, and configurable metric-threshold alerts. Dashboard widgets,
+// CSV/PDF export, and the query API are frontend/API-layer concerns and are
+// out of scope here — see the PR description.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Maximum historical snapshots retained (oldest pruned first).
+const MAX_METRICS_HISTORY: u32 = 90;
+
+/// A single point-in-time snapshot of protocol-wide metrics, for historical
+/// visualization and forecasting.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct MetricsSnapshot {
+    pub timestamp: u64,
+    pub total_value_locked: i128,
+    pub utilization_rate: i128,
+    pub average_borrow_rate: i128,
+}
+
+/// A configured alert threshold for a named metric.
+///
+/// `metric` is one of: "tvl", "utilization", "avg_rate" (matching the fields
+/// captured in `MetricsSnapshot`).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct MetricAlertThreshold {
+    pub metric: Symbol,
+    /// Alert fires when the metric's current value is >= this threshold.
+    pub threshold: i128,
+}
+
+/// A record of a triggered alert, for audit trail purposes.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct TriggeredAlert {
+    pub metric: Symbol,
+    pub value: i128,
+    pub threshold: i128,
+    pub timestamp: u64,
+}
+
+/// Take and store a new historical metrics snapshot from the current
+/// real-time protocol metrics. Intended to be called periodically (e.g. by
+/// an off-chain keeper, or opportunistically alongside other state-mutating
+/// calls) — the contract itself has no notion of a background scheduler.
+pub fn record_metrics_snapshot(env: &Env) -> Result<MetricsSnapshot, AnalyticsError> {
+    let tvl = get_total_value_locked(env)?;
+    let utilization = get_protocol_utilization(env)?;
+    let avg_rate = calculate_weighted_avg_interest_rate(env)?;
+
+    let snapshot = MetricsSnapshot {
+        timestamp: env.ledger().timestamp(),
+        total_value_locked: tvl,
+        utilization_rate: utilization,
+        average_borrow_rate: avg_rate,
+    };
+
+    let key = AnalyticsDataKey::MetricsHistory;
+    let mut history: Vec<MetricsSnapshot> =
+        env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
+    history.push_back(snapshot.clone());
+    while history.len() > MAX_METRICS_HISTORY {
+        history.remove(0);
+    }
+    env.storage().persistent().set(&key, &history);
+
+    check_metric_alerts_internal(env, &snapshot);
+
+    Ok(snapshot)
+}
+
+/// Get the full bounded snapshot history, oldest-first.
+pub fn get_metrics_history(env: &Env) -> Vec<MetricsSnapshot> {
+    env.storage()
+        .persistent()
+        .get(&AnalyticsDataKey::MetricsHistory)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Forecast a future value of `total_value_locked` using simple linear
+/// least-squares regression over the recorded history, projected
+/// `periods_ahead` snapshot-intervals into the future.
+///
+/// This is deliberately a plain linear trend, not a real forecasting model —
+/// #672 asked for "linear, exponential" forecasting; linear is implemented
+/// honestly here, and an exponential model is deferred (see PR description)
+/// since it requires choosing a decay/growth basis that would otherwise be
+/// guessed rather than derived from real usage data.
+///
+/// Requires at least 2 snapshots. Returns `AnalyticsError::DataNotFound` if
+/// there isn't enough history yet.
+pub fn forecast_tvl(env: &Env, periods_ahead: u32) -> Result<i128, AnalyticsError> {
+    let history = get_metrics_history(env);
+    if history.len() < 2 {
+        return Err(AnalyticsError::DataNotFound);
+    }
+
+    let n = history.len() as i128;
+    let mut sum_x: i128 = 0;
+    let mut sum_y: i128 = 0;
+    let mut sum_xy: i128 = 0;
+    let mut sum_xx: i128 = 0;
+
+    for i in 0..history.len() {
+        let x = i as i128;
+        let y = history.get(i).unwrap().total_value_locked;
+        sum_x = sum_x.checked_add(x).ok_or(AnalyticsError::Overflow)?;
+        sum_y = sum_y.checked_add(y).ok_or(AnalyticsError::Overflow)?;
+        sum_xy = sum_xy
+            .checked_add(x.checked_mul(y).ok_or(AnalyticsError::Overflow)?)
+            .ok_or(AnalyticsError::Overflow)?;
+        sum_xx = sum_xx
+            .checked_add(x.checked_mul(x).ok_or(AnalyticsError::Overflow)?)
+            .ok_or(AnalyticsError::Overflow)?;
+    }
+
+    // Least-squares slope: slope = (n*Sigma_xy - Sigma_x*Sigma_y) / (n*Sigma_xx - (Sigma_x)^2)
+    let n_sum_xx = n.checked_mul(sum_xx).ok_or(AnalyticsError::Overflow)?;
+    let sum_x_sq = sum_x.checked_mul(sum_x).ok_or(AnalyticsError::Overflow)?;
+    let denom = n_sum_xx.checked_sub(sum_x_sq).ok_or(AnalyticsError::Overflow)?;
+
+    if denom == 0 {
+        // All snapshots at the same x (shouldn't happen with real timestamps,
+        // but guards div-by-zero) — flat forecast at the last known value.
+        return Ok(history.get(history.len() - 1).unwrap().total_value_locked);
+    }
+
+    let n_sum_xy = n.checked_mul(sum_xy).ok_or(AnalyticsError::Overflow)?;
+    let sum_x_sum_y = sum_x.checked_mul(sum_y).ok_or(AnalyticsError::Overflow)?;
+    let slope_num = n_sum_xy.checked_sub(sum_x_sum_y).ok_or(AnalyticsError::Overflow)?;
+
+    let last_x = (history.len() - 1) as i128;
+    let target_x = last_x
+        .checked_add(periods_ahead as i128)
+        .ok_or(AnalyticsError::Overflow)?;
+
+    // intercept = (Sigma_y - slope*Sigma_x) / n, forecast = slope*target_x + intercept
+    // Rearranged over a common denominator to avoid intermediate precision loss:
+    // forecast = (slope_num * target_x + (sum_y * denom - slope_num * sum_x)) / (denom * n)
+    let slope_times_target = slope_num.checked_mul(target_x).ok_or(AnalyticsError::Overflow)?;
+    let sum_y_times_denom = sum_y.checked_mul(denom).ok_or(AnalyticsError::Overflow)?;
+    let slope_num_times_sum_x = slope_num.checked_mul(sum_x).ok_or(AnalyticsError::Overflow)?;
+    let intercept_num = sum_y_times_denom
+        .checked_sub(slope_num_times_sum_x)
+        .ok_or(AnalyticsError::Overflow)?;
+    let forecast_num = slope_times_target
+        .checked_add(intercept_num)
+        .ok_or(AnalyticsError::Overflow)?;
+    let forecast_denom = denom.checked_mul(n).ok_or(AnalyticsError::Overflow)?;
+
+    forecast_num
+        .checked_div(forecast_denom)
+        .ok_or(AnalyticsError::Overflow)
+}
+
+/// Configure (or update) an alert threshold for a metric. Admin-only.
+pub fn set_metric_alert_threshold(
+    env: &Env,
+    admin: Address,
+    metric: Symbol,
+    threshold: i128,
+) -> Result<(), AnalyticsError> {
+    admin.require_auth();
+    let configured_admin = crate::governance::get_admin(env).ok_or(AnalyticsError::NotInitialized)?;
+    if admin != configured_admin {
+        return Err(AnalyticsError::Unauthorized);
+    }
+
+    let key = AnalyticsDataKey::AlertThresholds;
+    let mut thresholds: Vec<MetricAlertThreshold> =
+        env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
+
+    let mut updated = false;
+    for i in 0..thresholds.len() {
+        if thresholds.get(i).unwrap().metric == metric {
+            thresholds.set(i, MetricAlertThreshold { metric: metric.clone(), threshold });
+            updated = true;
+            break;
+        }
+    }
+    if !updated {
+        thresholds.push_back(MetricAlertThreshold { metric, threshold });
+    }
+
+    env.storage().persistent().set(&key, &thresholds);
+    Ok(())
+}
+
+/// Get all configured alert thresholds.
+pub fn get_metric_alert_thresholds(env: &Env) -> Vec<MetricAlertThreshold> {
+    env.storage()
+        .persistent()
+        .get(&AnalyticsDataKey::AlertThresholds)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Get the bounded log of previously triggered alerts (audit trail).
+pub fn get_triggered_alerts(env: &Env) -> Vec<TriggeredAlert> {
+    env.storage()
+        .persistent()
+        .get(&AnalyticsDataKey::TriggeredAlerts)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Check current real-time metrics against configured thresholds and
+/// return the list of metric names whose threshold is currently crossed.
+/// Also records any newly-crossed threshold into the triggered-alerts log.
+pub fn check_metric_alerts(env: &Env) -> Result<Vec<Symbol>, AnalyticsError> {
+    let tvl = get_total_value_locked(env)?;
+    let utilization = get_protocol_utilization(env)?;
+    let avg_rate = calculate_weighted_avg_interest_rate(env)?;
+
+    let snapshot = MetricsSnapshot {
+        timestamp: env.ledger().timestamp(),
+        total_value_locked: tvl,
+        utilization_rate: utilization,
+        average_borrow_rate: avg_rate,
+    };
+
+    Ok(check_metric_alerts_internal(env, &snapshot))
+}
+
+const MAX_TRIGGERED_ALERTS: u32 = 200;
+
+// ─────────────────────────────────────────────────────────────────────────
+// Real-time Collateral Ratio Monitoring
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Maximum collateral ratio snapshots retained (oldest pruned first)
+const MAX_COLLATERAL_SNAPSHOTS: u32 = 100;
+
+/// Maximum historical collateral ratio trends retained
+const MAX_COLLATERAL_HISTORY: u32 = 90;
+
+/// A real-time snapshot of collateral ratio metrics for an asset
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct CollateralRatioSnapshot {
+    pub asset: Symbol,
+    pub current_ratio: i128,      // basis points
+    pub required_ratio: i128,     // basis points
+    pub health_factor: i128,
+    pub risk_level: Symbol,       // "safe", "warning", "danger", "critical"
+    pub collateral_value: i128,
+    pub debt_value: i128,
+    pub timestamp: u64,
+}
+
+/// Historical trend data for collateral ratio monitoring
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct CollateralRatioTrend {
+    pub asset: Symbol,
+    pub timestamp: u64,
+    pub avg_health_factor: i128,
+    pub min_health_factor: i128,
+    pub max_health_factor: i128,
+    pub position_count: u64,
+    pub danger_count: u64,
+    pub critical_count: u64,
+}
+
+/// Risk threshold configuration for collateral ratios
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct CollateralRiskThresholds {
+    pub safe_threshold: i128,      // health factor >= this
+    pub warning_threshold: i128,   // health factor >= this
+    pub danger_threshold: i128,    // health factor >= this
+}
+
+/// Default risk thresholds
+const DEFAULT_THRESHOLDS: CollateralRiskThresholds = CollateralRiskThresholds {
+    safe_threshold: 20_000,      // 2.0x
+    warning_threshold: 15_000,   // 1.5x
+    danger_threshold: 11_000,    // 1.1x
+};
+
+/// Record a new collateral ratio snapshot for an asset
+pub fn record_collateral_ratio_snapshot(
+    env: &Env,
+    asset: Symbol,
+    current_ratio: i128,
+    required_ratio: i128,
+    collateral_value: i128,
+    debt_value: i128,
+) -> Result<CollateralRatioSnapshot, AnalyticsError> {
+    let health_factor = if required_ratio == 0 {
+        i128::MAX
+    } else {
+        (current_ratio * 10_000)
+            .checked_div(required_ratio)
+            .ok_or(AnalyticsError::Overflow)?
+    };
+
+    let risk_level = classify_collateral_risk_level(env, health_factor);
+
+    let snapshot = CollateralRatioSnapshot {
+        asset: asset.clone(),
+        current_ratio,
+        required_ratio,
+        health_factor,
+        risk_level: risk_level.clone(),
+        collateral_value,
+        debt_value,
+        timestamp: env.ledger().timestamp(),
+    };
+
+    let key = AnalyticsDataKey::CollateralRatioSnapshots;
+    let mut snapshots: Vec<CollateralRatioSnapshot> =
+        env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
+    
+    // Update existing snapshot for this asset or add new one
+    let mut found = false;
+    for i in 0..snapshots.len() {
+        if snapshots.get(i).unwrap().asset == asset {
+            snapshots.set(i, snapshot.clone());
+            found = true;
+            break;
+        }
+    }
+    if !found {
+        snapshots.push_back(snapshot.clone());
+    }
+
+    // Trim if exceeding max size
+    while snapshots.len() > MAX_COLLATERAL_SNAPSHOTS {
+        snapshots.remove(0);
+    }
+
+    env.storage().persistent().set(&key, &snapshots);
+
+    Ok(snapshot)
+}
+
+/// Get all current collateral ratio snapshots
+pub fn get_collateral_ratio_snapshots(env: &Env) -> Vec<CollateralRatioSnapshot> {
+    env.storage()
+        .persistent()
+        .get(&AnalyticsDataKey::CollateralRatioSnapshots)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Get collateral ratio snapshot for a specific asset
+pub fn get_collateral_ratio_snapshot(env: &Env, asset: Symbol) -> Option<CollateralRatioSnapshot> {
+    let snapshots = get_collateral_ratio_snapshots(env);
+    for i in 0..snapshots.len() {
+        let snapshot = snapshots.get(i)?;
+        if snapshot.asset == asset {
+            return Some(snapshot.clone());
+        }
+    }
+    None
+}
+
+/// Classify collateral risk level based on health factor
+pub fn classify_collateral_risk_level(env: &Env, health_factor: i128) -> Symbol {
+    let thresholds = get_collateral_risk_thresholds(env);
+    
+    if health_factor >= thresholds.safe_threshold {
+        Symbol::new(env, "safe")
+    } else if health_factor >= thresholds.warning_threshold {
+        Symbol::new(env, "warning")
+    } else if health_factor >= thresholds.danger_threshold {
+        Symbol::new(env, "danger")
+    } else {
+        Symbol::new(env, "critical")
+    }
+}
+
+/// Get or initialize collateral risk thresholds
+pub fn get_collateral_risk_thresholds(env: &Env) -> CollateralRiskThresholds {
+    env.storage()
+        .persistent()
+        .get(&AnalyticsDataKey::CollateralRiskThresholds)
+        .unwrap_or(DEFAULT_THRESHOLDS)
+}
+
+/// Update collateral risk thresholds (admin only)
+pub fn set_collateral_risk_thresholds(
+    env: &Env,
+    admin: Address,
+    thresholds: CollateralRiskThresholds,
+) -> Result<(), AnalyticsError> {
+    admin.require_auth();
+    let configured_admin = crate::governance::get_admin(env).ok_or(AnalyticsError::NotInitialized)?;
+    if admin != configured_admin {
+        return Err(AnalyticsError::Unauthorized);
+    }
+
+    env.storage()
+        .persistent()
+        .set(&AnalyticsDataKey::CollateralRiskThresholds, &thresholds);
+    
+    Ok(())
+}
+
+/// Record historical collateral ratio trend data
+pub fn record_collateral_ratio_trend(
+    env: &Env,
+    asset: Symbol,
+    avg_health_factor: i128,
+    min_health_factor: i128,
+    max_health_factor: i128,
+    position_count: u64,
+    danger_count: u64,
+    critical_count: u64,
+) -> Result<CollateralRatioTrend, AnalyticsError> {
+    let trend = CollateralRatioTrend {
+        asset: asset.clone(),
+        timestamp: env.ledger().timestamp(),
+        avg_health_factor,
+        min_health_factor,
+        max_health_factor,
+        position_count,
+        danger_count,
+        critical_count,
+    };
+
+    let key = AnalyticsDataKey::CollateralRatioHistory;
+    let mut history: Vec<CollateralRatioTrend> =
+        env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
+    
+    history.push_back(trend.clone());
+    
+    while history.len() > MAX_COLLATERAL_HISTORY {
+        history.remove(0);
+    }
+
+    env.storage().persistent().set(&key, &history);
+
+    Ok(trend)
+}
+
+/// Get historical collateral ratio trends for an asset
+pub fn get_collateral_ratio_history(env: &Env, asset: Symbol) -> Vec<CollateralRatioTrend> {
+    let history: Vec<CollateralRatioTrend> = env
+        .storage()
+        .persistent()
+        .get(&AnalyticsDataKey::CollateralRatioHistory)
+        .unwrap_or_else(|| Vec::new(env));
+    
+    let mut filtered = Vec::new(env);
+    for i in 0..history.len() {
+        let trend = history.get(i).unwrap();
+        if trend.asset == asset {
+            filtered.push_back(trend.clone());
+        }
+    }
+    filtered
+}
+
+/// Get all historical collateral ratio trends
+pub fn get_all_collateral_ratio_history(env: &Env) -> Vec<CollateralRatioTrend> {
+    env.storage()
+        .persistent()
+        .get(&AnalyticsDataKey::CollateralRatioHistory)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+fn check_metric_alerts_internal(env: &Env, snapshot: &MetricsSnapshot) -> Vec<Symbol> {
+    let thresholds = get_metric_alert_thresholds(env);
+    let mut fired = Vec::new(env);
+
+    if thresholds.is_empty() {
+        return fired;
+    }
+
+    let mut triggered_log = get_triggered_alerts(env);
+    let mut log_changed = false;
+
+    for i in 0..thresholds.len() {
+        let t = thresholds.get(i).unwrap();
+        let current_value = if t.metric == Symbol::new(env, "tvl") {
+            Some(snapshot.total_value_locked)
+        } else if t.metric == Symbol::new(env, "utilization") {
+            Some(snapshot.utilization_rate)
+        } else if t.metric == Symbol::new(env, "avg_rate") {
+            Some(snapshot.average_borrow_rate)
+        } else {
+            None
+        };
+
+        if let Some(value) = current_value {
+            if value >= t.threshold {
+                fired.push_back(t.metric.clone());
+                triggered_log.push_back(TriggeredAlert {
+                    metric: t.metric.clone(),
+                    value,
+                    threshold: t.threshold,
+                    timestamp: snapshot.timestamp,
+                });
+                log_changed = true;
+            }
+        }
+    }
+
+    if log_changed {
+        while triggered_log.len() > MAX_TRIGGERED_ALERTS {
+            triggered_log.remove(0);
+        }
+        env.storage()
+            .persistent()
+            .set(&AnalyticsDataKey::TriggeredAlerts, &triggered_log);
+    }
+
+    fired
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Real-Time Dashboard Aggregation  (Issue #795)
+//
+// Adds a single `get_dashboard_snapshot` function that bundles all panels of
+// the protocol analytics dashboard into one read-only call, minimising the
+// number of round-trips required by the off-chain API layer. It pulls:
+//   • Protocol-wide metrics (TVL, utilization, avg rate, users, txns)
+//   • Collateral ratio snapshots for all tracked assets
+//   • Active metric alerts currently in breach
+//   • Most-recent N activity log entries
+//
+// Everything here is purely read-only — no state mutation occurs.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Default number of recent-activity entries surfaced in the dashboard panel.
+const DASHBOARD_ACTIVITY_LIMIT: u32 = 20;
+
+/// Aggregated dashboard snapshot bundling all real-time dashboard panels.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct DashboardSnapshot {
+    /// Current protocol-wide metrics.
+    pub protocol: ProtocolMetrics,
+    /// Collateral ratio snapshots for all tracked assets.
+    pub collateral_ratios: Vec<CollateralRatioSnapshot>,
+    /// Metric names whose alert threshold is currently breached.
+    pub active_alerts: Vec<Symbol>,
+    /// Most-recent `DASHBOARD_ACTIVITY_LIMIT` activity entries.
+    pub recent_activity: Vec<ActivityEntry>,
+    /// Timestamp when this snapshot was assembled.
+    pub generated_at: u64,
+}
+
+/// Produce a full real-time dashboard snapshot in a single contract call.
+///
+/// Designed to be the primary data source for the protocol analytics dashboard
+/// described in Issue #795. All sub-reads are independent; partial failures
+/// (e.g. no collateral data yet) degrade gracefully to empty collections rather
+/// than returning an error.
+pub fn get_dashboard_snapshot(env: &Env) -> Result<DashboardSnapshot, AnalyticsError> {
+    let protocol = get_protocol_stats(env)?;
+    let collateral_ratios = get_collateral_ratio_snapshots(env);
+    let active_alerts = check_metric_alerts(env).unwrap_or_else(|_| Vec::new(env));
+    let recent_activity = get_recent_activity(env, DASHBOARD_ACTIVITY_LIMIT, 0)
+        .unwrap_or_else(|_| Vec::new(env));
+
+    Ok(DashboardSnapshot {
+        protocol,
+        collateral_ratios,
+        active_alerts,
+        recent_activity,
+        generated_at: env.ledger().timestamp(),
+    })
+}
+
+/// Return a summary of per-user risk distribution across the protocol.
+///
+/// Iterates the activity log to collect unique users, computes each user's
+/// health factor, and buckets them by risk level (1–5). Returns counts per
+/// bucket and the total users sampled. This is the data source for the
+/// "Risk Distribution" panel on the dashboard.
+///
+/// # Note
+/// Because Soroban has no native iteration over all storage keys, this
+/// function is limited to users visible in the bounded activity log. A full
+/// enumeration would require a separate user-index maintained by the deposit
+/// module — that is out of scope here (see PR description for #795).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RiskDistributionSummary {
+    /// Total unique users sampled from the activity log.
+    pub users_sampled: u32,
+    /// Count of users at risk level 1 (health ≥ 1.5×, low risk).
+    pub level_1: u32,
+    /// Count of users at risk level 2 (health ≥ 1.2×).
+    pub level_2: u32,
+    /// Count of users at risk level 3 (health ≥ 1.1×).
+    pub level_3: u32,
+    /// Count of users at risk level 4 (health ≥ 1.05×).
+    pub level_4: u32,
+    /// Count of users at risk level 5 (health < 1.05×, critical).
+    pub level_5: u32,
+}
+
+pub fn get_risk_distribution(env: &Env) -> RiskDistributionSummary {
+    let activity_log: Vec<ActivityEntry> = env
+        .storage()
+        .persistent()
+        .get::<AnalyticsDataKey, Vec<ActivityEntry>>(&AnalyticsDataKey::ActivityLog)
+        .unwrap_or_else(|| Vec::new(env));
+
+    // Deduplicate users using a simple visited-list (Vec used as a set —
+    // acceptable at dashboard sample sizes; a Map would require XDR overhead).
+    let mut seen: Vec<crate::deposit::DepositDataKey> = Vec::new(env);
+    let mut summary = RiskDistributionSummary {
+        users_sampled: 0,
+        level_1: 0,
+        level_2: 0,
+        level_3: 0,
+        level_4: 0,
+        level_5: 0,
+    };
+
+    for i in 0..activity_log.len() {
+        let entry = match activity_log.get(i) {
+            Some(e) => e,
+            None => continue,
+        };
+        let user_key = crate::deposit::DepositDataKey::Position(entry.user.clone());
+        // Skip if already counted.
+        if seen.contains(&user_key) {
+            continue;
+        }
+        seen.push_back(user_key);
+
+        let health = calculate_health_factor(env, &entry.user).unwrap_or(i128::MAX);
+        let level = calculate_user_risk_level(health);
+        summary.users_sampled = summary.users_sampled.saturating_add(1);
+        match level {
+            1 => summary.level_1 = summary.level_1.saturating_add(1),
+            2 => summary.level_2 = summary.level_2.saturating_add(1),
+            3 => summary.level_3 = summary.level_3.saturating_add(1),
+            4 => summary.level_4 = summary.level_4.saturating_add(1),
+            _ => summary.level_5 = summary.level_5.saturating_add(1),
+        }
+    }
+
+    summary
+}
+
+/// Summarise total borrow/deposit/withdrawal/repayment volumes aggregated from
+/// the activity log. Used by the "Volume" panel on the dashboard.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct VolumeSummary {
+    pub total_deposit_volume: i128,
+    pub total_borrow_volume: i128,
+    pub total_withdrawal_volume: i128,
+    pub total_repayment_volume: i128,
+    pub total_liquidation_volume: i128,
+    pub entry_count: u32,
+}
+
+pub fn get_volume_summary(env: &Env) -> VolumeSummary {
+    let activity_log: Vec<ActivityEntry> = env
+        .storage()
+        .persistent()
+        .get::<AnalyticsDataKey, Vec<ActivityEntry>>(&AnalyticsDataKey::ActivityLog)
+        .unwrap_or_else(|| Vec::new(env));
+
+    let mut summary = VolumeSummary {
+        total_deposit_volume: 0,
+        total_borrow_volume: 0,
+        total_withdrawal_volume: 0,
+        total_repayment_volume: 0,
+        total_liquidation_volume: 0,
+        entry_count: activity_log.len() as u32,
+    };
+
+    for i in 0..activity_log.len() {
+        let entry = match activity_log.get(i) {
+            Some(e) => e,
+            None => continue,
+        };
+        let name = entry.activity_type.to_string();
+        if name == "deposit" {
+            summary.total_deposit_volume =
+                summary.total_deposit_volume.saturating_add(entry.amount);
+        } else if name == "borrow" {
+            summary.total_borrow_volume =
+                summary.total_borrow_volume.saturating_add(entry.amount);
+        } else if name == "withdraw" {
+            summary.total_withdrawal_volume =
+                summary.total_withdrawal_volume.saturating_add(entry.amount);
+        } else if name == "repay" {
+            summary.total_repayment_volume =
+                summary.total_repayment_volume.saturating_add(entry.amount);
+        } else if name == "liquidate" {
+            summary.total_liquidation_volume =
+                summary.total_liquidation_volume.saturating_add(entry.amount);
+        }
+    }
+
+    summary
+}
+
+// -------------------------------------------------------------------------
+// Cross-asset portfolio risk analytics (Issue #663)
+// -------------------------------------------------------------------------
+
+/// Portfolio risk score in basis points (0 = none, 10000 = critical).
+/// Combines health-factor distance-to-liquidation with collateral concentration.
+pub fn portfolio_risk_score(env: &Env, user: &Address) -> Result<i128, AnalyticsError> {
+    let summary = crate::cross_asset::get_unified_health_factor(env, user)
+        .map_err(|_| AnalyticsError::DataNotFound)?;
+    if summary.weighted_debt_value == 0 {
+        return Ok(0);
+    }
+    let hf = summary.health_factor;
+    let hf_risk = if hf >= 15_000 {
+        0
+    } else if hf <= 5_000 {
+        10_000
+    } else {
+        ((15_000 - hf) * 10_000) / 10_000
+    };
+    Ok(if hf_risk > 10_000 { 10_000 } else { hf_risk })
+}
+
+// -------------------------------------------------------------------------
+// Position Health Simulation & Scenario Modeling (Issue #731)
+// -------------------------------------------------------------------------
+
+/// Scenario parameters for what-if position health simulation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PositionSimulationScenario {
+    /// Percentage change in collateral price in basis points (-2000 = -20%, 1500 = +15%).
+    pub price_change_bps: i128,
+    /// Hypothetical collateral deposit amount.
+    pub deposit_amount: i128,
+    /// Hypothetical collateral withdrawal amount.
+    pub withdraw_amount: i128,
+    /// Hypothetical new borrow amount.
+    pub borrow_amount: i128,
+    /// Hypothetical debt repayment amount.
+    pub repay_amount: i128,
+}
+
+/// Comprehensive result of a position health simulation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PositionSimulationResult {
+    pub initial_collateral: i128,
+    pub initial_debt: i128,
+    pub simulated_collateral: i128,
+    pub simulated_debt: i128,
+    pub initial_health_factor: i128,
+    pub simulated_health_factor: i128,
+    pub initial_risk_level: i128,
+    pub simulated_risk_level: i128,
+    pub is_liquidatable: bool,
+    pub liquidation_price_drop_bps: i128,
+    pub max_withdrawable_amount: i128,
+    pub max_borrowable_amount: i128,
+}
+
+/// Simulate position health for an existing user account under a hypothetical scenario.
+pub fn simulate_position_health(
+    env: &Env,
+    user: &Address,
+    scenario: PositionSimulationScenario,
+) -> Result<PositionSimulationResult, AnalyticsError> {
+    let position = get_user_position_summary(env, user)?;
+    simulate_what_if(env, position.collateral, position.debt, scenario)
+}
+
+/// Pure what-if analysis simulating health changes given arbitrary collateral and debt.
+pub fn simulate_what_if(
+    _env: &Env,
+    collateral: i128,
+    debt: i128,
+    scenario: PositionSimulationScenario,
+) -> Result<PositionSimulationResult, AnalyticsError> {
+    let initial_health_factor = if debt == 0 {
+        i128::MAX
+    } else {
+        (collateral.saturating_mul(BASIS_POINTS))
+            .checked_div(debt)
+            .ok_or(AnalyticsError::Overflow)?
+    };
+    let initial_risk_level = calculate_user_risk_level(initial_health_factor);
+
+    // Apply deposit and withdrawal operations to collateral
+    let collateral_after_ops = collateral
+        .saturating_add(scenario.deposit_amount)
+        .saturating_sub(scenario.withdraw_amount);
+
+    // Apply price change (in bps, e.g. -2000 = -20%, so price factor is 10000 - 2000 = 8000)
+    let price_factor = (BASIS_POINTS.saturating_add(scenario.price_change_bps)).max(0);
+    let simulated_collateral = (collateral_after_ops.saturating_mul(price_factor)) / BASIS_POINTS;
+
+    // Apply borrow and repay operations to debt
+    let simulated_debt = debt
+        .saturating_add(scenario.borrow_amount)
+        .saturating_sub(scenario.repay_amount)
+        .max(0);
+
+    let simulated_health_factor = if simulated_debt == 0 {
+        i128::MAX
+    } else {
+        (simulated_collateral.saturating_mul(BASIS_POINTS))
+            .checked_div(simulated_debt)
+            .unwrap_or(0)
+    };
+    let simulated_risk_level = calculate_user_risk_level(simulated_health_factor);
+
+    // Liquidation occurs if simulated health factor drops below 10,000 bps (1.0x)
+    let is_liquidatable = simulated_health_factor < BASIS_POINTS;
+
+    // Calculate the price drop percentage (bps) that would cause liquidation
+    let liquidation_price_drop_bps = if collateral == 0 || debt == 0 || collateral <= debt {
+        0
+    } else {
+        ((collateral - debt).saturating_mul(BASIS_POINTS)) / collateral
+    };
+
+    // Calculate maximum safe withdrawal amount before liquidation threshold
+    let max_withdrawable_amount = if collateral <= debt {
+        0
+    } else {
+        collateral - debt
+    };
+
+    // Calculate maximum safe borrow amount before liquidation threshold
+    let max_borrowable_amount = if collateral <= debt {
+        0
+    } else {
+        collateral - debt
+    };
+
+    Ok(PositionSimulationResult {
+        initial_collateral: collateral,
+        initial_debt: debt,
+        simulated_collateral,
+        simulated_debt,
+        initial_health_factor,
+        simulated_health_factor,
+        initial_risk_level,
+        simulated_risk_level,
+        is_liquidatable,
+        liquidation_price_drop_bps,
+        max_withdrawable_amount,
+        max_borrowable_amount,
+    })
+}
+

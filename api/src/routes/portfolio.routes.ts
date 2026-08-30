@@ -82,7 +82,11 @@ router.get('/:userAddress/risk', portfolioController.getPortfolioRisk);
  *           maximum: 200
  *           default: 200
  */
-router.get('/:userAddress/performance', paginationValidation, portfolioController.getPortfolioPerformance);
+router.get(
+  '/:userAddress/performance',
+  paginationValidation,
+  portfolioController.getPortfolioPerformance
+);
 
 /**
  * @openapi
@@ -110,5 +114,75 @@ router.get('/:userAddress/performance', paginationValidation, portfolioControlle
  *           default: json
  */
 router.get('/:userAddress/export', portfolioController.exportPortfolio);
+
+/**
+ * @openapi
+ * /portfolio/{userAddress}/interest-projection:
+ *   get:
+ *     summary: Interest accrual projection
+ *     description: Projects interest accrual forward for 7, 30, and 90 day periods.
+ *     tags:
+ *       - Portfolio
+ *     parameters:
+ *       - in: path
+ *         name: userAddress
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: borrowApy
+ *         schema:
+ *           type: number
+ *           default: 0.05
+ */
+router.get(
+  '/:userAddress/interest-projection',
+  portfolioController.getInterestProjection
+);
+
+/**
+ * @openapi
+ * /portfolio/{userAddress}/liquidation-price:
+ *   get:
+ *     summary: Liquidation price calculator
+ *     description: Calculates the price threshold at which position becomes liquidatable.
+ *     tags:
+ *       - Portfolio
+ *     parameters:
+ *       - in: path
+ *         name: userAddress
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: price
+ *         schema:
+ *           type: number
+ *           default: 1
+ */
+router.get(
+  '/:userAddress/liquidation-price',
+  portfolioController.getLiquidationPrice
+);
+
+/**
+ * @openapi
+ * /portfolio/{userAddress}/health-monitor:
+ *   get:
+ *     summary: Health factor monitor with history
+ *     description: Returns current health factor, historical trend, and risk assessment.
+ *     tags:
+ *       - Portfolio
+ *     parameters:
+ *       - in: path
+ *         name: userAddress
+ *         required: true
+ *         schema:
+ *           type: string
+ */
+router.get(
+  '/:userAddress/health-monitor',
+  portfolioController.getHealthFactorMonitor
+);
 
 export default router;

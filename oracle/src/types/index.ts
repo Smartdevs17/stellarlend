@@ -127,6 +127,7 @@ export interface OracleServiceConfig {
     failureThreshold: number;
     backoffMs: number;
   };
+  metricsPort?: number;
 }
 
 /**
@@ -165,4 +166,28 @@ export interface ServiceMetrics {
   cacheMisses: number;
   providerErrors: Map<string, number>;
   lastUpdateTimestamp: number;
+}
+
+/**
+ * Anomaly detection configuration for the oracle service
+ */
+export interface AnomalyDetectionConfig {
+  enabled: boolean;
+  zScoreWarningThreshold: number;
+  zScoreCriticalThreshold: number;
+  iqrMultiplier: number;
+  velocityBpsPerSecond: number;
+  rollingWindowSize: number;
+  adaptiveThresholds: boolean;
+}
+
+/**
+ * Real-time feed event payload
+ */
+export interface RealtimeFeedEvent {
+  type: string;
+  asset?: string;
+  price?: string;
+  timestamp: number;
+  metadata?: Record<string, unknown>;
 }

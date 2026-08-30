@@ -1,0 +1,19 @@
+[package]
+name = "stellarlend-token"
+version = "0.1.0"
+edition = "2021"
+description = "Unified token adapter pattern for StellarLend — consolidates ERC-20, native, and wrapped token handling"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+soroban-token-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+
+[features]
+default = []
+testutils = ["soroban-sdk/testutils"]

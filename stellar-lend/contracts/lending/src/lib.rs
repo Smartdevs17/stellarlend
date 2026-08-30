@@ -1,60 +1,71 @@
 #![no_std]
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Val, Vec};
 
-pub mod borrow;
+mod borrow;
 mod deposit;
-pub mod events;
+mod reentrancy;
+mod dust;
+mod events;
 mod flash_loan;
-pub mod pause;
+mod interest_rate;
+mod pause;
+mod risk_monitor;
 mod token_receiver;
 mod withdraw;
 
-// Re-export contract types used in the public interface so downstream tooling
-// (including fuzzing harnesses) can construct/inspect them without relying on
-// private module paths.
-pub use borrow::{BorrowCollateral, BorrowError, DebtPosition, StablecoinConfig};
-pub use deposit::{DepositCollateral, DepositError};
-pub use flash_loan::FlashLoanError;
-pub use pause::PauseType;
-pub use views::{
-    ProtocolMetrics, ProtocolReport, StablecoinAssetStats, UserPositionSummary,
-};
-pub use withdraw::WithdrawError;
-
 use borrow::{
-    borrow as borrow_cmd, deposit as borrow_deposit, get_admin as get_borrow_admin,
-    get_user_collateral as get_borrow_collateral, get_user_debt as get_borrow_debt,
+    borrow as borrow_cmd, borrow_with_rate as borrow_with_rate_logic, deposit as borrow_deposit,
+    get_admin as get_borrow_admin, get_user_collateral as get_borrow_collateral,
+    get_user_debt as get_borrow_debt, get_user_debt_with_rate as get_borrow_debt_with_rate,
     initialize_borrow_settings as initialize_borrow_logic, repay as borrow_repay,
     set_admin as set_borrow_admin,
     set_liquidation_threshold_bps as set_liquidation_threshold_logic,
-    set_oracle as set_oracle_logic,
-    set_stablecoin_config as set_stablecoin_config_logic,
-    get_stablecoin_config as get_stablecoin_config_logic,
+    set_oracle as set_oracle_logic, set_variable_borrow_rate_bps as set_variable_borrow_rate_logic,
+    sweep_debt_dust as borrow_sweep_debt_dust, switch_rate_type as switch_rate_type_logic,
+    BorrowCollateral, BorrowError, DebtPosition, RateType,
 };
 use deposit::{
     deposit as deposit_logic, get_user_collateral as get_deposit_collateral,
-    initialize_deposit_settings as initialize_deposit_logic,
+    initialize_deposit_settings as initialize_deposit_logic, DepositCollateral, DepositError,
 };
 use flash_loan::{
     flash_loan as flash_loan_logic, set_flash_loan_fee_bps as set_flash_loan_fee_logic,
+    FlashLoanError,
 };
-use pause::{is_paused, set_pause as set_pause_logic};
+use pause::{is_paused, set_pause as set_pause_logic, PauseType};
 use token_receiver::receive as receive_logic;
+use reentrancy::ReentrancyGuard;
 
-pub mod views;
+mod views;
 use views::{
     get_collateral_balance as view_collateral_balance,
     get_collateral_value as view_collateral_value, get_debt_balance as view_debt_balance,
     get_debt_value as view_debt_value, get_health_factor as view_health_factor,
-    get_user_position as view_user_position,
+    get_user_position as view_user_position, UserPositionSummary,
 };
 
 use withdraw::{
+    emergency_withdraw as emergency_withdraw_logic,
+    get_emergency_stats as get_emergency_stats_logic,
     initialize_withdraw_settings as initialize_withdraw_logic,
-    set_withdraw_paused as set_withdraw_paused_logic, withdraw as withdraw_logic,
+    set_emergency_withdraw_limit as set_emergency_withdraw_limit_logic,
+    set_withdraw_paused as set_withdraw_paused_logic,
+    sweep_deposit_dust as sweep_deposit_dust_logic, withdraw as withdraw_logic, WithdrawError,
 };
 mod data_store;
-pub mod upgrade;
+mod insurance;
+mod upgrade;
+
+use insurance::{
+    cancel_claim as insurance_cancel_claim, collect_premium as insurance_collect_premium,
+    evaluate_claim as insurance_evaluate_claim, fund_pool as insurance_fund_pool,
+    get_all_claim_ids as insurance_get_all_claim_ids, get_all_claims as insurance_get_all_claims,
+    get_analytics as insurance_get_analytics, get_claim_by_id as insurance_get_claim,
+    get_coverage_limit as insurance_get_coverage_limit,
+    get_premium_rate as insurance_get_premium_rate, initialize as insurance_initialize,
+    set_coverage_limit as insurance_set_coverage_limit, submit_claim as insurance_submit_claim,
+    InsuranceAnalytics, InsuranceClaim, InsuranceError,
+};
 
 #[cfg(test)]
 mod borrow_test;
@@ -63,11 +74,17 @@ mod data_store_test;
 #[cfg(test)]
 mod deposit_test;
 #[cfg(test)]
+mod dust_test;
+#[cfg(test)]
 mod flash_loan_test;
+#[cfg(test)]
+mod insurance_test;
 #[cfg(test)]
 mod math_safety_test;
 #[cfg(test)]
 mod pause_test;
+#[cfg(any(test, feature = "spec"))]
+mod spec;
 #[cfg(test)]
 mod token_receiver_test;
 #[cfg(test)]
@@ -77,7 +94,7 @@ mod views_test;
 #[cfg(test)]
 mod withdraw_test;
 #[cfg(test)]
-mod stablecoin_test;
+mod invariant_prop_test;
 
 #[contract]
 pub struct LendingContract;
@@ -91,6 +108,9 @@ impl LendingContract {
         debt_ceiling: i128,
         min_borrow_amount: i128,
     ) -> Result<(), BorrowError> {
+        let _guard = ReentrancyGuard::new_constructor(&env)
+            .map_err(|_| BorrowError::ReentrancyDetected)?;
+
         if get_borrow_admin(&env).is_some() {
             return Err(BorrowError::Unauthorized);
         }
@@ -118,6 +138,46 @@ impl LendingContract {
         )
     }
 
+    /// Borrow assets with explicit variable or stable rate selection.
+    pub fn borrow_with_rate(
+        env: Env,
+        user: Address,
+        asset: Address,
+        amount: i128,
+        collateral_asset: Address,
+        collateral_amount: i128,
+        rate_type: RateType,
+    ) -> Result<(), BorrowError> {
+        borrow_with_rate_logic(
+            &env,
+            user,
+            asset,
+            amount,
+            collateral_asset,
+            collateral_amount,
+            rate_type,
+        )
+    }
+
+    /// Switch an existing debt position between variable and stable rates.
+    pub fn switch_rate_type(
+        env: Env,
+        user: Address,
+        asset: Address,
+        to_rate_type: RateType,
+    ) -> Result<(), BorrowError> {
+        switch_rate_type_logic(&env, user, asset, to_rate_type)
+    }
+
+    /// Set the variable borrow rate model base rate.
+    pub fn set_variable_borrow_rate_bps(
+        env: Env,
+        admin: Address,
+        rate_bps: i128,
+    ) -> Result<(), BorrowError> {
+        set_variable_borrow_rate_logic(&env, &admin, rate_bps)
+    }
+
     /// Set protocol pause state for a specific operation (admin only)
     pub fn set_pause(
         env: Env,
@@ -141,6 +201,15 @@ impl LendingContract {
             return Err(BorrowError::ProtocolPaused);
         }
         borrow_repay(&env, user, asset, amount)
+    }
+
+    /// Sweep a dust-sized debt balance that is below the minimum borrow size.
+    pub fn sweep_debt_dust(env: Env, user: Address, asset: Address) -> Result<i128, BorrowError> {
+        user.require_auth();
+        if is_paused(&env, PauseType::Repay) {
+            return Err(BorrowError::ProtocolPaused);
+        }
+        borrow_sweep_debt_dust(&env, user, asset)
     }
 
     /// Deposit collateral into the protocol
@@ -190,6 +259,11 @@ impl LendingContract {
     /// Get user's debt position
     pub fn get_user_debt(env: Env, user: Address) -> DebtPosition {
         get_borrow_debt(&env, &user)
+    }
+
+    /// Get a user's debt position for a specific rate bucket.
+    pub fn get_user_debt_with_rate(env: Env, user: Address, rate_type: RateType) -> DebtPosition {
+        get_borrow_debt_with_rate(&env, &user, rate_type)
     }
 
     /// Get user's collateral position (borrow module)
@@ -307,6 +381,41 @@ impl LendingContract {
         withdraw_logic(&env, user, asset, amount)
     }
 
+    /// Emergency withdraw collateral from the protocol with reduced fees
+    pub fn emergency_withdraw(
+        env: Env,
+        user: Address,
+        asset: Address,
+        amount: i128,
+    ) -> Result<i128, WithdrawError> {
+        emergency_withdraw_logic(&env, user, asset, amount)
+    }
+
+    /// Set emergency withdrawal limit per tx (admin only)
+    pub fn set_emergency_withdraw_limit(
+        env: Env,
+        max_amount: i128,
+    ) -> Result<(), WithdrawError> {
+        set_emergency_withdraw_limit_logic(&env, max_amount)
+    }
+
+    /// Get total emergency analytics stats (total withdrawn, total fees collected)
+    pub fn get_emergency_stats(env: Env) -> (i128, i128) {
+        get_emergency_stats_logic(&env)
+    }
+
+    /// Sweep an existing dust-sized deposit balance below the withdraw minimum.
+    pub fn sweep_deposit_dust(
+        env: Env,
+        user: Address,
+        asset: Address,
+    ) -> Result<i128, WithdrawError> {
+        if is_paused(&env, PauseType::Withdraw) {
+            return Err(WithdrawError::WithdrawPaused);
+        }
+        sweep_deposit_dust_logic(&env, user, asset)
+    }
+
     /// Initialize withdraw settings (admin only)
     pub fn initialize_withdraw_settings(
         env: Env,
@@ -340,26 +449,97 @@ impl LendingContract {
         initialize_borrow_logic(&env, debt_ceiling, min_borrow_amount)
     }
 
-    /// Set stablecoin configuration for an asset (admin only)
-    pub fn set_stablecoin_config(
+    // ═══════════════════════════════════════════════════════════════════
+    // Insurance pool
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Initialize the insurance pool (admin only, call once).
+    pub fn insurance_initialize(env: Env, admin: Address) -> Result<(), InsuranceError> {
+        insurance_initialize(&env, &admin)
+    }
+
+    /// Contribute protocol fees to the insurance pool.
+    pub fn insurance_fund_pool(env: Env, amount: i128) -> Result<(), InsuranceError> {
+        insurance_fund_pool(&env, amount)
+    }
+
+    /// Collect a coverage premium from a user for a given asset.
+    /// Returns the premium amount charged.
+    pub fn insurance_collect_premium(
+        env: Env,
+        payer: Address,
+        asset: Address,
+        coverage_amount: i128,
+    ) -> Result<i128, InsuranceError> {
+        insurance_collect_premium(&env, payer, asset, coverage_amount)
+    }
+
+    /// Submit an insurance claim. Returns the new claim ID.
+    pub fn insurance_submit_claim(
+        env: Env,
+        claimant: Address,
+        asset: Address,
+        amount: i128,
+    ) -> Result<u64, InsuranceError> {
+        insurance_submit_claim(&env, claimant, asset, amount)
+    }
+
+    /// Evaluate (approve or reject) a pending claim (admin only).
+    pub fn insurance_evaluate_claim(
+        env: Env,
+        admin: Address,
+        claim_id: u64,
+        approve: bool,
+    ) -> Result<(), InsuranceError> {
+        insurance_evaluate_claim(&env, admin, claim_id, approve)
+    }
+
+    /// Set per-asset coverage limit in basis points (admin only).
+    pub fn insurance_set_coverage_limit(
         env: Env,
         admin: Address,
         asset: Address,
-        config: StablecoinConfig,
-    ) -> Result<(), BorrowError> {
-        set_stablecoin_config_logic(&env, &admin, asset, config)
+        limit_bps: i128,
+    ) -> Result<(), InsuranceError> {
+        insurance_set_coverage_limit(&env, admin, asset, limit_bps)
     }
 
-    /// Get stablecoin configuration for an asset
-    pub fn get_stablecoin_config(env: Env, asset: Address) -> Option<StablecoinConfig> {
-        get_stablecoin_config_logic(&env, &asset)
+    /// Get a claim by ID.
+    pub fn insurance_get_claim(env: Env, claim_id: u64) -> Option<InsuranceClaim> {
+        insurance_get_claim(&env, claim_id)
     }
 
-    /// Get protocol report including stablecoin stats
-    pub fn get_protocol_report(
+    /// Get current dynamic premium rate for an asset (basis points).
+    pub fn insurance_get_premium_rate(env: Env, asset: Address) -> i128 {
+        insurance_get_premium_rate(&env, &asset)
+    }
+
+    /// Get per-asset coverage limit in basis points.
+    pub fn insurance_get_coverage_limit(env: Env, asset: Address) -> i128 {
+        insurance_get_coverage_limit(&env, &asset)
+    }
+
+    /// Get insurance pool analytics.
+    pub fn insurance_get_analytics(env: Env) -> InsuranceAnalytics {
+        insurance_get_analytics(&env)
+    }
+
+    /// Cancel a pending claim (claimant only).
+    pub fn insurance_cancel_claim(
         env: Env,
-        stablecoin_assets: Vec<Address>,
-    ) -> ProtocolReport {
-        views::get_protocol_report(&env, stablecoin_assets)
+        claimant: Address,
+        claim_id: u64,
+    ) -> Result<(), InsuranceError> {
+        insurance_cancel_claim(&env, claimant, claim_id)
+    }
+
+    /// Get all claim IDs for history iteration.
+    pub fn insurance_get_all_claim_ids(env: Env) -> Vec<u64> {
+        insurance_get_all_claim_ids(&env)
+    }
+
+    /// Get all claims (full history).
+    pub fn insurance_get_all_claims(env: Env) -> Vec<InsuranceClaim> {
+        insurance_get_all_claims(&env)
     }
 }

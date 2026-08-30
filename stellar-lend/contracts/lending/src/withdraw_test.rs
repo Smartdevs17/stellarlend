@@ -455,3 +455,81 @@ fn test_withdraw_deposit_withdraw_cycle() {
     let pos = client.get_user_collateral_deposit(&user, &asset);
     assert_eq!(pos.amount, 0);
 }
+
+// --- Emergency withdrawal tests (#740) ---
+
+#[test]
+fn test_emergency_withdraw_success_with_reduced_fee() {
+    let (env, client) = setup_env();
+    let user = Address::generate(&env);
+    let asset = Address::generate(&env);
+
+    setup_with_deposit(&env, &client, &user, &asset, 100_000);
+
+    // Request 10,000. Reduced emergency fee is 10 bps (0.10% = 10 units)
+    // Net amount returned should be 9,990
+    let net = client.emergency_withdraw(&user, &asset, &10_000);
+    assert_eq!(net, 9_990);
+
+    let pos = client.get_user_collateral_deposit(&user, &asset);
+    assert_eq!(pos.amount, 90_000);
+
+    let (withdrawn, fees) = client.get_emergency_stats();
+    assert_eq!(withdrawn, 10_000);
+    assert_eq!(fees, 10);
+}
+
+#[test]
+fn test_emergency_withdraw_allowed_when_paused() {
+    let (env, client) = setup_env();
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let asset = Address::generate(&env);
+
+    client.initialize(&admin, &1_000_000_000, &1000);
+    client.initialize_deposit_settings(&1_000_000_000, &100);
+    client.initialize_withdraw_settings(&100);
+    client.deposit(&user, &asset, &50_000);
+
+    // Pause regular withdrawals
+    client.set_pause(&admin, &crate::pause::PauseType::Withdraw, &true);
+
+    // Normal withdraw fails with WithdrawPaused
+    assert_eq!(
+        client.try_withdraw(&user, &asset, &10_000),
+        Err(Ok(WithdrawError::WithdrawPaused))
+    );
+
+    // Emergency withdraw bypasses pause!
+    let net = client.emergency_withdraw(&user, &asset, &10_000);
+    assert_eq!(net, 9_990);
+    let pos = client.get_user_collateral_deposit(&user, &asset);
+    assert_eq!(pos.amount, 40_000);
+}
+
+#[test]
+fn test_emergency_withdraw_enforces_limit() {
+    let (env, client) = setup_env();
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let asset = Address::generate(&env);
+
+    client.initialize(&admin, &1_000_000_000, &1000);
+    client.initialize_deposit_settings(&1_000_000_000, &100);
+    client.initialize_withdraw_settings(&100);
+    client.deposit(&user, &asset, &50_000);
+
+    // Set emergency withdraw limit to 5,000
+    client.set_emergency_withdraw_limit(&5_000);
+
+    // Attempting to withdraw 10,000 exceeds limit
+    assert_eq!(
+        client.try_emergency_withdraw(&user, &asset, &10_000),
+        Err(Ok(WithdrawError::EmergencyLimitExceeded))
+    );
+
+    // Withdrawing within limit succeeds
+    let net = client.emergency_withdraw(&user, &asset, &4_000);
+    assert_eq!(net, 3_996); // 4000 - 4
+}
+

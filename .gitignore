@@ -45,6 +45,7 @@ lerna-debug.log*
 # Build error logs
 build_errors*.txt
 TEST_FIX.txt
+**/dist/
 
 # IDE / Tools
 .claude/
@@ -68,3 +69,41 @@ stellar-lend/fuzz/coverage/
 *.snap.tmp
 *.snap.bak
 tests/e2e/e2e-report.json
+tests/e2e/e2e-report.json
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Local devtooling outputs
+.dev/
+**/.stryker-tmp/
+**/reports/mutation/
+**/trace-output/
+
+# mimo AI tooling outputs
+.mimo/
+**/.mimo/
+mimo-session*.json
+mimo-context*.json
+mimo_*.log
+
+issue.md
+pr.md

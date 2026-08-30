@@ -45,8 +45,26 @@ vi.mock('../src/providers/index.js', () => ({
 vi.mock('../src/services/index.js', () => ({
   createValidator: vi.fn(() => ({ validate: vi.fn() })),
   createPriceCache: vi.fn(() => ({ get: vi.fn(), set: vi.fn() })),
+  createPriceHistoryService: vi.fn(() => ({
+    addAggregatedPrice: vi.fn(),
+    getStats: vi.fn(() => ({})),
+  })),
   createAggregator: vi.fn(() => mockAggregator),
   createContractUpdater: vi.fn(() => mockContractUpdater),
+  createTWAPService: vi.fn(() => ({
+    recordObservation: vi.fn(),
+    getTWAPStatus: vi.fn(() => ({ twap: 150000n, manipulationDetected: false, deviationBps: 0n })),
+    getStatus: vi.fn(),
+  })),
+  createMetricsService: vi.fn(() => ({
+    start: vi.fn(),
+    stop: vi.fn(),
+    recordUpdate: vi.fn(),
+    recordError: vi.fn(),
+    updateAssetPrice: vi.fn(),
+    updateProviderHealth: vi.fn(),
+    getUptime: vi.fn(),
+  })),
 }));
 
 vi.mock('../src/utils/logger.js', () => ({

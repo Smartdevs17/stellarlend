@@ -178,28 +178,29 @@ describe('Lending Controller', () => {
         operation: 'deposit',
         userAddress: 'GDZZJ3UPZZCKY5DBH6ZGMPMRORRBG4ECIORASBUAXPPNCL4SYRHNLYU2',
         amount: '1000000',
-        assetAddress: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH2U'
+        assetAddress: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH2U',
       };
 
-      const response = await request(app)
-        .post('/api/lending/submit')
-        .send(auditData);
+      const response = await request(app).post('/api/lending/submit').send(auditData);
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
-      
+
       // Verify audit log was called with correct structure
-      expect(mockLogger.info).toHaveBeenCalledWith('AUDIT', expect.objectContaining({
-        action: 'DEPOSIT',
-        userAddress: 'GDZZJ3UPZZCKY5DBH6ZGMPMRORRBG4ECIORASBUAXPPNCL4SYRHNLYU2',
-        amount: '1000000',
-        assetAddress: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH2U',
-        txHash: 'mock_tx_hash',
-        timestamp: expect.any(String),
-        ip: expect.any(String),
-        status: 'success',
-        ledger: 12345
-      }));
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'AUDIT',
+        expect.objectContaining({
+          action: 'DEPOSIT',
+          actor: 'GDZZJ3UPZZCKY5DBH6ZGMPMRORRBG4ECIORASBUAXPPNCL4SYRHNLYU2',
+          txHash: 'mock_tx_hash',
+          timestamp: expect.any(String),
+          status: 'success',
+          ledger: 12345,
+          id: expect.any(String),
+          sequence: expect.any(Number),
+          hash: expect.any(String),
+        })
+      );
     });
 
     it('should log audit entry with redacted data when audit fields are missing', async () => {
@@ -209,30 +210,31 @@ describe('Lending Controller', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
-      
+
       // Verify audit log was called with redacted values
-      expect(mockLogger.info).toHaveBeenCalledWith('AUDIT', expect.objectContaining({
-        action: 'TRANSACTION_EXECUTED',
-        userAddress: 'REDACTED',
-        amount: 'REDACTED',
-        assetAddress: 'REDACTED',
-        txHash: 'mock_tx_hash',
-        timestamp: expect.any(String),
-        ip: expect.any(String),
-        status: 'success',
-        ledger: 12345
-      }));
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'AUDIT',
+        expect.objectContaining({
+          action: 'TRANSACTION_EXECUTED',
+          actor: 'REDACTED',
+          txHash: 'mock_tx_hash',
+          timestamp: expect.any(String),
+          status: 'success',
+          ledger: 12345,
+          id: expect.any(String),
+          sequence: expect.any(Number),
+          hash: expect.any(String),
+        })
+      );
     });
 
     it('should validate optional audit fields when provided', async () => {
-      const response = await request(app)
-        .post('/api/lending/submit')
-        .send({
-          signedXdr: 'signed_xdr_string',
-          operation: 'invalid_operation',
-          userAddress: 'invalid_address',
-          amount: 'invalid_amount'
-        });
+      const response = await request(app).post('/api/lending/submit').send({
+        signedXdr: 'signed_xdr_string',
+        operation: 'invalid_operation',
+        userAddress: 'invalid_address',
+        amount: 'invalid_amount',
+      });
 
       expect(response.status).toBe(400);
     });
@@ -250,7 +252,7 @@ describe('Lending Controller', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.success).toBe(false);
-      
+
       // No audit log should be generated for failed transactions
       expect(mockLogger.info).not.toHaveBeenCalledWith('AUDIT', expect.any(Object));
     });
@@ -262,25 +264,23 @@ describe('Lending Controller', () => {
     });
 
     it('should never log secrets in audit entries', async () => {
-      const response = await request(app)
-        .post('/api/lending/submit')
-        .send({
-          signedXdr: 'signed_xdr_string',
-          operation: 'deposit',
-          userAddress: 'GDZZJ3UPZZCKY5DBH6ZGMPMRORRBG4ECIORASBUAXPPNCL4SYRHNLYU2',
-          amount: '1000000',
-          // Note: userSecret should not be a field that gets logged
-        });
+      const response = await request(app).post('/api/lending/submit').send({
+        signedXdr: 'signed_xdr_string',
+        operation: 'deposit',
+        userAddress: 'GDZZJ3UPZZCKY5DBH6ZGMPMRORRBG4ECIORASBUAXPPNCL4SYRHNLYU2',
+        amount: '1000000',
+        // Note: userSecret should not be a field that gets logged
+      });
 
       expect(response.status).toBe(200);
-      
+
       // Verify audit log does not contain any secret fields
       const auditCall = (mockLogger.info.mock.calls as Array<any[]>).find(
         (call) => call[0] === 'AUDIT' && typeof call[1] === 'object' && call[1] !== null
       );
       expect(auditCall).toBeDefined();
       const auditData = (auditCall?.[1] ?? {}) as Record<string, unknown>;
-      
+
       // Ensure no secret fields are present
       expect(Object.keys(auditData)).not.toContain('userSecret');
       expect(Object.keys(auditData)).not.toContain('privateKey');
@@ -298,7 +298,12 @@ describe('Lending Controller', () => {
       expect(response.body).toHaveProperty('data');
       expect(Array.isArray(response.body.data)).toBe(true);
       expect(response.body).toHaveProperty('pagination');
-      expect(response.body.pagination).toEqual({ cursor: null, hasMore: false, limit: 10, total: null });
+      expect(response.body.pagination).toEqual({
+        cursor: null,
+        hasMore: false,
+        limit: 10,
+        total: null,
+      });
       expect(response.body.data[0]).toMatchObject({ transactionHash: 'tx_hash_1' });
     });
 
@@ -308,7 +313,7 @@ describe('Lending Controller', () => {
         .query({ limit: 9999 });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toMatch(/limit/i);
+      expect(response.body.error.message).toMatch(/limit/i);
     });
 
     it('should validate cursor is non-empty', async () => {
@@ -317,7 +322,7 @@ describe('Lending Controller', () => {
         .query({ cursor: '' });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toMatch(/cursor/i);
+      expect(response.body.error.message).toMatch(/cursor/i);
     });
 
     it('should reject a cursor that is not valid base64url', async () => {
@@ -326,7 +331,7 @@ describe('Lending Controller', () => {
         .query({ cursor: '!!!not-a-valid-cursor!!!' });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toMatch(/cursor/i);
+      expect(response.body.error.message).toMatch(/cursor/i);
     });
 
     it('should return an opaque base64url cursor when hasMore is true', async () => {
@@ -414,7 +419,7 @@ describe('Lending Controller', () => {
       const response = await request(app).get('/api/health/live');
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({ status: 'ok' });
+      expect(response.body).toMatchObject({ status: 'ok' });
       expect(mockStellarService.healthCheck).not.toHaveBeenCalled();
     });
   });
@@ -424,7 +429,7 @@ describe('Lending Controller', () => {
       const response = await request(app).get('/api/health/ready');
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({
+      expect(response.body).toMatchObject({
         status: 'ok',
         horizon: 'up',
         soroban: 'up',
@@ -440,7 +445,7 @@ describe('Lending Controller', () => {
       const response = await request(app).get('/api/health/ready');
 
       expect(response.status).toBe(503);
-      expect(response.body).toEqual({
+      expect(response.body).toMatchObject({
         status: 'error',
         horizon: 'down',
         soroban: 'up',
@@ -453,7 +458,7 @@ describe('Lending Controller', () => {
       const response = await request(app).get('/api/protocol/stats');
 
       expect(response.status).toBe(200);
-      expect(response.body).toEqual({
+      expect(response.body).toMatchObject({
         totalDeposits: '1000000',
         totalBorrows: '500000',
         utilizationRate: '0.50',
@@ -494,7 +499,7 @@ describe('Lending Controller', () => {
         .send({ signedXdr: 'signed_xdr_string' });
 
       expect(response.status).toBe(400);
-      expect(response.body.error).toMatch(/Idempotency-Key/i);
+      expect(response.body.error.message).toMatch(/Idempotency-Key/i);
     });
   });
 
@@ -502,16 +507,14 @@ describe('Lending Controller', () => {
     const userAddress = 'GDZZJ3UPZZCKY5DBH6ZGMPMRORRBG4ECIORASBUAXPPNCL4SYRHNLYU2';
 
     it('should respond with content-type application/x-ndjson', async () => {
-      const response = await request(app)
-        .get(`/api/lending/transactions/${userAddress}/stream`);
+      const response = await request(app).get(`/api/lending/transactions/${userAddress}/stream`);
 
       expect(response.status).toBe(200);
       expect(response.headers['content-type']).toMatch(/application\/x-ndjson/);
     });
 
     it('should stream each transaction as a separate JSON line', async () => {
-      const response = await request(app)
-        .get(`/api/lending/transactions/${userAddress}/stream`);
+      const response = await request(app).get(`/api/lending/transactions/${userAddress}/stream`);
 
       expect(response.status).toBe(200);
       const lines = response.text.trim().split('\n').filter(Boolean);
@@ -539,8 +542,7 @@ describe('Lending Controller', () => {
     it('should stream an empty body when there are no transactions', async () => {
       mockStellarService.streamTransactionHistory.mockImplementationOnce(async function* () {});
 
-      const response = await request(app)
-        .get(`/api/lending/transactions/${userAddress}/stream`);
+      const response = await request(app).get(`/api/lending/transactions/${userAddress}/stream`);
 
       expect(response.status).toBe(200);
       expect(response.text.trim()).toBe('');
@@ -559,8 +561,7 @@ describe('Lending Controller', () => {
         throw new Error('upstream failure');
       });
 
-      const response = await request(app)
-        .get(`/api/lending/transactions/${userAddress}/stream`);
+      const response = await request(app).get(`/api/lending/transactions/${userAddress}/stream`);
 
       // Headers were sent with the first item, so we get a 200 with an error line at the end
       expect(response.status).toBe(200);

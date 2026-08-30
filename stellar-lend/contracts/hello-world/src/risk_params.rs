@@ -27,8 +27,16 @@ pub enum RiskParamsError {
 #[derive(Clone)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum RiskParamsDataKey {
-    /// Risk configuration parameters
+    /// Legacy spread risk configuration (pre #722 packing)
     RiskParamsConfig,
+    /// Packed pool configuration — all bps fields + last_update in one u128 slot.
+    /// Bit layout (issue #722):
+    ///   bits  0..16  min_collateral_ratio (u16 bps)
+    ///   bits 16..32  liquidation_threshold (u16 bps)
+    ///   bits 32..48  close_factor (u16 bps)
+    ///   bits 48..64  liquidation_incentive (u16 bps)
+    ///   bits 64..128 last_update (u64 timestamp)
+    PackedRiskParamsConfig,
 }
 
 /// Risk parameters
@@ -63,6 +71,34 @@ const LIQUIDATION_INCENTIVE_MIN: i128 = 0; // 0% minimum
 const LIQUIDATION_INCENTIVE_MAX: i128 = 5_000; // 50% maximum (safety limit)
 const MAX_PARAMETER_CHANGE_BPS: i128 = 1_000; // 10% maximum change per update
 
+// ---------------------------------------------------------------------------
+// Packed pool configuration (issue #722)
+// ---------------------------------------------------------------------------
+
+const BPS_FIELD_MASK: u128 = 0xFFFF; // 16 bits enough for any validated bps value (<= 50_000)
+
+/// Collapse a `RiskParams` into a single `u128` storage slot.
+/// All four bps fields are validated to fit 16 bits before packing.
+pub fn pack_risk_params(config: &RiskParams) -> u128 {
+    let mcr = (config.min_collateral_ratio as u128) & BPS_FIELD_MASK;
+    let lt = (config.liquidation_threshold as u128) & BPS_FIELD_MASK;
+    let cf = (config.close_factor as u128) & BPS_FIELD_MASK;
+    let li = (config.liquidation_incentive as u128) & BPS_FIELD_MASK;
+    let ts = config.last_update as u128;
+    mcr | (lt << 16) | (cf << 32) | (li << 48) | (ts << 64)
+}
+
+/// Expand a packed `u128` slot back into the public `RiskParams` shape.
+pub fn unpack_risk_params(packed: u128) -> RiskParams {
+    RiskParams {
+        min_collateral_ratio: (packed & BPS_FIELD_MASK) as i128,
+        liquidation_threshold: ((packed >> 16) & BPS_FIELD_MASK) as i128,
+        close_factor: ((packed >> 32) & BPS_FIELD_MASK) as i128,
+        liquidation_incentive: ((packed >> 48) & BPS_FIELD_MASK) as i128,
+        last_update: (packed >> 64) as u64,
+    }
+}
+
 /// Initialize risk parameters
 ///
 /// Sets up default risk parameters.
@@ -87,18 +123,79 @@ pub fn initialize_risk_params(env: &Env) -> Result<(), RiskParamsError> {
 
     validate_risk_params(&default_config)?;
 
-    let config_key = RiskParamsDataKey::RiskParamsConfig;
-    env.storage().persistent().set(&config_key, &default_config);
+    env.storage()
+        .persistent()
+        .set(&RiskParamsDataKey::PackedRiskParamsConfig, &pack_risk_params(&default_config));
 
     Ok(())
 }
 
-/// Get current risk parameters
-pub fn get_risk_params(env: &Env) -> Option<RiskParams> {
+/// Get current risk parameters (legacy storage)
+pub fn get_legacy_risk_params(env: &Env) -> Option<RiskParams> {
     let config_key = RiskParamsDataKey::RiskParamsConfig;
     env.storage()
+/// Get current risk parameters.
+///
+/// Reads the packed pool-config slot (issue #722). If only the legacy spread
+/// layout exists, it is migrated lazily on first read so deployed contracts
+/// upgrade without a separate migration step.
+pub fn get_risk_params(env: &Env) -> Option<RiskParams> {
+    if let Some(packed) = env.storage().persistent().get::<RiskParamsDataKey, u128>(
+        &RiskParamsDataKey::PackedRiskParamsConfig,
+    ) {
+        return Some(unpack_risk_params(packed));
+    }
+    match env
+        .storage()
         .persistent()
-        .get::<RiskParamsDataKey, RiskParams>(&config_key)
+        .get::<RiskParamsDataKey, RiskParams>(&RiskParamsDataKey::RiskParamsConfig)
+    {
+        Some(legacy) => {
+            migrate_from_legacy(env);
+            Some(legacy)
+        }
+        None => None,
+    }
+}
+
+/// One-time migration of a legacy (unpacked) pool config into the packed slot.
+///
+/// Idempotent: returns `false` when migration is unnecessary (packed slot
+/// already present or no legacy data). Returns `true` when a migration ran.
+pub fn migrate_from_legacy(env: &Env) -> bool {
+    if env
+        .storage()
+        .persistent()
+        .has(&RiskParamsDataKey::PackedRiskParamsConfig)
+    {
+        return false;
+    }
+    match env
+        .storage()
+        .persistent()
+        .get::<RiskParamsDataKey, RiskParams>(&RiskParamsDataKey::RiskParamsConfig)
+    {
+        Some(legacy) => {
+            env.storage().persistent().set(
+                &RiskParamsDataKey::PackedRiskParamsConfig,
+                &pack_risk_params(&legacy),
+            );
+            true
+        }
+        None => false,
+    }
+}
+
+/// Get current risk parameters from packed config (#713)
+pub fn get_risk_params(env: &Env) -> Option<RiskParams> {
+    let packed = crate::storage::migrate_from_legacy(env, &None).ok()?;
+    Some(RiskParams {
+        min_collateral_ratio: packed.min_collateral_ratio_bps,
+        liquidation_threshold: packed.liquidation_threshold_bps,
+        close_factor: packed.close_factor_bps,
+        liquidation_incentive: packed.liquidation_incentive_bps,
+        last_update: packed.last_update,
+    })
 }
 
 /// Validate risk configuration
@@ -204,9 +301,10 @@ pub fn set_risk_params(
     // Update timestamp
     config.last_update = env.ledger().timestamp();
 
-    // Save config
-    let config_key = RiskParamsDataKey::RiskParamsConfig;
-    env.storage().persistent().set(&config_key, &config);
+    // Save config as packed single slot (issue #722)
+    env.storage()
+        .persistent()
+        .set(&RiskParamsDataKey::PackedRiskParamsConfig, &pack_risk_params(&config));
 
     // Emit event
     emit_risk_params_updated_event(env, &config);

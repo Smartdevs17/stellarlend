@@ -8,7 +8,7 @@ describe('RBAC hierarchy', () => {
 
   it('requires cool-off for revocation', () => {
     assignRole('admin', 'GTESTADMIN', 'operator');
-    scheduleRevocation('GADMIN', 'admin', 'GTESTADMIN', 'operator', 1);
+    scheduleRevocation('GADMIN', 'admin', 'GTESTADMIN', 'operator', 1_000);
     expect(getCurrentRoleAssignments()['GTESTADMIN']).toBe('operator');
   });
 });
