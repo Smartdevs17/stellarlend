@@ -13,6 +13,10 @@
 //! contracts that opt into a common data model. This module instead
 //! consolidates the storage *access pattern* itself, independent of what
 //! keys or value types a given contract uses.
+//!
+//! # Storage Slot Packing
+//! Issue #843: Optimized storage slot packing for pool configuration data
+//! improves platform performance by reducing storage access overhead.
 
 use core::fmt::Debug;
 use soroban_sdk::{Env, IntoVal, TryFromVal, Val};
