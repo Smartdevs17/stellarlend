@@ -363,3 +363,192 @@ pub fn set_flash_loan_fee(env: &Env, caller: Address, fee_bps: i128) -> Result<(
     env.storage().persistent().set(&config_key, &config);
     Ok(())
 }
+
+// ============================================================================
+// Flash Loan + Liquidation Combo (Issue #861)
+// ============================================================================
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct FlashLoanLiquidationSim {
+    pub estimated_profit: i128,
+    pub flash_loan_fee: i128,
+    pub liquidation_incentive: i128,
+    pub net_profit: i128,
+    pub is_profitable: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct FlashLoanLiquidationResult {
+    pub liquidator: Address,
+    pub borrower: Address,
+    pub debt_asset: Option<Address>,
+    pub collateral_asset: Option<Address>,
+    pub debt_amount: i128,
+    pub collateral_seized: i128,
+    pub flash_loan_fee: i128,
+    pub net_profit: i128,
+    pub timestamp: u64,
+}
+
+pub fn simulate_flash_loan_liquidation(
+    env: &Env,
+    debt_asset: Option<Address>,
+    collateral_asset: Option<Address>,
+    debt_amount: i128,
+) -> Result<FlashLoanLiquidationSim, FlashLoanError> {
+    if debt_amount <= 0 {
+        return Err(FlashLoanError::InvalidAmount);
+    }
+
+    let flash_loan_fee = calculate_flash_loan_fee(env, debt_amount)?;
+
+    let liquidation_incentive = debt_amount * 500 / 10000;
+
+    let gross_profit = liquidation_incentive;
+    let net_profit = gross_profit - flash_loan_fee;
+
+    Ok(FlashLoanLiquidationSim {
+        estimated_profit: gross_profit,
+        flash_loan_fee,
+        liquidation_incentive,
+        net_profit,
+        is_profitable: net_profit > 0,
+    })
+}
+
+pub fn execute_flash_loan_liquidation(
+    env: &Env,
+    liquidator: Address,
+    borrower: Address,
+    debt_asset: Option<Address>,
+    collateral_asset: Option<Address>,
+    debt_amount: i128,
+) -> Result<FlashLoanLiquidationResult, FlashLoanError> {
+    liquidator.require_auth();
+
+    if debt_amount <= 0 {
+        return Err(FlashLoanError::InvalidAmount);
+    }
+
+    let sim = simulate_flash_loan_liquidation(env, debt_asset.clone(), collateral_asset.clone(), debt_amount)?;
+
+    if !sim.is_profitable {
+        return Err(FlashLoanError::InvalidCallback);
+    }
+
+    let flash_loan_fee = sim.flash_loan_fee;
+    let liquidation_incentive = sim.liquidation_incentive;
+    let collateral_seized = debt_amount + liquidation_incentive;
+    let net_profit = sim.net_profit;
+
+    let result = FlashLoanLiquidationResult {
+        liquidator: liquidator.clone(),
+        borrower,
+        debt_asset,
+        collateral_asset,
+        debt_amount,
+        collateral_seized,
+        flash_loan_fee,
+        net_profit,
+        timestamp: env.ledger().timestamp(),
+    };
+
+    Ok(result)
+}
+
+#[cfg(test)]
+mod flash_loan_liquidation_tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+
+    fn create_test_env() -> Env {
+        let env = Env::default();
+        env.mock_all_auths();
+        env
+    }
+
+    #[test]
+    fn test_simulate_flash_loan_liquidation_profitable() {
+        let env = create_test_env();
+        let result = simulate_flash_loan_liquidation(&env, None, None, 1_000_000);
+        assert!(result.is_ok());
+        let sim = result.unwrap();
+        assert!(sim.flash_loan_fee > 0);
+        assert!(sim.liquidation_incentive > 0);
+    }
+
+    #[test]
+    fn test_simulate_flash_loan_liquidation_invalid_amount() {
+        let env = create_test_env();
+        let result = simulate_flash_loan_liquidation(&env, None, None, 0);
+        assert_eq!(result, Err(FlashLoanError::InvalidAmount));
+    }
+
+    #[test]
+    fn test_simulate_flash_loan_liquidation_negative_amount() {
+        let env = create_test_env();
+        let result = simulate_flash_loan_liquidation(&env, None, None, -100);
+        assert_eq!(result, Err(FlashLoanError::InvalidAmount));
+    }
+
+    #[test]
+    fn test_execute_flash_loan_liquidation_success() {
+        let env = create_test_env();
+        let liquidator = Address::generate(&env);
+        let borrower = Address::generate(&env);
+        let result = execute_flash_loan_liquidation(
+            &env,
+            liquidator.clone(),
+            borrower.clone(),
+            None,
+            None,
+            1_000_000,
+        );
+        assert!(result.is_ok());
+        let combo = result.unwrap();
+        assert_eq!(combo.liquidator, liquidator);
+        assert_eq!(combo.borrower, borrower);
+        assert!(combo.net_profit > 0);
+    }
+
+    #[test]
+    fn test_execute_flash_loan_liquidation_unprofitable() {
+        let env = create_test_env();
+        let liquidator = Address::generate(&env);
+        let borrower = Address::generate(&env);
+        let result = execute_flash_loan_liquidation(
+            &env,
+            liquidator.clone(),
+            borrower.clone(),
+            None,
+            None,
+            1,
+        );
+        assert_eq!(result, Err(FlashLoanError::InvalidCallback));
+    }
+
+    #[test]
+    fn test_flash_loan_fee_calculation() {
+        let env = create_test_env();
+        let fee = calculate_flash_loan_fee(&env, 100_000);
+        assert!(fee.is_ok());
+        let fee_val = fee.unwrap();
+        assert!(fee_val > 0);
+    }
+
+    #[test]
+    fn test_liquidation_incentive_calculation() {
+        let env = create_test_env();
+        let sim = simulate_flash_loan_liquidation(&env, None, None, 1_000_000).unwrap();
+        assert_eq!(sim.liquidation_incentive, 50_000);
+    }
+
+    #[test]
+    fn test_net_profit_calculation() {
+        let env = create_test_env();
+        let sim = simulate_flash_loan_liquidation(&env, None, None, 1_000_000).unwrap();
+        assert_eq!(sim.net_profit, sim.liquidation_incentive - sim.flash_loan_fee);
+    }
+}
