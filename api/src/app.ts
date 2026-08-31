@@ -75,6 +75,7 @@ import eventsRoutes from './routes/events';
 import simulationRoutes from './routes/simulation';
 import yieldAggregatorRoutes from './routes/yield-aggregator.routes';
 import feesRoutes from './routes/fees.routes';
+import emergencyWithdrawalRoutes from './routes/emergency';
 
 import compression from 'compression';
 import { errorHandler } from './middleware/errorHandler';
@@ -291,6 +292,7 @@ app.use('/api/events', eventsRoutes);
 app.use('/api/simulation', simulationRoutes);
 app.use('/api/yield-aggregator', yieldAggregatorRoutes);
 app.use('/api/fees', feesRoutes);
+app.use('/api/emergency-withdrawal', emergencyWithdrawalRoutes);
 
 app.use(errorHandler);
 
