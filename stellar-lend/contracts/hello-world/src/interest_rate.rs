@@ -634,6 +634,11 @@ pub fn update_lending_index(env: &Env) -> Result<LendingIndex, InterestRateError
         .set(&InterestRateDataKey::LendingIndex, &idx);
     set_temp_lending_index(env, idx.clone());
 
+    // Record a rolling rate snapshot so off-chain consumers and dashboards can
+    // audit for manipulation. The snapshot is bounded and only appended once per
+    // ledger advance (issue #847).
+    let _ = record_rate_snapshot(env);
+
     Ok(idx)
 }
 
@@ -911,4 +916,81 @@ pub fn get_average_borrow_rate(env: &Env) -> Result<i128, InterestRateError> {
     total
         .checked_div(history.len() as i128)
         .ok_or(InterestRateError::DivisionByZero)
+}
+
+/// Consolidated rate-manipulation report (issue #847).
+///
+/// Combines the bounded rate history with the rate guard's manipulation attempt
+/// log to let off-chain consumers and dashboards detect and audit suspected
+/// interest-rate manipulation. The `deviation_bps` field reports the largest
+/// consecutive-direction rate move observed across the retained history.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RateManipulationReport {
+    /// Number of manipulation attempts logged by the rate guard.
+    pub manipulation_attempts: u32,
+    /// Number of rate snapshots retained in the rolling history.
+    pub history_samples: u32,
+    /// Largest consecutive-direction rate move (bps) across the history.
+    pub max_consecutive_deviation_bps: i128,
+    /// Whether a sustained, same-direction rate run was detected.
+    pub manipulation_suspected: bool,
+    /// Current borrow rate (bps).
+    pub current_borrow_rate_bps: i128,
+    /// Time-weighted average borrow rate (bps) if available.
+    pub twap_borrow_rate_bps: i128,
+}
+
+/// Produce a rate-manipulation report by scanning the rate history for sustained
+/// same-direction moves and combining it with the rate guard's attempt log.
+pub fn get_rate_manipulation_report(env: &Env) -> RateManipulationReport {
+    let history = get_rate_history(env);
+    let attempts = crate::rate_guard::get_attempt_log(env).len() as u32;
+    let current_rate = get_current_borrow_rate(env).unwrap_or(0);
+    let twap = crate::rate_guard::get_twap(env).twap_bps;
+
+    // Scan the history for the longest run of consecutive rate moves in the
+    // same direction, accumulating the (bps) magnitude.
+    let mut max_run_bps: i128 = 0;
+    let mut current_run_bps: i128 = 0;
+    let mut prev_rate: Option<i128> = None;
+    let mut prev_dir: i8 = 0;
+    let mut manipulation_suspected = false;
+
+    for entry in history.iter() {
+        if let Some(prev) = prev_rate {
+            let dir: i8 = if entry.borrow_rate_bps > prev {
+                1
+            } else if entry.borrow_rate_bps < prev {
+                -1
+            } else {
+                0
+            };
+            if dir != 0 && dir == prev_dir {
+                current_run_bps = current_run_bps.saturating_add((entry.borrow_rate_bps - prev).abs());
+            } else {
+                current_run_bps = (entry.borrow_rate_bps - prev).abs();
+            }
+            if current_run_bps > max_run_bps {
+                max_run_bps = current_run_bps;
+            }
+            if current_run_bps > BASIS_POINTS_SCALE / 4 {
+                manipulation_suspected = true;
+            }
+            prev_dir = dir;
+        }
+        prev_rate = Some(entry.borrow_rate_bps);
+    }
+
+    // A non-empty guard log is itself a strong manipulation signal.
+    manipulation_suspected = manipulation_suspected || attempts > 0;
+
+    RateManipulationReport {
+        manipulation_attempts: attempts,
+        history_samples: history.len() as u32,
+        max_consecutive_deviation_bps: max_run_bps,
+        manipulation_suspected,
+        current_borrow_rate_bps: current_rate,
+        twap_borrow_rate_bps: twap,
+    }
 }

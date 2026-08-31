@@ -316,7 +316,10 @@ impl HelloContract {
         asset: Option<Address>,
         amount: i128,
     ) -> Result<i128, LendingError> {
-        deposit::deposit_collateral(&env, user, asset, amount).map_err(Into::into)
+        let result = deposit::deposit_collateral(&env, user, asset, amount).map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842): deposits change total deposits.
+        pool_state::bump_epoch(&env);
+        Ok(result)
     }
 
     /// Deposit collateral using cross-asset lending
@@ -327,6 +330,8 @@ impl HelloContract {
         amount: i128,
     ) -> Result<(), LendingError> {
         cross_asset::cross_asset_deposit(&env, user, asset, amount).map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842).
+        pool_state::bump_epoch(&env);
         Ok(())
     }
 
@@ -403,7 +408,10 @@ impl HelloContract {
             &pool,
         )
         .map_err(|_| LendingError::LimitExceeded)?;
-        borrow::borrow_asset(&env, user, asset, amount).map_err(Into::into)
+        let amount_out = borrow::borrow_asset(&env, user, asset, amount).map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842): borrows change utilization.
+        pool_state::bump_epoch(&env);
+        Ok(amount_out)
     }
 
     /// Borrow against collateral basket using cross-asset lending
@@ -413,7 +421,10 @@ impl HelloContract {
         asset: Option<Address>,
         amount: i128,
     ) -> Result<(), LendingError> {
-        cross_asset::cross_asset_borrow(&env, user, asset, amount).map_err(Into::into)
+        cross_asset::cross_asset_borrow(&env, user, asset, amount).map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842).
+        pool_state::bump_epoch(&env);
+        Ok(())
     }
 
     /// Withdraw collateral using cross-asset lending
@@ -424,6 +435,8 @@ impl HelloContract {
         amount: i128,
     ) -> Result<(), LendingError> {
         cross_asset::cross_asset_withdraw(&env, user, asset, amount).map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842).
+        pool_state::bump_epoch(&env);
         Ok(())
     }
 
@@ -445,7 +458,7 @@ impl HelloContract {
         debt_to_repay: i128,
         collateral_to_receive: i128,
     ) -> Result<i128, LendingError> {
-        cross_asset::cross_asset_liquidate(
+        let result = cross_asset::cross_asset_liquidate(
             &env,
             liquidator,
             user,
@@ -453,7 +466,10 @@ impl HelloContract {
             collateral_asset,
             debt_to_repay,
             collateral_to_receive,
-        ).map_err(Into::into)
+        ).map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842).
+        pool_state::bump_epoch(&env);
+        Ok(result)
     }
 
     /// Set reserve factor for an asset (admin only)
@@ -660,7 +676,10 @@ impl HelloContract {
         )
         .map_err(|_| LendingError::LimitExceeded)?;
 
-        borrow::borrow_asset(&env, user, asset, amount).map_err(Into::into)
+        let amount_out = borrow::borrow_asset(&env, user, asset, amount).map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842).
+        pool_state::bump_epoch(&env);
+        Ok(amount_out)
     }
 
     pub fn repay_debt(
@@ -669,7 +688,10 @@ impl HelloContract {
         asset: Option<Address>,
         amount: i128,
     ) -> Result<(i128, i128, i128), LendingError> {
-        repay::repay_debt(&env, user, asset, amount).map_err(Into::into)
+        let result = repay::repay_debt(&env, user, asset, amount).map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842).
+        pool_state::bump_epoch(&env);
+        Ok(result)
     }
 
     pub fn withdraw_collateral(
@@ -678,7 +700,10 @@ impl HelloContract {
         asset: Option<Address>,
         amount: i128,
     ) -> Result<i128, LendingError> {
-        withdraw::withdraw_collateral(&env, user, asset, amount).map_err(Into::into)
+        let result = withdraw::withdraw_collateral(&env, user, asset, amount).map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842).
+        pool_state::bump_epoch(&env);
+        Ok(result)
     }
 
     pub fn liquidate(
@@ -702,7 +727,7 @@ impl HelloContract {
             &pool,
         )
         .map_err(|_| LendingError::LimitExceeded)?;
-        liquidate::liquidate(
+        let result = liquidate::liquidate(
             &env,
             liquidator,
             borrower,
@@ -710,7 +735,10 @@ impl HelloContract {
             collateral_asset,
             debt_amount,
         )
-        .map_err(Into::into)
+        .map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842).
+        pool_state::bump_epoch(&env);
+        Ok(result)
     }
 
     /// Batch liquidation — processes multiple borrower positions in one call,
@@ -721,7 +749,10 @@ impl HelloContract {
         requests: Vec<liquidate::BatchLiquidationRequest>,
     ) -> Result<Vec<liquidate::BatchLiquidationResult>, LendingError> {
         liquidator.require_auth();
-        liquidate::batch_liquidate(&env, liquidator, requests).map_err(Into::into)
+        let result = liquidate::batch_liquidate(&env, liquidator, requests).map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842).
+        pool_state::bump_epoch(&env);
+        Ok(result)
     }
 
     /// Batch liquidation from packed calldata (issue #840). Accepts the same
@@ -807,6 +838,171 @@ impl HelloContract {
         mev_protection::get_config(&env)
     }
 
+    /// Commit an MEV-protected borrow with an execution slippage guard (#846).
+    pub fn commit_borrow_with_slippage(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+        max_fee_bps: i128,
+        hint: mev_protection::TxOrderingHint,
+        max_slippage_bps: i128,
+        deadline: u64,
+    ) -> Result<u64, LendingError> {
+        mev_protection::create_guarded_commit(
+            &env,
+            user,
+            mev_protection::SensitiveOperation::Borrow,
+            asset,
+            None,
+            None,
+            amount,
+            max_fee_bps,
+            hint,
+            mev_protection::ExecutionGuard {
+                quoted_output_amount: amount,
+                min_output_amount: 0,
+                max_slippage_bps,
+                deadline,
+            },
+            None,
+            None,
+        )
+        .map_err(Into::into)
+    }
+
+    /// Commit an MEV-protected withdraw with an execution slippage guard (#846).
+    pub fn commit_withdraw_with_slippage(
+        env: Env,
+        user: Address,
+        asset: Option<Address>,
+        amount: i128,
+        max_fee_bps: i128,
+        hint: mev_protection::TxOrderingHint,
+        max_slippage_bps: i128,
+        deadline: u64,
+    ) -> Result<u64, LendingError> {
+        mev_protection::create_guarded_commit(
+            &env,
+            user,
+            mev_protection::SensitiveOperation::Withdraw,
+            asset,
+            None,
+            None,
+            amount,
+            max_fee_bps,
+            hint,
+            mev_protection::ExecutionGuard {
+                quoted_output_amount: amount,
+                min_output_amount: 0,
+                max_slippage_bps,
+                deadline,
+            },
+            None,
+            None,
+        )
+        .map_err(Into::into)
+    }
+
+    /// Commit an MEV-protected liquidation with an execution slippage guard (#846).
+    pub fn commit_liquidation_with_slippage(
+        env: Env,
+        liquidator: Address,
+        borrower: Address,
+        debt_asset: Option<Address>,
+        collateral_asset: Option<Address>,
+        debt_amount: i128,
+        max_fee_bps: i128,
+        hint: mev_protection::TxOrderingHint,
+        max_slippage_bps: i128,
+        deadline: u64,
+    ) -> Result<u64, LendingError> {
+        mev_protection::create_guarded_commit(
+            &env,
+            liquidator,
+            mev_protection::SensitiveOperation::Liquidate,
+            debt_asset,
+            collateral_asset,
+            Some(borrower),
+            debt_amount,
+            max_fee_bps,
+            hint,
+            mev_protection::ExecutionGuard {
+                quoted_output_amount: debt_amount,
+                min_output_amount: 0,
+                max_slippage_bps,
+                deadline,
+            },
+            None,
+            None,
+        )
+        .map_err(Into::into)
+    }
+
+    /// Return the most recent liquidation auction id (the current batch auction
+    /// "slot") for dashboards and off-chain bidders (#846).
+    pub fn get_current_auction_slot(env: Env) -> u64 {
+        mev_protection::get_auction_stats(&env).last_auction_id
+    }
+
+    /// Open a new MEV-protected batch liquidation auction (#846).
+    pub fn open_liquidation_auction(
+        env: Env,
+        opener: Address,
+        borrower: Address,
+        debt_asset: Option<Address>,
+        collateral_asset: Option<Address>,
+        debt_amount: i128,
+        min_rebate_bps: i128,
+        bidding_period_secs: u64,
+    ) -> Result<u64, LendingError> {
+        mev_protection::open_liquidation_auction(
+            &env,
+            opener,
+            borrower,
+            debt_asset,
+            collateral_asset,
+            debt_amount,
+            min_rebate_bps,
+            bidding_period_secs,
+        )
+        .map_err(Into::into)
+    }
+
+    /// Place a bid on an open MEV-protected liquidation auction (#846).
+    #[allow(clippy::too_many_arguments)]
+    pub fn submit_liquidation_bid(
+        env: Env,
+        liquidator: Address,
+        auction_id: u64,
+        repay_amount: i128,
+        rebate_bps: i128,
+        max_fee_bps: i128,
+        min_collateral_out: i128,
+        private_route: Option<soroban_sdk::Symbol>,
+    ) -> Result<u64, LendingError> {
+        mev_protection::submit_liquidation_bid(
+            &env,
+            liquidator,
+            auction_id,
+            repay_amount,
+            rebate_bps,
+            max_fee_bps,
+            min_collateral_out,
+            private_route,
+        )
+        .map_err(Into::into)
+    }
+
+    /// Settle a closed MEV-protected liquidation auction (#846).
+    pub fn settle_liquidation_auction(
+        env: Env,
+        caller: Address,
+        auction_id: u64,
+    ) -> Result<mev_protection::LiquidationAuctionBid, LendingError> {
+        mev_protection::settle_liquidation_auction(&env, caller, auction_id).map_err(Into::into)
+    }
+
     pub fn commit_borrow_protected(
         env: Env,
         user: Address,
@@ -836,7 +1032,10 @@ impl HelloContract {
     ) -> Result<i128, LendingError> {
         let (asset, amount, _) = mev_protection::reveal_borrow(&env, user.clone(), commit_id)
             .map_err(LendingError::from)?;
-        borrow::borrow_asset(&env, user, asset, amount).map_err(Into::into)
+        let amount_out = borrow::borrow_asset(&env, user, asset, amount).map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842).
+        pool_state::bump_epoch(&env);
+        Ok(amount_out)
     }
 
     pub fn commit_withdraw_protected(
@@ -868,7 +1067,10 @@ impl HelloContract {
     ) -> Result<i128, LendingError> {
         let (asset, amount) = mev_protection::reveal_withdraw(&env, user.clone(), commit_id)
             .map_err(LendingError::from)?;
-        withdraw::withdraw_collateral(&env, user, asset, amount).map_err(Into::into)
+        let result = withdraw::withdraw_collateral(&env, user, asset, amount).map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842).
+        pool_state::bump_epoch(&env);
+        Ok(result)
     }
 
     pub fn commit_liquidation_protected(
@@ -903,7 +1105,7 @@ impl HelloContract {
         let (borrower, debt_asset, collateral_asset, debt_amount) =
             mev_protection::reveal_liquidation(&env, liquidator.clone(), commit_id)
                 .map_err(LendingError::from)?;
-        liquidate::liquidate(
+        let result = liquidate::liquidate(
             &env,
             liquidator,
             borrower,
@@ -911,7 +1113,10 @@ impl HelloContract {
             collateral_asset,
             debt_amount,
         )
-        .map_err(Into::into)
+        .map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842).
+        pool_state::bump_epoch(&env);
+        Ok(result)
     }
 
     pub fn cancel_mev_commit(env: Env, user: Address, commit_id: u64) -> Result<(), LendingError> {
@@ -1030,7 +1235,7 @@ impl HelloContract {
         )
         .map_err(|_| LendingError::LimitExceeded)?;
 
-        liquidate::liquidate(
+        let result = liquidate::liquidate(
             &env,
             liquidator,
             borrower,
@@ -1038,7 +1243,10 @@ impl HelloContract {
             collateral_asset,
             debt_amount,
         )
-        .map_err(Into::into)
+        .map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842).
+        pool_state::bump_epoch(&env);
+        Ok(result)
     }
 
     pub fn set_emergency_pause(
@@ -1085,7 +1293,7 @@ impl HelloContract {
         collateral_asset: Option<Address>,
         debt_amount: i128,
     ) -> Result<flash_loan::FlashLoanLiquidationResult, LendingError> {
-        flash_loan::execute_flash_loan_liquidation(
+        let result = flash_loan::execute_flash_loan_liquidation(
             &env,
             liquidator,
             borrower,
@@ -1093,7 +1301,10 @@ impl HelloContract {
             collateral_asset,
             debt_amount,
         )
-        .map_err(Into::into)
+        .map_err(Into::into)?;
+        // Invalidate cached lazy pool-state snapshots (#842).
+        pool_state::bump_epoch(&env);
+        Ok(result)
     }
 
     /// Multi-asset flash loan with a single callback and atomic repayment.
@@ -2565,6 +2776,23 @@ impl HelloContract {
 
     pub fn check_rate(env: Env, new_rate_bps: i128) -> Result<(i128, bool, bool), LendingError> {
         rate_guard::check_rate(&env, new_rate_bps).map_err(rate_guard_err)
+    }
+
+    /// Consolidated interest-rate manipulation report (issue #847).
+    pub fn get_rate_manipulation_report(
+        env: Env,
+    ) -> interest_rate::RateManipulationReport {
+        interest_rate::get_rate_manipulation_report(&env)
+    }
+
+    /// Rolling borrow-rate history used for manipulation audits (issue #847).
+    pub fn get_rate_history(env: Env) -> Vec<interest_rate::RateHistoryEntry> {
+        interest_rate::get_rate_history(&env)
+    }
+
+    /// Average borrow rate across the retained history (issue #847).
+    pub fn get_average_borrow_rate(env: Env) -> Result<i128, LendingError> {
+        interest_rate::get_average_borrow_rate(&env).map_err(Into::into)
     }
 }
 
