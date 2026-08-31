@@ -7,7 +7,8 @@ use crate::framework::{
     fresh_env, get_budget, measure_instructions, BenchmarkResult, BenchmarkSuite, RunConfig,
 };
 use hello_world::{
-    deposit::AssetParams, flash_loan::FlashLoanConfig, HelloContract, HelloContractClient,
+    deposit::AssetParams, flash_loan::FlashLoanConfig, liquidate::BatchLiquidationRequest,
+    HelloContract, HelloContractClient,
 };
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
@@ -29,6 +30,7 @@ fn run_all(config: &RunConfig) -> Vec<BenchmarkResult> {
         bench_withdraw_collateral_cold(config),
         bench_withdraw_collateral_warm(config),
         bench_liquidate(config),
+        bench_batch_liquidate(config),
         bench_can_be_liquidated(config),
         bench_get_max_liquidatable_amount(config),
         bench_get_liquidation_incentive(config),
@@ -74,6 +76,22 @@ fn setup_with_borrow(env: &Env) -> (HelloContractClient<'static>, Address, Addre
     let _ = client.try_set_risk_params(&admin, &None, &None, &None, &None);
     let _ = client.try_borrow_asset(&user, &None, &20_000);
     (client, admin, user)
+}
+
+// Set up a single contract instance with two distinct borrowers who each hold a
+// borrowed position, so a batch liquidation sees both positions in one call.
+fn setup_two_borrowers(
+    env: &Env,
+) -> (HelloContractClient<'static>, Address, Address, Address) {
+    let (client, admin) = setup_contract(env);
+    let user_a = Address::generate(env);
+    let user_b = Address::generate(env);
+    let _ = client.try_set_risk_params(&admin, &None, &None, &None, &None);
+    client.deposit_collateral(&user_a, &None, &100_000);
+    client.deposit_collateral(&user_b, &None, &100_000);
+    let _ = client.try_borrow_asset(&user_a, &None, &20_000);
+    let _ = client.try_borrow_asset(&user_b, &None, &20_000);
+    (client, admin, user_a, user_b)
 }
 
 // ─── Initialize ───────────────────────────────────────────────────────────────
@@ -322,6 +340,47 @@ fn bench_liquidate(config: &RunConfig) -> BenchmarkResult {
         true,
         get_budget(config, op),
         vec!["liquidate".into(), "cold".into()],
+    )
+}
+
+// Batched liquidation processes up to MAX_BATCH_SIZE (10) positions in a single
+// call. Dedicated gas measurement for the batched read + early-exit path added
+// in #835.
+fn bench_batch_liquidate(config: &RunConfig) -> BenchmarkResult {
+    let op = "hello_world::batch_liquidate";
+    let env = fresh_env();
+    let (client, _, user_a, user_b) = setup_two_borrowers(&env);
+    let liquidator = Address::generate(&env);
+
+    let mut requests = soroban_sdk::Vec::new(&env);
+    requests.push_back(BatchLiquidationRequest {
+        borrower: user_a.clone(),
+        debt_asset: None,
+        collateral_asset: None,
+        debt_amount: 5_000,
+    });
+    requests.push_back(BatchLiquidationRequest {
+        borrower: user_b.clone(),
+        debt_asset: None,
+        collateral_asset: None,
+        debt_amount: 5_000,
+    });
+
+    let (insns, mem) = measure_instructions(&env, || {
+        let _ = client.try_batch_liquidate(&liquidator, &requests);
+    });
+
+    BenchmarkResult::new(
+        op,
+        CONTRACT,
+        "Batch liquidate 2 positions — priority sort + batched reads + early exit",
+        insns,
+        mem,
+        3,
+        3,
+        true,
+        get_budget(config, op),
+        vec!["liquidate".into(), "batch".into(), "cold".into()],
     )
 }
 

@@ -495,6 +495,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "calldata-encoding"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk 27.0.6",
+]
+
+[[package]]
 name = "cc"
 version = "1.2.61"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1295,6 +1302,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 name = "hello-world"
 version = "0.0.0"
 dependencies = [
+ "calldata-encoding",
  "flash-loan",
  "shared-events",
  "soroban-sdk 27.0.6",
@@ -1304,6 +1312,7 @@ dependencies = [
  "stellarlend-amm",
  "stellarlend-lending",
  "stellarlend-oracle-client",
+ "stellarlend-security",
  "stellarlend-shared-deadline",
 ]
 
@@ -3776,6 +3785,7 @@ dependencies = [
  "soroban-sdk 27.0.6",
  "soroban-token-sdk",
  "stellarlend-common",
+ "stellarlend-security",
  "stellarlend-shared-deadline",
 ]
 
@@ -3852,6 +3862,13 @@ name = "stellarlend-safe-math"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "soroban-sdk 27.0.6",
+]
+
+[[package]]
+name = "stellarlend-security"
+version = "0.1.0"
+dependencies = [
  "soroban-sdk 27.0.6",
 ]
 
