@@ -283,6 +283,80 @@ impl HelloContract {
             .map_err(Into::into)
     }
 
+    // -------------------------------------------------------------------------
+    // Social Recovery — Guardian-Based Key Restoration (Issue #798)
+    // -------------------------------------------------------------------------
+
+    pub fn recovery_set_guardians(
+        env: Env,
+        caller: Address,
+        guardians: Vec<Address>,
+        threshold: u32,
+    ) -> Result<(), LendingError> {
+        recovery::set_guardians(&env, caller, guardians, threshold).map_err(Into::into)
+    }
+
+    pub fn recovery_add_guardian(
+        env: Env,
+        caller: Address,
+        guardian: Address,
+    ) -> Result<(), LendingError> {
+        recovery::add_guardian(&env, caller, guardian).map_err(Into::into)
+    }
+
+    pub fn recovery_remove_guardian(
+        env: Env,
+        caller: Address,
+        guardian: Address,
+    ) -> Result<(), LendingError> {
+        recovery::remove_guardian(&env, caller, guardian).map_err(Into::into)
+    }
+
+    pub fn recovery_set_threshold(
+        env: Env,
+        caller: Address,
+        threshold: u32,
+    ) -> Result<(), LendingError> {
+        recovery::set_guardian_threshold(&env, caller, threshold).map_err(Into::into)
+    }
+
+    pub fn recovery_start(
+        env: Env,
+        initiator: Address,
+        old_admin: Address,
+        new_admin: Address,
+    ) -> Result<(), LendingError> {
+        recovery::start_recovery(&env, initiator, old_admin, new_admin).map_err(Into::into)
+    }
+
+    pub fn recovery_approve(env: Env, approver: Address) -> Result<(), LendingError> {
+        recovery::approve_recovery(&env, approver).map_err(Into::into)
+    }
+
+    pub fn recovery_execute(env: Env, executor: Address) -> Result<(), LendingError> {
+        recovery::execute_recovery(&env, executor).map_err(Into::into)
+    }
+
+    pub fn recovery_cancel(env: Env, caller: Address) -> Result<(), LendingError> {
+        recovery::cancel_recovery(&env, caller).map_err(Into::into)
+    }
+
+    pub fn recovery_get_guardians(env: Env) -> Option<Vec<Address>> {
+        recovery::get_guardians(&env)
+    }
+
+    pub fn recovery_get_threshold(env: Env) -> u32 {
+        recovery::get_guardian_threshold(&env)
+    }
+
+    pub fn recovery_get_request(env: Env) -> Option<types::RecoveryRequest> {
+        recovery::get_recovery_request(&env)
+    }
+
+    pub fn recovery_get_approvals(env: Env) -> Option<Vec<Address>> {
+        recovery::get_recovery_approvals(&env)
+    }
+
     pub fn initialize(env: Env, admin: Address) -> Result<(), LendingError> {
         if crate::admin::has_admin(&env) {
             return Err(LendingError::Unauthorized);
