@@ -1,121 +1,61 @@
 import { Router } from 'express';
-import * as eventsController from '../controllers/events.controller';
+import { eventsController } from '../controllers/events.controller';
 
 const router: Router = Router();
 
 /**
  * @openapi
- * /events/schema:
+ * /events:
  *   get:
- *     summary: Structured event schema catalog
- *     description: >
- *       Machine-readable mirror of the on-chain event schema
- *       (`stellar-lend/contracts/hello-world/src/events.rs`). Returns the current
- *       schema version, the canonical module/action vocabularies, and the topic
- *       layout + field types of every emitted event, including the versioned
- *       `structured_event_v1` envelope.
- *     tags:
- *       - Events
- *     responses:
- *       200:
- *         description: The full event catalog
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 schemaVersion:
- *                   type: integer
- *                   example: 1
- *                 modules:
- *                   type: array
- *                   items:
- *                     type: string
- *                 actions:
- *                   type: array
- *                   items:
- *                     type: string
- *                 envelope:
- *                   type: string
- *                   example: structured_event_v1
- *                 events:
- *                   type: array
- *                   items:
- *                     type: object
- */
-router.get('/schema', eventsController.getSchema);
-
-/**
- * @openapi
- * /events/schema/{name}:
- *   get:
- *     summary: Single event definition
+ *     summary: Query indexed contract events with filters
+ *     description: Returns paginated contract events filtered by type, address, or time range
  *     tags:
  *       - Events
  *     parameters:
- *       - in: path
- *         name: name
- *         required: true
+ *       - in: query
+ *         name: type
  *         schema:
  *           type: string
- *         description: Canonical event name, e.g. `structured_event_v1` or `deposit`
- *     responses:
- *       200:
- *         description: The event definition
- *       404:
- *         description: Unknown event name
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
+ *       - in: query
+ *         name: address
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: from
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: to
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 50
  */
-router.get('/schema/:name', eventsController.getEventByName);
+router.get('/', eventsController.getEvents);
 
 /**
  * @openapi
- * /events/version:
+ * /events/types:
  *   get:
- *     summary: Current event schema version
+ *     summary: List all known event types
+ *     description: Returns distinct event types available for filtering
  *     tags:
  *       - Events
- *     responses:
- *       200:
- *         description: The schema version
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 schemaVersion:
- *                   type: integer
- *                   example: 1
  */
-router.get('/version', eventsController.getSchemaVersion);
+router.get('/types', eventsController.getEventTypes);
 
 /**
  * @openapi
- * /events/modules:
+ * /events/stats:
  *   get:
- *     summary: Canonical event module identifiers
+ *     summary: Event volume statistics
+ *     description: Returns counts and trends for recent events
  *     tags:
  *       - Events
- *     responses:
- *       200:
- *         description: List of module identifiers
  */
-router.get('/modules', eventsController.getModules);
-
-/**
- * @openapi
- * /events/actions:
- *   get:
- *     summary: Canonical event action verbs
- *     tags:
- *       - Events
- *     responses:
- *       200:
- *         description: List of action verbs
- */
-router.get('/actions', eventsController.getActions);
+router.get('/stats', eventsController.getEventStats);
 
 export default router;

@@ -1,12 +1,11 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, log, symbol_short, Address, BytesN, Env, String, Symbol, Val, Vec,
+    contract, contractimpl, log, symbol_short, Address, Env, String, Symbol, Val, Vec,
 };
+use stellarlend_common::upgrade;
 
 mod adapter;
-#[cfg(any(test, feature = "spec"))]
-pub mod spec;
 mod types;
 
 #[cfg(test)]
@@ -24,7 +23,7 @@ pub struct MigrationHub;
 
 #[contractimpl]
 impl MigrationHub {
-    pub fn bootstrap(
+    pub fn initialize(
         env: Env,
         admin: Address,
         lending_contract: Address,
@@ -36,7 +35,6 @@ impl MigrationHub {
             return Err(MigrationError::AlreadyInitialized);
         }
 
-        admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
 
         let config = MigrationConfig {
@@ -63,19 +61,44 @@ impl MigrationHub {
         Ok(())
     }
 
+    pub fn upgrade_init(env: Env, admin: Address, current_wasm_hash: BytesN<32>, required_approvals: u32) {
+        upgrade::UpgradeManager::init(env, admin, current_wasm_hash, required_approvals);
+    }
 
+    pub fn upgrade_add_approver(env: Env, caller: Address, approver: Address) {
+        upgrade::UpgradeManager::add_approver(env, caller, approver);
+    }
 
-    /// Upgrade the contract implementation. Admin only.
-    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) -> Result<(), MigrationError> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(MigrationError::Unauthorized)?;
-        admin.require_auth();
-        env.deployer()
-            .update_current_contract_wasm(new_wasm_hash);
-        Ok(())
+    pub fn upgrade_remove_approver(env: Env, caller: Address, approver: Address) {
+        upgrade::UpgradeManager::remove_approver(env, caller, approver);
+    }
+
+    pub fn upgrade_propose(env: Env, caller: Address, new_wasm_hash: BytesN<32>, new_version: u32) -> u64 {
+        upgrade::UpgradeManager::upgrade_propose(env, caller, new_wasm_hash, new_version)
+    }
+
+    pub fn upgrade_approve(env: Env, caller: Address, proposal_id: u64) -> u32 {
+        upgrade::UpgradeManager::upgrade_approve(env, caller, proposal_id)
+    }
+
+    pub fn upgrade_execute(env: Env, caller: Address, proposal_id: u64) {
+        upgrade::UpgradeManager::upgrade_execute(env, caller, proposal_id);
+    }
+
+    pub fn upgrade_rollback(env: Env, caller: Address, proposal_id: u64) {
+        upgrade::UpgradeManager::upgrade_rollback(env, caller, proposal_id);
+    }
+
+    pub fn upgrade_status(env: Env, proposal_id: u64) -> upgrade::UpgradeStatus {
+        upgrade::UpgradeManager::upgrade_status(env, proposal_id)
+    }
+
+    pub fn current_wasm_hash(env: Env) -> BytesN<32> {
+        upgrade::UpgradeManager::current_wasm_hash(env)
+    }
+
+    pub fn current_version(env: Env) -> u32 {
+        upgrade::UpgradeManager::current_version(env)
     }
 
     /// Migrate funds from a source protocol.
@@ -272,12 +295,7 @@ impl MigrationHub {
         Self::save_migration(&env, id, &record);
         Self::update_analytics(&env, true, record.amount);
 
-        log!(
-            &env,
-            "Partial migration successful for user {} percentage {}",
-            user,
-            percentage
-        );
+        log!(&env, "Partial migration successful for user {} percentage {}", user, percentage);
 
         Ok(id)
     }
@@ -373,7 +391,10 @@ impl MigrationHub {
     }
 
     /// Get migration history for a user.
-    pub fn get_user_migration_history(env: Env, user: Address) -> Vec<MigrationRecord> {
+    pub fn get_user_migration_history(
+        env: Env,
+        user: Address,
+    ) -> Vec<MigrationRecord> {
         let mut history: Vec<MigrationRecord> = Vec::new();
 
         // Simplified: would iterate through all migrations and filter by user
