@@ -58,11 +58,17 @@ stellar-lend/fuzz/coverage/
 
 # Test snapshots and coverage
 **/*.snap
-**/test_snapshots/
+**/*.snap.new
+**/test-snapshots/
+**/testsnapshots/
+**/__snapshots__/
 **/coverage/
 **/.nyc_output/
 **/test-results/
 *.lcov
+*.snap.tmp
+*.snap.bak
+tests/e2e/e2e-report.json
 tests/e2e/e2e-report.json
 
 # Database files

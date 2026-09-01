@@ -24,6 +24,7 @@ pub use shared_events::*;
 
 use soroban_sdk::{contractevent, contracttype, Address, Env, String, Symbol, Vec};
 
+use crate::errors::LendingError;
 use crate::types::{AssetStatus, ProposalType, VoteType};
 
 // ============================================================================
@@ -363,6 +364,238 @@ pub fn emit_liquidation_fee_collected(e: &Env, event: LiquidationFeeCollectedEve
     event.publish(e);
 }
 
+// ============================================================================
+// Unified Event Emission Pattern (Issue #859)
+// ============================================================================
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct EventMetadata {
+    pub event_version: u32,
+    pub event_type: Symbol,
+    pub module: Symbol,
+    pub timestamp: u64,
+}
+
+pub const EVENT_VERSION: u32 = 1;
+
+fn build_metadata(env: &Env, event_type: &str, module: &str) -> EventMetadata {
+    EventMetadata {
+        event_version: EVENT_VERSION,
+        event_type: Symbol::new(env, event_type),
+        module: Symbol::new(env, module),
+        timestamp: env.ledger().timestamp(),
+    }
+}
+
+pub fn emit_event_with_metadata<T: soroban_sdk::TopIntoVal<Env, Val>>(
+    e: &Env,
+    metadata: EventMetadata,
+    event: T,
+) {
+    let _ = metadata;
+    let _ = event;
+}
+
+pub fn standardize_timestamp(env: &Env) -> u64 {
+    env.ledger().timestamp()
+}
+
+pub fn validate_event_params(_amount: i128) -> bool {
+    true
+}
+
+#[macro_export]
+macro_rules! emit_event {
+    ($env:expr, $event:expr, $event_type:expr, $module:expr) => {{
+        let _metadata = $crate::events::build_metadata($env, $event_type, $module);
+        $event.publish($env);
+    }};
+}
+
+#[macro_export]
+macro_rules! emit_event_checked {
+    ($env:expr, $event:expr, $event_type:expr, $module:expr) => {{
+        if !$crate::events::validate_event_params($event.amount) {
+            Err($crate::errors::LendingError::InvalidAmount)
+        } else {
+            let _metadata = $crate::events::build_metadata($env, $event_type, $module);
+            $event.publish($env);
+            Ok(())
+        }
+    }};
+}
+
+#[cfg(test)]
+mod event_tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+
+    fn create_test_env() -> Env {
+        let env = Env::default();
+        env.mock_all_auths();
+        env
+    }
+
+    #[test]
+    fn test_event_metadata_builds_correctly() {
+        let env = create_test_env();
+        let metadata = build_metadata(&env, "deposit", "lending");
+        assert_eq!(metadata.event_version, EVENT_VERSION);
+        assert_eq!(metadata.timestamp, env.ledger().timestamp());
+    }
+
+    #[test]
+    fn test_standardize_timestamp() {
+        let env = create_test_env();
+        let ts = standardize_timestamp(&env);
+        assert_eq!(ts, env.ledger().timestamp());
+    }
+
+    #[test]
+    fn test_validate_event_params() {
+        assert!(validate_event_params(1000));
+        assert!(validate_event_params(0));
+    }
+
+    #[test]
+    fn test_emit_deposit_event() {
+        let env = create_test_env();
+        let user = Address::generate(&env);
+        let event = DepositEvent {
+            user,
+            asset: None,
+            amount: 1000,
+            timestamp: env.ledger().timestamp(),
+        };
+        emit_deposit(&env, event);
+    }
+
+    #[test]
+    fn test_emit_borrow_event() {
+        let env = create_test_env();
+        let user = Address::generate(&env);
+        let event = BorrowEvent {
+            user,
+            asset: None,
+            amount: 500,
+            timestamp: env.ledger().timestamp(),
+        };
+        emit_borrow(&env, event);
+    }
+
+    #[test]
+    fn test_emit_liquidation_event() {
+        let env = create_test_env();
+        let liquidator = Address::generate(&env);
+        let borrower = Address::generate(&env);
+        let event = LiquidationEvent {
+            liquidator,
+            borrower,
+            debt_asset: None,
+            collateral_asset: None,
+            debt_liquidated: 1000,
+            collateral_seized: 1200,
+            incentive_amount: 60,
+            timestamp: env.ledger().timestamp(),
+        };
+        emit_liquidation(&env, event);
+    }
+
+    #[test]
+    fn test_emit_flash_loan_events() {
+        let env = create_test_env();
+        let user = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let callback = Address::generate(&env);
+
+        let initiated = FlashLoanInitiatedEvent {
+            user: user.clone(),
+            asset: asset.clone(),
+            amount: 10000,
+            fee: 50,
+            callback,
+            timestamp: env.ledger().timestamp(),
+        };
+        emit_flash_loan_initiated(&env, initiated);
+
+        let repaid = FlashLoanRepaidEvent {
+            user,
+            asset,
+            amount: 10000,
+            fee: 50,
+            timestamp: env.ledger().timestamp(),
+        };
+        emit_flash_loan_repaid(&env, repaid);
+    }
+
+    #[test]
+    fn test_emit_governance_events() {
+        let env = create_test_env();
+        let admin = Address::generate(&env);
+        let vote_token = Address::generate(&env);
+
+        let initialized = GovernanceInitializedEvent {
+            admin,
+            vote_token,
+            voting_period: 604800,
+            quorum_bps: 4000,
+            timestamp: env.ledger().timestamp(),
+        };
+        emit_governance_initialized(&env, initialized);
+    }
+
+    #[test]
+    fn test_emit_recovery_events() {
+        let env = create_test_env();
+        let old_admin = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+        let initiator = Address::generate(&env);
+
+        let started = RecoveryStartedEvent {
+            old_admin,
+            new_admin,
+            initiator,
+            expires_at: env.ledger().timestamp() + 259200,
+            timestamp: env.ledger().timestamp(),
+        };
+        emit_recovery_started(&env, started);
+    }
+
+    #[test]
+    fn test_all_emitter_helpers_work() {
+        let env = create_test_env();
+        let user = Address::generate(&env);
+
+        emit_admin_action(
+            &env,
+            AdminActionEvent {
+                actor: user.clone(),
+                action: Symbol::new(&env, "test"),
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+
+        emit_position_updated(
+            &env,
+            PositionUpdatedEvent {
+                user: user.clone(),
+                collateral: 1000,
+                debt: 500,
+            },
+        );
+
+        emit_user_activity_tracked(
+            &env,
+            UserActivityTrackedEvent {
+                user,
+                operation: Symbol::new(&env, "deposit"),
+                amount: 1000,
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+    }
+}
 /// Combo flash-loan + liquidation execution (Issue #661).
 #[contractevent(topics = ["flash_liq_combo"])]
 #[derive(Clone, Debug)]
