@@ -2,7 +2,7 @@ use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::GovernanceError;
 use crate::storage::{GovernanceDataKey, GuardianConfig};
-use crate::types::{MultisigConfig, RecoveryRequest, DEFAULT_RECOVERY_PERIOD};
+use crate::types::{MultisigConfig, RecoveryRequest, DEFAULT_RECOVERY_DELAY, DEFAULT_RECOVERY_PERIOD};
 use crate::events::{RecoveryApprovedEvent, RecoveryExecutedEvent, RecoveryStartedEvent};
 
 pub fn start_recovery(
@@ -35,6 +35,7 @@ pub fn start_recovery(
         initiator: initiator.clone(),
         initiated_at: now,
         expires_at: now + DEFAULT_RECOVERY_PERIOD,
+        ready_at: now + DEFAULT_RECOVERY_DELAY,
     };
 
     env.storage().persistent().set(&recovery_key, &request);

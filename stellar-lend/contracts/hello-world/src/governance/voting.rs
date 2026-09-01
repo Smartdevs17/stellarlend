@@ -8,7 +8,7 @@ use crate::types::{
 };
 use crate::events::{
     VoteCastEvent, VoteDelegatedEvent, VoteDelegationRevokedEvent, VoteLockedEvent,
-    VotePowerSnapshotTakenEvent,
+    VotePowerSnapshotTakenEvent, to_shared_vote_type,
 };
 
 /// Cast a vote on a proposal.
@@ -79,7 +79,7 @@ pub fn vote(
     VoteCastEvent {
         proposal_id,
         voter,
-        vote_type,
+        vote_type: to_shared_vote_type(&vote_type),
         voting_power,
         timestamp: now,
     }

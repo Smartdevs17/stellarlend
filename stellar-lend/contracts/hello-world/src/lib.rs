@@ -1,7 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(deprecated)]
 
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, IntoVal, String, Vec};
+use soroban_sdk::{contract, contractimpl, Address, Env, IntoVal, String, Symbol, Vec};
 
 pub mod admin;
 pub mod amm;
@@ -41,6 +41,7 @@ pub mod risk_management;
 pub mod risk_params;
 pub mod safe_math;
 pub mod storage;
+pub mod timelock;
 pub mod treasury;
 #[cfg(test)]
 mod test_utils;
@@ -171,7 +172,7 @@ impl HelloContract {
         governance::get_vote(&env, proposal_id, voter)
     }
 
-    pub fn gov_get_multisig_config(env: Env) -> Option<storage::MultisigConfig> {
+    pub fn gov_get_multisig_config(env: Env) -> Option<types::MultisigConfig> {
         governance::get_multisig_config(&env)
     }
 
@@ -269,34 +270,10 @@ impl HelloContract {
             .map_err(Into::into)
     }
 
-    /// Upgradeable bootstrap: initializes the contract and upgrades it to the
-    /// full implementation in the same transaction. Used by the migration hub.
-    pub fn bootstrap(
-        env: Env,
-        admin: Address,
-        new_wasm_hash: BytesN<32>,
-    ) -> Result<(), LendingError> {
-        Self::initialize(env, admin, new_wasm_hash)
-    }
-
-    /// Contract initializer for the upgradeable bootstrap pattern. Initializes
-    /// storage and upgrades the deployed WASM in a single transaction.
-    pub fn initialize(
-        env: Env,
-        admin: Address,
-        new_wasm_hash: BytesN<32>,
-    ) -> Result<(), LendingError> {
-        Self::init_storage(env.clone(), admin)?;
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
-        Ok(())
-    }
-
-    /// Internal storage initialization used by the upgradeable initializer.
-    fn init_storage(env: Env, admin: Address) -> Result<(), LendingError> {
+    pub fn initialize(env: Env, admin: Address) -> Result<(), LendingError> {
         if crate::admin::has_admin(&env) {
             return Err(LendingError::Unauthorized);
         }
-        admin.require_auth();
         crate::admin::set_admin(&env, admin.clone(), None)
             .map_err(|_| RiskManagementError::Unauthorized)?;
         risk_management::initialize_risk_management(&env, admin.clone())?;
@@ -309,17 +286,6 @@ impl HelloContract {
                 RiskManagementError::Unauthorized
             }
         })?;
-        Ok(())
-    }
-
-    /// Admin-only upgrade of the contract implementation.
-    pub fn upgrade(
-        env: Env,
-        caller: Address,
-        new_wasm_hash: BytesN<32>,
-    ) -> Result<(), LendingError> {
-        risk_management::require_admin(&env, &caller)?;
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
         Ok(())
     }
 
@@ -347,7 +313,7 @@ impl HelloContract {
         asset: Option<Address>,
         amount: i128,
     ) -> Result<(), LendingError> {
-        cross_asset::cross_asset_deposit(&env, user, asset, amount).map_err(Into::into)?;
+        cross_asset::cross_asset_deposit(&env, user, asset, amount).map_err(LendingError::from)?;
         Ok(())
     }
 
@@ -402,7 +368,7 @@ impl HelloContract {
             close_factor_bps: 5_000,
             liquidation_incentive_bps: 1_000,
             last_update: env.ledger().timestamp(),
-            flags: storage::FLAG_BORROWING_ENABLED | storage::FLAG_COLLATERAL_ENABLED,
+            flags: (storage::FLAG_BORROWING_ENABLED | storage::FLAG_COLLATERAL_ENABLED) as u32,
         })
     }
 
@@ -434,7 +400,9 @@ impl HelloContract {
         asset: Option<Address>,
         amount: i128,
     ) -> Result<(), LendingError> {
-        cross_asset::cross_asset_borrow(&env, user, asset, amount).map_err(Into::into)
+        cross_asset::cross_asset_borrow(&env, user, asset, amount)
+            .map_err(LendingError::from)
+            .map(|_| ())
     }
 
     /// Withdraw collateral using cross-asset lending
@@ -444,7 +412,7 @@ impl HelloContract {
         asset: Option<Address>,
         amount: i128,
     ) -> Result<(), LendingError> {
-        cross_asset::cross_asset_withdraw(&env, user, asset, amount).map_err(Into::into)?;
+        cross_asset::cross_asset_withdraw(&env, user, asset, amount).map_err(LendingError::from)?;
         Ok(())
     }
 
@@ -1647,25 +1615,6 @@ impl HelloContract {
         analytics::generate_user_report(&env, &user).map_err(Into::into)
     }
 
-    /// Read-only position health simulation for an existing account under hypothetical price/amount scenarios (Issue #731).
-    pub fn simulate_position_health(
-        env: Env,
-        user: Address,
-        scenario: analytics::PositionSimulationScenario,
-    ) -> Result<analytics::PositionSimulationResult, LendingError> {
-        analytics::simulate_position_health(&env, &user, scenario).map_err(Into::into)
-    }
-
-    /// Pure what-if analysis simulating position health given hypothetical collateral & debt (Issue #731).
-    pub fn simulate_what_if(
-        env: Env,
-        collateral: i128,
-        debt: i128,
-        scenario: analytics::PositionSimulationScenario,
-    ) -> Result<analytics::PositionSimulationResult, LendingError> {
-        analytics::simulate_what_if(&env, collateral, debt, scenario).map_err(Into::into)
-    }
-
     /// Read-only recent protocol activity feed query.
     pub fn get_recent_activity(
         env: Env,
@@ -2295,7 +2244,9 @@ impl HelloContract {
         decimals: u32,
         source: Address,
     ) -> Result<(), LendingError> {
-        oracle::update_price_feed(&env, caller, asset, price, decimals, source).map_err(oracle_err)
+        oracle::update_price_feed(&env, caller, asset, price, decimals, source)
+            .map_err(oracle_err)
+            .map(|_| ())
     }
 
     pub fn get_price(env: Env, asset: Address) -> Result<i128, LendingError> {

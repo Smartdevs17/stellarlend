@@ -6,6 +6,7 @@ use crate::borrow::BorrowError;
 use crate::cross_asset::CrossAssetError;
 use crate::debt_token::DebtTokenError;
 use crate::deposit::DepositError;
+use crate::emergency_withdrawal::EmergencyWithdrawalError;
 use crate::flash_loan::FlashLoanError;
 use crate::interest_rate::InterestRateError;
 use crate::liquidate::LiquidationError;
@@ -70,6 +71,10 @@ pub enum GovernanceError {
     InvalidTimelockStatus = 144,
     InvalidTimelockConfig = 145,
     InvalidTimelockDelay = 146,
+    RecoveryNotReady = 147,
+    InvalidActionTypeDelay = 148,
+    EmergencyOverrideAlreadyApproved = 149,
+    InsufficientEmergencyApprovals = 150,
 }
 
 /// Unified public contract error type for the lending interface.
@@ -380,6 +385,10 @@ impl_from_error!(DebtTokenError, {
     DebtTokenError::ZeroAddress => LendingError::InvalidParameter,
     DebtTokenError::AlreadyTokenized => LendingError::AlreadyExists,
     DebtTokenError::PositionNotFound => LendingError::DataNotFound,
+    DebtTokenError::NotListed => LendingError::DataNotFound,
+    DebtTokenError::AlreadyListed => LendingError::AlreadyExists,
+    DebtTokenError::NotSeller => LendingError::Unauthorized,
+    DebtTokenError::InvalidPrice => LendingError::InvalidParameter,
 });
 
 impl From<CrossAssetError> for LendingError {
@@ -402,65 +411,17 @@ impl From<CrossAssetError> for LendingError {
     }
 }
 
-// ─── Shared error-framework integration (#708) ─────────────────────────────
-//
-// `LendingError` is the contract's public ABI codebook (numeric values are stable and
-// must not change). The shared `stellarlend-errors` crate supplies the cross-contract
-// normalization (IntoError -> CoreError), recovery classification and analytics. This
-// impl lets any `LendingError` flow through those shared helpers without altering any
-// numeric code, keeping the public interface fully backward compatible.
-
-impl From<LendingError> for stellarlend_errors::CoreError {
-    fn from(e: LendingError) -> Self {
-        use stellarlend_errors::CoreError;
-        match e {
-            LendingError::Unauthorized => CoreError::Unauthorized,
-            LendingError::InvalidAmount
-            | LendingError::InvalidAsset
-            | LendingError::InvalidParameter
-            | LendingError::InvalidFee => CoreError::InvalidInput,
-            LendingError::InsufficientBalance
-            | LendingError::InsufficientCollateral
-            | LendingError::InsufficientCollateralRatio
-            | LendingError::InsufficientLiquidity
-            | LendingError::InsufficientReserve => CoreError::Insufficient,
-            LendingError::Overflow => CoreError::Overflow,
-            LendingError::DivisionByZero => CoreError::DivisionByZero,
-            LendingError::ProtocolPaused => CoreError::Paused,
-            LendingError::Reentrancy => CoreError::Reentrancy,
-            LendingError::NotInitialized => CoreError::NotInitialized,
-            LendingError::AlreadyInitialized => CoreError::AlreadyInitialized,
-            LendingError::DataNotFound
-            | LendingError::CommitNotFound
-            | LendingError::NotFound => CoreError::NotFound,
-            LendingError::AlreadyExists => CoreError::AlreadyExists,
-            LendingError::LimitExceeded
-            | LendingError::FeeCapExceeded => CoreError::LimitExceeded,
-            LendingError::InvalidState
-            | LendingError::AssetNotEnabled
-            | LendingError::NoDebt
-            | LendingError::InvalidCallback
-            | LendingError::CallbackFailed
-            | LendingError::NotRepaid
-            | LendingError::CommitRequired
-            | LendingError::CommitNotReady
-            | LendingError::CommitExpired => CoreError::InvalidState,
-            LendingError::PriceUnavailable => CoreError::PriceUnavailable,
-            LendingError::TreasuryNotSet
-            | LendingError::GovernanceRequired
-            | LendingError::GovernanceError => CoreError::InvalidState,
+impl From<EmergencyWithdrawalError> for LendingError {
+    fn from(error: EmergencyWithdrawalError) -> Self {
+        match error {
+            EmergencyWithdrawalError::NotActive => LendingError::InvalidState,
+            EmergencyWithdrawalError::AlreadyActive => LendingError::AlreadyExists,
+            EmergencyWithdrawalError::WindowNotOpen => LendingError::InvalidState,
+            EmergencyWithdrawalError::NotAuthorized => LendingError::Unauthorized,
+            EmergencyWithdrawalError::InsufficientBalance => LendingError::InsufficientBalance,
+            EmergencyWithdrawalError::ExceedsWithdrawalCap => LendingError::LimitExceeded,
+            EmergencyWithdrawalError::InvalidParameter => LendingError::InvalidParameter,
+            EmergencyWithdrawalError::AlreadyWithdrawn => LendingError::AlreadyExists,
         }
     }
-}
-
-impl stellarlend_errors::IntoError for LendingError {
-    fn into_core(self) -> stellarlend_errors::CoreError {
-        stellarlend_errors::CoreError::from(self)
-    }
-}
-
-/// Convenience: classify a `LendingError` into a retry/terminal decision using the
-/// shared recovery framework (see `stellarlend_errors::recovery`).
-pub fn recovery_decision(e: LendingError) -> stellarlend_errors::RecoveryDecision {
-    stellarlend_errors::recover(stellarlend_errors::CoreError::from(e))
 }

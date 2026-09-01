@@ -17,7 +17,7 @@
 //!    rejected and the transaction reverts.
 //! 5. A TWAP accumulator tracks the running average for external consumers.
 
-use soroban_sdk::{contracterror, contracttype, Address, Env, Symbol};
+use soroban_sdk::{contracterror, contracttype, Address, Env, Symbol, Vec};
 
 use crate::admin::get_admin;
 

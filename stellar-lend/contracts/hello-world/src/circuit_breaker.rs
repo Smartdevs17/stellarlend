@@ -27,6 +27,8 @@ pub enum CircuitBreakerTier {
 #[contracttype]
 pub enum CircuitBreakerStatus {
     Active,
+    Paused,
+    Emergency,
     Tier1Paused,
     Tier2Paused,
     Tier3Halted,
@@ -68,7 +70,7 @@ pub struct CircuitBreakerConfig {
     pub auto_deactivate_enabled: bool,
     pub whitelist_enabled: bool,
     pub price_deviation_threshold_bps: u64,
-    pub abnormal_utilization_threshold_bps: u64,
+    pub abnormal_utilization_bps: u64,
     pub guardian_multisig: Option<Address>,
     pub tier1_auto_trigger_enabled: bool,
     pub tier2_auto_trigger_enabled: bool,
@@ -81,7 +83,7 @@ impl Default for CircuitBreakerConfig {
             auto_deactivate_enabled: true,
             whitelist_enabled: true,
             price_deviation_threshold_bps: PRICE_DEVIATION_THRESHOLD_BPS,
-            abnormal_utilization_threshold_bps: ABNORMAL_UTILIZATION_THRESHOLD_BPS,
+            abnormal_utilization_bps: ABNORMAL_UTILIZATION_THRESHOLD_BPS,
             guardian_multisig: None,
             tier1_auto_trigger_enabled: true,
             tier2_auto_trigger_enabled: true,
@@ -184,11 +186,15 @@ pub fn activate_circuit_breaker(
 
     let state = CircuitBreakerState {
         status,
+        tier: CircuitBreakerTier::Tier1,
         activated_at: now,
         activated_by: caller.clone(),
         cooldown_period: config.cooldown_period,
         auto_deactivate_at,
         reason: reason.clone(),
+        affected_pool: None,
+        guardian_multisig: config.guardian_multisig.clone(),
+        governance_vote_required: false,
     };
 
     let state_key = storage::DataKey::CircuitBreakerState;
@@ -260,8 +266,10 @@ pub fn is_liquidation_allowed(env: &Env, liquidator: &Address) -> Result<bool, L
 
     match state.status {
         CircuitBreakerStatus::Active => Ok(true),
-        CircuitBreakerStatus::Paused => Ok(false),
-        CircuitBreakerStatus::Emergency => {
+        CircuitBreakerStatus::Paused | CircuitBreakerStatus::Tier1Paused | CircuitBreakerStatus::Tier2Paused => {
+            Ok(false)
+        }
+        CircuitBreakerStatus::Tier3Halted | CircuitBreakerStatus::Emergency => {
             // Check whitelist
             is_whitelisted(env, liquidator)
         }
@@ -583,7 +591,7 @@ pub fn check_automatic_triggers(
         return Ok(Some(CircuitBreakerTier::Tier1));
     }
 
-    if config.tier2_auto_trigger_enabled && utilization_bps >= config.abnormal_utilization_threshold_bps {
+    if config.tier2_auto_trigger_enabled && utilization_bps >= config.abnormal_utilization_bps {
         return Ok(Some(CircuitBreakerTier::Tier2));
     }
 
@@ -658,6 +666,8 @@ pub fn is_operation_allowed(
         CircuitBreakerStatus::Tier3Halted => {
             is_whitelisted(env, caller)
         }
+        CircuitBreakerStatus::Paused => Ok(false),
+        CircuitBreakerStatus::Emergency => is_whitelisted(env, caller),
     }
 }
 
