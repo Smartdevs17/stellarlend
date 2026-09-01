@@ -171,18 +171,10 @@ pub trait TokenAdapter {
     ) -> Result<i128, TokenError>;
 
     /// Convert a human-readable amount to the token's minimal unit.
-    fn to_minimal_unit(
-        env: &Env,
-        token: &Address,
-        amount: i128,
-    ) -> Result<i128, TokenError>;
+    fn to_minimal_unit(env: &Env, token: &Address, amount: i128) -> Result<i128, TokenError>;
 
     /// Convert a minimal unit amount to human-readable format.
-    fn from_minimal_unit(
-        env: &Env,
-        token: &Address,
-        minimal: i128,
-    ) -> Result<i128, TokenError>;
+    fn from_minimal_unit(env: &Env, token: &Address, minimal: i128) -> Result<i128, TokenError>;
 
     /// Perform an approve + transfer_from in a single call.
     fn batch_approve_and_transfer(
@@ -228,10 +220,7 @@ impl UnifiedTokenAdapter {
     }
 
     /// Verify that a registered token can perform core operations.
-    pub fn verify_token(
-        env: &Env,
-        token: &Address,
-    ) -> Result<VerificationResult, TokenError> {
+    pub fn verify_token(env: &Env, token: &Address) -> Result<VerificationResult, TokenError> {
         let info = Self::get_token_info_stored(env, token)?;
 
         // Try a balance_of call to verify the token is functional
@@ -277,10 +266,7 @@ impl UnifiedTokenAdapter {
         Ok(())
     }
 
-    fn get_token_info_stored(
-        env: &Env,
-        token: &Address,
-    ) -> Result<TokenInfo, TokenError> {
+    fn get_token_info_stored(env: &Env, token: &Address) -> Result<TokenInfo, TokenError> {
         env.storage()
             .persistent()
             .get(&DataKey::TokenInfo(token.clone()))
@@ -364,11 +350,7 @@ impl UnifiedTokenAdapter {
         }
     }
 
-    fn do_balance_of(
-        env: &Env,
-        info: &TokenInfo,
-        address: &Address,
-    ) -> Result<i128, TokenError> {
+    fn do_balance_of(env: &Env, info: &TokenInfo, address: &Address) -> Result<i128, TokenError> {
         match info.token_type {
             TokenType::SorobanToken => {
                 let client = TokenClient::new(env, &info.address);
@@ -399,10 +381,7 @@ impl UnifiedTokenAdapter {
         }
     }
 
-    fn do_total_supply(
-        env: &Env,
-        info: &TokenInfo,
-    ) -> Result<i128, TokenError> {
+    fn do_total_supply(env: &Env, info: &TokenInfo) -> Result<i128, TokenError> {
         match info.token_type {
             TokenType::SorobanToken => {
                 let client = TokenClient::new(env, &info.address);
@@ -539,21 +518,13 @@ impl TokenAdapter for UnifiedTokenAdapter {
         }
     }
 
-    fn to_minimal_unit(
-        env: &Env,
-        token: &Address,
-        amount: i128,
-    ) -> Result<i128, TokenError> {
+    fn to_minimal_unit(env: &Env, token: &Address, amount: i128) -> Result<i128, TokenError> {
         let info = Self::get_token_info_stored(env, token)?;
         let scale = 10i128.pow(info.decimals);
         amount.checked_mul(scale).ok_or(TokenError::Overflow)
     }
 
-    fn from_minimal_unit(
-        env: &Env,
-        token: &Address,
-        minimal: i128,
-    ) -> Result<i128, TokenError> {
+    fn from_minimal_unit(env: &Env, token: &Address, minimal: i128) -> Result<i128, TokenError> {
         let info = Self::get_token_info_stored(env, token)?;
         let scale = 10i128.pow(info.decimals);
         Ok(minimal / scale)

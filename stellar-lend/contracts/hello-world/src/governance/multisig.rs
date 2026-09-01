@@ -1,12 +1,12 @@
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::GovernanceError;
+use crate::events::ProposalApprovedEvent;
 use crate::storage::GovernanceDataKey;
 use crate::types::{MultisigConfig, Proposal, ProposalStatus};
-use crate::events::ProposalApprovedEvent;
 
-use super::get_admin;
 use super::execution::execute_proposal_type;
+use super::get_admin;
 
 pub fn approve_proposal(
     env: &Env,

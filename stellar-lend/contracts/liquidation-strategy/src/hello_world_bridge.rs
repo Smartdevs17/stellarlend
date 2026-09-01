@@ -57,7 +57,9 @@ mod tests {
     #[test]
     fn encode_then_decode_round_trips() {
         let env = Env::default();
-        let params = FixedDiscountParams { discount_bps: 1_000 };
+        let params = FixedDiscountParams {
+            discount_bps: 1_000,
+        };
         let encoded = encode_fixed_discount_params(&env, &params);
         assert_eq!(encoded.len(), 16);
         let decoded = decode_fixed_discount_params(&encoded).expect("decode should succeed");
@@ -75,7 +77,12 @@ mod tests {
     fn from_liquidation_incentive_bps_matches_manual_encoding() {
         let env = Env::default();
         let from_helper = fixed_discount_params_from_liquidation_incentive_bps(&env, 1_500);
-        let manual = encode_fixed_discount_params(&env, &FixedDiscountParams { discount_bps: 1_500 });
+        let manual = encode_fixed_discount_params(
+            &env,
+            &FixedDiscountParams {
+                discount_bps: 1_500,
+            },
+        );
         assert_eq!(from_helper, manual);
     }
 }

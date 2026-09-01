@@ -1,5 +1,7 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, contracterror, Address, Env, Map, Symbol, Vec, BytesN};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Map, Symbol, Vec,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -147,7 +149,11 @@ impl ComplianceContract {
         expires_at: Option<u64>,
     ) -> Result<(), ComplianceError> {
         Self::require_admin(&env, &admin)?;
-        if env.storage().persistent().has(&DataKey::SanctionedAddress(address.clone())) {
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::SanctionedAddress(address.clone()))
+        {
             return Err(ComplianceError::AlreadySanctioned);
         }
         let entry = SanctionsEntry {
@@ -158,24 +164,57 @@ impl ComplianceContract {
             expires_at,
             active: true,
         };
-        env.storage().persistent().set(&DataKey::SanctionedAddress(address.clone()), &entry);
-        Self::record_event(&env, &Symbol::new(&env, "SANCTION_ADDED"), &address, None::<i128>, None::<Address>, &reason);
+        env.storage()
+            .persistent()
+            .set(&DataKey::SanctionedAddress(address.clone()), &entry);
+        Self::record_event(
+            &env,
+            &Symbol::new(&env, "SANCTION_ADDED"),
+            &address,
+            None::<i128>,
+            None::<Address>,
+            &reason,
+        );
         Ok(())
     }
 
-    pub fn remove_sanction(env: Env, admin: Address, address: Address) -> Result<(), ComplianceError> {
+    pub fn remove_sanction(
+        env: Env,
+        admin: Address,
+        address: Address,
+    ) -> Result<(), ComplianceError> {
         Self::require_admin(&env, &admin)?;
         let key = DataKey::SanctionedAddress(address.clone());
-        let mut entry: SanctionsEntry = env.storage().persistent().get(&key).ok_or(ComplianceError::AddressNotSanctioned)?;
+        let mut entry: SanctionsEntry = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(ComplianceError::AddressNotSanctioned)?;
         entry.active = false;
         env.storage().persistent().set(&key, &entry);
-        Self::record_event(&env, &Symbol::new(&env, "SANCTION_REMOVED"), &address, None::<i128>, None::<Address>, &Symbol::new(&env, "admin_remove"));
+        Self::record_event(
+            &env,
+            &Symbol::new(&env, "SANCTION_REMOVED"),
+            &address,
+            None::<i128>,
+            None::<Address>,
+            &Symbol::new(&env, "admin_remove"),
+        );
         Ok(())
     }
 
     pub fn check_sanctioned(env: Env, address: Address) -> bool {
-        match env.storage().persistent().get::<DataKey, SanctionsEntry>(&DataKey::SanctionedAddress(address)) {
-            Some(entry) => entry.active && entry.expires_at.map_or(true, |exp| exp > env.ledger().timestamp()),
+        match env
+            .storage()
+            .persistent()
+            .get::<DataKey, SanctionsEntry>(&DataKey::SanctionedAddress(address))
+        {
+            Some(entry) => {
+                entry.active
+                    && entry
+                        .expires_at
+                        .map_or(true, |exp| exp > env.ledger().timestamp())
+            }
             None => false,
         }
     }
@@ -200,21 +239,40 @@ impl ComplianceContract {
             jurisdiction,
             kyc_provider,
         };
-        env.storage().persistent().set(&DataKey::KycData(address.clone()), &kyc);
-        Self::record_event(&env, &Symbol::new(&env, "KYC_VERIFIED"), &address, None::<i128>, None::<Address>, &Symbol::new(&env, "kyc_set"));
+        env.storage()
+            .persistent()
+            .set(&DataKey::KycData(address.clone()), &kyc);
+        Self::record_event(
+            &env,
+            &Symbol::new(&env, "KYC_VERIFIED"),
+            &address,
+            None::<i128>,
+            None::<Address>,
+            &Symbol::new(&env, "kyc_set"),
+        );
         Ok(())
     }
 
     pub fn revoke_kyc(env: Env, admin: Address, address: Address) -> Result<(), ComplianceError> {
         Self::require_admin(&env, &admin)?;
-        let mut kyc: KycVerification = env.storage().persistent().get(&DataKey::KycData(address.clone())).ok_or(ComplianceError::KYCRequired)?;
+        let mut kyc: KycVerification = env
+            .storage()
+            .persistent()
+            .get(&DataKey::KycData(address.clone()))
+            .ok_or(ComplianceError::KYCRequired)?;
         kyc.verified = false;
-        env.storage().persistent().set(&DataKey::KycData(address), &kyc);
+        env.storage()
+            .persistent()
+            .set(&DataKey::KycData(address), &kyc);
         Ok(())
     }
 
     pub fn check_kyc(env: Env, address: Address) -> bool {
-        match env.storage().persistent().get::<DataKey, KycVerification>(&DataKey::KycData(address)) {
+        match env
+            .storage()
+            .persistent()
+            .get::<DataKey, KycVerification>(&DataKey::KycData(address))
+        {
             Some(kyc) => kyc.verified && kyc.expires_at > env.ledger().timestamp(),
             None => false,
         }
@@ -224,14 +282,23 @@ impl ComplianceContract {
         env.storage().persistent().get(&DataKey::KycData(address))
     }
 
-    pub fn set_tx_limits(env: Env, admin: Address, address: Address, limits: TransactionLimits) -> Result<(), ComplianceError> {
+    pub fn set_tx_limits(
+        env: Env,
+        admin: Address,
+        address: Address,
+        limits: TransactionLimits,
+    ) -> Result<(), ComplianceError> {
         Self::require_admin(&env, &admin)?;
-        env.storage().persistent().set(&DataKey::TxLimits(address), &limits);
+        env.storage()
+            .persistent()
+            .set(&DataKey::TxLimits(address), &limits);
         Ok(())
     }
 
     pub fn get_tx_limits(env: Env, address: Address) -> TransactionLimits {
-        env.storage().persistent().get(&DataKey::TxLimits(address.clone()))
+        env.storage()
+            .persistent()
+            .get(&DataKey::TxLimits(address.clone()))
             .unwrap_or_else(|| Self::get_config(&env).default_limits)
     }
 
@@ -246,14 +313,20 @@ impl ComplianceContract {
         if config.paused {
             return Err(ComplianceError::CompliancePaused);
         }
-        if Self::check_sanctioned(env.clone(), from.clone()) || Self::check_sanctioned(env.clone(), to.clone()) {
+        if Self::check_sanctioned(env.clone(), from.clone())
+            || Self::check_sanctioned(env.clone(), to.clone())
+        {
             return Err(ComplianceError::AddressSanctioned);
         }
         let limits = Self::get_tx_limits(env.clone(), from.clone());
         if amount > limits.max_single_tx {
             return Err(ComplianceError::TransactionTooLarge);
         }
-        if let Some(kyc) = env.storage().persistent().get::<DataKey, KycVerification>(&DataKey::KycData(from.clone())) {
+        if let Some(kyc) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, KycVerification>(&DataKey::KycData(from.clone()))
+        {
             for jurisdiction in config.restricted_jurisdictions.iter() {
                 if kyc.jurisdiction == jurisdiction {
                     return Err(ComplianceError::GeographicRestricted);
@@ -271,24 +344,36 @@ impl ComplianceContract {
             volume.weekly_volume = amount;
         }
         volume.last_tx_timestamp = now;
-        env.storage().persistent().set(&DataKey::TxVolume(from.clone()), &volume);
+        env.storage()
+            .persistent()
+            .set(&DataKey::TxVolume(from.clone()), &volume);
         if volume.daily_volume > limits.daily_limit {
             return Err(ComplianceError::DailyLimitExceeded);
         }
         if volume.weekly_volume > limits.weekly_limit {
             return Err(ComplianceError::WeeklyLimitExceeded);
         }
-        Self::record_event(&env, &Symbol::new(&env, "TX_CHECKED"), &from, Some(amount), Some(asset), &Symbol::new(&env, "passed"));
+        Self::record_event(
+            &env,
+            &Symbol::new(&env, "TX_CHECKED"),
+            &from,
+            Some(amount),
+            Some(asset),
+            &Symbol::new(&env, "passed"),
+        );
         Ok(())
     }
 
     pub fn get_tx_volume(env: Env, address: &Address) -> TxVolume {
-        env.storage().persistent().get(&DataKey::TxVolume(address.clone())).unwrap_or(TxVolume {
-            address: address.clone(),
-            daily_volume: 0,
-            weekly_volume: 0,
-            last_tx_timestamp: 0,
-        })
+        env.storage()
+            .persistent()
+            .get(&DataKey::TxVolume(address.clone()))
+            .unwrap_or(TxVolume {
+                address: address.clone(),
+                daily_volume: 0,
+                weekly_volume: 0,
+                last_tx_timestamp: 0,
+            })
     }
 
     pub fn file_sar(
@@ -300,7 +385,11 @@ impl ComplianceContract {
         asset: Address,
     ) -> Result<u64, ComplianceError> {
         Self::require_admin(&env, &admin)?;
-        let sar_id: u64 = env.storage().persistent().get(&DataKey::NextSarId).unwrap_or(0);
+        let sar_id: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::NextSarId)
+            .unwrap_or(0);
         let sar = SuspiciousActivityReport {
             sar_id,
             address: address.clone(),
@@ -310,9 +399,20 @@ impl ComplianceContract {
             filed_at: env.ledger().timestamp(),
             filed_by: admin,
         };
-        env.storage().persistent().set(&DataKey::SarById(sar_id), &sar);
-        env.storage().persistent().set(&DataKey::NextSarId, &(sar_id + 1));
-        Self::record_event(&env, &Symbol::new(&env, "SAR_FILED"), &address, Some(amount), None::<Address>, &Symbol::new(&env, "sar_filed"));
+        env.storage()
+            .persistent()
+            .set(&DataKey::SarById(sar_id), &sar);
+        env.storage()
+            .persistent()
+            .set(&DataKey::NextSarId, &(sar_id + 1));
+        Self::record_event(
+            &env,
+            &Symbol::new(&env, "SAR_FILED"),
+            &address,
+            Some(amount),
+            None::<Address>,
+            &Symbol::new(&env, "sar_filed"),
+        );
         Ok(sar_id)
     }
 
@@ -320,7 +420,11 @@ impl ComplianceContract {
         env.storage().persistent().get(&DataKey::SarById(sar_id))
     }
 
-    pub fn add_restricted_jurisdiction(env: Env, admin: Address, jurisdiction: Symbol) -> Result<(), ComplianceError> {
+    pub fn add_restricted_jurisdiction(
+        env: Env,
+        admin: Address,
+        jurisdiction: Symbol,
+    ) -> Result<(), ComplianceError> {
         Self::require_admin(&env, &admin)?;
         let mut config = Self::get_config(&env);
         if !config.restricted_jurisdictions.contains(&jurisdiction) {
@@ -330,7 +434,11 @@ impl ComplianceContract {
         Ok(())
     }
 
-    pub fn remove_restricted_jurisdiction(env: Env, admin: Address, jurisdiction: Symbol) -> Result<(), ComplianceError> {
+    pub fn remove_restricted_jurisdiction(
+        env: Env,
+        admin: Address,
+        jurisdiction: Symbol,
+    ) -> Result<(), ComplianceError> {
         Self::require_admin(&env, &admin)?;
         let mut config = Self::get_config(&env);
         let mut new_list: Vec<Symbol> = Vec::new(&env);
@@ -365,7 +473,11 @@ impl ComplianceContract {
     }
 
     fn require_admin(env: &Env, admin: &Address) -> Result<(), ComplianceError> {
-        let config: ComplianceConfig = env.storage().persistent().get(&DataKey::Config).ok_or(ComplianceError::Unauthorized)?;
+        let config: ComplianceConfig = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Config)
+            .ok_or(ComplianceError::Unauthorized)?;
         if admin != &config.admin {
             return Err(ComplianceError::Unauthorized);
         }
@@ -381,7 +493,11 @@ impl ComplianceContract {
         asset: Option<Address>,
         details: &Symbol,
     ) {
-        let event_id: u64 = env.storage().persistent().get(&DataKey::NextEventId).unwrap_or(0);
+        let event_id: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::NextEventId)
+            .unwrap_or(0);
         let event = ComplianceEvent {
             event_type: event_type.clone(),
             address: address.clone(),
@@ -390,7 +506,11 @@ impl ComplianceContract {
             timestamp: env.ledger().timestamp(),
             details: details.clone(),
         };
-        env.storage().persistent().set(&DataKey::TransactionLog(event_id), &event);
-        env.storage().persistent().set(&DataKey::NextEventId, &(event_id + 1));
+        env.storage()
+            .persistent()
+            .set(&DataKey::TransactionLog(event_id), &event);
+        env.storage()
+            .persistent()
+            .set(&DataKey::NextEventId, &(event_id + 1));
     }
 }

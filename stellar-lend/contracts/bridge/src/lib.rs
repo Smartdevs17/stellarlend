@@ -7,9 +7,8 @@ pub mod lending_bridge;
 pub use bridge::BridgeContractClient;
 pub use bridge::{BridgeContract, ContractError};
 pub use lending_bridge::{
-    CrossChainLendingPosition, CollateralLock, LiquidityRoute,
-    RemoteHealthReport, LendingBridgeStats, LendingBridgeError,
-    PositionStatus,
+    CollateralLock, CrossChainLendingPosition, LendingBridgeError, LendingBridgeStats,
+    LiquidityRoute, PositionStatus, RemoteHealthReport,
 };
 
 #[cfg(test)]

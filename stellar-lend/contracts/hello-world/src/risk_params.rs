@@ -123,19 +123,19 @@ pub fn initialize_risk_params(env: &Env) -> Result<(), RiskParamsError> {
 
     validate_risk_params(&default_config)?;
 
-    env.storage()
-        .persistent()
-        .set(&RiskParamsDataKey::PackedRiskParamsConfig, &pack_risk_params(&default_config));
+    env.storage().persistent().set(
+        &RiskParamsDataKey::PackedRiskParamsConfig,
+        &pack_risk_params(&default_config),
+    );
 
     Ok(())
 }
 
-/// Get current risk parameters (legacy, unpacked storage layout)
+/// Get current risk parameters (legacy storage)
 pub fn get_legacy_risk_params(env: &Env) -> Option<RiskParams> {
-    let config_key = RiskParamsDataKey::RiskParamsConfig;
     env.storage()
         .persistent()
-        .get::<RiskParamsDataKey, RiskParams>(&config_key)
+        .get::<RiskParamsDataKey, RiskParams>(&RiskParamsDataKey::RiskParamsConfig)
 }
 
 /// Get current risk parameters.
@@ -144,9 +144,11 @@ pub fn get_legacy_risk_params(env: &Env) -> Option<RiskParams> {
 /// layout exists, it is migrated lazily on first read so deployed contracts
 /// upgrade without a separate migration step.
 pub fn get_risk_params(env: &Env) -> Option<RiskParams> {
-    if let Some(packed) = env.storage().persistent().get::<RiskParamsDataKey, u128>(
-        &RiskParamsDataKey::PackedRiskParamsConfig,
-    ) {
+    if let Some(packed) = env
+        .storage()
+        .persistent()
+        .get::<RiskParamsDataKey, u128>(&RiskParamsDataKey::PackedRiskParamsConfig)
+    {
         return Some(unpack_risk_params(packed));
     }
     match env
@@ -189,8 +191,6 @@ pub fn migrate_from_legacy(env: &Env) -> bool {
         None => false,
     }
 }
-
-/// Get current risk parameters from packed config (#713)
 
 /// Validate risk configuration
 fn validate_risk_params(config: &RiskParams) -> Result<(), RiskParamsError> {
@@ -296,9 +296,10 @@ pub fn set_risk_params(
     config.last_update = env.ledger().timestamp();
 
     // Save config as packed single slot (issue #722)
-    env.storage()
-        .persistent()
-        .set(&RiskParamsDataKey::PackedRiskParamsConfig, &pack_risk_params(&config));
+    env.storage().persistent().set(
+        &RiskParamsDataKey::PackedRiskParamsConfig,
+        &pack_risk_params(&config),
+    );
 
     // Emit event
     emit_risk_params_updated_event(env, &config);

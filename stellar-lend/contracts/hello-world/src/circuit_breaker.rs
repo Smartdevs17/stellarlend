@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, Vec, contracttype};
+use soroban_sdk::{contracttype, Address, Env, Vec};
 
 use crate::errors::LendingError;
 use crate::storage;
@@ -27,8 +27,6 @@ pub enum CircuitBreakerTier {
 #[contracttype]
 pub enum CircuitBreakerStatus {
     Active,
-    Paused,
-    Emergency,
     Tier1Paused,
     Tier2Paused,
     Tier3Halted,
@@ -70,7 +68,7 @@ pub struct CircuitBreakerConfig {
     pub auto_deactivate_enabled: bool,
     pub whitelist_enabled: bool,
     pub price_deviation_threshold_bps: u64,
-    pub abnormal_utilization_bps: u64,
+    pub abnormal_utilization_threshold_bps: u64,
     pub guardian_multisig: Option<Address>,
     pub tier1_auto_trigger_enabled: bool,
     pub tier2_auto_trigger_enabled: bool,
@@ -83,7 +81,7 @@ impl Default for CircuitBreakerConfig {
             auto_deactivate_enabled: true,
             whitelist_enabled: true,
             price_deviation_threshold_bps: PRICE_DEVIATION_THRESHOLD_BPS,
-            abnormal_utilization_bps: ABNORMAL_UTILIZATION_THRESHOLD_BPS,
+            abnormal_utilization_threshold_bps: ABNORMAL_UTILIZATION_THRESHOLD_BPS,
             guardian_multisig: None,
             tier1_auto_trigger_enabled: true,
             tier2_auto_trigger_enabled: true,
@@ -139,10 +137,7 @@ pub fn initialize_circuit_breaker(
 /// Get circuit breaker configuration
 pub fn get_circuit_breaker_config(env: &Env) -> CircuitBreakerConfig {
     let key = storage::DataKey::CircuitBreakerConfig;
-    env.storage()
-        .instance()
-        .get(&key)
-        .unwrap_or_default()
+    env.storage().instance().get(&key).unwrap_or_default()
 }
 
 /// Get circuit breaker state
@@ -186,15 +181,11 @@ pub fn activate_circuit_breaker(
 
     let state = CircuitBreakerState {
         status,
-        tier: CircuitBreakerTier::Tier1,
         activated_at: now,
         activated_by: caller.clone(),
         cooldown_period: config.cooldown_period,
         auto_deactivate_at,
         reason: reason.clone(),
-        affected_pool: None,
-        guardian_multisig: config.guardian_multisig.clone(),
-        governance_vote_required: false,
     };
 
     let state_key = storage::DataKey::CircuitBreakerState;
@@ -266,10 +257,8 @@ pub fn is_liquidation_allowed(env: &Env, liquidator: &Address) -> Result<bool, L
 
     match state.status {
         CircuitBreakerStatus::Active => Ok(true),
-        CircuitBreakerStatus::Paused | CircuitBreakerStatus::Tier1Paused | CircuitBreakerStatus::Tier2Paused => {
-            Ok(false)
-        }
-        CircuitBreakerStatus::Tier3Halted | CircuitBreakerStatus::Emergency => {
+        CircuitBreakerStatus::Paused => Ok(false),
+        CircuitBreakerStatus::Emergency => {
             // Check whitelist
             is_whitelisted(env, liquidator)
         }
@@ -277,7 +266,11 @@ pub fn is_liquidation_allowed(env: &Env, liquidator: &Address) -> Result<bool, L
 }
 
 /// Add address to emergency liquidator whitelist
-pub fn add_to_whitelist(env: &Env, admin: Address, liquidator: Address) -> Result<(), LendingError> {
+pub fn add_to_whitelist(
+    env: &Env,
+    admin: Address,
+    liquidator: Address,
+) -> Result<(), LendingError> {
     admin.require_auth();
 
     let stored_admin = crate::admin::get_admin(env).ok_or(LendingError::Unauthorized)?;
@@ -587,11 +580,15 @@ pub fn check_automatic_triggers(
         return Ok(None);
     }
 
-    if config.tier1_auto_trigger_enabled && price_deviation_bps >= config.price_deviation_threshold_bps {
+    if config.tier1_auto_trigger_enabled
+        && price_deviation_bps >= config.price_deviation_threshold_bps
+    {
         return Ok(Some(CircuitBreakerTier::Tier1));
     }
 
-    if config.tier2_auto_trigger_enabled && utilization_bps >= config.abnormal_utilization_bps {
+    if config.tier2_auto_trigger_enabled
+        && utilization_bps >= config.abnormal_utilization_threshold_bps
+    {
         return Ok(Some(CircuitBreakerTier::Tier2));
     }
 
@@ -660,14 +657,8 @@ pub fn is_operation_allowed(
                 Ok(true)
             }
         }
-        CircuitBreakerStatus::Tier2Paused => {
-            Ok(false)
-        }
-        CircuitBreakerStatus::Tier3Halted => {
-            is_whitelisted(env, caller)
-        }
-        CircuitBreakerStatus::Paused => Ok(false),
-        CircuitBreakerStatus::Emergency => is_whitelisted(env, caller),
+        CircuitBreakerStatus::Tier2Paused => Ok(false),
+        CircuitBreakerStatus::Tier3Halted => is_whitelisted(env, caller),
     }
 }
 
@@ -698,13 +689,7 @@ mod tests {
         let config = CircuitBreakerConfig::default();
         initialize_circuit_breaker(&env, config).unwrap();
 
-        activate_circuit_breaker(
-            &env,
-            admin,
-            CircuitBreakerReason::FlashCrash,
-            false,
-        )
-        .unwrap();
+        activate_circuit_breaker(&env, admin, CircuitBreakerReason::FlashCrash, false).unwrap();
 
         let state = get_circuit_breaker_state(&env).unwrap();
         assert_eq!(state.status, CircuitBreakerStatus::Paused);
@@ -722,13 +707,7 @@ mod tests {
         let config = CircuitBreakerConfig::default();
         initialize_circuit_breaker(&env, config).unwrap();
 
-        activate_circuit_breaker(
-            &env,
-            admin,
-            CircuitBreakerReason::FlashCrash,
-            false,
-        )
-        .unwrap();
+        activate_circuit_breaker(&env, admin, CircuitBreakerReason::FlashCrash, false).unwrap();
 
         let allowed = is_liquidation_allowed(&env, &liquidator).unwrap();
         assert!(!allowed);
@@ -750,13 +729,7 @@ mod tests {
         add_to_whitelist(&env, admin.clone(), liquidator.clone()).unwrap();
 
         // Activate emergency mode
-        activate_circuit_breaker(
-            &env,
-            admin,
-            CircuitBreakerReason::OracleFailure,
-            true,
-        )
-        .unwrap();
+        activate_circuit_breaker(&env, admin, CircuitBreakerReason::OracleFailure, true).unwrap();
 
         // Whitelisted liquidator should be allowed
         let allowed = is_liquidation_allowed(&env, &liquidator).unwrap();
@@ -780,13 +753,7 @@ mod tests {
         let config = CircuitBreakerConfig::default();
         initialize_circuit_breaker(&env, config.clone()).unwrap();
 
-        activate_circuit_breaker(
-            &env,
-            admin,
-            CircuitBreakerReason::FlashCrash,
-            false,
-        )
-        .unwrap();
+        activate_circuit_breaker(&env, admin, CircuitBreakerReason::FlashCrash, false).unwrap();
 
         // Should be blocked initially
         let allowed = is_liquidation_allowed(&env, &liquidator).unwrap();
@@ -817,13 +784,8 @@ mod tests {
         let config = CircuitBreakerConfig::default();
         initialize_circuit_breaker(&env, config).unwrap();
 
-        activate_circuit_breaker(
-            &env,
-            admin.clone(),
-            CircuitBreakerReason::FlashCrash,
-            false,
-        )
-        .unwrap();
+        activate_circuit_breaker(&env, admin.clone(), CircuitBreakerReason::FlashCrash, false)
+            .unwrap();
 
         deactivate_circuit_breaker(&env, admin).unwrap();
 

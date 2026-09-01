@@ -149,10 +149,7 @@ pub fn validate_health_factor(
 /// - Different exchange rates between pools
 /// - Interest accrual during the migration
 /// - Share price differences
-pub fn estimate_slippage_bps(
-    source_amount: i128,
-    destination_amount: i128,
-) -> u32 {
+pub fn estimate_slippage_bps(source_amount: i128, destination_amount: i128) -> u32 {
     if source_amount == 0 {
         return 0;
     }

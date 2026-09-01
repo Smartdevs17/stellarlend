@@ -19,6 +19,8 @@ pub struct BenchmarkReport {
     pub failed: usize,
     pub results: Vec<BenchmarkResult>,
     pub summary_by_contract: HashMap<String, ContractSummary>,
+    #[serde(default)]
+    pub optimization_findings: Vec<OptimizationFinding>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -29,6 +31,72 @@ pub struct ContractSummary {
     pub min_instructions: u64,
     pub avg_instructions: u64,
     pub over_budget_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum FindingSeverity {
+    Critical,
+    High,
+    Medium,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OptimizationFinding {
+    pub operation: String,
+    pub contract: String,
+    pub severity: FindingSeverity,
+    pub instruction_overage: u64,
+    pub storage_operations: u32,
+    pub recommendation: String,
+}
+
+pub fn generate_optimization_findings(results: &[BenchmarkResult]) -> Vec<OptimizationFinding> {
+    let mut findings: Vec<OptimizationFinding> = results
+        .iter()
+        .filter_map(|result| {
+            let instruction_overage = result.instructions.saturating_sub(result.budget);
+            let storage_operations = result.storage_reads + result.storage_writes;
+            let has_budget_overage = result.budget > 0 && instruction_overage > 0;
+            let has_storage_pressure = storage_operations >= 8 || result.cold_storage;
+
+            if !has_budget_overage && !has_storage_pressure {
+                return None;
+            }
+
+            let severity = if has_budget_overage && instruction_overage > result.budget / 4 {
+                FindingSeverity::Critical
+            } else if has_budget_overage || storage_operations >= 12 {
+                FindingSeverity::High
+            } else {
+                FindingSeverity::Medium
+            };
+
+            let recommendation = if has_budget_overage {
+                "Profile this operation first; it exceeds its configured gas budget."
+            } else if result.cold_storage {
+                "Review persistent storage access and cache or batch cold reads where possible."
+            } else {
+                "Review storage access count and combine reads/writes where contract semantics allow."
+            };
+
+            Some(OptimizationFinding {
+                operation: result.operation.clone(),
+                contract: result.contract.clone(),
+                severity,
+                instruction_overage,
+                storage_operations,
+                recommendation: recommendation.into(),
+            })
+        })
+        .collect();
+
+    findings.sort_by(|a, b| {
+        b.instruction_overage
+            .cmp(&a.instruction_overage)
+            .then_with(|| b.storage_operations.cmp(&a.storage_operations))
+            .then_with(|| a.operation.cmp(&b.operation))
+    });
+    findings
 }
 
 /// Print a formatted summary table to stdout
@@ -132,6 +200,7 @@ pub fn write_json(results: &[BenchmarkResult], path: &str) {
         failed,
         results: results.to_vec(),
         summary_by_contract,
+        optimization_findings: generate_optimization_findings(results),
     };
 
     let json = serde_json::to_string_pretty(&report).expect("Failed to serialize benchmark report");
@@ -273,6 +342,30 @@ pub fn write_markdown(results: &[BenchmarkResult], path: &str) {
     markdown.push_str(&format!("**Passed:** {}\n", passed));
     markdown.push_str(&format!("**Failed:** {}\n\n", failed));
 
+    let findings = generate_optimization_findings(results);
+    markdown.push_str("## Optimization Findings\n\n");
+    if findings.is_empty() {
+        markdown.push_str("No gas optimization findings were detected.\n\n");
+    } else {
+        markdown.push_str(
+            "| Severity | Operation | Instruction Overage | Storage Ops | Recommendation |\n",
+        );
+        markdown.push_str(
+            "|----------|-----------|----------------------|-------------|----------------|\n",
+        );
+        for finding in &findings {
+            markdown.push_str(&format!(
+                "| {:?} | {} | {:,} | {} | {} |\n",
+                finding.severity,
+                finding.operation,
+                finding.instruction_overage,
+                finding.storage_operations,
+                finding.recommendation
+            ));
+        }
+        markdown.push_str("\n");
+    }
+
     // Group by contract
     let mut by_contract: HashMap<String, Vec<&BenchmarkResult>> = HashMap::new();
     for r in results {
@@ -301,4 +394,48 @@ pub fn write_markdown(results: &[BenchmarkResult], path: &str) {
     }
 
     fs::write(path, markdown).expect("Failed to write markdown report");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn result(operation: &str, instructions: u64, budget: u64) -> BenchmarkResult {
+        BenchmarkResult {
+            operation: operation.into(),
+            contract: "lending".into(),
+            description: "test benchmark".into(),
+            instructions,
+            memory_bytes: 1024,
+            storage_reads: 1,
+            storage_writes: 1,
+            cold_storage: false,
+            budget,
+            within_budget: budget == 0 || instructions <= budget,
+            timestamp: "2026-01-01T00:00:00Z".into(),
+            tags: vec![],
+        }
+    }
+
+    #[test]
+    fn flags_operations_over_budget() {
+        let findings = generate_optimization_findings(&[result("lending::deposit", 130, 100)]);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].operation, "lending::deposit");
+        assert_eq!(findings[0].severity, FindingSeverity::Critical);
+        assert_eq!(findings[0].instruction_overage, 30);
+    }
+
+    #[test]
+    fn flags_cold_storage_pressure_without_budget_overage() {
+        let mut cold = result("lending::withdraw", 90, 100);
+        cold.cold_storage = true;
+
+        let findings = generate_optimization_findings(&[cold]);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, FindingSeverity::Medium);
+        assert_eq!(findings[0].storage_operations, 2);
+    }
 }

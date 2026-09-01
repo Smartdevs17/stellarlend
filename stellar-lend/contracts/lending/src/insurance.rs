@@ -538,11 +538,7 @@ pub fn set_coverage_limit(
 }
 
 /// Cancel a pending claim (claimant only).
-pub fn cancel_claim(
-    env: &Env,
-    claimant: Address,
-    claim_id: u64,
-) -> Result<(), InsuranceError> {
+pub fn cancel_claim(env: &Env, claimant: Address, claim_id: u64) -> Result<(), InsuranceError> {
     claimant.require_auth();
 
     let mut claim = get_claim(env, claim_id).ok_or(InsuranceError::ClaimNotFound)?;

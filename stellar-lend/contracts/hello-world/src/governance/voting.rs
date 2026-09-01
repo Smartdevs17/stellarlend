@@ -1,14 +1,14 @@
 use soroban_sdk::{token::TokenClient, Address, Env, Vec};
 
 use crate::errors::GovernanceError;
-use crate::storage::GovernanceDataKey;
-use crate::types::{
-    DelegationRecord, GovernanceConfig, Proposal, VoteInfo, VoteLock, VotePowerSnapshot,
-    VoteType, BASIS_POINTS_SCALE, DELEGATION_DEADLINE, MAX_DELEGATION_DEPTH,
-};
 use crate::events::{
     VoteCastEvent, VoteDelegatedEvent, VoteDelegationRevokedEvent, VoteLockedEvent,
     VotePowerSnapshotTakenEvent, to_shared_vote_type,
+};
+use crate::storage::GovernanceDataKey;
+use crate::types::{
+    DelegationRecord, GovernanceConfig, Proposal, VoteInfo, VoteLock, VotePowerSnapshot, VoteType,
+    BASIS_POINTS_SCALE, DELEGATION_DEADLINE, MAX_DELEGATION_DEPTH,
 };
 
 /// Cast a vote on a proposal.
@@ -188,8 +188,7 @@ fn get_delegated_power_for_voter(
             .get::<GovernanceDataKey, DelegationRecord>(&del_key)
         {
             if record.delegatee == *delegatee && record.delegated_at <= deadline {
-                let snap_key =
-                    GovernanceDataKey::VotePowerSnapshot(proposal_id, delegator.clone());
+                let snap_key = GovernanceDataKey::VotePowerSnapshot(proposal_id, delegator.clone());
                 if let Some(snap) = env
                     .storage()
                     .persistent()

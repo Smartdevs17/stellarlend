@@ -1,5 +1,7 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, Vec,
+};
 
 use pool_interfaces::{PoolAllocation, RiskProfile, RouterConfig};
 
@@ -97,11 +99,7 @@ pub struct YieldRouter;
 
 #[contractimpl]
 impl YieldRouter {
-    pub fn initialize(
-        env: Env,
-        admin: Address,
-        config: RouterConfig,
-    ) -> Result<(), RouterError> {
+    pub fn initialize(env: Env, admin: Address, config: RouterConfig) -> Result<(), RouterError> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(RouterError::AlreadyInitialized);
         }
@@ -131,7 +129,11 @@ impl YieldRouter {
         }
         admin.require_auth();
 
-        if env.storage().persistent().has(&DataKey::RegisteredPool(pool.clone())) {
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::RegisteredPool(pool.clone()))
+        {
             return Ok(());
         }
 
@@ -179,7 +181,11 @@ impl YieldRouter {
     ) -> Result<i128, RouterError> {
         user.require_auth();
 
-        let paused: bool = env.storage().instance().get(&DataKey::Paused).unwrap_or(false);
+        let paused: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
         if paused {
             return Err(RouterError::DepositPaused);
         }
@@ -212,33 +218,26 @@ impl YieldRouter {
             return Err(RouterError::SlippageExceeded);
         }
 
-        env.storage()
-            .persistent()
-            .set(
-                &DataKey::UserPosition(user.clone(), asset.clone()),
-                &UserRouterPosition {
-                    user: user.clone(),
-                    asset: asset.clone(),
-                    total_deposited,
-                    allocations: allocations.clone(),
-                    last_rebalance_at: env.ledger().timestamp(),
-                    risk_profile: risk_profile.clone(),
-                },
-            );
+        env.storage().persistent().set(
+            &DataKey::UserPosition(user.clone(), asset.clone()),
+            &UserRouterPosition {
+                user: user.clone(),
+                asset: asset.clone(),
+                total_deposited,
+                allocations: allocations.clone(),
+                last_rebalance_at: env.ledger().timestamp(),
+                risk_profile: risk_profile.clone(),
+            },
+        );
 
         env.storage()
             .persistent()
-            .set(
-                &DataKey::RiskProfile(user.clone()),
-                &risk_profile,
-            );
+            .set(&DataKey::RiskProfile(user.clone()), &risk_profile);
 
-        env.storage()
-            .persistent()
-            .set(
-                &DataKey::Allocations(user.clone(), asset.clone()),
-                &allocations,
-            );
+        env.storage().persistent().set(
+            &DataKey::Allocations(user.clone(), asset.clone()),
+            &allocations,
+        );
 
         DepositRoutedEvent {
             user,
@@ -261,7 +260,11 @@ impl YieldRouter {
     ) -> Result<i128, RouterError> {
         user.require_auth();
 
-        let paused: bool = env.storage().instance().get(&DataKey::Paused).unwrap_or(false);
+        let paused: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
         if paused {
             return Err(RouterError::WithdrawPaused);
         }
@@ -346,26 +349,22 @@ impl YieldRouter {
             }
         }
 
-        env.storage()
-            .persistent()
-            .set(
-                &DataKey::UserPosition(user.clone(), asset.clone()),
-                &UserRouterPosition {
-                    user: user.clone(),
-                    asset: asset.clone(),
-                    total_deposited: remaining,
-                    allocations: new_allocations.clone(),
-                    last_rebalance_at: position.last_rebalance_at,
-                    risk_profile: position.risk_profile.clone(),
-                },
-            );
+        env.storage().persistent().set(
+            &DataKey::UserPosition(user.clone(), asset.clone()),
+            &UserRouterPosition {
+                user: user.clone(),
+                asset: asset.clone(),
+                total_deposited: remaining,
+                allocations: new_allocations.clone(),
+                last_rebalance_at: position.last_rebalance_at,
+                risk_profile: position.risk_profile.clone(),
+            },
+        );
 
-        env.storage()
-            .persistent()
-            .set(
-                &DataKey::Allocations(user.clone(), asset.clone()),
-                &new_allocations,
-            );
+        env.storage().persistent().set(
+            &DataKey::Allocations(user.clone(), asset.clone()),
+            &new_allocations,
+        );
 
         WithdrawRoutedEvent {
             user,
@@ -404,19 +403,17 @@ impl YieldRouter {
             return Err(RouterError::RebalanceCooldownActive);
         }
 
-        let profile = new_risk_profile.clone().unwrap_or(position.risk_profile.clone());
+        let profile = new_risk_profile
+            .clone()
+            .unwrap_or(position.risk_profile.clone());
         let old_allocations: Vec<PoolAllocation> = env
             .storage()
             .persistent()
             .get(&DataKey::Allocations(user.clone(), asset.clone()))
             .unwrap_or(Vec::new(&env));
 
-        let new_allocations = Self::compute_allocation(
-            &env,
-            &asset,
-            position.total_deposited,
-            &profile,
-        )?;
+        let new_allocations =
+            Self::compute_allocation(&env, &asset, position.total_deposited, &profile)?;
 
         if new_allocations.len() == 0 {
             return Err(RouterError::NoPoolsConfigured);
@@ -433,33 +430,26 @@ impl YieldRouter {
             return Err(RouterError::SlippageExceeded);
         }
 
-        env.storage()
-            .persistent()
-            .set(
-                &DataKey::UserPosition(user.clone(), asset.clone()),
-                &UserRouterPosition {
-                    user: user.clone(),
-                    asset: asset.clone(),
-                    total_deposited: position.total_deposited,
-                    allocations: new_allocations.clone(),
-                    last_rebalance_at: now,
-                    risk_profile: profile.clone(),
-                },
-            );
+        env.storage().persistent().set(
+            &DataKey::UserPosition(user.clone(), asset.clone()),
+            &UserRouterPosition {
+                user: user.clone(),
+                asset: asset.clone(),
+                total_deposited: position.total_deposited,
+                allocations: new_allocations.clone(),
+                last_rebalance_at: now,
+                risk_profile: profile.clone(),
+            },
+        );
+
+        env.storage().persistent().set(
+            &DataKey::Allocations(user.clone(), asset.clone()),
+            &new_allocations,
+        );
 
         env.storage()
             .persistent()
-            .set(
-                &DataKey::Allocations(user.clone(), asset.clone()),
-                &new_allocations,
-            );
-
-        env.storage()
-            .persistent()
-            .set(
-                &DataKey::RiskProfile(user.clone()),
-                &profile,
-            );
+            .set(&DataKey::RiskProfile(user.clone()), &profile);
 
         let reason: u32 = if new_risk_profile.is_some() { 1 } else { 2 };
 
@@ -486,11 +476,7 @@ impl YieldRouter {
             .get(&DataKey::UserPosition(user, asset))
     }
 
-    pub fn get_allocations(
-        env: Env,
-        user: Address,
-        asset: Address,
-    ) -> Vec<PoolAllocation> {
+    pub fn get_allocations(env: Env, user: Address, asset: Address) -> Vec<PoolAllocation> {
         env.storage()
             .persistent()
             .get(&DataKey::Allocations(user, asset))
@@ -511,17 +497,10 @@ impl YieldRouter {
     }
 
     pub fn get_config(env: Env) -> RouterConfig {
-        env.storage()
-            .instance()
-            .get(&DataKey::Config)
-            .unwrap()
+        env.storage().instance().get(&DataKey::Config).unwrap()
     }
 
-    pub fn set_config(
-        env: Env,
-        admin: Address,
-        config: RouterConfig,
-    ) -> Result<(), RouterError> {
+    pub fn set_config(env: Env, admin: Address, config: RouterConfig) -> Result<(), RouterError> {
         let stored_admin: Address = env
             .storage()
             .instance()
@@ -535,11 +514,7 @@ impl YieldRouter {
         Ok(())
     }
 
-    pub fn set_paused(
-        env: Env,
-        admin: Address,
-        paused: bool,
-    ) -> Result<(), RouterError> {
+    pub fn set_paused(env: Env, admin: Address, paused: bool) -> Result<(), RouterError> {
         let stored_admin: Address = env
             .storage()
             .instance()
@@ -597,7 +572,9 @@ impl YieldRouter {
                 MAX_BPS - allocated_bps
             } else {
                 let alloc = base_allocation_bps.min(max_allocation_pct);
-                allocated_bps = allocated_bps.checked_add(alloc).ok_or(RouterError::Overflow)?;
+                allocated_bps = allocated_bps
+                    .checked_add(alloc)
+                    .ok_or(RouterError::Overflow)?;
                 alloc
             };
 

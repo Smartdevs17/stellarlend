@@ -162,9 +162,7 @@ pub fn current_epoch(env: &Env) -> u64 {
 /// new epoch.
 pub fn bump_epoch(env: &Env) -> u64 {
     let next = current_epoch(env).saturating_add(1);
-    env.storage()
-        .persistent()
-        .set(&PoolStateKey::Epoch, &next);
+    env.storage().persistent().set(&PoolStateKey::Epoch, &next);
     let mut m = metrics(env);
     m.epoch = next;
     save_metrics(env, &m);
@@ -200,11 +198,9 @@ pub fn load(env: &Env, pool: &Option<Address>) -> PoolStateSnapshot {
         .temporary()
         .get::<PoolStateTempKey, PoolStateSnapshot>(&cache_key)
     {
-        env.storage().temporary().extend_ttl(
-            &cache_key,
-            CACHE_TTL_THRESHOLD,
-            CACHE_TTL_LEDGERS,
-        );
+        env.storage()
+            .temporary()
+            .extend_ttl(&cache_key, CACHE_TTL_THRESHOLD, CACHE_TTL_LEDGERS);
         record_hit(env);
         return cached;
     }
@@ -214,11 +210,9 @@ pub fn load(env: &Env, pool: &Option<Address>) -> PoolStateSnapshot {
     let snapshot = build(env, pool, epoch, just_initialized);
 
     env.storage().temporary().set(&cache_key, &snapshot);
-    env.storage().temporary().extend_ttl(
-        &cache_key,
-        CACHE_TTL_THRESHOLD,
-        CACHE_TTL_LEDGERS,
-    );
+    env.storage()
+        .temporary()
+        .extend_ttl(&cache_key, CACHE_TTL_THRESHOLD, CACHE_TTL_LEDGERS);
 
     snapshot
 }

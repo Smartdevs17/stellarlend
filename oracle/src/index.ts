@@ -88,8 +88,8 @@ export class OracleService {
     const priceHistory = createPriceHistoryService();
 
     this.twapService = createTWAPService(priceHistory, {
-      windowSeconds: 1800,    // 30-minute TWAP window
-      maxDeviationBps: 500,   // 5% deviation triggers fallback
+      windowSeconds: 1800, // 30-minute TWAP window
+      maxDeviationBps: 500, // 5% deviation triggers fallback
       minDataPoints: 3,
       fallbackToMedian: true,
     });
@@ -272,7 +272,11 @@ export class OracleService {
       const circuitBreakerMetrics = this.aggregator.getCircuitBreakerMetrics();
       for (const metric of circuitBreakerMetrics) {
         const health: 'healthy' | 'degraded' | 'unhealthy' =
-          metric.state === 'CLOSED' ? 'healthy' : metric.state === 'HALF_OPEN' ? 'degraded' : 'unhealthy';
+          metric.state === 'CLOSED'
+            ? 'healthy'
+            : metric.state === 'HALF_OPEN'
+              ? 'degraded'
+              : 'unhealthy';
         this.metricsService.updateProviderHealth(metric.providerName, health);
       }
     } catch (error) {
@@ -325,7 +329,7 @@ export class OracleService {
       return [{ ...providers[0], weight: 1 } as ProviderConfig];
     }
 
-    return providers.map((provider) => ({ ...provider } as ProviderConfig));
+    return providers.map((provider) => ({ ...provider }) as ProviderConfig);
   }
 
   private createRuntimeProviders(configuredProviders: ProviderConfig[]): BasePriceProvider[] {

@@ -169,14 +169,12 @@ impl DutchAuctionContract {
 
         let now = env.ledger().timestamp();
         if now >= auction.end_time {
-            let min_price =
-                (auction.config.oracle_price * auction.config.min_price_bps) / BPS_BASE;
+            let min_price = (auction.config.oracle_price * auction.config.min_price_bps) / BPS_BASE;
             return min_price;
         }
 
         let elapsed = now - auction.start_time;
-        let min_price =
-            (auction.config.oracle_price * auction.config.min_price_bps) / BPS_BASE;
+        let min_price = (auction.config.oracle_price * auction.config.min_price_bps) / BPS_BASE;
         let total_discount = auction.config.oracle_price - min_price;
         let price_reduction =
             (total_discount * (elapsed as i128)) / (auction.config.duration_secs as i128);
@@ -198,7 +196,10 @@ impl DutchAuctionContract {
             .get(&DataKey::Auction(auction_id))
             .expect("auction not found");
 
-        assert!(auction.status == AuctionStatus::Active, "auction not active");
+        assert!(
+            auction.status == AuctionStatus::Active,
+            "auction not active"
+        );
         let now = env.ledger().timestamp();
         assert!(now < auction.end_time, "auction ended");
         assert!(debt_repay_amount > 0, "repay amount must be positive");
@@ -242,8 +243,8 @@ impl DutchAuctionContract {
             .persistent()
             .set(&DataKey::AuctionBid(auction_id), &bid);
 
-        let premium_bps =
-            ((auction.config.oracle_price - current_price) * BPS_BASE) / auction.config.oracle_price;
+        let premium_bps = ((auction.config.oracle_price - current_price) * BPS_BASE)
+            / auction.config.oracle_price;
 
         let mut total_premium: i128 = env
             .storage()
@@ -277,7 +278,12 @@ impl DutchAuctionContract {
 
         env.events().publish(
             (soroban_sdk::symbol_short!("BidPlaced"), auction_id),
-            (&bidder, debt_repay_amount, collateral_received, current_price),
+            (
+                &bidder,
+                debt_repay_amount,
+                collateral_received,
+                current_price,
+            ),
         );
 
         bid
@@ -319,13 +325,15 @@ impl DutchAuctionContract {
             .get(&DataKey::Auction(auction_id))
             .expect("auction not found");
 
-        assert!(auction.status == AuctionStatus::Active, "auction not active");
+        assert!(
+            auction.status == AuctionStatus::Active,
+            "auction not active"
+        );
         let now = env.ledger().timestamp();
         assert!(now >= auction.end_time, "auction not yet ended");
 
         auction.status = AuctionStatus::Expired;
-        let min_price =
-            (auction.config.oracle_price * auction.config.min_price_bps) / BPS_BASE;
+        let min_price = (auction.config.oracle_price * auction.config.min_price_bps) / BPS_BASE;
         auction.current_price = min_price;
 
         env.storage()
@@ -344,11 +352,7 @@ impl DutchAuctionContract {
 
         env.events().publish(
             (soroban_sdk::symbol_short!("AucExpire"), auction_id),
-            (
-                min_price,
-                new_duration,
-                auction.config.discount_floor_bps,
-            ),
+            (min_price, new_duration, auction.config.discount_floor_bps),
         );
     }
 
@@ -426,11 +430,7 @@ impl DutchAuctionContract {
             0
         };
 
-        let avg_time = if settled > 0 {
-            total_time / settled
-        } else {
-            0
-        };
+        let avg_time = if settled > 0 { total_time / settled } else { 0 };
 
         AuctionAnalytics {
             total_auctions: total,
@@ -477,7 +477,13 @@ mod tests {
                 discount_floor_bps: 3000,
             };
 
-            TestEnv { env, contract_id, admin, borrower, config }
+            TestEnv {
+                env,
+                contract_id,
+                admin,
+                borrower,
+                config,
+            }
         }
 
         fn client(&self) -> DutchAuctionContractClient<'_> {
@@ -500,13 +506,19 @@ mod tests {
     #[test]
     fn test_initialize() {
         let t = TestEnv::new();
-        let stored: Address = t.env
-            .as_contract(&t.contract_id, || t.env.storage().instance().get(&DataKey::Admin))
+        let stored: Address = t
+            .env
+            .as_contract(&t.contract_id, || {
+                t.env.storage().instance().get(&DataKey::Admin)
+            })
             .unwrap();
         assert_eq!(stored, t.admin);
 
-        let count: u64 = t.env
-            .as_contract(&t.contract_id, || t.env.storage().instance().get(&DataKey::AuctionCount))
+        let count: u64 = t
+            .env
+            .as_contract(&t.contract_id, || {
+                t.env.storage().instance().get(&DataKey::AuctionCount)
+            })
             .unwrap();
         assert_eq!(count, 0);
     }
@@ -535,11 +547,15 @@ mod tests {
         let p0 = t.client().get_current_price(&id);
         assert_eq!(p0, 20_000);
 
-        t.env.ledger().set_timestamp(t.env.ledger().timestamp() + 1800);
+        t.env
+            .ledger()
+            .set_timestamp(t.env.ledger().timestamp() + 1800);
         let p_mid = t.client().get_current_price(&id);
         assert!(p_mid < 20_000 && p_mid > 14_000);
 
-        t.env.ledger().set_timestamp(t.env.ledger().timestamp() + 1800);
+        t.env
+            .ledger()
+            .set_timestamp(t.env.ledger().timestamp() + 1800);
         let p_end = t.client().get_current_price(&id);
         assert_eq!(p_end, 14_000);
     }

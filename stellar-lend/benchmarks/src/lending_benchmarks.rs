@@ -14,9 +14,9 @@ use crate::framework::{
 use soroban_sdk::{contract, contractimpl, testutils::Address as _, token, Address, Bytes, Env};
 use stellarlend_lending::{
     interest::{advance_index, interest_for, INDEX_SCALE},
-    InterestRateConfigUpdate, InterestRateModelKind,
     liquidation::{plan_liquidation, PositionSnapshot},
-    LendingContract, LendingContractClient, PauseType,
+    InterestRateConfigUpdate, InterestRateModelKind, LendingContract, LendingContractClient,
+    PauseType,
 };
 
 const CONTRACT: &str = "lending";

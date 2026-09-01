@@ -3,12 +3,12 @@ use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Val, Vec};
 
 mod borrow;
 mod deposit;
-mod reentrancy;
 mod dust;
 mod events;
 mod flash_loan;
 mod interest_rate;
 mod pause;
+mod reentrancy;
 mod risk_monitor;
 mod token_receiver;
 mod withdraw;
@@ -33,8 +33,8 @@ use flash_loan::{
     FlashLoanError,
 };
 use pause::{is_paused, set_pause as set_pause_logic, PauseType};
-use token_receiver::receive as receive_logic;
 use reentrancy::ReentrancyGuard;
+use token_receiver::receive as receive_logic;
 
 mod views;
 use views::{
@@ -80,6 +80,8 @@ mod flash_loan_test;
 #[cfg(test)]
 mod insurance_test;
 #[cfg(test)]
+mod invariant_prop_test;
+#[cfg(test)]
 mod math_safety_test;
 #[cfg(test)]
 mod pause_test;
@@ -93,8 +95,6 @@ mod upgrade_test;
 mod views_test;
 #[cfg(test)]
 mod withdraw_test;
-#[cfg(test)]
-mod invariant_prop_test;
 
 #[contract]
 pub struct LendingContract;
@@ -108,8 +108,8 @@ impl LendingContract {
         debt_ceiling: i128,
         min_borrow_amount: i128,
     ) -> Result<(), BorrowError> {
-        let _guard = ReentrancyGuard::new_constructor(&env)
-            .map_err(|_| BorrowError::ReentrancyDetected)?;
+        let _guard =
+            ReentrancyGuard::new_constructor(&env).map_err(|_| BorrowError::ReentrancyDetected)?;
 
         if get_borrow_admin(&env).is_some() {
             return Err(BorrowError::Unauthorized);
@@ -392,10 +392,7 @@ impl LendingContract {
     }
 
     /// Set emergency withdrawal limit per tx (admin only)
-    pub fn set_emergency_withdraw_limit(
-        env: Env,
-        max_amount: i128,
-    ) -> Result<(), WithdrawError> {
+    pub fn set_emergency_withdraw_limit(env: Env, max_amount: i128) -> Result<(), WithdrawError> {
         set_emergency_withdraw_limit_logic(&env, max_amount)
     }
 

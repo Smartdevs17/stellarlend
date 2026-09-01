@@ -53,4 +53,3 @@ fn test_intent_expiration_blocks_execution() {
     let res = client.try_borrow_asset_intent(&relayer, &user, &None, &1, &0, &expired_at);
     assert!(res.is_err());
 }
-

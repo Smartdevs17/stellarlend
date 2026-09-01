@@ -27,8 +27,17 @@ import { createValidator } from '../src/services/price-validator.js';
 import { createPriceCache } from '../src/services/cache.js';
 import { PriceHistoryService } from '../src/services/price-history.js';
 import { BasePriceProvider } from '../src/providers/base-provider.js';
-import { AnomalyDetector, AnomalySeverity, AnomalyMethod, createAnomalyDetector } from '../src/services/anomaly-detector.js';
-import { FeedCorrelation, CorrelationEventType, createFeedCorrelation } from '../src/services/feed-correlation.js';
+import {
+  AnomalyDetector,
+  AnomalySeverity,
+  AnomalyMethod,
+  createAnomalyDetector,
+} from '../src/services/anomaly-detector.js';
+import {
+  FeedCorrelation,
+  CorrelationEventType,
+  createFeedCorrelation,
+} from '../src/services/feed-correlation.js';
 import type { RawPriceData, ProviderConfig, HealthStatus } from '../src/types/index.js';
 import type { EnrichedPrice } from '../src/services/realtime-price-feed.js';
 import type { AnomalyEvent } from '../src/services/anomaly-detector.js';
@@ -135,10 +144,16 @@ describe('Real-Time Pipeline Integration', () => {
   describe('full pipeline with multiple providers', () => {
     beforeEach(() => {
       provider1 = new MockProvider('cg', 1, 0.6, {
-        BTC: 50000, ETH: 3000, XLM: 0.15, USDC: 1.0,
+        BTC: 50000,
+        ETH: 3000,
+        XLM: 0.15,
+        USDC: 1.0,
       });
       provider2 = new MockProvider('binance', 2, 0.4, {
-        BTC: 50100, ETH: 3010, XLM: 0.152, USDC: 1.001,
+        BTC: 50100,
+        ETH: 3010,
+        XLM: 0.152,
+        USDC: 1.001,
       });
       aggregator = createTestAggregator(provider1, provider2);
       feed = createRealtimePriceFeed(aggregator, {
@@ -259,9 +274,12 @@ describe('Real-Time Pipeline Integration', () => {
 
     it('should emit ANOMALY_DETECTED event when anomalies occur', async () => {
       const anomaliesReceived: Array<{ asset: string; anomalies: AnomalyEvent[] }> = [];
-      feed.on(FeedEventType.ANOMALY_DETECTED, (event: { asset: string; anomalies: AnomalyEvent[] }) => {
-        anomaliesReceived.push(event);
-      });
+      feed.on(
+        FeedEventType.ANOMALY_DETECTED,
+        (event: { asset: string; anomalies: AnomalyEvent[] }) => {
+          anomaliesReceived.push(event);
+        }
+      );
 
       // Build stable history
       for (let i = 0; i < 20; i++) {
@@ -326,8 +344,18 @@ describe('Real-Time Pipeline Integration', () => {
       const corr = feed.getFeedCorrelation();
 
       for (let i = 0; i < 25; i++) {
-        corr.recordPrice('BTC', BigInt(50000 + i * 100), i > 0 ? BigInt(50000 + (i - 1) * 100) : null, Math.floor(Date.now() / 1000) + i);
-        corr.recordPrice('ETH', BigInt(3000 + i * 10), i > 0 ? BigInt(3000 + (i - 1) * 10) : null, Math.floor(Date.now() / 1000) + i);
+        corr.recordPrice(
+          'BTC',
+          BigInt(50000 + i * 100),
+          i > 0 ? BigInt(50000 + (i - 1) * 100) : null,
+          Math.floor(Date.now() / 1000) + i
+        );
+        corr.recordPrice(
+          'ETH',
+          BigInt(3000 + i * 10),
+          i > 0 ? BigInt(3000 + (i - 1) * 10) : null,
+          Math.floor(Date.now() / 1000) + i
+        );
       }
 
       const matrix = corr.getCorrelationMatrix();
@@ -396,10 +424,14 @@ describe('Real-Time Pipeline Integration', () => {
   describe('health monitoring', () => {
     beforeEach(() => {
       provider1 = new MockProvider('cg', 1, 0.6, {
-        BTC: 50000, ETH: 3000, XLM: 0.15,
+        BTC: 50000,
+        ETH: 3000,
+        XLM: 0.15,
       });
       provider2 = new MockProvider('binance', 2, 0.4, {
-        BTC: 50100, ETH: 3010, XLM: 0.152,
+        BTC: 50100,
+        ETH: 3010,
+        XLM: 0.152,
       });
       aggregator = createTestAggregator(provider1, provider2);
       feed = createRealtimePriceFeed(aggregator, {
@@ -554,10 +586,14 @@ describe('Real-Time Pipeline Integration', () => {
   describe('graceful degradation', () => {
     beforeEach(() => {
       provider1 = new MockProvider('cg', 1, 0.6, {
-        BTC: 50000, ETH: 3000, XLM: 0.15,
+        BTC: 50000,
+        ETH: 3000,
+        XLM: 0.15,
       });
       provider2 = new MockProvider('binance', 2, 0.4, {
-        BTC: 50100, ETH: 3010, XLM: 0.152,
+        BTC: 50100,
+        ETH: 3010,
+        XLM: 0.152,
       });
       aggregator = createTestAggregator(provider1, provider2);
     });
@@ -624,10 +660,18 @@ describe('Real-Time Pipeline Integration', () => {
   describe('concurrent multi-asset processing', () => {
     beforeEach(() => {
       provider1 = new MockProvider('cg', 1, 0.6, {
-        BTC: 50000, ETH: 3000, XLM: 0.15, USDC: 1.0, USDT: 1.0,
+        BTC: 50000,
+        ETH: 3000,
+        XLM: 0.15,
+        USDC: 1.0,
+        USDT: 1.0,
       });
       provider2 = new MockProvider('binance', 2, 0.4, {
-        BTC: 50100, ETH: 3010, XLM: 0.152, USDC: 1.001, USDT: 0.999,
+        BTC: 50100,
+        ETH: 3010,
+        XLM: 0.152,
+        USDC: 1.001,
+        USDT: 0.999,
       });
       aggregator = createTestAggregator(provider1, provider2);
     });

@@ -2,7 +2,10 @@ use soroban_sdk::{contracttype, Address, Env, Symbol};
 
 use crate::admin::require_admin;
 use crate::interest_rate;
-use crate::reserve::{ReserveDataKey, ReserveError, BASIS_POINTS_SCALE, DEFAULT_RESERVE_FACTOR_BPS, MAX_RESERVE_FACTOR_BPS};
+use crate::reserve::{
+    ReserveDataKey, ReserveError, BASIS_POINTS_SCALE, DEFAULT_RESERVE_FACTOR_BPS,
+    MAX_RESERVE_FACTOR_BPS,
+};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -151,11 +154,9 @@ pub fn calculate_dynamic_reserve_factor(
     Ok(factor.clamp(curve.min_bps, curve.max_bps))
 }
 
-pub fn get_dynamic_reserve_factor(
-    env: &Env,
-    asset: Option<Address>,
-) -> Result<i128, ReserveError> {
-    let utilization = interest_rate::calculate_utilization(env).map_err(|_| ReserveError::Overflow)?;
+pub fn get_dynamic_reserve_factor(env: &Env, asset: Option<Address>) -> Result<i128, ReserveError> {
+    let utilization =
+        interest_rate::calculate_utilization(env).map_err(|_| ReserveError::Overflow)?;
     let curve = get_reserve_factor_curve(env, asset);
     calculate_dynamic_reserve_factor(utilization, &curve)
 }
@@ -224,9 +225,6 @@ mod tests {
         );
 
         bounded.min_bps = 900;
-        assert_eq!(
-            calculate_dynamic_reserve_factor(0, &bounded).unwrap(),
-            900
-        );
+        assert_eq!(calculate_dynamic_reserve_factor(0, &bounded).unwrap(), 900);
     }
 }

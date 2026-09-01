@@ -111,7 +111,11 @@ impl TwapOracle {
             return Err(TwapOracleError::Unauthorized);
         }
 
-        if window_secs == 0 || max_deviation_bps <= 0 || max_deviation_bps > BPS_DENOM || min_samples == 0 {
+        if window_secs == 0
+            || max_deviation_bps <= 0
+            || max_deviation_bps > BPS_DENOM
+            || min_samples == 0
+        {
             return Err(TwapOracleError::InvalidConfig);
         }
 
@@ -188,21 +192,22 @@ impl TwapOracle {
 
         let insufficient_samples = sample_count < config.min_samples;
 
-        let (deviation_bps, manipulation_detected) = if insufficient_samples || twap <= 0 || spot_price <= 0 {
-            (0, false)
-        } else {
-            let diff = if spot_price > twap {
-                spot_price - twap
+        let (deviation_bps, manipulation_detected) =
+            if insufficient_samples || twap <= 0 || spot_price <= 0 {
+                (0, false)
             } else {
-                twap - spot_price
+                let diff = if spot_price > twap {
+                    spot_price - twap
+                } else {
+                    twap - spot_price
+                };
+                let deviation = diff
+                    .checked_mul(BPS_DENOM)
+                    .unwrap_or(0)
+                    .checked_div(twap)
+                    .unwrap_or(0);
+                (deviation as i128, deviation > config.max_deviation_bps)
             };
-            let deviation = diff
-                .checked_mul(BPS_DENOM)
-                .unwrap_or(0)
-                .checked_div(twap)
-                .unwrap_or(0);
-            (deviation as i128, deviation > config.max_deviation_bps)
-        };
 
         TwapResult {
             twap,
@@ -283,18 +288,18 @@ impl TwapOracle {
         let key = TwapKey::Accumulator(asset.clone());
         let now = env.ledger().timestamp();
 
-        let mut acc: TwapAccumulator = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or(TwapAccumulator {
-                price_sum: 0,
-                total_time: 0,
-                twap: price,
-                sample_count: 0,
-                last_update: 0,
-                last_price: price,
-            });
+        let mut acc: TwapAccumulator =
+            env.storage()
+                .persistent()
+                .get(&key)
+                .unwrap_or(TwapAccumulator {
+                    price_sum: 0,
+                    total_time: 0,
+                    twap: price,
+                    sample_count: 0,
+                    last_update: 0,
+                    last_price: price,
+                });
 
         if acc.last_update == 0 {
             acc.price_sum = price;

@@ -136,7 +136,9 @@ export class MetricsService {
    */
   getMetrics(): MetricsResponse {
     const uptime = Math.floor((Date.now() - this.startTime) / 1000);
-    const lastUpdateIso = this.lastUpdate ? new Date(this.lastUpdate).toISOString() : new Date(0).toISOString();
+    const lastUpdateIso = this.lastUpdate
+      ? new Date(this.lastUpdate).toISOString()
+      : new Date(0).toISOString();
 
     // Build providers object
     const providers: Record<string, ProviderHealth> = {};

@@ -72,13 +72,7 @@ fn test_deposit_no_pools() {
     let (_env, _admin, client) = setup();
     let user = Address::generate(&_env);
     let asset = Address::generate(&_env);
-    let result = client.try_deposit(
-        &user,
-        &asset,
-        &1000,
-        &RiskProfile::Conservative,
-        &0,
-    );
+    let result = client.try_deposit(&user, &asset, &1000, &RiskProfile::Conservative, &0);
     assert_eq!(result, Err(Ok(RouterError::NoPoolsConfigured)));
 }
 
@@ -90,13 +84,7 @@ fn test_deposit_with_pools() {
     let pool = Address::generate(&_env);
 
     client.register_pool(&admin, &pool, &asset);
-    let result = client.deposit(
-        &user,
-        &asset,
-        &1000,
-        &RiskProfile::Moderate,
-        &0,
-    );
+    let result = client.deposit(&user, &asset, &1000, &RiskProfile::Moderate, &0);
     assert!(result > 0);
 }
 
@@ -123,12 +111,7 @@ fn test_rebalance_no_position() {
     let (_env, _admin, client) = setup();
     let user = Address::generate(&_env);
     let asset = Address::generate(&_env);
-    let result = client.try_rebalance(
-        &user,
-        &asset,
-        &Some(RiskProfile::Conservative),
-        &0,
-    );
+    let result = client.try_rebalance(&user, &asset, &Some(RiskProfile::Conservative), &0);
     assert_eq!(result, Err(Ok(RouterError::UserPositionNotFound)));
 }
 
@@ -139,13 +122,7 @@ fn test_set_paused() {
     let user = Address::generate(&_env);
     let asset = Address::generate(&_env);
 
-    let result = client.try_deposit(
-        &user,
-        &asset,
-        &1000,
-        &RiskProfile::Conservative,
-        &0,
-    );
+    let result = client.try_deposit(&user, &asset, &1000, &RiskProfile::Conservative, &0);
     assert_eq!(result, Err(Ok(RouterError::DepositPaused)));
 }
 

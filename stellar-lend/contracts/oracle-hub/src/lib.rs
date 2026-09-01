@@ -75,7 +75,9 @@ pub struct OracleHubContract;
 #[contractimpl]
 impl OracleHubContract {
     pub fn initialize(env: Env, governance: Address, admin: Address) {
-        env.storage().instance().set(&DataKey::Governance, &governance);
+        env.storage()
+            .instance()
+            .set(&DataKey::Governance, &governance);
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::FeedCount, &0u32);
         env.storage().instance().set(&DataKey::Frozen, &false);
@@ -91,8 +93,11 @@ impl OracleHubContract {
         governance.require_auth();
         assert!(new_version > VERSION, "Version must increase");
         let old_version: u32 = env.storage().instance().get(&DataKey::Version).unwrap_or(0);
-        env.storage().instance().set(&DataKey::Version, &new_version);
-        env.events().publish(("upgrade",), (&old_version, &new_version));
+        env.storage()
+            .instance()
+            .set(&DataKey::Version, &new_version);
+        env.events()
+            .publish(("upgrade",), (&old_version, &new_version));
     }
 
     // ── Feed management ────────────────────────────────────────────────────
@@ -125,9 +130,16 @@ impl OracleHubContract {
         let feed_key = DataKey::Feed(asset.clone(), priority as u32);
         env.storage().instance().set(&feed_key, &feed);
 
-        let count: u32 = env.storage().instance().get(&DataKey::FeedCount).unwrap_or(0);
-        env.storage().instance().set(&DataKey::FeedCount, &(count + 1));
-        env.events().publish(("register_feed", &asset), &oracle_address);
+        let count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeedCount)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::FeedCount, &(count + 1));
+        env.events()
+            .publish(("register_feed", &asset), &oracle_address);
     }
 
     pub fn update_feed(
@@ -140,7 +152,11 @@ impl OracleHubContract {
         governance.require_auth();
 
         let feed_key = DataKey::Feed(asset.clone(), priority as u32);
-        let mut feed: PriceFeed = env.storage().instance().get(&feed_key).expect("Feed not found");
+        let mut feed: PriceFeed = env
+            .storage()
+            .instance()
+            .get(&feed_key)
+            .expect("Feed not found");
         feed.stale_threshold_seconds = if stale_threshold_seconds == 0 {
             DEFAULT_STALE_THRESHOLD_SECONDS
         } else {
@@ -155,7 +171,11 @@ impl OracleHubContract {
         governance.require_auth();
 
         let feed_key = DataKey::Feed(asset.clone(), priority as u32);
-        let mut feed: PriceFeed = env.storage().instance().get(&feed_key).expect("Feed not found");
+        let mut feed: PriceFeed = env
+            .storage()
+            .instance()
+            .get(&feed_key)
+            .expect("Feed not found");
         feed.enabled = false;
         env.storage().instance().set(&feed_key, &feed);
         env.events().publish(("disable_feed",), &asset);
@@ -166,7 +186,11 @@ impl OracleHubContract {
         governance.require_auth();
 
         let feed_key = DataKey::Feed(asset.clone(), priority as u32);
-        let mut feed: PriceFeed = env.storage().instance().get(&feed_key).expect("Feed not found");
+        let mut feed: PriceFeed = env
+            .storage()
+            .instance()
+            .get(&feed_key)
+            .expect("Feed not found");
         feed.enabled = true;
         env.storage().instance().set(&feed_key, &feed);
         env.events().publish(("enable_feed",), &asset);
@@ -189,17 +213,36 @@ impl OracleHubContract {
     }
 
     pub fn is_frozen(env: Env) -> bool {
-        env.storage().instance().get(&DataKey::Frozen).unwrap_or(false)
+        env.storage()
+            .instance()
+            .get(&DataKey::Frozen)
+            .unwrap_or(false)
     }
 
     // ── Price reporting ────────────────────────────────────────────────────
 
-    pub fn report_price(env: Env, asset: Bytes, price: i128, confidence: u32, priority: FeedPriority) {
+    pub fn report_price(
+        env: Env,
+        asset: Bytes,
+        price: i128,
+        confidence: u32,
+        priority: FeedPriority,
+    ) {
         let feed_key = DataKey::Feed(asset.clone(), priority as u32);
-        let feed: PriceFeed = env.storage().instance().get(&feed_key).expect("Feed not found");
+        let feed: PriceFeed = env
+            .storage()
+            .instance()
+            .get(&feed_key)
+            .expect("Feed not found");
         feed.oracle_address.require_auth();
 
-        assert!(!env.storage().instance().get::<_, bool>(&DataKey::Frozen).unwrap_or(false), "OracleHub is frozen");
+        assert!(
+            !env.storage()
+                .instance()
+                .get::<_, bool>(&DataKey::Frozen)
+                .unwrap_or(false),
+            "OracleHub is frozen"
+        );
         assert!(feed.enabled, "Feed is disabled");
         assert!(price > 0, "Price must be positive");
 
@@ -212,7 +255,8 @@ impl OracleHubContract {
 
         let latest_key = DataKey::LatestPrice(asset.clone(), priority as u32);
         env.storage().instance().set(&latest_key, &price_point);
-        env.events().publish(("report_price", &asset), (&price, &confidence, &priority));
+        env.events()
+            .publish(("report_price", &asset), (&price, &confidence, &priority));
     }
 
     // ── Price queries ──────────────────────────────────────────────────────
@@ -225,7 +269,10 @@ impl OracleHubContract {
 
     pub fn get_price(env: Env, asset: Bytes) -> AggregatedPrice {
         assert!(
-            !env.storage().instance().get::<_, bool>(&DataKey::Frozen).unwrap_or(false),
+            !env.storage()
+                .instance()
+                .get::<_, bool>(&DataKey::Frozen)
+                .unwrap_or(false),
             "OracleHub is frozen"
         );
 
@@ -242,7 +289,8 @@ impl OracleHubContract {
 
                 let latest_key = DataKey::LatestPrice(asset.clone(), priority);
                 if let Some(point) = env.storage().instance().get::<_, PricePoint>(&latest_key) {
-                    let stale = current_time.saturating_sub(point.timestamp) > feed.stale_threshold_seconds;
+                    let stale =
+                        current_time.saturating_sub(point.timestamp) > feed.stale_threshold_seconds;
                     if stale {
                         Self::auto_disable_feed(&env, asset.clone(), priority);
                         continue;
@@ -311,7 +359,11 @@ impl OracleHubContract {
                 continue;
             }
             let deviation_bps = if median_price > 0 {
-                let diff = if p > median_price { p - median_price } else { median_price - p };
+                let diff = if p > median_price {
+                    p - median_price
+                } else {
+                    median_price - p
+                };
                 diff.saturating_mul(10_000) / median_price
             } else {
                 0
@@ -337,11 +389,16 @@ impl OracleHubContract {
 
     fn auto_disable_feed(env: &Env, asset: Bytes, priority: u32) {
         let feed_key = DataKey::Feed(asset.clone(), priority);
-        let mut feed: PriceFeed = env.storage().instance().get(&feed_key).expect("Feed not found");
+        let mut feed: PriceFeed = env
+            .storage()
+            .instance()
+            .get(&feed_key)
+            .expect("Feed not found");
         if feed.enabled {
             feed.enabled = false;
             env.storage().instance().set(&feed_key, &feed);
-            env.events().publish(("auto_disable_feed", &asset), &priority);
+            env.events()
+                .publish(("auto_disable_feed", &asset), &priority);
         }
     }
 
@@ -359,10 +416,16 @@ impl OracleHubContract {
 
                 let (status_code, last_update, is_stale) = if !feed.enabled {
                     (FeedStatusCode::Disabled, 0, true)
-                } else if env.storage().instance().get::<_, bool>(&DataKey::Frozen).unwrap_or(false) {
+                } else if env
+                    .storage()
+                    .instance()
+                    .get::<_, bool>(&DataKey::Frozen)
+                    .unwrap_or(false)
+                {
                     (FeedStatusCode::Frozen, 0, true)
                 } else if let Some(p) = price {
-                    let stale = current_time.saturating_sub(p.timestamp) > feed.stale_threshold_seconds;
+                    let stale =
+                        current_time.saturating_sub(p.timestamp) > feed.stale_threshold_seconds;
                     if stale {
                         (FeedStatusCode::Stale, p.timestamp, true)
                     } else {
@@ -422,7 +485,12 @@ mod tests {
         let contract_id = env.register_contract(None, OracleHubContract);
         let client = OracleHubContractClient::new(&env, &contract_id);
         client.initialize(&governance, &admin);
-        TestEnv { env, contract_id, governance, admin }
+        TestEnv {
+            env,
+            contract_id,
+            governance,
+            admin,
+        }
     }
 
     fn client(te: &TestEnv) -> OracleHubContractClient<'_> {
@@ -433,7 +501,12 @@ mod tests {
         Bytes::from_slice(env, name.as_bytes())
     }
 
-    fn gov_auth<T>(te: &TestEnv, fn_name: &str, args: impl IntoVal<Env, SdkVec<soroban_sdk::Val>>, f: impl FnOnce() -> T) -> T {
+    fn gov_auth<T>(
+        te: &TestEnv,
+        fn_name: &str,
+        args: impl IntoVal<Env, SdkVec<soroban_sdk::Val>>,
+        f: impl FnOnce() -> T,
+    ) -> T {
         te.env.mock_auths(&[MockAuth {
             address: &te.governance,
             invoke: &MockAuthInvoke {
@@ -459,10 +532,15 @@ mod tests {
         let asset = mk_asset(&te.env, "XLM");
         let oracle = Address::generate(&te.env);
 
-        gov_auth(&te, "register_feed", (&asset, &oracle, &FeedPriority::Primary, &3600u64), || {
-            let o = oracle.clone();
-            client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-        });
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset, &oracle, &FeedPriority::Primary, &3600u64),
+            || {
+                let o = oracle.clone();
+                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
+            },
+        );
 
         let statuses = client(&te).check_feed_health(&asset);
         assert_eq!(statuses.len(), 1);
@@ -474,10 +552,15 @@ mod tests {
         let asset = mk_asset(&te.env, "XLM");
         let oracle = Address::generate(&te.env);
 
-        gov_auth(&te, "register_feed", (&asset, &oracle, &FeedPriority::Primary, &3600u64), || {
-            let o = oracle.clone();
-            client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-        });
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset, &oracle, &FeedPriority::Primary, &3600u64),
+            || {
+                let o = oracle.clone();
+                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
+            },
+        );
 
         te.env.mock_auths(&[MockAuth {
             address: &oracle,
@@ -502,14 +585,24 @@ mod tests {
         let oracle1 = Address::generate(&te.env);
         let oracle2 = Address::generate(&te.env);
 
-        gov_auth(&te, "register_feed", (&asset, &oracle1, &FeedPriority::Primary, &3600u64), || {
-            let o = oracle1.clone();
-            client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-        });
-        gov_auth(&te, "register_feed", (&asset, &oracle2, &FeedPriority::Secondary, &3600u64), || {
-            let o = oracle2.clone();
-            client(&te).register_feed(&asset, &o, &FeedPriority::Secondary, &3600);
-        });
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset, &oracle1, &FeedPriority::Primary, &3600u64),
+            || {
+                let o = oracle1.clone();
+                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
+            },
+        );
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset, &oracle2, &FeedPriority::Secondary, &3600u64),
+            || {
+                let o = oracle2.clone();
+                client(&te).register_feed(&asset, &o, &FeedPriority::Secondary, &3600);
+            },
+        );
 
         for (oracle, price, priority_val) in [
             (&oracle1, &100_000_000i128, &FeedPriority::Primary),
@@ -540,18 +633,33 @@ mod tests {
         let oracle1 = Address::generate(&te.env);
         let oracle2 = Address::generate(&te.env);
 
-        gov_auth(&te, "register_feed", (&asset, &oracle0, &FeedPriority::Primary, &3600u64), || {
-            let o = oracle0.clone();
-            client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-        });
-        gov_auth(&te, "register_feed", (&asset, &oracle1, &FeedPriority::Secondary, &3600u64), || {
-            let o = oracle1.clone();
-            client(&te).register_feed(&asset, &o, &FeedPriority::Secondary, &3600);
-        });
-        gov_auth(&te, "register_feed", (&asset, &oracle2, &FeedPriority::Fallback, &3600u64), || {
-            let o = oracle2.clone();
-            client(&te).register_feed(&asset, &o, &FeedPriority::Fallback, &3600);
-        });
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset, &oracle0, &FeedPriority::Primary, &3600u64),
+            || {
+                let o = oracle0.clone();
+                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
+            },
+        );
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset, &oracle1, &FeedPriority::Secondary, &3600u64),
+            || {
+                let o = oracle1.clone();
+                client(&te).register_feed(&asset, &o, &FeedPriority::Secondary, &3600);
+            },
+        );
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset, &oracle2, &FeedPriority::Fallback, &3600u64),
+            || {
+                let o = oracle2.clone();
+                client(&te).register_feed(&asset, &o, &FeedPriority::Fallback, &3600);
+            },
+        );
 
         let price_data = [
             (&oracle0, 100_000_000i128, FeedPriority::Primary),
@@ -582,10 +690,15 @@ mod tests {
         let asset = mk_asset(&te.env, "XLM");
         let oracle = Address::generate(&te.env);
 
-        gov_auth(&te, "register_feed", (&asset, &oracle, &FeedPriority::Primary, &100u64), || {
-            let o = oracle.clone();
-            client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &100);
-        });
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset, &oracle, &FeedPriority::Primary, &100u64),
+            || {
+                let o = oracle.clone();
+                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &100);
+            },
+        );
 
         te.env.mock_auths(&[MockAuth {
             address: &oracle,
@@ -616,14 +729,24 @@ mod tests {
         let primary = Address::generate(&te.env);
         let secondary = Address::generate(&te.env);
 
-        gov_auth(&te, "register_feed", (&asset, &primary, &FeedPriority::Primary, &100u64), || {
-            let o = primary.clone();
-            client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &100);
-        });
-        gov_auth(&te, "register_feed", (&asset, &secondary, &FeedPriority::Secondary, &1000u64), || {
-            let o = secondary.clone();
-            client(&te).register_feed(&asset, &o, &FeedPriority::Secondary, &1000);
-        });
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset, &primary, &FeedPriority::Primary, &100u64),
+            || {
+                let o = primary.clone();
+                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &100);
+            },
+        );
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset, &secondary, &FeedPriority::Secondary, &1000u64),
+            || {
+                let o = secondary.clone();
+                client(&te).register_feed(&asset, &o, &FeedPriority::Secondary, &1000);
+            },
+        );
 
         for (oracle, price, priority_val) in [
             (&primary, &100_000_000i128, &FeedPriority::Primary),
@@ -686,14 +809,24 @@ mod tests {
         let asset = mk_asset(&te.env, "ETH");
         let oracle = Address::generate(&te.env);
 
-        gov_auth(&te, "register_feed", (&asset, &oracle, &FeedPriority::Primary, &3600u64), || {
-            let o = oracle.clone();
-            client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-        });
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset, &oracle, &FeedPriority::Primary, &3600u64),
+            || {
+                let o = oracle.clone();
+                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
+            },
+        );
 
-        gov_auth(&te, "disable_feed", (&asset, &FeedPriority::Primary), || {
-            client(&te).disable_feed(&asset, &FeedPriority::Primary);
-        });
+        gov_auth(
+            &te,
+            "disable_feed",
+            (&asset, &FeedPriority::Primary),
+            || {
+                client(&te).disable_feed(&asset, &FeedPriority::Primary);
+            },
+        );
 
         let statuses = client(&te).check_feed_health(&asset);
         assert_eq!(statuses.get(0).unwrap().status, FeedStatusCode::Disabled);
@@ -739,14 +872,24 @@ mod tests {
         let asset = mk_asset(&te.env, "BTC");
         let oracle = Address::generate(&te.env);
 
-        gov_auth(&te, "register_feed", (&asset, &oracle, &FeedPriority::Primary, &3600u64), || {
-            let o = oracle.clone();
-            client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-        });
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset, &oracle, &FeedPriority::Primary, &3600u64),
+            || {
+                let o = oracle.clone();
+                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
+            },
+        );
 
-        gov_auth(&te, "update_feed", (&asset, &FeedPriority::Primary, &7200u64), || {
-            client(&te).update_feed(&asset, &FeedPriority::Primary, &7200);
-        });
+        gov_auth(
+            &te,
+            "update_feed",
+            (&asset, &FeedPriority::Primary, &7200u64),
+            || {
+                client(&te).update_feed(&asset, &FeedPriority::Primary, &7200);
+            },
+        );
 
         let statuses = client(&te).check_feed_health(&asset);
         assert_eq!(statuses.len(), 1);
@@ -759,10 +902,15 @@ mod tests {
         let asset = mk_asset(&te.env, "XLM");
         let oracle = Address::generate(&te.env);
 
-        gov_auth(&te, "register_feed", (&asset, &oracle, &FeedPriority::Primary, &3600u64), || {
-            let o = oracle.clone();
-            client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-        });
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset, &oracle, &FeedPriority::Primary, &3600u64),
+            || {
+                let o = oracle.clone();
+                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
+            },
+        );
         gov_auth(&te, "freeze", (), || {
             client(&te).freeze();
         });
@@ -785,10 +933,15 @@ mod tests {
         let asset = mk_asset(&te.env, "XLM");
         let oracle = Address::generate(&te.env);
 
-        gov_auth(&te, "register_feed", (&asset, &oracle, &FeedPriority::Primary, &3600u64), || {
-            let o = oracle.clone();
-            client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-        });
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset, &oracle, &FeedPriority::Primary, &3600u64),
+            || {
+                let o = oracle.clone();
+                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
+            },
+        );
 
         te.env.mock_auths(&[MockAuth {
             address: &oracle,
@@ -812,14 +965,24 @@ mod tests {
         let asset2 = mk_asset(&te.env, "BTC");
         let oracle = Address::generate(&te.env);
 
-        gov_auth(&te, "register_feed", (&asset1, &oracle, &FeedPriority::Primary, &3600u64), || {
-            let o = oracle.clone();
-            client(&te).register_feed(&asset1, &o, &FeedPriority::Primary, &3600);
-        });
-        gov_auth(&te, "register_feed", (&asset2, &oracle, &FeedPriority::Primary, &3600u64), || {
-            let o = oracle.clone();
-            client(&te).register_feed(&asset2, &o, &FeedPriority::Primary, &3600);
-        });
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset1, &oracle, &FeedPriority::Primary, &3600u64),
+            || {
+                let o = oracle.clone();
+                client(&te).register_feed(&asset1, &o, &FeedPriority::Primary, &3600);
+            },
+        );
+        gov_auth(
+            &te,
+            "register_feed",
+            (&asset2, &oracle, &FeedPriority::Primary, &3600u64),
+            || {
+                let o = oracle.clone();
+                client(&te).register_feed(&asset2, &o, &FeedPriority::Primary, &3600);
+            },
+        );
 
         te.env.mock_auths(&[MockAuth {
             address: &oracle,
@@ -837,7 +1000,8 @@ mod tests {
             invoke: &MockAuthInvoke {
                 contract: &te.contract_id,
                 fn_name: "report_price",
-                args: (&asset2, &1_000_000_000i128, &100u32, &FeedPriority::Primary).into_val(&te.env),
+                args: (&asset2, &1_000_000_000i128, &100u32, &FeedPriority::Primary)
+                    .into_val(&te.env),
                 sub_invokes: &[],
             },
         }]);

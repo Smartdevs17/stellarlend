@@ -9,50 +9,49 @@ pub mod voting;
 
 use soroban_sdk::{Address, Env, Symbol};
 
+pub use self::analytics::{
+    detect_suspicious_voting, enforce_proposal_rate_limit, get_governance_analytics,
+    update_analytics_proposal_created, update_analytics_vote_cast,
+};
 pub use self::execution::execute_proposal_type;
-pub use self::proposal::{
-    cancel_proposal, create_admin_proposal, create_emergency_proposal, create_proposal,
-    execute_proposal, propose_set_min_collateral_ratio, queue_proposal,
-};
-pub use self::voting::{
-    delegate_vote, get_delegation, get_vote_lock, get_vote_power_snapshot, is_vote_locked,
-    revoke_delegation, take_vote_power_snapshot, vote,
-};
-pub use self::simulation::{
-    get_dry_run_cache, get_parameter_optimization_recommendation, get_simulation_cache,
-    simulate_proposal, simulate_proposal_dry_run,
-};
+pub use self::guardians::{add_guardian, remove_guardian, set_guardian_threshold};
 pub use self::multisig::{
     approve_proposal, execute_multisig_proposal, get_multisig_admins, get_multisig_config,
     get_multisig_threshold, get_proposal_approvals, set_multisig_admins, set_multisig_config,
     set_multisig_threshold,
 };
-pub use self::guardians::{add_guardian, remove_guardian, set_guardian_threshold};
+pub use self::proposal::{
+    cancel_proposal, create_admin_proposal, create_emergency_proposal, create_proposal,
+    execute_proposal, propose_set_min_collateral_ratio, queue_proposal,
+};
 pub use self::recovery::{approve_recovery, execute_recovery, start_recovery};
-pub use self::analytics::{
-    detect_suspicious_voting, enforce_proposal_rate_limit, get_governance_analytics,
-    update_analytics_proposal_created, update_analytics_vote_cast,
+pub use self::simulation::{
+    get_dry_run_cache, get_parameter_optimization_recommendation, get_simulation_cache,
+    simulate_proposal, simulate_proposal_dry_run,
+};
+pub use self::voting::{
+    delegate_vote, get_delegation, get_vote_lock, get_vote_power_snapshot, is_vote_locked,
+    revoke_delegation, take_vote_power_snapshot, vote,
 };
 
 // Re-export types used by other modules (e.g., top-level recovery.rs)
 pub use crate::errors::GovernanceError;
-pub use crate::storage::{GovernanceDataKey, GuardianConfig};
-pub use crate::types::{
-    DelegationRecord, GovernanceAnalytics, GovernanceConfig, MultisigConfig,
-    ParameterOptimizationRecommendation, Proposal, ProposalDryRunResult, ProposalOutcome,
-    ProposalSimulationResult, StateDiffEntry, ProposalStatus, ProposalType, RecoveryRequest,
-    VoteInfo, VoteLock, VotePowerSnapshot, VoteType,
-    BASIS_POINTS_SCALE, DEFAULT_EXECUTION_DELAY, DEFAULT_QUORUM_BPS, DEFAULT_RECOVERY_PERIOD,
-    DEFAULT_TIMELOCK_DURATION, DEFAULT_VOTING_PERIOD, DEFAULT_VOTING_THRESHOLD,
-    DELEGATION_DEADLINE, MAX_DELEGATION_DEPTH, MIN_TIMELOCK_DELAY, PROPOSAL_RATE_LIMIT,
-    PROPOSAL_RATE_WINDOW,
-};
 pub use crate::events::{
     GovernanceInitializedEvent, GuardianAddedEvent, GuardianRemovedEvent, ProposalApprovedEvent,
     ProposalCancelledEvent, ProposalCreatedEvent, ProposalExecutedEvent, ProposalFailedEvent,
     ProposalQueuedEvent, RecoveryApprovedEvent, RecoveryExecutedEvent, RecoveryStartedEvent,
     SuspiciousGovActivityEvent, VoteCastEvent, VoteDelegatedEvent, VoteDelegationRevokedEvent,
     VoteLockedEvent, VotePowerSnapshotTakenEvent,
+};
+pub use crate::storage::{GovernanceDataKey, GuardianConfig};
+pub use crate::types::{
+    DelegationRecord, GovernanceAnalytics, GovernanceConfig, MultisigConfig,
+    ParameterOptimizationRecommendation, Proposal, ProposalDryRunResult, ProposalOutcome,
+    ProposalSimulationResult, ProposalStatus, ProposalType, RecoveryRequest, StateDiffEntry,
+    VoteInfo, VoteLock, VotePowerSnapshot, VoteType, BASIS_POINTS_SCALE, DEFAULT_EXECUTION_DELAY,
+    DEFAULT_QUORUM_BPS, DEFAULT_RECOVERY_PERIOD, DEFAULT_TIMELOCK_DURATION, DEFAULT_VOTING_PERIOD,
+    DEFAULT_VOTING_THRESHOLD, DELEGATION_DEADLINE, MAX_DELEGATION_DEPTH, MIN_TIMELOCK_DELAY,
+    PROPOSAL_RATE_LIMIT, PROPOSAL_RATE_WINDOW,
 };
 
 pub const MAX_DESCRIPTION_LEN: u32 = 256;
@@ -141,11 +140,7 @@ pub fn get_proposal(env: &Env, proposal_id: u64) -> Option<crate::types::Proposa
 }
 
 /// Query a vote record.
-pub fn get_vote(
-    env: &Env,
-    proposal_id: u64,
-    voter: Address,
-) -> Option<crate::types::VoteInfo> {
+pub fn get_vote(env: &Env, proposal_id: u64, voter: Address) -> Option<crate::types::VoteInfo> {
     env.storage()
         .persistent()
         .get(&GovernanceDataKey::Vote(proposal_id, voter))

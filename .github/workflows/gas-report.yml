@@ -3,6 +3,15 @@ name: Gas Optimization Report
 on:
   pull_request:
     branches: [main]
+    paths:
+      - "stellar-lend/contracts/**"
+      - "stellar-lend/benchmarks/**"
+      - "scripts/gas-report.sh"
+      - "run-benchmarks.sh"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/gas-report.yml"
+  workflow_dispatch:
 
 jobs:
   gas-report:
@@ -20,25 +29,18 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
-          path: ~/.cargo/registry
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            stellar-lend/target
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v3
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo build
-        uses: actions/cache@v3
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
@@ -48,20 +50,24 @@ jobs:
 
       - name: Get base branch baseline
         run: |
-          npm run gas:baseline > /tmp/baseline.json || echo '{}' > /tmp/baseline.json
+          npm run --workspaces=false gas:baseline > /tmp/baseline.json || echo '{}' > /tmp/baseline.json
 
       - name: Generate current gas report
-        run: npm run gas:report > /tmp/current.json
+        run: npm run --workspaces=false gas:report > /tmp/current.json
 
       - name: Compare gas costs
-        run: npm run gas:compare /tmp/baseline.json /tmp/current.json > /tmp/comparison.md
+        run: npm run --workspaces=false gas:compare /tmp/baseline.json /tmp/current.json > /tmp/comparison.md
 
       - name: Check for regressions
         id: check-regression
         run: |
-          npm run gas:check /tmp/comparison.json > /tmp/check_result.json
-          FAILED=$(jq '.regressions > 0' /tmp/check_result.json)
+          set +e
+          npm run --workspaces=false gas:check /tmp/comparison.json > /tmp/check_result.json
+          CHECK_EXIT=$?
+          set -e
+          FAILED=$(jq '.failed > 0' /tmp/check_result.json)
           echo "FAILED=$FAILED" >> $GITHUB_OUTPUT
+          echo "CHECK_EXIT=$CHECK_EXIT" >> $GITHUB_OUTPUT
 
       - name: Post report to PR
         uses: actions/github-script@v6

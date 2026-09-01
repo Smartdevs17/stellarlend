@@ -101,27 +101,43 @@ pub struct ParameterStoreContract;
 #[contractimpl]
 impl ParameterStoreContract {
     pub fn initialize(env: Env, governance: Address, admin: Address) {
-        env.storage().instance().set(&DataKey::Governance, &governance);
+        env.storage()
+            .instance()
+            .set(&DataKey::Governance, &governance);
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::ProposalCounter, &0u64);
+        env.storage()
+            .instance()
+            .set(&DataKey::ProposalCounter, &0u64);
         env.storage().instance().set(&DataKey::PoolCounter, &0u64);
-        env.storage().instance().set(&DataKey::EmergencyOverrideActive, &false);
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyOverrideActive, &false);
     }
 
     pub fn register_pool(env: Env, pool: Address) {
         let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
         governance.require_auth();
 
-        let counter: u64 = env.storage().instance().get(&DataKey::PoolCounter).unwrap_or(0);
+        let counter: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PoolCounter)
+            .unwrap_or(0);
         let pool_id = counter + 1;
         let registration = PoolRegistration {
             pool: pool.clone(),
             registered_at: env.ledger().timestamp(),
             active: true,
         };
-        env.storage().instance().set(&DataKey::Pool(pool_id), &registration);
-        env.storage().instance().set(&DataKey::PoolAddress(pool.clone()), &pool_id);
-        env.storage().instance().set(&DataKey::PoolCounter, &pool_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::Pool(pool_id), &registration);
+        env.storage()
+            .instance()
+            .set(&DataKey::PoolAddress(pool.clone()), &pool_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::PoolCounter, &pool_id);
         env.events().publish(("register_pool",), &pool);
     }
 
@@ -136,15 +152,27 @@ impl ParameterStoreContract {
         governance.require_auth();
 
         assert!(
-            env.storage().instance().has(&DataKey::PoolAddress(pool.clone())),
+            env.storage()
+                .instance()
+                .has(&DataKey::PoolAddress(pool.clone())),
             "Pool not registered"
         );
-        assert!(parameter.validate_range(value), "Parameter value out of range");
+        assert!(
+            parameter.validate_range(value),
+            "Parameter value out of range"
+        );
 
         let min_timelock = parameter.min_timelock();
-        assert!(timelock_seconds >= min_timelock, "Timelock too short: min {min_timelock}s");
+        assert!(
+            timelock_seconds >= min_timelock,
+            "Timelock too short: min {min_timelock}s"
+        );
 
-        let counter: u64 = env.storage().instance().get(&DataKey::ProposalCounter).unwrap_or(0);
+        let counter: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProposalCounter)
+            .unwrap_or(0);
         let proposal_id = counter + 1;
         let current_timestamp = env.ledger().timestamp();
         let effective_at = current_timestamp + timelock_seconds;
@@ -163,9 +191,14 @@ impl ParameterStoreContract {
             is_emergency: false,
         };
 
-        env.storage().instance().set(&DataKey::Proposal(proposal_id), &proposal);
-        env.storage().instance().set(&DataKey::ProposalCounter, &proposal_id);
-        env.events().publish(("propose_change", &param_clone), &proposal_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::Proposal(proposal_id), &proposal);
+        env.storage()
+            .instance()
+            .set(&DataKey::ProposalCounter, &proposal_id);
+        env.events()
+            .publish(("propose_change", &param_clone), &proposal_id);
 
         proposal_id
     }
@@ -179,14 +212,26 @@ impl ParameterStoreContract {
         let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
         governance.require_auth();
 
-        assert!(parameter.is_risk_parameter(), "Emergency override only for risk params");
         assert!(
-            env.storage().instance().has(&DataKey::PoolAddress(pool.clone())),
+            parameter.is_risk_parameter(),
+            "Emergency override only for risk params"
+        );
+        assert!(
+            env.storage()
+                .instance()
+                .has(&DataKey::PoolAddress(pool.clone())),
             "Pool not registered"
         );
-        assert!(parameter.validate_range(value), "Parameter value out of range");
+        assert!(
+            parameter.validate_range(value),
+            "Parameter value out of range"
+        );
 
-        let counter: u64 = env.storage().instance().get(&DataKey::ProposalCounter).unwrap_or(0);
+        let counter: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProposalCounter)
+            .unwrap_or(0);
         let proposal_id = counter + 1;
         let current_timestamp = env.ledger().timestamp();
         let effective_at = current_timestamp + EMERGENCY_TIMELOCK_SECONDS;
@@ -205,9 +250,14 @@ impl ParameterStoreContract {
             is_emergency: true,
         };
 
-        env.storage().instance().set(&DataKey::Proposal(proposal_id), &proposal);
-        env.storage().instance().set(&DataKey::ProposalCounter, &proposal_id);
-        env.events().publish(("propose_emergency", &param_clone), &proposal_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::Proposal(proposal_id), &proposal);
+        env.storage()
+            .instance()
+            .set(&DataKey::ProposalCounter, &proposal_id);
+        env.events()
+            .publish(("propose_emergency", &param_clone), &proposal_id);
 
         proposal_id
     }
@@ -223,11 +273,19 @@ impl ParameterStoreContract {
             .expect("Proposal not found");
 
         let current_timestamp = env.ledger().timestamp();
-        assert!(current_timestamp >= proposal.effective_at, "Timelock not elapsed");
-        assert!(!proposal.accepted && !proposal.rejected, "Proposal already decided");
+        assert!(
+            current_timestamp >= proposal.effective_at,
+            "Timelock not elapsed"
+        );
+        assert!(
+            !proposal.accepted && !proposal.rejected,
+            "Proposal already decided"
+        );
 
         proposal.accepted = true;
-        env.storage().instance().set(&DataKey::Proposal(proposal_id), &proposal);
+        env.storage()
+            .instance()
+            .set(&DataKey::Proposal(proposal_id), &proposal);
 
         let key = DataKey::Parameter(proposal.parameter.clone(), proposal.pool.clone());
         let old_value: i128 = env.storage().instance().get(&key).unwrap_or(0);
@@ -252,7 +310,8 @@ impl ParameterStoreContract {
         history.push_back(change);
         env.storage().instance().set(&history_key, &history);
 
-        env.events().publish(("accept_proposal", &proposal.parameter), &proposal_id);
+        env.events()
+            .publish(("accept_proposal", &proposal.parameter), &proposal_id);
     }
 
     pub fn execute_emergency_override(env: Env, proposal_id: u64) {
@@ -266,13 +325,21 @@ impl ParameterStoreContract {
             .expect("Proposal not found");
 
         assert!(proposal.is_emergency, "Not an emergency proposal");
-        assert!(!proposal.accepted && !proposal.rejected, "Proposal already decided");
+        assert!(
+            !proposal.accepted && !proposal.rejected,
+            "Proposal already decided"
+        );
 
         let current_timestamp = env.ledger().timestamp();
-        assert!(current_timestamp >= proposal.effective_at, "Emergency timelock not elapsed");
+        assert!(
+            current_timestamp >= proposal.effective_at,
+            "Emergency timelock not elapsed"
+        );
 
         proposal.accepted = true;
-        env.storage().instance().set(&DataKey::Proposal(proposal_id), &proposal);
+        env.storage()
+            .instance()
+            .set(&DataKey::Proposal(proposal_id), &proposal);
 
         let key = DataKey::Parameter(proposal.parameter.clone(), proposal.pool.clone());
         let old_value: i128 = env.storage().instance().get(&key).unwrap_or(0);
@@ -287,7 +354,9 @@ impl ParameterStoreContract {
         };
 
         env.storage().instance().set(&key, &proposal.proposed_value);
-        env.storage().instance().set(&DataKey::EmergencyOverrideActive, &true);
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyOverrideActive, &true);
 
         let history_key = DataKey::ChangeHistory(proposal.parameter.clone(), proposal.pool.clone());
         let mut history: Vec<ParameterChange> = env
@@ -304,7 +373,9 @@ impl ParameterStoreContract {
     pub fn clear_emergency_override(env: Env) {
         let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
         governance.require_auth();
-        env.storage().instance().set(&DataKey::EmergencyOverrideActive, &false);
+        env.storage()
+            .instance()
+            .set(&DataKey::EmergencyOverrideActive, &false);
         env.events().publish(("clear_emergency",), &());
     }
 
@@ -316,9 +387,14 @@ impl ParameterStoreContract {
             .instance()
             .get(&DataKey::Proposal(proposal_id))
             .expect("Proposal not found");
-        assert!(!proposal.accepted && !proposal.rejected, "Proposal already decided");
+        assert!(
+            !proposal.accepted && !proposal.rejected,
+            "Proposal already decided"
+        );
         proposal.rejected = true;
-        env.storage().instance().set(&DataKey::Proposal(proposal_id), &proposal);
+        env.storage()
+            .instance()
+            .set(&DataKey::Proposal(proposal_id), &proposal);
         env.events().publish(("reject_proposal",), &proposal_id);
     }
 
@@ -339,13 +415,23 @@ impl ParameterStoreContract {
             .expect("Proposal not found")
     }
 
-    pub fn get_change_history(env: Env, parameter: ParameterType, pool: Address) -> Vec<ParameterChange> {
+    pub fn get_change_history(
+        env: Env,
+        parameter: ParameterType,
+        pool: Address,
+    ) -> Vec<ParameterChange> {
         let key = DataKey::ChangeHistory(parameter, pool);
-        env.storage().instance().get(&key).unwrap_or_else(|| Vec::new(&env))
+        env.storage()
+            .instance()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(&env))
     }
 
     pub fn is_emergency_active(env: Env) -> bool {
-        env.storage().instance().get(&DataKey::EmergencyOverrideActive).unwrap_or(false)
+        env.storage()
+            .instance()
+            .get(&DataKey::EmergencyOverrideActive)
+            .unwrap_or(false)
     }
 }
 
@@ -384,7 +470,12 @@ mod tests {
         let contract_id = env.register_contract(None, ParameterStoreContract);
         let client = ParameterStoreContractClient::new(&env, &contract_id);
         client.initialize(&governance, &admin);
-        TestEnv { env, contract_id, governance, admin }
+        TestEnv {
+            env,
+            contract_id,
+            governance,
+            admin,
+        }
     }
 
     fn with_governance_auth<T>(
@@ -412,8 +503,11 @@ mod tests {
     #[test]
     fn test_initialize() {
         let te = setup();
-        let stored: Address = te.env
-            .as_contract(&te.contract_id, || te.env.storage().instance().get(&DataKey::Governance))
+        let stored: Address = te
+            .env
+            .as_contract(&te.contract_id, || {
+                te.env.storage().instance().get(&DataKey::Governance)
+            })
             .unwrap();
         assert_eq!(stored, te.governance);
     }
@@ -425,8 +519,11 @@ mod tests {
         with_governance_auth(&te, "register_pool", (&pool,), || {
             client(&te).register_pool(&pool);
         });
-        let stored: u64 = te.env
-            .as_contract(&te.contract_id, || te.env.storage().instance().get(&DataKey::PoolCounter))
+        let stored: u64 = te
+            .env
+            .as_contract(&te.contract_id, || {
+                te.env.storage().instance().get(&DataKey::PoolCounter)
+            })
             .unwrap();
         assert_eq!(stored, 1);
     }
@@ -439,12 +536,25 @@ mod tests {
             client(&te).register_pool(&pool);
         });
 
-        with_governance_auth(&te, "propose_change", (&pool, &ParameterType::LiquidationThreshold, &8_000i128, &RISK_TIMELOCK_SECONDS), || {
-            let proposal_id = client(&te).propose_change(
-                &pool, &ParameterType::LiquidationThreshold, &8_000, &RISK_TIMELOCK_SECONDS,
-            );
-            assert_eq!(proposal_id, 1);
-        });
+        with_governance_auth(
+            &te,
+            "propose_change",
+            (
+                &pool,
+                &ParameterType::LiquidationThreshold,
+                &8_000i128,
+                &RISK_TIMELOCK_SECONDS,
+            ),
+            || {
+                let proposal_id = client(&te).propose_change(
+                    &pool,
+                    &ParameterType::LiquidationThreshold,
+                    &8_000,
+                    &RISK_TIMELOCK_SECONDS,
+                );
+                assert_eq!(proposal_id, 1);
+            },
+        );
 
         te.env.ledger().set_timestamp(RISK_TIMELOCK_SECONDS + 1);
 
@@ -464,9 +574,14 @@ mod tests {
         with_governance_auth(&te, "register_pool", (&pool,), || {
             client(&te).register_pool(&pool);
         });
-        with_governance_auth(&te, "propose_change", (&pool, &ParameterType::LTV, &7_000i128, &3600u64), || {
-            client(&te).propose_change(&pool, &ParameterType::LTV, &7_000, &3600);
-        });
+        with_governance_auth(
+            &te,
+            "propose_change",
+            (&pool, &ParameterType::LTV, &7_000i128, &3600u64),
+            || {
+                client(&te).propose_change(&pool, &ParameterType::LTV, &7_000, &3600);
+            },
+        );
     }
 
     #[test]
@@ -477,9 +592,24 @@ mod tests {
         with_governance_auth(&te, "register_pool", (&pool,), || {
             client(&te).register_pool(&pool);
         });
-        with_governance_auth(&te, "propose_change", (&pool, &ParameterType::LTV, &7_000i128, &RISK_TIMELOCK_SECONDS), || {
-            client(&te).propose_change(&pool, &ParameterType::LTV, &7_000, &RISK_TIMELOCK_SECONDS);
-        });
+        with_governance_auth(
+            &te,
+            "propose_change",
+            (
+                &pool,
+                &ParameterType::LTV,
+                &7_000i128,
+                &RISK_TIMELOCK_SECONDS,
+            ),
+            || {
+                client(&te).propose_change(
+                    &pool,
+                    &ParameterType::LTV,
+                    &7_000,
+                    &RISK_TIMELOCK_SECONDS,
+                );
+            },
+        );
         with_governance_auth(&te, "accept_proposal", (&1u64,), || {
             client(&te).accept_proposal(&1);
         });
@@ -493,9 +623,24 @@ mod tests {
         with_governance_auth(&te, "register_pool", (&pool,), || {
             client(&te).register_pool(&pool);
         });
-        with_governance_auth(&te, "propose_change", (&pool, &ParameterType::LTV, &9_500i128, &RISK_TIMELOCK_SECONDS), || {
-            client(&te).propose_change(&pool, &ParameterType::LTV, &9_500, &RISK_TIMELOCK_SECONDS);
-        });
+        with_governance_auth(
+            &te,
+            "propose_change",
+            (
+                &pool,
+                &ParameterType::LTV,
+                &9_500i128,
+                &RISK_TIMELOCK_SECONDS,
+            ),
+            || {
+                client(&te).propose_change(
+                    &pool,
+                    &ParameterType::LTV,
+                    &9_500,
+                    &RISK_TIMELOCK_SECONDS,
+                );
+            },
+        );
     }
 
     #[test]
@@ -505,11 +650,22 @@ mod tests {
         with_governance_auth(&te, "register_pool", (&pool,), || {
             client(&te).register_pool(&pool);
         });
-        with_governance_auth(&te, "propose_emergency_change", (&pool, &ParameterType::LiquidationThreshold, &7_500i128), || {
-            client(&te).propose_emergency_change(&pool, &ParameterType::LiquidationThreshold, &7_500);
-        });
+        with_governance_auth(
+            &te,
+            "propose_emergency_change",
+            (&pool, &ParameterType::LiquidationThreshold, &7_500i128),
+            || {
+                client(&te).propose_emergency_change(
+                    &pool,
+                    &ParameterType::LiquidationThreshold,
+                    &7_500,
+                );
+            },
+        );
 
-        te.env.ledger().set_timestamp(EMERGENCY_TIMELOCK_SECONDS + 1);
+        te.env
+            .ledger()
+            .set_timestamp(EMERGENCY_TIMELOCK_SECONDS + 1);
 
         with_governance_auth(&te, "execute_emergency_override", (&1u64,), || {
             client(&te).execute_emergency_override(&1);
@@ -525,10 +681,17 @@ mod tests {
         with_governance_auth(&te, "register_pool", (&pool,), || {
             client(&te).register_pool(&pool);
         });
-        with_governance_auth(&te, "propose_emergency_change", (&pool, &ParameterType::LTV, &5_000i128), || {
-            client(&te).propose_emergency_change(&pool, &ParameterType::LTV, &5_000);
-        });
-        te.env.ledger().set_timestamp(EMERGENCY_TIMELOCK_SECONDS + 1);
+        with_governance_auth(
+            &te,
+            "propose_emergency_change",
+            (&pool, &ParameterType::LTV, &5_000i128),
+            || {
+                client(&te).propose_emergency_change(&pool, &ParameterType::LTV, &5_000);
+            },
+        );
+        te.env
+            .ledger()
+            .set_timestamp(EMERGENCY_TIMELOCK_SECONDS + 1);
         with_governance_auth(&te, "execute_emergency_override", (&1u64,), || {
             client(&te).execute_emergency_override(&1);
         });
@@ -547,9 +710,24 @@ mod tests {
         with_governance_auth(&te, "register_pool", (&pool,), || {
             client(&te).register_pool(&pool);
         });
-        with_governance_auth(&te, "propose_change", (&pool, &ParameterType::ReserveFactor, &1_000i128, &STANDARD_TIMELOCK_SECONDS), || {
-            client(&te).propose_change(&pool, &ParameterType::ReserveFactor, &1_000, &STANDARD_TIMELOCK_SECONDS);
-        });
+        with_governance_auth(
+            &te,
+            "propose_change",
+            (
+                &pool,
+                &ParameterType::ReserveFactor,
+                &1_000i128,
+                &STANDARD_TIMELOCK_SECONDS,
+            ),
+            || {
+                client(&te).propose_change(
+                    &pool,
+                    &ParameterType::ReserveFactor,
+                    &1_000,
+                    &STANDARD_TIMELOCK_SECONDS,
+                );
+            },
+        );
         with_governance_auth(&te, "reject_proposal", (&1u64,), || {
             client(&te).reject_proposal(&1);
         });
@@ -576,11 +754,41 @@ mod tests {
         with_governance_auth(&te, "register_pool", (&pool,), || {
             client(&te).register_pool(&pool);
         });
-        with_governance_auth(&te, "propose_change", (&pool, &ParameterType::LTV, &6_500i128, &RISK_TIMELOCK_SECONDS), || {
-            client(&te).propose_change(&pool, &ParameterType::LTV, &6_500, &RISK_TIMELOCK_SECONDS);
-        });
-        with_governance_auth(&te, "propose_change", (&pool, &ParameterType::ReserveFactor, &500i128, &STANDARD_TIMELOCK_SECONDS), || {
-            client(&te).propose_change(&pool, &ParameterType::ReserveFactor, &500, &STANDARD_TIMELOCK_SECONDS);
-        });
+        with_governance_auth(
+            &te,
+            "propose_change",
+            (
+                &pool,
+                &ParameterType::LTV,
+                &6_500i128,
+                &RISK_TIMELOCK_SECONDS,
+            ),
+            || {
+                client(&te).propose_change(
+                    &pool,
+                    &ParameterType::LTV,
+                    &6_500,
+                    &RISK_TIMELOCK_SECONDS,
+                );
+            },
+        );
+        with_governance_auth(
+            &te,
+            "propose_change",
+            (
+                &pool,
+                &ParameterType::ReserveFactor,
+                &500i128,
+                &STANDARD_TIMELOCK_SECONDS,
+            ),
+            || {
+                client(&te).propose_change(
+                    &pool,
+                    &ParameterType::ReserveFactor,
+                    &500,
+                    &STANDARD_TIMELOCK_SECONDS,
+                );
+            },
+        );
     }
 }

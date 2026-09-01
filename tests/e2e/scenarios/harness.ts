@@ -11,6 +11,7 @@
  */
 
 import express, { Application, NextFunction, Request, Response } from 'express';
+import request from 'supertest';
 
 // ─── Roles ──────────────────────────────────────────────────────────────────
 
@@ -104,6 +105,35 @@ export function positionSummary(userAddress: string) {
     healthFactor: healthFactor(position),
     liquidatable: healthFactor(position) < 1,
   };
+}
+
+export interface CrossContractScenarioStep {
+  name: string;
+  method: 'get' | 'post';
+  path: string;
+  body?: Record<string, unknown>;
+  expectStatus?: number;
+  assert?: (body: unknown) => void;
+}
+
+export async function runCrossContractScenario(
+  app: Application,
+  steps: CrossContractScenarioStep[]
+): Promise<unknown[]> {
+  const responses: unknown[] = [];
+
+  for (const step of steps) {
+    const response =
+      step.method === 'get'
+        ? await request(app).get(step.path)
+        : await request(app).post(step.path).send(step.body ?? {});
+
+    expect(response.status).toBe(step.expectStatus ?? 200);
+    step.assert?.(response.body);
+    responses.push(response.body);
+  }
+
+  return responses;
 }
 
 // ─── App ────────────────────────────────────────────────────────────────────

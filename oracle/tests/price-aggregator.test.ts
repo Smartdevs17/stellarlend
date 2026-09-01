@@ -195,8 +195,8 @@ describe('PriceAggregator', () => {
 
 describe('PriceAggregator – priority-based failover', () => {
   let high: MockProvider; // priority 1 (highest)
-  let mid: MockProvider;  // priority 2
-  let low: MockProvider;  // priority 3 (lowest)
+  let mid: MockProvider; // priority 2
+  let low: MockProvider; // priority 3 (lowest)
 
   function makeFailoverAggregator(failureThreshold = 1) {
     const validator = createValidator({ maxDeviationPercent: 50, maxStalenessSeconds: 300 });
@@ -210,8 +210,8 @@ describe('PriceAggregator – priority-based failover', () => {
 
   beforeEach(() => {
     high = new MockProvider('high', 1, 0.5, { XLM: 0.15 });
-    mid  = new MockProvider('mid',  2, 0.3, { XLM: 0.152 });
-    low  = new MockProvider('low',  3, 0.2, { XLM: 0.148 });
+    mid = new MockProvider('mid', 2, 0.3, { XLM: 0.152 });
+    low = new MockProvider('low', 3, 0.2, { XLM: 0.148 });
   });
 
   it('uses highest-priority provider when healthy', async () => {

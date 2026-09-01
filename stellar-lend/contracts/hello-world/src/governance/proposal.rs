@@ -1,17 +1,17 @@
 use soroban_sdk::{token::TokenClient, Address, Env, String, Vec};
 
 use crate::errors::GovernanceError;
+use crate::events::{
+    ProposalCancelledEvent, ProposalCreatedEvent, ProposalExecutedEvent, ProposalFailedEvent,
+    ProposalQueuedEvent,
+};
 use crate::storage::GovernanceDataKey;
 use crate::types::{
     GovernanceConfig, Proposal, ProposalOutcome, ProposalStatus, ProposalType, VoteType,
     BASIS_POINTS_SCALE, DEFAULT_TIMELOCK_DURATION, MAX_DESCRIPTION_LEN,
 };
-use crate::events::{
-    ProposalCancelledEvent, ProposalCreatedEvent, ProposalExecutedEvent, ProposalFailedEvent,
-    ProposalQueuedEvent, to_shared_proposal_type,
-};
 
-use super::{get_admin, execute_proposal_type};
+use super::{execute_proposal_type, get_admin};
 
 /// Create a new governance proposal.
 pub fn create_proposal(
@@ -85,7 +85,7 @@ pub fn create_proposal(
     ProposalCreatedEvent {
         proposal_id: next_id,
         proposer,
-        proposal_type: to_shared_proposal_type(&proposal.proposal_type),
+        proposal_type: proposal.proposal_type,
         description,
         start_time: proposal.start_time,
         end_time: proposal.end_time,

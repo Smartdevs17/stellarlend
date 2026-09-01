@@ -20,23 +20,19 @@ fn setup() -> (Env, Address, Address, Address, Address, Address) {
     (env, admin, user, lending, source_pool, destination_pool)
 }
 
-fn init_contract(
-    env: &Env,
-    admin: &Address,
-    lending: &Address,
-) -> PoolMigrationClient<'_> {
+fn init_contract(env: &Env, admin: &Address, lending: &Address) -> PoolMigrationClient<'_> {
     let contract_id = env.register_contract(None, PoolMigration);
     let client = PoolMigrationClient::new(env, &contract_id);
 
     client.initialize(
         admin,
         lending,
-        &100i128,    // min_migration_amount
+        &100i128,       // min_migration_amount
         &1_000_000i128, // max_migration_amount
-        &60u64,      // cooldown_secs
-        &50u32,      // max_slippage_bps (0.5%)
-        &2_000_000u64, // deadline
-        &100u32,     // max_batch_size
+        &60u64,         // cooldown_secs
+        &50u32,         // max_slippage_bps (0.5%)
+        &2_000_000u64,  // deadline
+        &100u32,        // max_batch_size
     );
 
     client
@@ -64,14 +60,7 @@ fn test_double_initialize() {
 
     // Second init should fail
     client.initialize(
-        &admin,
-        &lending,
-        &100,
-        &1_000_000,
-        &60,
-        &50,
-        &2_000_000,
-        &100,
+        &admin, &lending, &100, &1_000_000, &60, &50, &2_000_000, &100,
     );
 }
 
@@ -284,12 +273,12 @@ fn test_update_config() {
 
     client.update_config(
         &admin,
-        &Some(200i128),     // new min
+        &Some(200i128),       // new min
         &Some(2_000_000i128), // new max
-        &None,              // keep cooldown
-        &Some(100u32),      // new slippage
-        &None,              // keep deadline
-        &None,              // keep batch size
+        &None,                // keep cooldown
+        &Some(100u32),        // new slippage
+        &None,                // keep deadline
+        &None,                // keep batch size
     );
 
     let config = client.get_config().unwrap();

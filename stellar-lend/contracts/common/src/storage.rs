@@ -52,7 +52,10 @@ where
     V: TryFromVal<Env, Val>,
     V::Error: Debug,
 {
-    env.storage().instance().get(key).unwrap_or_else(make_default)
+    env.storage()
+        .instance()
+        .get(key)
+        .unwrap_or_else(make_default)
 }
 
 /// Reads `key` from persistent storage, lazily computing a default if absent.
@@ -62,7 +65,10 @@ where
     V: TryFromVal<Env, Val>,
     V::Error: Debug,
 {
-    env.storage().persistent().get(key).unwrap_or_else(make_default)
+    env.storage()
+        .persistent()
+        .get(key)
+        .unwrap_or_else(make_default)
 }
 
 /// Writes `value` to instance storage under `key`. Thin wrapper kept for

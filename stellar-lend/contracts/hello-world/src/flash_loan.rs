@@ -486,15 +486,14 @@ pub fn execute_flash_loan(
 
     // 8. Record Metrics
     let metrics_key = FlashLoanDataKey::Metrics(Some(asset.clone()));
-    let mut metrics: stellarlend_flash_loan::FlashLoanMetrics = env
-        .storage()
-        .persistent()
-        .get(&metrics_key)
-        .unwrap_or(stellarlend_flash_loan::FlashLoanMetrics {
-            total_flash_loans: 0,
-            total_volume: 0,
-            total_fees_collected: 0,
-        });
+    let mut metrics: stellarlend_flash_loan::FlashLoanMetrics =
+        env.storage().persistent().get(&metrics_key).unwrap_or(
+            stellarlend_flash_loan::FlashLoanMetrics {
+                total_flash_loans: 0,
+                total_volume: 0,
+                total_fees_collected: 0,
+            },
+        );
     metrics.total_flash_loans = metrics.total_flash_loans.saturating_add(1);
     metrics.total_volume = metrics.total_volume.saturating_add(amount);
     metrics.total_fees_collected = metrics.total_fees_collected.saturating_add(fee);
@@ -733,7 +732,12 @@ pub fn execute_flash_loan_liquidation(
 ) -> Result<FlashLoanLiquidationResult, FlashLoanError> {
     liquidator.require_auth();
 
-    let sim = simulate_flash_loan_liquidation(env, debt_asset.clone(), collateral_asset.clone(), debt_amount)?;
+    let sim = simulate_flash_loan_liquidation(
+        env,
+        debt_asset.clone(),
+        collateral_asset.clone(),
+        debt_amount,
+    )?;
     if !sim.profitable {
         return Err(FlashLoanError::Unprofitable);
     }
@@ -975,11 +979,17 @@ pub fn execute_multi_asset_flash_loan(
 }
 
 /// Get flash loan metrics
-pub fn get_flash_loan_metrics(env: &Env, asset: Option<Address>) -> stellarlend_flash_loan::FlashLoanMetrics {
+pub fn get_flash_loan_metrics(
+    env: &Env,
+    asset: Option<Address>,
+) -> stellarlend_flash_loan::FlashLoanMetrics {
     let key = FlashLoanDataKey::Metrics(asset);
-    env.storage().persistent().get(&key).unwrap_or(stellarlend_flash_loan::FlashLoanMetrics {
-        total_flash_loans: 0,
-        total_volume: 0,
-        total_fees_collected: 0,
-    })
+    env.storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or(stellarlend_flash_loan::FlashLoanMetrics {
+            total_flash_loans: 0,
+            total_volume: 0,
+            total_fees_collected: 0,
+        })
 }

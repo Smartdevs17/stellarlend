@@ -68,7 +68,12 @@ impl<'a> HwAdapter<'a> {
         client.initialize(&admin);
         let native_asset = env.register_stellar_asset_contract(admin.clone());
         client.set_native_asset_address(&admin, &native_asset);
-        Self { client, env, admin, native_asset }
+        Self {
+            client,
+            env,
+            admin,
+            native_asset,
+        }
     }
 
     pub fn deposit(&self, user: &Address, amount: i128) -> Result<i128, ()> {
@@ -152,7 +157,12 @@ impl<'a> LendingAdapter<'a> {
         // debt_ceiling / min_borrow_amount are unused by the deposit-only
         // comparison but required by `initialize`.
         client.initialize(&admin, &1_000_000_000_000, &1);
-        Self { client, env, admin, asset }
+        Self {
+            client,
+            env,
+            admin,
+            asset,
+        }
     }
 
     pub fn deposit(&self, user: &Address, amount: i128) -> Result<i128, ()> {

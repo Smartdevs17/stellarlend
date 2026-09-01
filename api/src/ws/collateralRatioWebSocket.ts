@@ -105,10 +105,11 @@ export class CollateralRatioWebSocketServer {
       case 'subscribe_positions':
         state.subscribeToPositions = msg.subscribe;
         break;
-      case 'refresh':
+      case 'refresh': {
         const snapshots = this.filterSnapshots(collateralRatioMonitorService.getCurrentSnapshots(), state);
         this.send(ws, { type: 'snapshot', snapshots, timestamp: Date.now() });
         break;
+      }
       default:
         this.send(ws, { type: 'error', message: 'Unknown message type' });
     }

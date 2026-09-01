@@ -204,7 +204,7 @@ pub fn accrue_reserve(
     }
 
     let reserve_factor = crate::reserve::get_reserve_factor(env, asset.clone());
-    
+
     let reserve_amount = interest_amount
         .checked_mul(reserve_factor)
         .ok_or(TreasuryError::Overflow)?

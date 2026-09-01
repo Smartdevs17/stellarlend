@@ -1,6 +1,9 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, contracterror, Address, BytesN, Env, Symbol, symbol_short, Map};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, BytesN, Env, Map,
+    Symbol,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -93,7 +96,9 @@ impl ReferralProgram {
             tier_2_threshold,
             tier_2_bonus_bps,
         };
-        env.storage().instance().set(&symbol_short!("config"), &config);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("config"), &config);
         Ok(())
     }
 
@@ -128,7 +133,11 @@ impl ReferralProgram {
         Self::set_referrer_stats(&env, &referrer, &stats);
 
         let l1_key = Self::referee_key(&referrer);
-        if let Some(l1_record) = env.storage().persistent().get::<Symbol, ReferralRecord>(&l1_key) {
+        if let Some(l1_record) = env
+            .storage()
+            .persistent()
+            .get::<Symbol, ReferralRecord>(&l1_key)
+        {
             let mut l1_stats = Self::get_referrer_stats_internal(&env, &l1_record.referrer);
             l1_stats.l2_referrals += 1;
             Self::set_referrer_stats(&env, &l1_record.referrer, &l1_stats);
@@ -142,11 +151,7 @@ impl ReferralProgram {
         Ok(())
     }
 
-    pub fn accrue_fee(
-        env: Env,
-        referee: Address,
-        fee_amount: i128,
-    ) -> Result<(), ReferralError> {
+    pub fn accrue_fee(env: Env, referee: Address, fee_amount: i128) -> Result<(), ReferralError> {
         Self::require_initialized(&env)?;
         let config = Self::get_config(&env)?;
 
@@ -168,7 +173,11 @@ impl ReferralProgram {
         Self::set_referrer_stats(&env, &record.referrer, &stats);
 
         let l1_key = Self::referee_key(&record.referrer);
-        if let Some(l1_record) = env.storage().persistent().get::<Symbol, ReferralRecord>(&l1_key) {
+        if let Some(l1_record) = env
+            .storage()
+            .persistent()
+            .get::<Symbol, ReferralRecord>(&l1_key)
+        {
             let l2_share = (fee_amount * config.l2_fee_share_bps as i128) / 10_000;
             if l2_share > 0 {
                 let mut l1_stats = Self::get_referrer_stats_internal(&env, &l1_record.referrer);

@@ -34,8 +34,18 @@ fn setup() -> (Env, Address, Address, Address) {
     let usdc = Address::generate(&env);
     let eth = Address::generate(&env);
     initialize(&env, admin.clone()).unwrap();
-    initialize_asset(&env, Some(usdc.clone()), sample_config(Some(usdc.clone()), 10_000_000)).unwrap();
-    initialize_asset(&env, Some(eth.clone()), sample_config(Some(eth.clone()), 20_000_000)).unwrap();
+    initialize_asset(
+        &env,
+        Some(usdc.clone()),
+        sample_config(Some(usdc.clone()), 10_000_000),
+    )
+    .unwrap();
+    initialize_asset(
+        &env,
+        Some(eth.clone()),
+        sample_config(Some(eth.clone()), 20_000_000),
+    )
+    .unwrap();
     (env, admin, usdc, eth)
 }
 
@@ -43,7 +53,10 @@ fn setup() -> (Env, Address, Address, Address) {
 fn test_correlation_round_trip() {
     let (env, _admin, usdc, eth) = setup();
     set_asset_correlation(&env, Some(usdc.clone()), Some(eth.clone()), 8_000).unwrap();
-    assert_eq!(get_asset_correlation(&env, Some(usdc.clone()), Some(eth.clone())), 8_000);
+    assert_eq!(
+        get_asset_correlation(&env, Some(usdc.clone()), Some(eth.clone())),
+        8_000
+    );
     assert_eq!(get_asset_correlation(&env, Some(eth), Some(usdc)), 8_000);
 }
 

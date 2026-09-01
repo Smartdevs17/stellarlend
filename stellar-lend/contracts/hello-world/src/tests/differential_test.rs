@@ -9,7 +9,10 @@
 
 #![cfg(test)]
 
-use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env,
+};
 
 use crate::{HelloContract, HelloContractClient};
 

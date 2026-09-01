@@ -829,15 +829,17 @@ fn test_dynamic_penalty_near_threshold() {
         // severity is tiny → penalty should be very close to base (1000 bps)
         let collateral = 10499i128;
         let debt = 10000i128;
-        let penalty =
-            crate::liquidate::calculate_dynamic_penalty(&env, collateral, debt).unwrap();
+        let penalty = crate::liquidate::calculate_dynamic_penalty(&env, collateral, debt).unwrap();
         // base = 1000, max = 2000, threshold = 10500
         // severity = (10500 - 10499) / 10500 ≈ 0.0001
         // extra ≈ 0.0001 * 1000 ≈ 0
         assert!(penalty >= 1000, "penalty should be >= base incentive");
         assert!(penalty <= 2000, "penalty should not exceed max cap");
         // Near threshold: penalty should be very close to base
-        assert!(penalty <= 1010, "near-threshold penalty should be close to base");
+        assert!(
+            penalty <= 1010,
+            "near-threshold penalty should be close to base"
+        );
     });
 }
 
@@ -851,14 +853,19 @@ fn test_dynamic_penalty_severe_undercollateralization() {
         // health_factor = 5000 bps (50% — very severe)
         let collateral = 5000i128;
         let debt = 10000i128;
-        let penalty =
-            crate::liquidate::calculate_dynamic_penalty(&env, collateral, debt).unwrap();
+        let penalty = crate::liquidate::calculate_dynamic_penalty(&env, collateral, debt).unwrap();
         // severity = (10500 - 5000) / 10500 ≈ 0.524
         // extra ≈ 0.524 * 1000 ≈ 524
         // penalty ≈ 1524
-        assert!(penalty > 1000, "severe position should have higher penalty than base");
+        assert!(
+            penalty > 1000,
+            "severe position should have higher penalty than base"
+        );
         assert!(penalty <= 2000, "penalty should not exceed max cap");
-        assert!(penalty >= 1400, "severe position should have significantly elevated penalty");
+        assert!(
+            penalty >= 1400,
+            "severe position should have significantly elevated penalty"
+        );
     });
 }
 
@@ -872,9 +879,11 @@ fn test_dynamic_penalty_capped_at_maximum() {
         // health_factor = 100 bps (nearly insolvent)
         let collateral = 100i128;
         let debt = 10000i128;
-        let penalty =
-            crate::liquidate::calculate_dynamic_penalty(&env, collateral, debt).unwrap();
-        assert_eq!(penalty, 2000, "nearly-insolvent position should hit the 2000 bps cap");
+        let penalty = crate::liquidate::calculate_dynamic_penalty(&env, collateral, debt).unwrap();
+        assert_eq!(
+            penalty, 2000,
+            "nearly-insolvent position should hit the 2000 bps cap"
+        );
     });
 }
 
@@ -892,18 +901,25 @@ fn test_dynamic_penalty_monotonically_increases_with_severity() {
         let hf_severe = 5000i128;
         let hf_critical = 2000i128;
 
-        let p_mild =
-            crate::liquidate::calculate_dynamic_penalty(&env, hf_mild, debt).unwrap();
+        let p_mild = crate::liquidate::calculate_dynamic_penalty(&env, hf_mild, debt).unwrap();
         let p_moderate =
             crate::liquidate::calculate_dynamic_penalty(&env, hf_moderate, debt).unwrap();
-        let p_severe =
-            crate::liquidate::calculate_dynamic_penalty(&env, hf_severe, debt).unwrap();
+        let p_severe = crate::liquidate::calculate_dynamic_penalty(&env, hf_severe, debt).unwrap();
         let p_critical =
             crate::liquidate::calculate_dynamic_penalty(&env, hf_critical, debt).unwrap();
 
-        assert!(p_mild <= p_moderate, "moderate should have >= penalty than mild");
-        assert!(p_moderate <= p_severe, "severe should have >= penalty than moderate");
-        assert!(p_severe <= p_critical, "critical should have >= penalty than severe");
+        assert!(
+            p_mild <= p_moderate,
+            "moderate should have >= penalty than mild"
+        );
+        assert!(
+            p_moderate <= p_severe,
+            "severe should have >= penalty than moderate"
+        );
+        assert!(
+            p_severe <= p_critical,
+            "critical should have >= penalty than severe"
+        );
     });
 }
 
@@ -926,7 +942,10 @@ fn test_partial_liquidation_position_still_unhealthy() {
 
     assert_eq!(debt_liquidated, 100);
     assert!(incentive > 0, "incentive must be positive");
-    assert!(collateral_seized > debt_liquidated, "seized includes incentive bonus");
+    assert!(
+        collateral_seized > debt_liquidated,
+        "seized includes incentive bonus"
+    );
 
     // Position should still exist and have remaining debt
     let position = get_user_position(&env, &contract_id, &borrower).unwrap();

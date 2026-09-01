@@ -81,7 +81,10 @@ mod tests {
         let principal = 10_000 * crate::WAD;
         let rate = 500i128;
         let result = compound_interest(&e, principal, rate, 1, 10_000).unwrap();
-        assert!(result > principal, "result {result} <= principal {principal}");
+        assert!(
+            result > principal,
+            "result {result} <= principal {principal}"
+        );
         assert!(result < principal + principal / 10);
     }
 
@@ -91,7 +94,10 @@ mod tests {
         let principal = 1_000 * crate::WAD;
         let rate = 100i128;
         let result = compound_interest(&e, principal, rate, 12, 10_000).unwrap();
-        assert!(result > principal, "result {result} <= principal {principal}");
+        assert!(
+            result > principal,
+            "result {result} <= principal {principal}"
+        );
         assert!(result < principal * 2);
     }
 

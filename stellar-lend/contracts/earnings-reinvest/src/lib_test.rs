@@ -7,7 +7,13 @@ use crate::{
     ReinvestStrategy, WeightedTarget,
 };
 
-fn setup() -> (Env, Address, Address, Address, EarningsReinvestContractClient<'static>) {
+fn setup() -> (
+    Env,
+    Address,
+    Address,
+    Address,
+    EarningsReinvestContractClient<'static>,
+) {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
@@ -23,7 +29,10 @@ fn setup() -> (Env, Address, Address, Address, EarningsReinvestContractClient<'s
 fn test_initialize_cannot_double_init() {
     let (_, admin, _, _, client) = setup();
     let result = client.try_initialize(&admin);
-    assert_eq!(result.unwrap_err().unwrap(), ReinvestError::AlreadyInitialized);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        ReinvestError::AlreadyInitialized
+    );
 }
 
 #[test]
@@ -49,8 +58,14 @@ fn test_create_plan_weighted_requires_full_bps() {
     let (env, _, owner, pool, client) = setup();
     let pool_b = Address::generate(&env);
     let mut targets = Vec::new(&env);
-    targets.push_back(WeightedTarget { pool: pool.clone(), weight_bps: 6_000 });
-    targets.push_back(WeightedTarget { pool: pool_b, weight_bps: 3_000 });
+    targets.push_back(WeightedTarget {
+        pool: pool.clone(),
+        weight_bps: 6_000,
+    });
+    targets.push_back(WeightedTarget {
+        pool: pool_b,
+        weight_bps: 3_000,
+    });
 
     let result = client.try_create_plan(
         &owner,
@@ -67,7 +82,10 @@ fn test_create_plan_weighted_requires_full_bps() {
 fn test_create_plan_rejects_weighted_targets_for_same_pool_strategy() {
     let (env, _, owner, pool, client) = setup();
     let mut targets = Vec::new(&env);
-    targets.push_back(WeightedTarget { pool: pool.clone(), weight_bps: 10_000 });
+    targets.push_back(WeightedTarget {
+        pool: pool.clone(),
+        weight_bps: 10_000,
+    });
 
     let result = client.try_create_plan(
         &owner,
@@ -114,8 +132,14 @@ fn test_sweep_weighted_split_covers_full_amount() {
     let keeper = Address::generate(&env);
     let pool_b = Address::generate(&env);
     let mut targets = Vec::new(&env);
-    targets.push_back(WeightedTarget { pool: pool_a.clone(), weight_bps: 3_333 });
-    targets.push_back(WeightedTarget { pool: pool_b.clone(), weight_bps: 6_667 });
+    targets.push_back(WeightedTarget {
+        pool: pool_a.clone(),
+        weight_bps: 3_333,
+    });
+    targets.push_back(WeightedTarget {
+        pool: pool_b.clone(),
+        weight_bps: 6_667,
+    });
 
     let plan_id = client.create_plan(
         &owner,
@@ -180,7 +204,10 @@ fn test_sweep_rejected_when_gas_exceeds_earnings() {
     );
 
     let result = client.try_sweep(&keeper, &plan_id, &pool, &100, &false, &100);
-    assert_eq!(result.unwrap_err().unwrap(), ReinvestError::GasExceedsEarnings);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        ReinvestError::GasExceedsEarnings
+    );
 }
 
 #[test]

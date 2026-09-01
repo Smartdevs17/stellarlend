@@ -26,10 +26,10 @@ export { MetricsService, createMetricsService } from './metrics-service.js';
 export type { MetricsResponse, ProviderHealth, AssetPriceInfo } from './metrics-service.js';
 
 export {
-    OracleIncidentMonitor,
-    IncidentSeverity,
-    IncidentType,
-    createOracleIncidentMonitor,
+  OracleIncidentMonitor,
+  IncidentSeverity,
+  IncidentType,
+  createOracleIncidentMonitor,
 } from './oracle-incident-monitor.js';
 export type { OracleIncident } from './oracle-incident-monitor.js';
 
@@ -40,32 +40,42 @@ export { quoteAsset, quoteBasket, debtCollateralRatio } from './multi-asset-pric
 export type { AssetPriceQuote } from './multi-asset-prices.js';
 
 export {
-    ManipulationDetector,
-    AlertSeverity,
-    AlertType,
-    createManipulationDetector,
+  ManipulationDetector,
+  AlertSeverity,
+  AlertType,
+  createManipulationDetector,
 } from './manipulation-detector.js';
 export type { ManipulationAlert, ManipulationDetectorConfig } from './manipulation-detector.js';
 
 export {
-    AnomalyDetector,
-    AnomalySeverity,
-    AnomalyMethod,
-    createAnomalyDetector,
+  AnomalyDetector,
+  AnomalySeverity,
+  AnomalyMethod,
+  createAnomalyDetector,
 } from './anomaly-detector.js';
-export type { AnomalyEvent, AnomalyDetectorConfig, RollingStats, AdaptiveThresholdState } from './anomaly-detector.js';
+export type {
+  AnomalyEvent,
+  AnomalyDetectorConfig,
+  RollingStats,
+  AdaptiveThresholdState,
+} from './anomaly-detector.js';
 
 export {
-    FeedCorrelation,
-    CorrelationEventType,
-    CorrelationSeverity,
-    createFeedCorrelation,
+  FeedCorrelation,
+  CorrelationEventType,
+  CorrelationSeverity,
+  createFeedCorrelation,
 } from './feed-correlation.js';
-export type { CorrelationEvent, CorrelationPair, CorrelationMatrix, FeedCorrelationConfig } from './feed-correlation.js';
+export type {
+  CorrelationEvent,
+  CorrelationPair,
+  CorrelationMatrix,
+  FeedCorrelationConfig,
+} from './feed-correlation.js';
 
 export {
-    RealtimePriceFeed,
-    FeedEventType,
-    createRealtimePriceFeed,
+  RealtimePriceFeed,
+  FeedEventType,
+  createRealtimePriceFeed,
 } from './realtime-price-feed.js';
 export type { EnrichedPrice, FeedHealthStatus, RealtimeFeedConfig } from './realtime-price-feed.js';

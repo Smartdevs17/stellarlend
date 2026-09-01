@@ -25,9 +25,7 @@
 
 #![allow(unused)]
 
-use soroban_sdk::{
-    contracterror, contractevent, contracttype, Address, Env, String, Symbol, Vec,
-};
+use soroban_sdk::{contracterror, contractevent, contracttype, Address, Env, String, Symbol, Vec};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -301,19 +299,11 @@ fn save_stats(env: &Env, stats: &LendingBridgeStats) {
         .set(&LendingBridgeKey::LendingStats, stats);
 }
 
-fn position_key(
-    user: &Address,
-    remote_chain: &String,
-    remote_pool: &String,
-) -> LendingBridgeKey {
+fn position_key(user: &Address, remote_chain: &String, remote_pool: &String) -> LendingBridgeKey {
     LendingBridgeKey::LendingPosition(user.clone(), remote_chain.clone(), remote_pool.clone())
 }
 
-fn lock_key(
-    user: &Address,
-    remote_chain: &String,
-    remote_pool: &String,
-) -> LendingBridgeKey {
+fn lock_key(user: &Address, remote_chain: &String, remote_pool: &String) -> LendingBridgeKey {
     LendingBridgeKey::CollateralLock(user.clone(), remote_chain.clone(), remote_pool.clone())
 }
 

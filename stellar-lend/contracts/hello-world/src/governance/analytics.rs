@@ -1,11 +1,11 @@
 use soroban_sdk::{token::TokenClient, Address, Env, Symbol};
 
 use crate::errors::GovernanceError;
+use crate::events::SuspiciousGovActivityEvent;
 use crate::storage::GovernanceDataKey;
 use crate::types::{
     GovernanceAnalytics, BASIS_POINTS_SCALE, PROPOSAL_RATE_LIMIT, PROPOSAL_RATE_WINDOW,
 };
-use crate::events::SuspiciousGovActivityEvent;
 
 /// Query governance analytics.
 pub fn get_governance_analytics(env: &Env) -> GovernanceAnalytics {
@@ -23,10 +23,7 @@ pub fn get_governance_analytics(env: &Env) -> GovernanceAnalytics {
 }
 
 /// Enforce proposal rate limiting.
-pub fn enforce_proposal_rate_limit(
-    env: &Env,
-    proposer: &Address,
-) -> Result<(), GovernanceError> {
+pub fn enforce_proposal_rate_limit(env: &Env, proposer: &Address) -> Result<(), GovernanceError> {
     let now = env.ledger().timestamp();
 
     let window_key = GovernanceDataKey::ProposalWindowStart(proposer.clone());

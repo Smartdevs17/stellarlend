@@ -1,15 +1,16 @@
 // ════════════════════════════════════════════════════════════════
-// REENTRANCY GUARD (hello-world)
+// COMPREHENSIVE REENTRANCY GUARD
 // ════════════════════════════════════════════════════════════════
-// Thin, behaviour-preserving wrapper over the shared reusable
-// reentrancy primitive in `stellarlend-security`. All locking logic
-// lives in the shared crate; this module exposes the historical
-// hello-world API (bare `u32` error codes) so existing call sites are
-// unchanged.
+// Provides multi-layered reentrancy protection:
+// 1. Function-level guards (per-function locks)
+// 2. Cross-contract reentrancy detection
+// 3. Read-only reentrancy detection
+// 4. Constructor reentrancy protection
+// 5. Delegate call reentrancy protection
+// 6. Checks-effects-interactions pattern enforcement
 // ════════════════════════════════════════════════════════════════
 
-use soroban_sdk::{contracttype, Address, Env, Val};
-use stellarlend_security::ReentrancyError as SharedError;
+use soroban_sdk::{contracttype, Address, Env, IntoVal, Symbol, Val};
 
 /// Reentrancy guard state tracking
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -19,10 +20,7 @@ pub enum GuardState {
     Entered = 1,
 }
 
-/// Storage keys for reentrancy guards.
-///
-/// Mirrors the historical hello-world key set; each variant maps onto the
-/// shared [`stellarlend_security::ReentrancyKey`].
+/// Storage keys for reentrancy guards
 #[contracttype]
 #[derive(Clone)]
 pub enum ReentrancyKey {
@@ -45,103 +43,133 @@ pub enum ReentrancyKey {
     DelegateCallLock,
 }
 
-impl ReentrancyKey {
-    fn to_shared(&self) -> stellarlend_security::ReentrancyKey {
-        use stellarlend_security::ReentrancyKey as K;
-        match self {
-            ReentrancyKey::GlobalLock => K::GlobalLock,
-            ReentrancyKey::DepositLock => K::DepositLock,
-            ReentrancyKey::WithdrawLock => K::WithdrawLock,
-            ReentrancyKey::BorrowLock => K::BorrowLock,
-            ReentrancyKey::RepayLock => K::RepayLock,
-            ReentrancyKey::LiquidateLock => K::LiquidateLock,
-            ReentrancyKey::FlashLoanLock => K::FlashLoanLock,
-            ReentrancyKey::CrossContractLock(a) => K::CrossContractLock(a.clone()),
-            ReentrancyKey::ReadOnlyLock => K::ReadOnlyLock,
-            ReentrancyKey::ConstructorLock => K::ConstructorLock,
-            ReentrancyKey::DelegateCallLock => K::DelegateCallLock,
-        }
-    }
-}
-
-/// Legacy error code mapping to the historical hello-world `u32` errors.
-fn map_err(e: SharedError) -> u32 {
-    match e {
-        SharedError::ReentrancyDetected => 7,
-        SharedError::CrossContractReentrancy => 8,
-        SharedError::ConstructorReentrancy => 9,
-        SharedError::DelegateCallReentrancy => 10,
-    }
-}
-
-/// Comprehensive reentrancy guard with RAII pattern.
+/// Comprehensive reentrancy guard with RAII pattern
 pub struct ReentrancyGuard<'a> {
-    inner: stellarlend_security::ReentrancyGuard<'a>,
+    env: &'a Env,
+    key: Val,
+    state_before: GuardState,
+    is_read_only: bool,
 }
 
 impl<'a> ReentrancyGuard<'a> {
     /// Create a new global reentrancy guard
     pub fn new(env: &'a Env) -> Result<Self, u32> {
-        stellarlend_security::ReentrancyGuard::new(env)
-            .map(|inner| Self { inner })
-            .map_err(map_err)
+        let key = ReentrancyKey::GlobalLock.into_val(env);
+        Self::new_with_key(env, key, false)
     }
 
     /// Create a new reentrancy guard with a specific key
-    pub fn new_with_key(env: &'a Env, key: ReentrancyKey, is_read_only: bool) -> Result<Self, u32> {
-        stellarlend_security::ReentrancyGuard::new_with_key(env, key.to_shared(), is_read_only)
-            .map(|inner| Self { inner })
-            .map_err(map_err)
+    pub fn new_with_key(env: &'a Env, key: Val, is_read_only: bool) -> Result<Self, u32> {
+        // CHECK: Are we already inside this function?
+        if env.storage().temporary().has(&key) {
+            return Err(7); // Reentrancy error code
+        }
+
+        // EFFECT: Mark as entered immediately
+        env.storage().temporary().set(&key, &true);
+
+        Ok(Self {
+            env,
+            key,
+            state_before: GuardState::NotEntered,
+            is_read_only,
+        })
     }
 
     /// Create a cross-contract reentrancy guard
     pub fn new_cross_contract(env: &'a Env, caller: &Address) -> Result<Self, u32> {
-        stellarlend_security::ReentrancyGuard::new_with_caller(
+        let key = ReentrancyKey::CrossContractLock(caller.clone()).into_val(env);
+
+        // Check for cross-contract reentrancy
+        if env.storage().temporary().has(&key) {
+            return Err(7);
+        }
+
+        env.storage().temporary().set(&key, &true);
+
+        Ok(Self {
             env,
-            stellarlend_security::ReentrancyKey::GlobalLock,
-            caller,
-            false,
-        )
-        .map(|inner| Self { inner })
-        .map_err(map_err)
+            key,
+            state_before: GuardState::NotEntered,
+            is_read_only: false,
+        })
     }
 
     /// Create a read-only reentrancy guard
     pub fn new_read_only(env: &'a Env) -> Result<Self, u32> {
-        stellarlend_security::ReentrancyGuard::new_read_only(env)
-            .map(|inner| Self { inner })
-            .map_err(map_err)
+        let key = ReentrancyKey::ReadOnlyLock.into_val(env);
+
+        // Read-only functions can be re-entered but we track it
+        let state_before = if env.storage().temporary().has(&key) {
+            GuardState::Entered
+        } else {
+            GuardState::NotEntered
+        };
+
+        env.storage().temporary().set(&key, &true);
+
+        Ok(Self {
+            env,
+            key,
+            state_before,
+            is_read_only: true,
+        })
     }
 
     /// Create a constructor reentrancy guard
     pub fn new_constructor(env: &'a Env) -> Result<Self, u32> {
-        stellarlend_security::ReentrancyGuard::new_constructor(env)
-            .map(|inner| Self { inner })
-            .map_err(map_err)
+        let key = ReentrancyKey::ConstructorLock.into_val(env);
+
+        if env.storage().temporary().has(&key) {
+            return Err(7);
+        }
+
+        env.storage().temporary().set(&key, &true);
+
+        Ok(Self {
+            env,
+            key,
+            state_before: GuardState::NotEntered,
+            is_read_only: false,
+        })
     }
 
     /// Create a delegate call reentrancy guard
     pub fn new_delegate_call(env: &'a Env) -> Result<Self, u32> {
-        stellarlend_security::ReentrancyGuard::new_delegate_call(env)
-            .map(|inner| Self { inner })
-            .map_err(map_err)
+        let key = ReentrancyKey::DelegateCallLock.into_val(env);
+
+        if env.storage().temporary().has(&key) {
+            return Err(7);
+        }
+
+        env.storage().temporary().set(&key, &true);
+
+        Ok(Self {
+            env,
+            key,
+            state_before: GuardState::NotEntered,
+            is_read_only: false,
+        })
     }
 
     /// Check if this is a read-only reentrancy
     pub fn is_read_only_reentrancy(&self) -> bool {
-        self.inner.is_read_only_reentrancy()
+        self.is_read_only && self.state_before == GuardState::Entered
     }
 }
 
-// Re-export a type alias so downstream callers that refer to the guard by path
-// (e.g. `crate::reentrancy::ReentrancyGuard`) keep working.
-pub use self::ReentrancyGuard as Guard;
+impl<'a> Drop for ReentrancyGuard<'a> {
+    fn drop(&mut self) {
+        // INTERACTION: Exit only after all operations complete
+        self.env.storage().temporary().remove(&self.key);
+    }
+}
 
 /// Helper macro for function-level reentrancy guards
 #[macro_export]
 macro_rules! reentrancy_guard {
     ($env:expr, $key:expr) => {
-        $crate::reentrancy::ReentrancyGuard::new_with_key($env, $key, false)
+        $crate::reentrancy::ReentrancyGuard::new_with_key($env, $key.into_val($env), false)
     };
 }
 
@@ -167,6 +195,7 @@ mod tests {
 
     #[test]
     fn test_guard_state_transitions() {
+        // Guard state should transition correctly
         assert_eq!(GuardState::NotEntered, GuardState::NotEntered);
         assert_eq!(GuardState::Entered, GuardState::Entered);
     }

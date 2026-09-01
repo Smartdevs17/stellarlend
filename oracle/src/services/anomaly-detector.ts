@@ -247,9 +247,7 @@ export class AnomalyDetector {
    * Check if an asset has any critical anomalies
    */
   hasCriticalAnomaly(asset: string): boolean {
-    return this.getEvents(asset).some(
-      (e) => e.severity === AnomalySeverity.CRITICAL
-    );
+    return this.getEvents(asset).some((e) => e.severity === AnomalySeverity.CRITICAL);
   }
 
   /**
@@ -378,11 +376,7 @@ export class AnomalyDetector {
 
   // ── Private: Z-Score Detection ──────────────────────────────────────
 
-  private checkZScore(
-    asset: string,
-    price: bigint,
-    stats: RollingStats
-  ): AnomalyEvent | null {
+  private checkZScore(asset: string, price: bigint, stats: RollingStats): AnomalyEvent | null {
     if (stats.stdDev === 0) return null;
 
     const priceNum = Number(price);
@@ -443,11 +437,7 @@ export class AnomalyDetector {
 
   // ── Private: IQR Detection ─────────────────────────────────────────
 
-  private checkIQR(
-    asset: string,
-    price: bigint,
-    stats: RollingStats
-  ): AnomalyEvent | null {
+  private checkIQR(asset: string, price: bigint, stats: RollingStats): AnomalyEvent | null {
     if (stats.iqr === 0) return null;
 
     const priceNum = Number(price);
@@ -460,9 +450,7 @@ export class AnomalyDetector {
       const reference = priceNum > upperFence ? stats.q3 : stats.q1;
       const fence = priceNum > upperFence ? upperFence : lowerFence;
       const deviationBps =
-        reference > 0
-          ? Math.round(Math.abs(priceNum - reference) / reference * 10000)
-          : 0;
+        reference > 0 ? Math.round((Math.abs(priceNum - reference) / reference) * 10000) : 0;
 
       const severity =
         priceNum < lowerFence * 0.8 || priceNum > upperFence * 1.2
@@ -494,11 +482,7 @@ export class AnomalyDetector {
 
   // ── Private: Velocity Detection ─────────────────────────────────────
 
-  private checkVelocity(
-    asset: string,
-    price: bigint,
-    timestamp: number
-  ): AnomalyEvent | null {
+  private checkVelocity(asset: string, price: bigint, timestamp: number): AnomalyEvent | null {
     const timestamps = this.timestampWindows.get(asset);
     const window = this.priceWindows.get(asset);
 
@@ -523,8 +507,7 @@ export class AnomalyDetector {
     const timeDelta = timestamp - prevTimestamp;
     if (timeDelta <= 0) return null;
 
-    const priceDelta =
-      price > prevPrice ? price - prevPrice : prevPrice - price;
+    const priceDelta = price > prevPrice ? price - prevPrice : prevPrice - price;
     const bpsChange = Number((priceDelta * 10000n) / prevPrice);
     const bpsPerSecond = bpsChange / timeDelta;
 
@@ -594,8 +577,7 @@ export class AnomalyDetector {
     const mean = numericValues.reduce((s, v) => s + v, 0) / numericValues.length;
     if (mean === 0) return 0;
 
-    const variance =
-      numericValues.reduce((s, v) => s + (v - mean) ** 2, 0) / numericValues.length;
+    const variance = numericValues.reduce((s, v) => s + (v - mean) ** 2, 0) / numericValues.length;
     return Math.sqrt(variance) / mean;
   }
 
@@ -655,8 +637,7 @@ export class AnomalyDetector {
       assetEvents.shift();
     }
 
-    const logFn =
-      event.severity === AnomalySeverity.CRITICAL ? logger.error : logger.warn;
+    const logFn = event.severity === AnomalySeverity.CRITICAL ? logger.error : logger.warn;
     logFn(`[ANOMALY] ${event.severity.toUpperCase()} ${event.method}: ${event.message}`, {
       asset: event.asset,
       price: event.price.toString(),
@@ -668,8 +649,6 @@ export class AnomalyDetector {
 /**
  * Create an anomaly detector instance
  */
-export function createAnomalyDetector(
-  config?: Partial<AnomalyDetectorConfig>
-): AnomalyDetector {
+export function createAnomalyDetector(config?: Partial<AnomalyDetectorConfig>): AnomalyDetector {
   return new AnomalyDetector(config);
 }

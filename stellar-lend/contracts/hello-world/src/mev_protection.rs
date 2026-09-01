@@ -586,10 +586,7 @@ fn record_sandwich_attack(
         .persistent()
         .get(&MevDataKey::SandwichLog)
         .unwrap_or_else(|| Vec::new(env));
-    let next_id = log
-        .last()
-        .map(|r| r.id.saturating_add(1))
-        .unwrap_or(1);
+    let next_id = log.last().map(|r| r.id.saturating_add(1)).unwrap_or(1);
 
     log.push_back(SandwichAttackRecord {
         id: next_id,
@@ -1209,7 +1206,15 @@ fn record_ordering_signal(
         {
             stats.sandwich_alerts = stats.sandwich_alerts.saturating_add(1);
             stats.last_alert_timestamp = now;
-            record_sandwich_attack(env, now, actor.clone(), op_key.clone(), asset.clone(), amount, 2);
+            record_sandwich_attack(
+                env,
+                now,
+                actor.clone(),
+                op_key.clone(),
+                asset.clone(),
+                amount,
+                2,
+            );
         }
     }
 

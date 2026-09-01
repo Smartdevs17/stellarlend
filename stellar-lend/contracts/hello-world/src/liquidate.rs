@@ -25,7 +25,7 @@ use crate::events::{
     emit_batch_liquidation, emit_liquidation, emit_liquidation_fee_collected,
     BatchLiquidationEvent, LiquidationEvent, LiquidationFeeCollectedEvent,
 };
-use soroban_sdk::{contracttype, contracterror, Address, Env, IntoVal, Map, Symbol, Val, Vec};
+use soroban_sdk::{contracterror, contracttype, Address, Env, IntoVal, Map, Symbol, Val, Vec};
 
 use crate::deposit::{
     add_activity_log, emit_analytics_updated_event, emit_position_updated_event,
@@ -362,9 +362,9 @@ pub fn liquidate(
         crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| LiquidationError::Reentrancy)?;
 
     // Check circuit breaker - liquidations may be paused or restricted
-    let liquidation_allowed = crate::circuit_breaker::is_liquidation_allowed(env, &liquidator)
-        .unwrap_or(true); // Default to allowed if circuit breaker not initialized
-    
+    let liquidation_allowed =
+        crate::circuit_breaker::is_liquidation_allowed(env, &liquidator).unwrap_or(true); // Default to allowed if circuit breaker not initialized
+
     if !liquidation_allowed {
         return Err(LiquidationError::LiquidationPaused);
     }
@@ -568,11 +568,17 @@ pub fn liquidate(
     // Early-exit: abort when the liquidation would not cover the repaid debt
     // plus a minimum profit floor (issue #723). Saves the gas-heavy transfer,
     // storage-mutation and event path for unprofitable positions.
-    abort_if_unprofitable(actual_debt_liquidated, collateral_seized, protocol_liquidation_fee)?;
+    abort_if_unprofitable(
+        actual_debt_liquidated,
+        collateral_seized,
+        protocol_liquidation_fee,
+    )?;
 
     // Check liquidator has sufficient balance to repay debt
     if let Some(ref debt_addr) = debt_asset {
-        let liquidator_balance = if let Some(cached) = crate::storage::get_temp_token_balance(env, debt_addr, &liquidator) {
+        let liquidator_balance = if let Some(cached) =
+            crate::storage::get_temp_token_balance(env, debt_addr, &liquidator)
+        {
             cached
         } else {
             let token_client = soroban_sdk::token::Client::new(env, debt_addr);
@@ -598,12 +604,21 @@ pub fn liquidate(
 
     // Check contract has sufficient collateral to transfer
     if let Some(ref collateral_addr) = collateral_asset {
-        let contract_balance = if let Some(cached) = crate::storage::get_temp_token_balance(env, collateral_addr, &env.current_contract_address()) {
+        let contract_balance = if let Some(cached) = crate::storage::get_temp_token_balance(
+            env,
+            collateral_addr,
+            &env.current_contract_address(),
+        ) {
             cached
         } else {
             let token_client = soroban_sdk::token::Client::new(env, collateral_addr);
             let balance = token_client.balance(&env.current_contract_address());
-            crate::storage::set_temp_token_balance(env, collateral_addr, &env.current_contract_address(), balance);
+            crate::storage::set_temp_token_balance(
+                env,
+                collateral_addr,
+                &env.current_contract_address(),
+                balance,
+            );
             balance
         };
         if contract_balance < actual_collateral_seized {
@@ -930,8 +945,7 @@ pub fn calculate_priority_score(
     // Normalize debt amount to a reasonable scale (divide by 1e6)
     let debt_scale = request.debt_amount.checked_div(1_000_000).unwrap_or(0) as u64;
 
-    let score = (collateral_ratio as u64)
-        .saturating_add(debt_scale);
+    let score = (collateral_ratio as u64).saturating_add(debt_scale);
 
     Ok(score)
 }

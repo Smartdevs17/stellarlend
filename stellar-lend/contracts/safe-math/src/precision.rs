@@ -28,7 +28,6 @@ impl PrecisionTracker {
         if b == 0 {
             return;
         }
-        let expected = a / b;
         let lost = (a - result * b).abs();
         if lost > 0 {
             let entry = PrecisionLoss {
@@ -44,14 +43,7 @@ impl PrecisionTracker {
         }
     }
 
-    pub fn track_mul_div(
-        &mut self,
-        env: &Env,
-        a: i128,
-        b: i128,
-        denominator: i128,
-        result: i128,
-    ) {
+    pub fn track_mul_div(&mut self, env: &Env, a: i128, b: i128, denominator: i128, result: i128) {
         if denominator == 0 {
             return;
         }
@@ -75,6 +67,6 @@ impl PrecisionTracker {
     }
 
     pub fn log_count(&self) -> u32 {
-        self.logs.len() as u32
+        self.logs.len()
     }
 }

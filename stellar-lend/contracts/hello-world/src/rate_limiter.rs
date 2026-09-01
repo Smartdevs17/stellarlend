@@ -225,12 +225,8 @@ pub fn report_congestion(
     caller: Address,
     congestion_bps: i128,
 ) -> Result<(), RateLimitError> {
-    let is_admin = admin::get_admin(env)
-        .map(|a| a == caller)
-        .unwrap_or(false);
-    if !is_admin
-        && !admin::has_role(env, Symbol::new(env, "congestion_reporter"), caller.clone())
-    {
+    let is_admin = admin::get_admin(env).map(|a| a == caller).unwrap_or(false);
+    if !is_admin && !admin::has_role(env, Symbol::new(env, "congestion_reporter"), caller.clone()) {
         return Err(RateLimitError::Unauthorized);
     }
     caller.require_auth();

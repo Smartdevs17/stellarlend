@@ -255,9 +255,7 @@ export class FeedCorrelation {
   areExpectedCorrelates(asset1: string, asset2: string): boolean {
     const a1 = asset1.toUpperCase();
     const a2 = asset2.toUpperCase();
-    return this.config.correlatedGroups.some(
-      (group) => group.includes(a1) && group.includes(a2)
-    );
+    return this.config.correlatedGroups.some((group) => group.includes(a1) && group.includes(a2));
   }
 
   /**
@@ -360,9 +358,7 @@ export class FeedCorrelation {
       pair.correlation < prevCorr - this.config.correlationBreakdownThreshold
     ) {
       const severity =
-        pair.correlation < 0
-          ? CorrelationSeverity.CRITICAL
-          : CorrelationSeverity.WARNING;
+        pair.correlation < 0 ? CorrelationSeverity.CRITICAL : CorrelationSeverity.WARNING;
 
       return this.createEvent(
         CorrelationEventType.CORRELATION_BREAKDOWN,
@@ -403,8 +399,7 @@ export class FeedCorrelation {
     const upMoves = recentReturns.filter((r) => r.return > 1); // > 1%
     const downMoves = recentReturns.filter((r) => r.return < -1); // < -1%
 
-    const significantMoves =
-      upMoves.length > downMoves.length ? upMoves : downMoves;
+    const significantMoves = upMoves.length > downMoves.length ? upMoves : downMoves;
     const direction = upMoves.length > downMoves.length ? 'up' : 'down';
     const fraction = significantMoves.length / recentReturns.length;
 
@@ -465,9 +460,7 @@ export class FeedCorrelation {
     // Two-tailed t-test for significance of correlation
     if (sampleSize <= 2) return 1;
 
-    const t =
-      (correlation * Math.sqrt(sampleSize - 2)) /
-      Math.sqrt(1 - correlation * correlation);
+    const t = (correlation * Math.sqrt(sampleSize - 2)) / Math.sqrt(1 - correlation * correlation);
 
     // Approximate p-value using t-distribution (simplified)
     const df = sampleSize - 2;
@@ -517,8 +510,7 @@ export class FeedCorrelation {
     for (let i = 0; i <= steps; i++) {
       const t = i * dx;
       const weight = i === 0 || i === steps ? 0.5 : 1;
-      const val =
-        Math.pow(t, a - 1) * Math.pow(1 - t, b - 1);
+      const val = Math.pow(t, a - 1) * Math.pow(1 - t, b - 1);
       sum += weight * val * dx;
     }
 
@@ -527,10 +519,7 @@ export class FeedCorrelation {
   }
 
   private betaFunction(a: number, b: number): number {
-    return (
-      (this.gammaFunction(a) * this.gammaFunction(b)) /
-      this.gammaFunction(a + b)
-    );
+    return (this.gammaFunction(a) * this.gammaFunction(b)) / this.gammaFunction(a + b);
   }
 
   private gammaFunction(z: number): number {
@@ -542,14 +531,8 @@ export class FeedCorrelation {
     z -= 1;
     const g = 7;
     const c = [
-      0.99999999999980993,
-      676.5203681218851,
-      -1259.1392167224028,
-      771.32342877765313,
-      -176.61502916214059,
-      12.507343278686905,
-      -0.13857109526572012,
-      9.9843695780195716e-6,
+      0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313,
+      -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6,
       1.5056327351493116e-7,
     ];
 
@@ -607,18 +590,16 @@ export class FeedCorrelation {
       this.events.shift();
     }
 
-    logger.warn(
-      `[CORRELATION] ${event.severity.toUpperCase()} ${event.type}: ${event.message}`,
-      { assets: event.assets, correlation: event.correlation }
-    );
+    logger.warn(`[CORRELATION] ${event.severity.toUpperCase()} ${event.type}: ${event.message}`, {
+      assets: event.assets,
+      correlation: event.correlation,
+    });
   }
 }
 
 /**
  * Create a feed correlation instance
  */
-export function createFeedCorrelation(
-  config?: Partial<FeedCorrelationConfig>
-): FeedCorrelation {
+export function createFeedCorrelation(config?: Partial<FeedCorrelationConfig>): FeedCorrelation {
   return new FeedCorrelation(config);
 }

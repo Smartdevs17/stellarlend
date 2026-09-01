@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::setup::{TestEnvironment, PositionSetup};
+    use crate::setup::{PositionSetup, TestEnvironment};
     use crate::test_scenarios::ScenarioConfig;
 
     #[test]

@@ -23,10 +23,10 @@ impl UserAction {
         // Realistic distribution: more deposits and borrows, fewer withdraws/repays
         let rand = rng.gen_range(0..100);
         match rand {
-            0..=35 => UserAction::Deposit,  // 36%
-            36..=55 => UserAction::Borrow,  // 20%
-            56..=75 => UserAction::Repay,   // 20%
-            _ => UserAction::Withdraw,      // 24%
+            0..=35 => UserAction::Deposit, // 36%
+            36..=55 => UserAction::Borrow, // 20%
+            56..=75 => UserAction::Repay,  // 20%
+            _ => UserAction::Withdraw,     // 24%
         }
     }
 }
@@ -53,10 +53,7 @@ mod tests {
             let action = UserAction::random(&mut rng);
             assert!(matches!(
                 action,
-                UserAction::Deposit
-                    | UserAction::Withdraw
-                    | UserAction::Borrow
-                    | UserAction::Repay
+                UserAction::Deposit | UserAction::Withdraw | UserAction::Borrow | UserAction::Repay
             ));
         }
     }

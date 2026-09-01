@@ -8,7 +8,10 @@ use super::get_admin;
 /// Execute a proposal type — the single source of truth for proposal execution.
 /// This function is shared by governance proposals, multisig execution, and
 /// timelock operations, eliminating the previous duplication.
-pub fn execute_proposal_type(env: &Env, proposal_type: &ProposalType) -> Result<(), GovernanceError> {
+pub fn execute_proposal_type(
+    env: &Env,
+    proposal_type: &ProposalType,
+) -> Result<(), GovernanceError> {
     match proposal_type {
         ProposalType::MinCollateralRatio(ratio) => {
             crate::risk_params::set_risk_params(env, Some(*ratio), None, None, None)

@@ -6,17 +6,15 @@
 
 #![cfg(test)]
 
+use soroban_sdk::token::StellarAssetClient;
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     Address, Env, String, Vec,
 };
-use soroban_sdk::token::StellarAssetClient;
 
 use crate::{
     errors::GovernanceError,
-    types::{
-        ProposalStatus, ProposalType, VoteType,
-    },
+    types::{ProposalStatus, ProposalType, VoteType},
     HelloContract, HelloContractClient,
 };
 
@@ -304,12 +302,8 @@ fn test_phase1_proposal_description_storage() {
     let client = setup_governance(&env, &admin, &token);
 
     let desc = String::from_str(&env, "Unique description for storage test");
-    let proposal_id = client.gov_create_proposal(
-        &proposer,
-        &ProposalType::EmergencyPause(true),
-        &desc,
-        &None,
-    );
+    let proposal_id =
+        client.gov_create_proposal(&proposer, &ProposalType::EmergencyPause(true), &desc, &None);
 
     let proposal = client.gov_get_proposal(&proposal_id).unwrap();
     assert_eq!(proposal.description, desc);
@@ -367,7 +361,10 @@ fn test_phase1_proposal_type_handling() {
         &None,
     );
     let p = client.gov_get_proposal(&id).unwrap();
-    assert!(matches!(p.proposal_type, ProposalType::EmergencyPause(true)));
+    assert!(matches!(
+        p.proposal_type,
+        ProposalType::EmergencyPause(true)
+    ));
 
     let id2 = client.gov_create_proposal(
         &proposer,
@@ -376,7 +373,10 @@ fn test_phase1_proposal_type_handling() {
         &None,
     );
     let p2 = client.gov_get_proposal(&id2).unwrap();
-    assert!(matches!(p2.proposal_type, ProposalType::MinCollateralRatio(15000)));
+    assert!(matches!(
+        p2.proposal_type,
+        ProposalType::MinCollateralRatio(15000)
+    ));
 }
 
 // ============================================================================
@@ -815,7 +815,8 @@ fn test_phase3_proposal_expiration() {
     let p = client.gov_get_proposal(&pid).unwrap();
     let exec_time = p.execution_time.unwrap();
     let config = client.gov_get_config().unwrap();
-    env.ledger().set_timestamp(exec_time + config.timelock_duration + 1);
+    env.ledger()
+        .set_timestamp(exec_time + config.timelock_duration + 1);
 
     let result = client.try_gov_execute_proposal(&admin, &pid);
     assert!(result.is_err());
@@ -846,7 +847,8 @@ fn test_phase3_cannot_execute_expired() {
     let p = client.gov_get_proposal(&pid).unwrap();
     let exec_time = p.execution_time.unwrap();
     let config = client.gov_get_config().unwrap();
-    env.ledger().set_timestamp(exec_time + config.timelock_duration + 1);
+    env.ledger()
+        .set_timestamp(exec_time + config.timelock_duration + 1);
 
     let result = client.try_gov_execute_proposal(&admin, &pid);
     assert!(result.is_err());
@@ -1420,7 +1422,10 @@ fn test_phase7_governance_parameter_updates() {
 
     let p = client.gov_get_proposal(&pid).unwrap();
     assert!(matches!(p.status, ProposalStatus::Executed));
-    assert!(matches!(p.proposal_type, ProposalType::MinCollateralRatio(20000)));
+    assert!(matches!(
+        p.proposal_type,
+        ProposalType::MinCollateralRatio(20000)
+    ));
 }
 
 #[test]
@@ -1451,7 +1456,10 @@ fn test_phase7_emergency_pause_execution() {
 
     let p = client.gov_get_proposal(&pid).unwrap();
     assert!(matches!(p.status, ProposalStatus::Executed));
-    assert!(matches!(p.proposal_type, ProposalType::EmergencyPause(true)));
+    assert!(matches!(
+        p.proposal_type,
+        ProposalType::EmergencyPause(true)
+    ));
 }
 
 #[test]

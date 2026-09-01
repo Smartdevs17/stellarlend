@@ -23,7 +23,14 @@ impl PrecisionLoss {
         }
     }
 
-    pub fn new_mul_div(env: &Env, a: i128, b: i128, _denom: i128, result: i128, lost: i128) -> Self {
+    pub fn new_mul_div(
+        env: &Env,
+        a: i128,
+        b: i128,
+        _denom: i128,
+        result: i128,
+        lost: i128,
+    ) -> Self {
         Self {
             operation: 1,
             input_a: a,
@@ -70,14 +77,7 @@ impl PrecisionTracker {
         }
     }
 
-    pub fn track_mul_div(
-        &mut self,
-        env: &Env,
-        a: i128,
-        b: i128,
-        denominator: i128,
-        result: i128,
-    ) {
+    pub fn track_mul_div(&mut self, env: &Env, a: i128, b: i128, denominator: i128, result: i128) {
         if denominator == 0 {
             return;
         }

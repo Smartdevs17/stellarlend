@@ -363,16 +363,14 @@ pub fn emergency_withdraw(
 }
 
 /// Set maximum limit per emergency withdrawal (0 = unlimited)
-pub fn set_emergency_withdraw_limit(
-    env: &Env,
-    max_amount: i128,
-) -> Result<(), WithdrawError> {
+pub fn set_emergency_withdraw_limit(env: &Env, max_amount: i128) -> Result<(), WithdrawError> {
     if max_amount < 0 {
         return Err(WithdrawError::InvalidAmount);
     }
-    env.storage()
-        .persistent()
-        .set(&EmergencyWithdrawDataKey::MaxEmergencyWithdrawAmount, &max_amount);
+    env.storage().persistent().set(
+        &EmergencyWithdrawDataKey::MaxEmergencyWithdrawAmount,
+        &max_amount,
+    );
     Ok(())
 }
 
@@ -398,9 +396,10 @@ pub fn get_total_emergency_fees(env: &Env) -> i128 {
 }
 
 pub fn set_total_emergency_stats(env: &Env, withdrawn: i128, fees: i128) {
-    env.storage()
-        .persistent()
-        .set(&EmergencyWithdrawDataKey::TotalEmergencyWithdrawn, &withdrawn);
+    env.storage().persistent().set(
+        &EmergencyWithdrawDataKey::TotalEmergencyWithdrawn,
+        &withdrawn,
+    );
     env.storage()
         .persistent()
         .set(&EmergencyWithdrawDataKey::TotalEmergencyFees, &fees);
@@ -412,4 +411,3 @@ pub fn get_emergency_stats(env: &Env) -> (i128, i128) {
         get_total_emergency_fees(env),
     )
 }
-

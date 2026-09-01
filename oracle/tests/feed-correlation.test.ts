@@ -32,7 +32,12 @@ describe('FeedCorrelation', () => {
   describe('recordPrice', () => {
     it('should return empty array with insufficient data', () => {
       for (let i = 0; i < 5; i++) {
-        const events = correlation.recordPrice('BTC', BigInt(50000 + i * 10), BigInt(50000 + (i - 1) * 10), Date.now() / 1000 + i);
+        const events = correlation.recordPrice(
+          'BTC',
+          BigInt(50000 + i * 10),
+          BigInt(50000 + (i - 1) * 10),
+          Date.now() / 1000 + i
+        );
         expect(events).toHaveLength(0);
       }
     });
@@ -110,8 +115,18 @@ describe('FeedCorrelation', () => {
     it('should return correct matrix dimensions', () => {
       const baseTime = Math.floor(Date.now() / 1000);
       for (let i = 0; i < 15; i++) {
-        correlation.recordPrice('BTC', BigInt(50000 + i * 100), i > 0 ? BigInt(50000 + (i - 1) * 100) : null, baseTime + i);
-        correlation.recordPrice('ETH', BigInt(3000 + i * 10), i > 0 ? BigInt(3000 + (i - 1) * 10) : null, baseTime + i);
+        correlation.recordPrice(
+          'BTC',
+          BigInt(50000 + i * 100),
+          i > 0 ? BigInt(50000 + (i - 1) * 100) : null,
+          baseTime + i
+        );
+        correlation.recordPrice(
+          'ETH',
+          BigInt(3000 + i * 10),
+          i > 0 ? BigInt(3000 + (i - 1) * 10) : null,
+          baseTime + i
+        );
       }
 
       const matrix = correlation.getCorrelationMatrix();

@@ -9,7 +9,9 @@
 //! `target_pool` — this contract focuses on plan state, schedule/threshold
 //! gating, and recording reinvestment events for cost-basis tracking.
 
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, Vec,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -192,7 +194,9 @@ impl EarningsReinvestContract {
             next_eligible_ledger: 0,
         };
 
-        env.storage().persistent().set(&DataKey::Plan(plan_id), &plan);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Plan(plan_id), &plan);
 
         let mut user_plans = Self::get_user_plans_internal(&env, &owner);
         user_plans.push_back(plan_id);
@@ -255,7 +259,9 @@ impl EarningsReinvestContract {
         if schedule_gap > 0 {
             plan.next_eligible_ledger = current_ledger + schedule_gap;
         }
-        env.storage().persistent().set(&DataKey::Plan(plan_id), &plan);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Plan(plan_id), &plan);
 
         Self::append_history(&env, plan_id, &events);
 
@@ -275,7 +281,9 @@ impl EarningsReinvestContract {
             return Err(ReinvestError::PlanPaused);
         }
         plan.paused = true;
-        env.storage().persistent().set(&DataKey::Plan(plan_id), &plan);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Plan(plan_id), &plan);
         Ok(())
     }
 
@@ -285,7 +293,9 @@ impl EarningsReinvestContract {
             return Err(ReinvestError::PlanNotPaused);
         }
         plan.paused = false;
-        env.storage().persistent().set(&DataKey::Plan(plan_id), &plan);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Plan(plan_id), &plan);
         Ok(())
     }
 
@@ -304,7 +314,11 @@ impl EarningsReinvestContract {
             .unwrap_or_else(|| Vec::new(&env))
     }
 
-    fn load_owned_plan(env: &Env, owner: &Address, plan_id: u64) -> Result<ReinvestPlan, ReinvestError> {
+    fn load_owned_plan(
+        env: &Env,
+        owner: &Address,
+        plan_id: u64,
+    ) -> Result<ReinvestPlan, ReinvestError> {
         owner.require_auth();
         let plan: ReinvestPlan = env
             .storage()
@@ -381,7 +395,9 @@ impl EarningsReinvestContract {
             }
             history.push_back(event);
         }
-        env.storage().persistent().set(&DataKey::History(plan_id), &history);
+        env.storage()
+            .persistent()
+            .set(&DataKey::History(plan_id), &history);
     }
 
     fn require_initialized(env: &Env) -> Result<(), ReinvestError> {

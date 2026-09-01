@@ -532,4 +532,3 @@ fn test_emergency_withdraw_enforces_limit() {
     let net = client.emergency_withdraw(&user, &asset, &4_000);
     assert_eq!(net, 3_996); // 4000 - 4
 }
-

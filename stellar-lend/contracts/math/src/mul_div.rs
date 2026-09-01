@@ -14,12 +14,7 @@ pub fn mul_div(env: &Env, a: i128, b: i128, denominator: i128) -> Result<i128, M
     result.to_i128().ok_or(MathError::Overflow)
 }
 
-pub fn mul_div_round_up(
-    env: &Env,
-    a: i128,
-    b: i128,
-    denominator: i128,
-) -> Result<i128, MathError> {
+pub fn mul_div_round_up(env: &Env, a: i128, b: i128, denominator: i128) -> Result<i128, MathError> {
     if denominator == 0 {
         return Err(MathError::DivisionByZero);
     }
@@ -32,10 +27,7 @@ pub fn mul_div_round_up(
     let zero = I256::from_i128(env, 0);
     if remainder > zero {
         let one = I256::from_i128(env, 1);
-        result
-            .add(&one)
-            .to_i128()
-            .ok_or(MathError::Overflow)
+        result.add(&one).to_i128().ok_or(MathError::Overflow)
     } else {
         result.to_i128().ok_or(MathError::Overflow)
     }
@@ -113,10 +105,7 @@ mod tests {
     #[test]
     fn mul_div_division_by_zero() {
         let e = env();
-        assert_eq!(
-            mul_div(&e, 10, 10, 0),
-            Err(MathError::DivisionByZero)
-        );
+        assert_eq!(mul_div(&e, 10, 10, 0), Err(MathError::DivisionByZero));
     }
 
     #[test]
@@ -166,7 +155,10 @@ mod tests {
         let e = env();
         assert_eq!(mul_div(&e, -10, 10, 5).unwrap(), -20);
         let result = mul_div_round_up(&e, -10, 10, 3).unwrap();
-        assert!(result >= -34, "round_up negative should be >= ceiling, got {result}");
+        assert!(
+            result >= -34,
+            "round_up negative should be >= ceiling, got {result}"
+        );
     }
 }
 

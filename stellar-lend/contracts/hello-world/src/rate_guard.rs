@@ -252,7 +252,15 @@ pub fn record_rate_change(
         );
 
         // Emit alert event.
-        emit_rate_manipulation_alert(env, caller, amount, old_rate, new_rate_bps, deviation_bps, now);
+        emit_rate_manipulation_alert(
+            env,
+            caller,
+            amount,
+            old_rate,
+            new_rate_bps,
+            deviation_bps,
+            now,
+        );
     }
 
     // Update snapshot.
@@ -298,9 +306,7 @@ fn update_twap(env: &Env, rate_bps: i128, now: u64, config: &RateGuardConfig) {
         twap.last_update = now;
     }
 
-    env.storage()
-        .persistent()
-        .set(&RateGuardKey::Twap, &twap);
+    env.storage().persistent().set(&RateGuardKey::Twap, &twap);
 }
 
 fn log_manipulation_attempt(
@@ -346,10 +352,7 @@ fn log_manipulation_attempt(
 // ── View: check if a rate would be accepted ───────────────────────────────
 
 /// Simulates whether a new rate would be accepted (no state change).
-pub fn check_rate(
-    env: &Env,
-    new_rate_bps: i128,
-) -> Result<(i128, bool, bool), RateGuardError> {
+pub fn check_rate(env: &Env, new_rate_bps: i128) -> Result<(i128, bool, bool), RateGuardError> {
     let config = get_config(env);
     let last = get_last_snapshot(env);
     let old_rate = last.as_ref().map(|s| s.rate_bps).unwrap_or(new_rate_bps);
@@ -416,10 +419,7 @@ fn emit_rate_manipulation_alert(
     timestamp: u64,
 ) {
     env.events().publish(
-        (
-            Symbol::new(env, "rate_manipulation_alert"),
-            address.clone(),
-        ),
+        (Symbol::new(env, "rate_manipulation_alert"), address.clone()),
         (amount, old_rate, new_rate, deviation_bps, timestamp),
     );
 }
@@ -492,10 +492,14 @@ mod tests {
             timestamp: env.ledger().timestamp(),
             block: env.ledger().sequence(),
         };
-        env.storage().persistent().set(&RateGuardKey::LastSnapshot, &snapshot);
+        env.storage()
+            .persistent()
+            .set(&RateGuardKey::LastSnapshot, &snapshot);
 
         let config = RateGuardConfig::default();
-        env.storage().persistent().set(&RateGuardKey::Config, &config);
+        env.storage()
+            .persistent()
+            .set(&RateGuardKey::Config, &config);
 
         // New rate 1050 = 5% change, below 10% alert threshold
         let caller = Address::generate(&env);
@@ -513,10 +517,14 @@ mod tests {
             timestamp: env.ledger().timestamp(),
             block: env.ledger().sequence(),
         };
-        env.storage().persistent().set(&RateGuardKey::LastSnapshot, &snapshot);
+        env.storage()
+            .persistent()
+            .set(&RateGuardKey::LastSnapshot, &snapshot);
 
         let config = RateGuardConfig::default();
-        env.storage().persistent().set(&RateGuardKey::Config, &config);
+        env.storage()
+            .persistent()
+            .set(&RateGuardKey::Config, &config);
 
         // New rate 1150 = 15% change, above 10% alert threshold
         let caller = Address::generate(&env);
@@ -538,10 +546,14 @@ mod tests {
             timestamp: env.ledger().timestamp(),
             block: env.ledger().sequence(),
         };
-        env.storage().persistent().set(&RateGuardKey::LastSnapshot, &snapshot);
+        env.storage()
+            .persistent()
+            .set(&RateGuardKey::LastSnapshot, &snapshot);
 
         let config = RateGuardConfig::default();
-        env.storage().persistent().set(&RateGuardKey::Config, &config);
+        env.storage()
+            .persistent()
+            .set(&RateGuardKey::Config, &config);
 
         // New rate 1300 = 30% change, above 25% pause threshold
         let caller = Address::generate(&env);
@@ -562,10 +574,14 @@ mod tests {
             timestamp: env.ledger().timestamp(),
             block: env.ledger().sequence(),
         };
-        env.storage().persistent().set(&RateGuardKey::LastSnapshot, &snapshot);
+        env.storage()
+            .persistent()
+            .set(&RateGuardKey::LastSnapshot, &snapshot);
 
         let config = RateGuardConfig::default();
-        env.storage().persistent().set(&RateGuardKey::Config, &config);
+        env.storage()
+            .persistent()
+            .set(&RateGuardKey::Config, &config);
 
         let result = check_rate(&env, 1150).unwrap();
         assert_eq!(result.0, 1500); // 15% deviation
@@ -585,14 +601,18 @@ mod tests {
             twap_window_secs: 3600,
             ..Default::default()
         };
-        env.storage().persistent().set(&RateGuardKey::Config, &config);
+        env.storage()
+            .persistent()
+            .set(&RateGuardKey::Config, &config);
 
         let snapshot = RateSnapshot {
             rate_bps: 1000,
             timestamp: env.ledger().timestamp(),
             block: env.ledger().sequence(),
         };
-        env.storage().persistent().set(&RateGuardKey::LastSnapshot, &snapshot);
+        env.storage()
+            .persistent()
+            .set(&RateGuardKey::LastSnapshot, &snapshot);
 
         let caller = Address::generate(&env);
         let _ = record_rate_change(&env, 1050, &caller, 1_000_000);

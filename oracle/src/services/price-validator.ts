@@ -194,9 +194,7 @@ export class PriceValidator {
         });
       }
     }
-    return errors.length === 0
-      ? { isValid: true, errors: [] }
-      : { isValid: false, errors };
+    return errors.length === 0 ? { isValid: true, errors: [] } : { isValid: false, errors };
   }
 
   validateMany(prices: RawPriceData[]): ValidationResult[] {

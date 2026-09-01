@@ -111,17 +111,11 @@ impl PrincipalToken {
     }
 
     pub fn name(env: Env) -> String {
-        env.storage()
-            .instance()
-            .get(&DataKey::Name)
-            .unwrap()
+        env.storage().instance().get(&DataKey::Name).unwrap()
     }
 
     pub fn symbol(env: Env) -> String {
-        env.storage()
-            .instance()
-            .get(&DataKey::Symbol)
-            .unwrap()
+        env.storage().instance().get(&DataKey::Symbol).unwrap()
     }
 
     pub fn decimals(env: Env) -> u32 {
@@ -187,9 +181,10 @@ impl PrincipalToken {
             .checked_sub(amount)
             .ok_or(PrincipalTokenError::Overflow)?;
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Allowance(from.clone(), spender.clone()), &new_allowance);
+        env.storage().persistent().set(
+            &DataKey::Allowance(from.clone(), spender.clone()),
+            &new_allowance,
+        );
         Self::do_transfer(&env, &from, &to, amount)?;
 
         TransferEvent { from, to, amount }.publish(&env);
@@ -207,15 +202,16 @@ impl PrincipalToken {
             .persistent()
             .set(&DataKey::Allowance(owner.clone(), spender.clone()), &amount);
 
-        ApprovalEvent { owner, spender, amount }.publish(&env);
+        ApprovalEvent {
+            owner,
+            spender,
+            amount,
+        }
+        .publish(&env);
         Ok(())
     }
 
-    pub fn mint(
-        env: Env,
-        to: Address,
-        amount: i128,
-    ) -> Result<(), PrincipalTokenError> {
+    pub fn mint(env: Env, to: Address, amount: i128) -> Result<(), PrincipalTokenError> {
         let splitter: Address = env
             .storage()
             .instance()
@@ -255,19 +251,13 @@ impl PrincipalToken {
         supply = supply
             .checked_add(amount)
             .ok_or(PrincipalTokenError::Overflow)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::TotalSupply, &supply);
+        env.storage().instance().set(&DataKey::TotalSupply, &supply);
 
         MintEvent { to, amount }.publish(&env);
         Ok(())
     }
 
-    pub fn burn(
-        env: Env,
-        from: Address,
-        amount: i128,
-    ) -> Result<(), PrincipalTokenError> {
+    pub fn burn(env: Env, from: Address, amount: i128) -> Result<(), PrincipalTokenError> {
         let splitter: Address = env
             .storage()
             .instance()
@@ -302,9 +292,7 @@ impl PrincipalToken {
         supply = supply
             .checked_sub(amount)
             .ok_or(PrincipalTokenError::Overflow)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::TotalSupply, &supply);
+        env.storage().instance().set(&DataKey::TotalSupply, &supply);
 
         BurnEvent { from, amount }.publish(&env);
         Ok(())
@@ -329,11 +317,7 @@ impl PrincipalToken {
             .unwrap_or(false)
     }
 
-    pub fn set_active(
-        env: Env,
-        admin: Address,
-        active: bool,
-    ) -> Result<(), PrincipalTokenError> {
+    pub fn set_active(env: Env, admin: Address, active: bool) -> Result<(), PrincipalTokenError> {
         let stored_admin: Address = env
             .storage()
             .instance()

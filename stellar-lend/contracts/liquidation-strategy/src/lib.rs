@@ -301,7 +301,9 @@ pub struct LiquidationStrategyContract;
 #[contractimpl]
 impl LiquidationStrategyContract {
     pub fn initialize(env: Env, governance: Address, admin: Address) {
-        env.storage().instance().set(&DataKey::Governance, &governance);
+        env.storage()
+            .instance()
+            .set(&DataKey::Governance, &governance);
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::StrategyCount, &0u32);
     }
@@ -315,7 +317,8 @@ impl LiquidationStrategyContract {
         let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
         governance.require_auth();
 
-        let validation = Self::validate_strategy(env.clone(), strategy_type.clone(), parameters.clone());
+        let validation =
+            Self::validate_strategy(env.clone(), strategy_type.clone(), parameters.clone());
         assert!(validation.is_valid, "Strategy validation failed");
 
         let strategy = LiquidationStrategy {
@@ -326,19 +329,36 @@ impl LiquidationStrategyContract {
             parameters: parameters.clone(),
         };
 
-        let count: u32 = env.storage().instance().get(&DataKey::StrategyCount).unwrap_or(0);
+        let count: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::StrategyCount)
+            .unwrap_or(0);
         let strategy_id = (count + 1) as u64;
 
-        env.storage().instance().set(&DataKey::Strategy(strategy_id), &strategy);
-        env.storage().instance().set(&DataKey::PoolStrategy(pool.clone()), &strategy_id);
-        env.storage().instance().set(&DataKey::StrategyCount, &(count + 1));
-        env.storage().instance().set(&DataKey::Analytics(strategy_id), &StrategyAnalytics::new());
-        env.events().publish(("register_strategy", &pool), &strategy_type);
+        env.storage()
+            .instance()
+            .set(&DataKey::Strategy(strategy_id), &strategy);
+        env.storage()
+            .instance()
+            .set(&DataKey::PoolStrategy(pool.clone()), &strategy_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::StrategyCount, &(count + 1));
+        env.storage()
+            .instance()
+            .set(&DataKey::Analytics(strategy_id), &StrategyAnalytics::new());
+        env.events()
+            .publish(("register_strategy", &pool), &strategy_type);
 
         strategy_id
     }
 
-    pub fn validate_strategy(env: Env, strategy_type: StrategyType, parameters: Bytes) -> StrategyValidation {
+    pub fn validate_strategy(
+        env: Env,
+        strategy_type: StrategyType,
+        parameters: Bytes,
+    ) -> StrategyValidation {
         match strategy_type {
             StrategyType::FixedDiscount => FixedDiscountStrategy.validate(&env, &parameters),
             StrategyType::DutchAuction => DutchAuctionStrategy.validate(&env, &parameters),
@@ -354,23 +374,38 @@ impl LiquidationStrategyContract {
         debt_value: i128,
         time_since_unhealthy: u64,
     ) -> LiquidationDiscount {
-        let strategy: LiquidationStrategy = env.storage().instance().get(&DataKey::Strategy(strategy_id))
+        let strategy: LiquidationStrategy = env
+            .storage()
+            .instance()
+            .get(&DataKey::Strategy(strategy_id))
             .expect("Strategy not found");
         assert!(strategy.enabled, "Strategy is disabled");
 
         let discount = match strategy.strategy_type {
-            StrategyType::FixedDiscount => {
-                FixedDiscountStrategy.calculate_discount(&strategy.parameters, collateral_value, debt_value, time_since_unhealthy)
-            }
-            StrategyType::DutchAuction => {
-                DutchAuctionStrategy.calculate_discount(&strategy.parameters, collateral_value, debt_value, time_since_unhealthy)
-            }
-            StrategyType::TWAPBased => {
-                TWAPBasedStrategy.calculate_discount(&strategy.parameters, collateral_value, debt_value, time_since_unhealthy)
-            }
-            StrategyType::Hybrid => {
-                HybridStrategy.calculate_discount(&strategy.parameters, collateral_value, debt_value, time_since_unhealthy)
-            }
+            StrategyType::FixedDiscount => FixedDiscountStrategy.calculate_discount(
+                &strategy.parameters,
+                collateral_value,
+                debt_value,
+                time_since_unhealthy,
+            ),
+            StrategyType::DutchAuction => DutchAuctionStrategy.calculate_discount(
+                &strategy.parameters,
+                collateral_value,
+                debt_value,
+                time_since_unhealthy,
+            ),
+            StrategyType::TWAPBased => TWAPBasedStrategy.calculate_discount(
+                &strategy.parameters,
+                collateral_value,
+                debt_value,
+                time_since_unhealthy,
+            ),
+            StrategyType::Hybrid => HybridStrategy.calculate_discount(
+                &strategy.parameters,
+                collateral_value,
+                debt_value,
+                time_since_unhealthy,
+            ),
         };
         discount
     }
@@ -385,17 +420,23 @@ impl LiquidationStrategyContract {
         let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
         governance.require_auth();
 
-        let mut analytics: StrategyAnalytics = env.storage().instance()
+        let mut analytics: StrategyAnalytics = env
+            .storage()
+            .instance()
             .get(&DataKey::Analytics(strategy_id))
             .expect("Strategy not found");
         analytics.record_attempt(recovered_value, premium_paid, success);
-        env.storage().instance().set(&DataKey::Analytics(strategy_id), &analytics);
+        env.storage()
+            .instance()
+            .set(&DataKey::Analytics(strategy_id), &analytics);
 
-        env.events().publish(("liquidation_attempt", &strategy_id), &success);
+        env.events()
+            .publish(("liquidation_attempt", &strategy_id), &success);
     }
 
     pub fn get_analytics(env: Env, strategy_id: u64) -> StrategyAnalytics {
-        env.storage().instance()
+        env.storage()
+            .instance()
             .get(&DataKey::Analytics(strategy_id))
             .unwrap_or_else(|| StrategyAnalytics::new())
     }
@@ -404,28 +445,38 @@ impl LiquidationStrategyContract {
         let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
         governance.require_auth();
 
-        let _strategy: LiquidationStrategy = env.storage().instance()
+        let _strategy: LiquidationStrategy = env
+            .storage()
+            .instance()
             .get(&DataKey::Strategy(new_strategy_id))
             .expect("Strategy not found");
 
-        env.storage().instance().set(&DataKey::PoolStrategy(pool.clone()), &new_strategy_id);
-        env.events().publish(("change_pool_strategy", &pool), &new_strategy_id);
+        env.storage()
+            .instance()
+            .set(&DataKey::PoolStrategy(pool.clone()), &new_strategy_id);
+        env.events()
+            .publish(("change_pool_strategy", &pool), &new_strategy_id);
     }
 
     pub fn disable_strategy(env: Env, strategy_id: u64) {
         let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
         governance.require_auth();
 
-        let mut strategy: LiquidationStrategy = env.storage().instance()
+        let mut strategy: LiquidationStrategy = env
+            .storage()
+            .instance()
             .get(&DataKey::Strategy(strategy_id))
             .expect("Strategy not found");
         strategy.enabled = false;
-        env.storage().instance().set(&DataKey::Strategy(strategy_id), &strategy);
+        env.storage()
+            .instance()
+            .set(&DataKey::Strategy(strategy_id), &strategy);
         env.events().publish(("disable_strategy",), &strategy_id);
     }
 
     pub fn get_strategy(env: Env, strategy_id: u64) -> LiquidationStrategy {
-        env.storage().instance()
+        env.storage()
+            .instance()
             .get(&DataKey::Strategy(strategy_id))
             .expect("Strategy not found")
     }
@@ -466,14 +517,24 @@ mod tests {
         let contract_id = env.register_contract(None, LiquidationStrategyContract);
         let client = LiquidationStrategyContractClient::new(&env, &contract_id);
         client.initialize(&governance, &admin);
-        TestEnv { env, contract_id, governance, admin }
+        TestEnv {
+            env,
+            contract_id,
+            governance,
+            admin,
+        }
     }
 
     fn client(te: &TestEnv) -> LiquidationStrategyContractClient<'_> {
         LiquidationStrategyContractClient::new(&te.env, &te.contract_id)
     }
 
-    fn gov_auth<T>(te: &TestEnv, fn_name: &str, args: impl IntoVal<Env, SdkVec<soroban_sdk::Val>>, f: impl FnOnce() -> T) -> T {
+    fn gov_auth<T>(
+        te: &TestEnv,
+        fn_name: &str,
+        args: impl IntoVal<Env, SdkVec<soroban_sdk::Val>>,
+        f: impl FnOnce() -> T,
+    ) -> T {
         te.env.mock_auths(&[MockAuth {
             address: &te.governance,
             invoke: &MockAuthInvoke {
@@ -493,8 +554,11 @@ mod tests {
     #[test]
     fn test_initialize() {
         let te = setup();
-        let stored: Address = te.env
-            .as_contract(&te.contract_id, || te.env.storage().instance().get(&DataKey::Governance))
+        let stored: Address = te
+            .env
+            .as_contract(&te.contract_id, || {
+                te.env.storage().instance().get(&DataKey::Governance)
+            })
             .unwrap();
         assert_eq!(stored, te.governance);
     }
@@ -505,9 +569,12 @@ mod tests {
         let pool = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let strategy_id = gov_auth(&te, "register_strategy", (&pool, &StrategyType::FixedDiscount, &params), || {
-            client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params)
-        });
+        let strategy_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::FixedDiscount, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params),
+        );
         assert_eq!(strategy_id, 1);
 
         let strategy = client(&te).get_strategy(&strategy_id);
@@ -521,9 +588,12 @@ mod tests {
         let pool = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let strategy_id = gov_auth(&te, "register_strategy", (&pool, &StrategyType::DutchAuction, &params), || {
-            client(&te).register_strategy(&pool, &StrategyType::DutchAuction, &params)
-        });
+        let strategy_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::DutchAuction, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::DutchAuction, &params),
+        );
         assert_eq!(strategy_id, 1);
     }
 
@@ -533,9 +603,12 @@ mod tests {
         let pool = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let strategy_id = gov_auth(&te, "register_strategy", (&pool, &StrategyType::TWAPBased, &params), || {
-            client(&te).register_strategy(&pool, &StrategyType::TWAPBased, &params)
-        });
+        let strategy_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::TWAPBased, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::TWAPBased, &params),
+        );
         assert_eq!(strategy_id, 1);
     }
 
@@ -545,9 +618,12 @@ mod tests {
         let pool = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let strategy_id = gov_auth(&te, "register_strategy", (&pool, &StrategyType::Hybrid, &params), || {
-            client(&te).register_strategy(&pool, &StrategyType::Hybrid, &params)
-        });
+        let strategy_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::Hybrid, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::Hybrid, &params),
+        );
         assert_eq!(strategy_id, 1);
     }
 
@@ -557,9 +633,12 @@ mod tests {
         let pool = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let strategy_id = gov_auth(&te, "register_strategy", (&pool, &StrategyType::FixedDiscount, &params), || {
-            client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params)
-        });
+        let strategy_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::FixedDiscount, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params),
+        );
 
         let discount = client(&te).calculate_discount(&strategy_id, &10_000_000, &5_000_000, &0);
         assert_eq!(discount.base_premium_bps, 1_000);
@@ -572,12 +651,17 @@ mod tests {
         let pool = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let strategy_id = gov_auth(&te, "register_strategy", (&pool, &StrategyType::DutchAuction, &params), || {
-            client(&te).register_strategy(&pool, &StrategyType::DutchAuction, &params)
-        });
+        let strategy_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::DutchAuction, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::DutchAuction, &params),
+        );
 
-        let discount_early = client(&te).calculate_discount(&strategy_id, &10_000_000, &5_000_000, &0);
-        let discount_late = client(&te).calculate_discount(&strategy_id, &10_000_000, &5_000_000, &7200);
+        let discount_early =
+            client(&te).calculate_discount(&strategy_id, &10_000_000, &5_000_000, &0);
+        let discount_late =
+            client(&te).calculate_discount(&strategy_id, &10_000_000, &5_000_000, &7200);
 
         assert!(
             discount_late.calculated_discount > discount_early.calculated_discount,
@@ -591,9 +675,12 @@ mod tests {
         let pool = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let strategy_id = gov_auth(&te, "register_strategy", (&pool, &StrategyType::TWAPBased, &params), || {
-            client(&te).register_strategy(&pool, &StrategyType::TWAPBased, &params)
-        });
+        let strategy_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::TWAPBased, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::TWAPBased, &params),
+        );
 
         let discount = client(&te).calculate_discount(&strategy_id, &10_000_000, &5_000_000, &0);
         assert_eq!(discount.base_premium_bps, 1_200);
@@ -605,9 +692,12 @@ mod tests {
         let pool = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let strategy_id = gov_auth(&te, "register_strategy", (&pool, &StrategyType::Hybrid, &params), || {
-            client(&te).register_strategy(&pool, &StrategyType::Hybrid, &params)
-        });
+        let strategy_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::Hybrid, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::Hybrid, &params),
+        );
 
         let discount = client(&te).calculate_discount(&strategy_id, &10_000_000, &5_000_000, &0);
         assert_eq!(discount.base_premium_bps, 1_100);
@@ -619,13 +709,21 @@ mod tests {
         let pool = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let strategy_id = gov_auth(&te, "register_strategy", (&pool, &StrategyType::FixedDiscount, &params), || {
-            client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params)
-        });
+        let strategy_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::FixedDiscount, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params),
+        );
 
-        gov_auth(&te, "record_liquidation_attempt", (&strategy_id, &1_000_000i128, &100_000i128, &true), || {
-            client(&te).record_liquidation_attempt(&strategy_id, &1_000_000, &100_000, &true);
-        });
+        gov_auth(
+            &te,
+            "record_liquidation_attempt",
+            (&strategy_id, &1_000_000i128, &100_000i128, &true),
+            || {
+                client(&te).record_liquidation_attempt(&strategy_id, &1_000_000, &100_000, &true);
+            },
+        );
 
         let analytics = client(&te).get_analytics(&strategy_id);
         assert_eq!(analytics.total_attempts, 1);
@@ -639,19 +737,37 @@ mod tests {
         let pool = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let strategy_id = gov_auth(&te, "register_strategy", (&pool, &StrategyType::FixedDiscount, &params), || {
-            client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params)
-        });
+        let strategy_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::FixedDiscount, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params),
+        );
 
-        gov_auth(&te, "record_liquidation_attempt", (&strategy_id, &1_000_000i128, &100_000i128, &true), || {
-            client(&te).record_liquidation_attempt(&strategy_id, &1_000_000, &100_000, &true);
-        });
-        gov_auth(&te, "record_liquidation_attempt", (&strategy_id, &500_000i128, &50_000i128, &true), || {
-            client(&te).record_liquidation_attempt(&strategy_id, &500_000, &50_000, &true);
-        });
-        gov_auth(&te, "record_liquidation_attempt", (&strategy_id, &0i128, &0i128, &false), || {
-            client(&te).record_liquidation_attempt(&strategy_id, &0, &0, &false);
-        });
+        gov_auth(
+            &te,
+            "record_liquidation_attempt",
+            (&strategy_id, &1_000_000i128, &100_000i128, &true),
+            || {
+                client(&te).record_liquidation_attempt(&strategy_id, &1_000_000, &100_000, &true);
+            },
+        );
+        gov_auth(
+            &te,
+            "record_liquidation_attempt",
+            (&strategy_id, &500_000i128, &50_000i128, &true),
+            || {
+                client(&te).record_liquidation_attempt(&strategy_id, &500_000, &50_000, &true);
+            },
+        );
+        gov_auth(
+            &te,
+            "record_liquidation_attempt",
+            (&strategy_id, &0i128, &0i128, &false),
+            || {
+                client(&te).record_liquidation_attempt(&strategy_id, &0, &0, &false);
+            },
+        );
 
         let analytics = client(&te).get_analytics(&strategy_id);
         assert_eq!(analytics.total_attempts, 3);
@@ -687,9 +803,12 @@ mod tests {
         let pool = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let strategy_id = gov_auth(&te, "register_strategy", (&pool, &StrategyType::FixedDiscount, &params), || {
-            client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params)
-        });
+        let strategy_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::FixedDiscount, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params),
+        );
 
         let pool2 = Address::generate(&te.env);
         gov_auth(&te, "change_pool_strategy", (&pool2, &strategy_id), || {
@@ -706,9 +825,12 @@ mod tests {
         let pool = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let strategy_id = gov_auth(&te, "register_strategy", (&pool, &StrategyType::FixedDiscount, &params), || {
-            client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params)
-        });
+        let strategy_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::FixedDiscount, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params),
+        );
 
         gov_auth(&te, "disable_strategy", (&strategy_id,), || {
             client(&te).disable_strategy(&strategy_id);
@@ -725,9 +847,12 @@ mod tests {
         let pool = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let strategy_id = gov_auth(&te, "register_strategy", (&pool, &StrategyType::FixedDiscount, &params), || {
-            client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params)
-        });
+        let strategy_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::FixedDiscount, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params),
+        );
 
         gov_auth(&te, "disable_strategy", (&strategy_id,), || {
             client(&te).disable_strategy(&strategy_id);
@@ -748,7 +873,10 @@ mod tests {
             StrategyType::Hybrid,
         ] {
             let validation = client(&te).validate_strategy(strategy_type, &params);
-            assert!(validation.is_valid, "Strategy validation failed for {strategy_type:?}");
+            assert!(
+                validation.is_valid,
+                "Strategy validation failed for {strategy_type:?}"
+            );
         }
     }
 
@@ -759,12 +887,18 @@ mod tests {
         let pool2 = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let id1 = gov_auth(&te, "register_strategy", (&pool1, &StrategyType::FixedDiscount, &params), || {
-            client(&te).register_strategy(&pool1, &StrategyType::FixedDiscount, &params)
-        });
-        let id2 = gov_auth(&te, "register_strategy", (&pool2, &StrategyType::DutchAuction, &params), || {
-            client(&te).register_strategy(&pool2, &StrategyType::DutchAuction, &params)
-        });
+        let id1 = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool1, &StrategyType::FixedDiscount, &params),
+            || client(&te).register_strategy(&pool1, &StrategyType::FixedDiscount, &params),
+        );
+        let id2 = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool2, &StrategyType::DutchAuction, &params),
+            || client(&te).register_strategy(&pool2, &StrategyType::DutchAuction, &params),
+        );
 
         assert_ne!(id1, id2);
     }
@@ -777,20 +911,34 @@ mod tests {
         let pool = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let fixed_id = gov_auth(&te, "register_strategy", (&pool, &StrategyType::FixedDiscount, &params), || {
-            client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params)
-        });
+        let fixed_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::FixedDiscount, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params),
+        );
 
         let scenarios = [
             ("normal market", 10_000_000i128, 5_000_000i128, 0u64),
             ("late liquidation", 10_000_000i128, 5_000_000i128, 14_400u64),
-            ("undercollateralized", 12_000_000i128, 10_000_000i128, 3_600u64),
-            ("highly underwater", 20_000_000i128, 18_000_000i128, 7_200u64),
+            (
+                "undercollateralized",
+                12_000_000i128,
+                10_000_000i128,
+                3_600u64,
+            ),
+            (
+                "highly underwater",
+                20_000_000i128,
+                18_000_000i128,
+                7_200u64,
+            ),
             ("dust amount", 1_000i128, 500i128, 0u64),
         ];
 
         for (name, collateral, debt, time_since) in &scenarios {
-            let fixed_disc = client(&te).calculate_discount(&fixed_id, collateral, debt, time_since);
+            let fixed_disc =
+                client(&te).calculate_discount(&fixed_id, collateral, debt, time_since);
 
             assert!(
                 fixed_disc.calculated_discount >= 0,
@@ -809,16 +957,22 @@ mod tests {
         let pool = Address::generate(&te.env);
         let params = make_params(&te.env);
 
-        let initial_id = gov_auth(&te, "register_strategy", (&pool, &StrategyType::FixedDiscount, &params), || {
-            client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params)
-        });
+        let initial_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::FixedDiscount, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params),
+        );
         assert_eq!(client(&te).get_pool_strategy(&pool), Some(initial_id));
 
         let new_params = make_params(&te.env);
         let new_pool = Address::generate(&te.env);
-        let new_id = gov_auth(&te, "register_strategy", (&new_pool, &StrategyType::DutchAuction, &new_params), || {
-            client(&te).register_strategy(&new_pool, &StrategyType::DutchAuction, &new_params)
-        });
+        let new_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&new_pool, &StrategyType::DutchAuction, &new_params),
+            || client(&te).register_strategy(&new_pool, &StrategyType::DutchAuction, &new_params),
+        );
 
         gov_auth(&te, "change_pool_strategy", (&pool, &new_id), || {
             client(&te).change_pool_strategy(&pool, &new_id);

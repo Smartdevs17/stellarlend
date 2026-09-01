@@ -490,7 +490,8 @@ pub fn cross_asset_deposit(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
-    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     user.require_auth();
 
@@ -556,7 +557,8 @@ pub fn cross_asset_borrow(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
-    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     user.require_auth();
 
@@ -643,7 +645,8 @@ pub fn cross_asset_withdraw(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
-    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     user.require_auth();
 
@@ -707,14 +710,15 @@ pub fn cross_asset_liquidate(
     debt_to_repay: i128,
     collateral_to_receive: i128,
 ) -> Result<i128, CrossAssetError> {
-    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     liquidator.require_auth();
 
     // Get asset configurations
     let debt_asset_key = AssetKey::from_option(debt_asset.clone());
     let collateral_asset_key = AssetKey::from_option(collateral_asset.clone());
-    
+
     let debt_config = get_asset_config(env, &debt_asset_key)?;
     let collateral_config = get_asset_config(env, &collateral_asset_key)?;
 
@@ -734,7 +738,8 @@ pub fn cross_asset_liquidate(
     }
 
     // Calculate actual collateral to receive with liquidation incentive
-    let liquidation_incentive = collateral_config.liquidation_threshold - collateral_config.collateral_factor;
+    let liquidation_incentive =
+        collateral_config.liquidation_threshold - collateral_config.collateral_factor;
     let actual_collateral = (collateral_to_receive * (10_000 - liquidation_incentive)) / 10_000;
 
     // Ensure user has enough collateral
@@ -751,7 +756,7 @@ pub fn cross_asset_liquidate(
     // Update positions
     debt_position.debt_principal -= debt_to_repay;
     debt_position.last_updated = env.ledger().timestamp();
-    
+
     collateral_position.collateral -= actual_collateral;
     collateral_position.last_updated = env.ledger().timestamp();
 
@@ -785,7 +790,8 @@ pub fn cross_asset_repay(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
-    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     user.require_auth();
 
@@ -968,7 +974,11 @@ pub fn check_per_user_supply_limit(
     amount: i128,
 ) -> Result<(), CrossAssetError> {
     let user_supply_key = (PER_USER_SUPPLY_KEY, user.clone(), asset.clone());
-    let user_supply: i128 = env.storage().persistent().get(&user_supply_key).unwrap_or(0);
+    let user_supply: i128 = env
+        .storage()
+        .persistent()
+        .get(&user_supply_key)
+        .unwrap_or(0);
 
     // Per-user cap is 20% of global supply cap by default
     let config = get_asset_config(env, asset)?;
@@ -985,15 +995,16 @@ pub fn check_per_user_supply_limit(
 }
 
 /// Update per-user supply tracking.
-pub fn update_per_user_supply(
-    env: &Env,
-    user: &Address,
-    asset: &AssetKey,
-    delta: i128,
-) {
+pub fn update_per_user_supply(env: &Env, user: &Address, asset: &AssetKey, delta: i128) {
     let user_supply_key = (PER_USER_SUPPLY_KEY, user.clone(), asset.clone());
-    let current: i128 = env.storage().persistent().get(&user_supply_key).unwrap_or(0);
-    env.storage().persistent().set(&user_supply_key, &(current + delta));
+    let current: i128 = env
+        .storage()
+        .persistent()
+        .get(&user_supply_key)
+        .unwrap_or(0);
+    env.storage()
+        .persistent()
+        .set(&user_supply_key, &(current + delta));
 }
 
 // -------------------------------------------------------------------------
@@ -1462,7 +1473,8 @@ pub fn get_unified_health_factor(
             summary.health_factor =
                 (summary.weighted_collateral_value * CORR_BPS) / summary.weighted_debt_value;
         }
-        summary.is_liquidatable = summary.health_factor < CORR_BPS && summary.weighted_debt_value > 0;
+        summary.is_liquidatable =
+            summary.health_factor < CORR_BPS && summary.weighted_debt_value > 0;
         summary.borrow_capacity = if summary.weighted_collateral_value > summary.weighted_debt_value
         {
             summary.weighted_collateral_value - summary.weighted_debt_value

@@ -6,10 +6,10 @@
 
 #![cfg(test)]
 
-use proptest::prelude::*;
-use soroban_sdk::{testutils::Address as _, Address, Env};
 use crate::deposit::{AssetParams, DepositDataKey};
 use crate::{HelloContract, HelloContractClient};
+use proptest::prelude::*;
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 fn create_env() -> Env {
     let env = Env::default();

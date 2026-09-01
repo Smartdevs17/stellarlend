@@ -1,5 +1,8 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, token::StellarAssetClient, Address, Env, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, token::StellarAssetClient,
+    Address, Env, Vec,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -95,18 +98,13 @@ pub struct YieldSplitter;
 
 #[contractimpl]
 impl YieldSplitter {
-    pub fn initialize(
-        env: Env,
-        admin: Address,
-    ) -> Result<(), YieldSplitterError> {
+    pub fn initialize(env: Env, admin: Address) -> Result<(), YieldSplitterError> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(YieldSplitterError::AlreadyInitialized);
         }
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::SplitCounter, &0u64);
+        env.storage().instance().set(&DataKey::SplitCounter, &0u64);
         Ok(())
     }
 

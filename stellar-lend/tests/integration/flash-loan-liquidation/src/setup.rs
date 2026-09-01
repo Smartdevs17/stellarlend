@@ -40,11 +40,11 @@ pub struct PositionSetup {
 impl PositionSetup {
     pub fn create_profitable_liquidation() -> Self {
         PositionSetup {
-            collateral_amount: 10_000_000,      // 10M of collateral
-            collateral_price: 1_000_000,        // $1 each
-            borrowed_amount: 8_000_000,         // 8M borrowed
-            borrowed_price: 1_000_000,          // $1 each
-            min_health_factor: 15_000,          // 1.5x minimum
+            collateral_amount: 10_000_000, // 10M of collateral
+            collateral_price: 1_000_000,   // $1 each
+            borrowed_amount: 8_000_000,    // 8M borrowed
+            borrowed_price: 1_000_000,     // $1 each
+            min_health_factor: 15_000,     // 1.5x minimum
         }
     }
 
@@ -52,7 +52,7 @@ impl PositionSetup {
         PositionSetup {
             collateral_amount: 10_000_000,
             collateral_price: 1_000_000,
-            borrowed_amount: 6_666_667,         // Just at boundary
+            borrowed_amount: 6_666_667, // Just at boundary
             borrowed_price: 1_000_000,
             min_health_factor: 15_000,
         }

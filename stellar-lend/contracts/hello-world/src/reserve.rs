@@ -308,8 +308,6 @@ pub fn get_reserve_amm_lp_balance(env: &Env, asset: Option<Address>) -> i128 {
         .unwrap_or(0)
 }
 
-
-
 /// Helper function to require admin authorization
 ///
 /// # Arguments

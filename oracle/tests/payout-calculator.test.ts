@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createPayoutCalculator, PayoutCalculator, SCALE } from '../src/claims/payout-calculator.js';
+import {
+  createPayoutCalculator,
+  PayoutCalculator,
+  SCALE,
+} from '../src/claims/payout-calculator.js';
 import { ClaimStatus } from '../src/claims/types.js';
 
 describe('PayoutCalculator', () => {
@@ -61,15 +65,15 @@ describe('PayoutCalculator', () => {
     const zeroConfidenceOracle = { ...baseOracle, confidence: 0 };
     // 80 - 0 = 80 points below.
     // 80 * 0.5% = 40% discount. (Actually 40 is less than 50, let's try a higher rate)
-    
+
     const highRateCalculator = createPayoutCalculator({
-        minOracleConfidence: 80,
-        confidenceDiscountRate: 1.0, // 1% per point
+      minOracleConfidence: 80,
+      confidenceDiscountRate: 1.0, // 1% per point
     });
-    
+
     // 80 points * 1% = 80% discount -> should clamp to 50%
     const result = highRateCalculator.calculate(baseClaim, zeroConfidenceOracle);
-    
+
     expect(result.confidenceDiscount).toBe(0.5);
     expect(result.netPayoutAmount).toBe(475_0000000n); // 950 * 0.5
   });

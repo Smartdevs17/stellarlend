@@ -1,7 +1,6 @@
 #![cfg(test)]
 use crate::{
-    LeverageConfig, LeveragedPosition, LeveragedYield, LeveragedYieldClient,
-    LeveragedYieldError,
+    LeverageConfig, LeveragedPosition, LeveragedYield, LeveragedYieldClient, LeveragedYieldError,
 };
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
@@ -166,13 +165,7 @@ fn test_adjust_leverage() {
         &15_000,
     );
 
-    let adjusted = client.adjust_leverage(
-        &owner,
-        &position_id,
-        &15_000,
-        &100_000,
-        &15_000,
-    );
+    let adjusted = client.adjust_leverage(&owner, &position_id, &15_000, &100_000, &15_000);
 
     assert_eq!(adjusted.leverage_bps, 15_000);
     assert_eq!(adjusted.collateral_amount, 300_000);
@@ -199,13 +192,7 @@ fn test_deleverage() {
     let position = client.get_position(&position_id).unwrap();
     let half_debt = position.borrowed_amount / 2;
 
-    let deleveraged = client.deleverage(
-        &owner,
-        &position_id,
-        &20_000,
-        &half_debt,
-        &0,
-    );
+    let deleveraged = client.deleverage(&owner, &position_id, &20_000, &half_debt, &0);
 
     assert_eq!(deleveraged.leverage_bps, 20_000);
     assert!(deleveraged.borrowed_amount < position.borrowed_amount);
@@ -349,13 +336,7 @@ fn test_adjust_leverage_invalid_range() {
         &15_000,
     );
 
-    let result = client.try_adjust_leverage(
-        &owner,
-        &position_id,
-        &60_000,
-        &100_000,
-        &15_000,
-    );
+    let result = client.try_adjust_leverage(&owner, &position_id, &60_000, &100_000, &15_000);
     assert_eq!(result, Err(Ok(LeveragedYieldError::LeverageOutOfRange)));
 }
 
@@ -378,13 +359,7 @@ fn test_adjust_leverage_unauthorized() {
         &15_000,
     );
 
-    let result = client.try_adjust_leverage(
-        &other,
-        &position_id,
-        &15_000,
-        &100_000,
-        &15_000,
-    );
+    let result = client.try_adjust_leverage(&other, &position_id, &15_000, &100_000, &15_000);
     assert_eq!(result, Err(Ok(LeveragedYieldError::Unauthorized)));
 }
 
@@ -408,13 +383,7 @@ fn test_adjust_leverage_closed_position() {
 
     client.close_position(&owner, &position_id, &0);
 
-    let result = client.try_adjust_leverage(
-        &owner,
-        &position_id,
-        &15_000,
-        &100_000,
-        &15_000,
-    );
+    let result = client.try_adjust_leverage(&owner, &position_id, &15_000, &100_000, &15_000);
     assert_eq!(result, Err(Ok(LeveragedYieldError::PositionNotActive)));
 }
 

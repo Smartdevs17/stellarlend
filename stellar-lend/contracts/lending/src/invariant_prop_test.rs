@@ -7,8 +7,10 @@
 #![allow(unused_imports)]
 
 extern crate std;
+use crate::invariant_test_suite::{
+    setup_test_environment, InvariantTestConfig, InvariantTestSuite,
+};
 use crate::proptest_helpers::{LARGE_CEILING, MAX_AMOUNT, MIN_AMOUNT};
-use crate::invariant_test_suite::{InvariantTestConfig, InvariantTestSuite, setup_test_environment};
 use crate::{LendingContract, LendingContractClient};
 use proptest::prelude::*;
 use soroban_sdk::{testutils::Address as _, Address, Env};

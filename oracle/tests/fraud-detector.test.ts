@@ -42,7 +42,7 @@ describe('FraudDetector', () => {
 
     const result = detector.detect(baseClaim, existingClaims);
 
-    expect(result.signals.some(s => s.type === FraudSignalType.VELOCITY)).toBe(true);
+    expect(result.signals.some((s) => s.type === FraudSignalType.VELOCITY)).toBe(true);
     expect(result.maxSeverity).toBe(FraudSeverity.HIGH);
   });
 
@@ -50,8 +50,10 @@ describe('FraudDetector', () => {
     const freshClaim = { ...baseClaim, coveragePurchasedAt: now - 10 };
     const result = detector.detect(freshClaim, []);
 
-    expect(result.signals.some(s => s.type === FraudSignalType.SUSPICIOUS_TIMING)).toBe(true);
-    expect(result.signals.find(s => s.type === FraudSignalType.SUSPICIOUS_TIMING)?.severity).toBe(FraudSeverity.MEDIUM);
+    expect(result.signals.some((s) => s.type === FraudSignalType.SUSPICIOUS_TIMING)).toBe(true);
+    expect(result.signals.find((s) => s.type === FraudSignalType.SUSPICIOUS_TIMING)?.severity).toBe(
+      FraudSeverity.MEDIUM
+    );
   });
 
   it('should detect amount anomaly', () => {
@@ -62,25 +64,25 @@ describe('FraudDetector', () => {
     ];
     // Avg = 10. Multiplier = 3. Threshold = 30.
     const largeClaim = { ...baseClaim, claimedAmount: 100n };
-    
+
     const result = detector.detect(largeClaim, existingClaims);
 
-    expect(result.signals.some(s => s.type === FraudSignalType.AMOUNT_ANOMALY)).toBe(true);
+    expect(result.signals.some((s) => s.type === FraudSignalType.AMOUNT_ANOMALY)).toBe(true);
   });
 
   it('should detect duplicate claims', () => {
     const existingClaims: any[] = [
-      { 
-        id: 'c1', 
-        claimantAddress: 'GADDRESS1', 
-        asset: 'XLM', 
-        lossTimestamp: baseClaim.lossTimestamp 
+      {
+        id: 'c1',
+        claimantAddress: 'GADDRESS1',
+        asset: 'XLM',
+        lossTimestamp: baseClaim.lossTimestamp,
       },
     ];
 
     const result = detector.detect(baseClaim, existingClaims);
 
-    expect(result.signals.some(s => s.type === FraudSignalType.DUPLICATE_CLAIM)).toBe(true);
+    expect(result.signals.some((s) => s.type === FraudSignalType.DUPLICATE_CLAIM)).toBe(true);
     expect(result.maxSeverity).toBe(FraudSeverity.CRITICAL);
     expect(result.isFraudulent).toBe(true);
   });
@@ -91,7 +93,7 @@ describe('FraudDetector', () => {
       { id: 'c2', claimantAddress: 'GADDRESS1', submittedAt: now - 200 },
     ];
     const suspiciousClaim = { ...baseClaim, coveragePurchasedAt: now - 10 };
-    
+
     const result = detector.detect(suspiciousClaim, existingClaims);
 
     // VELOCITY (HIGH: 50) + SUSPICIOUS_TIMING (MEDIUM: 25) = 75

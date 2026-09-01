@@ -266,8 +266,10 @@ export function loadConfig(): OracleServiceConfig {
     adminSecretKey: env.ADMIN_SECRET_KEY,
     dryRun: envOverrides.dryRun ?? env.DRY_RUN,
     updateIntervalMs: envOverrides.updateIntervalMs ?? env.UPDATE_INTERVAL_MS,
-    maxPriceDeviationPercent: envOverrides.maxPriceDeviationPercent ?? env.MAX_PRICE_DEVIATION_PERCENT,
-    priceStaleThresholdSeconds: envOverrides.priceStaleThresholdSeconds ?? env.PRICE_STALENESS_THRESHOLD_SECONDS,
+    maxPriceDeviationPercent:
+      envOverrides.maxPriceDeviationPercent ?? env.MAX_PRICE_DEVIATION_PERCENT,
+    priceStaleThresholdSeconds:
+      envOverrides.priceStaleThresholdSeconds ?? env.PRICE_STALENESS_THRESHOLD_SECONDS,
     cacheTtlSeconds: envOverrides.cacheTtlSeconds ?? env.CACHE_TTL_SECONDS,
     redisUrl: env.REDIS_URL || undefined,
     logLevel: envOverrides.logLevel ?? env.LOG_LEVEL,

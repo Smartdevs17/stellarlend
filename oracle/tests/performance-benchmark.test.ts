@@ -99,7 +99,10 @@ describe('Performance Benchmarks', () => {
       const correlation = createFeedCorrelation({
         rollingWindowSize: 100,
         minSamples: 10,
-        correlatedGroups: [['BTC', 'ETH'], ['SOL', 'AVAX']],
+        correlatedGroups: [
+          ['BTC', 'ETH'],
+          ['SOL', 'AVAX'],
+        ],
         eventCooldownSeconds: 0,
       });
 
@@ -107,8 +110,18 @@ describe('Performance Benchmarks', () => {
       for (let i = 0; i < 500; i++) {
         const btcPrice = BigInt(50000 + i * 10);
         const ethPrice = BigInt(3000 + i);
-        correlation.recordPrice('BTC', btcPrice, i > 0 ? btcPrice - 10n : null, Math.floor(Date.now() / 1000) + i);
-        correlation.recordPrice('ETH', ethPrice, i > 0 ? ethPrice - 1n : null, Math.floor(Date.now() / 1000) + i);
+        correlation.recordPrice(
+          'BTC',
+          btcPrice,
+          i > 0 ? btcPrice - 10n : null,
+          Math.floor(Date.now() / 1000) + i
+        );
+        correlation.recordPrice(
+          'ETH',
+          ethPrice,
+          i > 0 ? ethPrice - 1n : null,
+          Math.floor(Date.now() / 1000) + i
+        );
       }
       const elapsed = performance.now() - start;
 

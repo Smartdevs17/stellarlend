@@ -8,13 +8,12 @@
 
 #![cfg(test)]
 
-use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env};
-
-use crate::{
-    deposit::DepositDataKey,
-    deposit::Position,
-    HelloContract, HelloContractClient,
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env,
 };
+
+use crate::{deposit::DepositDataKey, deposit::Position, HelloContract, HelloContractClient};
 
 fn setup(env: &Env) -> (Address, HelloContractClient<'_>, Address, Address) {
     let contract_id = env.register(HelloContract, ());
@@ -87,7 +86,10 @@ fn test_migration_admin_survives_upgrade() {
 
     // Admin-only op must still work post-upgrade
     let result = client2.try_set_emergency_pause(&admin, &false);
-    assert!(result.is_ok(), "admin must still be authorized post-upgrade");
+    assert!(
+        result.is_ok(),
+        "admin must still be authorized post-upgrade"
+    );
 }
 
 /// Multiple users' state must all survive upgrade.

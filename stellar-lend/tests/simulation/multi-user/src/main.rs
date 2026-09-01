@@ -1,4 +1,4 @@
-use multi_user_simulation::{Simulator, SimulationConfig, SimulationReport};
+use multi_user_simulation::{SimulationConfig, SimulationReport, Simulator};
 
 #[tokio::main]
 async fn main() {

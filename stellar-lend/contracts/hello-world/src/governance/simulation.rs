@@ -186,7 +186,8 @@ pub fn simulate_proposal_dry_run(
 
     let apy_delta_bps = proposed_borrow_apy - borrow_apy;
 
-    let risk_score_delta = (lt - proposed_lt) / 10 + (proposed_cf - cf) / 20 + (proposed_li - li) / 20;
+    let risk_score_delta =
+        (lt - proposed_lt) / 10 + (proposed_cf - cf) / 20 + (proposed_li - li) / 20;
 
     let mut diffs = Vec::new(env);
     if proposed_mcr != mcr {

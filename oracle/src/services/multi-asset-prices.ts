@@ -39,7 +39,10 @@ export function debtCollateralRatio(
   collateralAmount: number,
   quotes: AssetPriceQuote[]
 ): number {
-  const debtPx = quoteAsset(debtAsset, quotes.find((q) => q.asset === debtAsset.toUpperCase())).price;
+  const debtPx = quoteAsset(
+    debtAsset,
+    quotes.find((q) => q.asset === debtAsset.toUpperCase())
+  ).price;
   const collPx = quoteAsset(
     collateralAsset,
     quotes.find((q) => q.asset === collateralAsset.toUpperCase())

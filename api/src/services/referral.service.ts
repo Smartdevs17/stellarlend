@@ -321,7 +321,7 @@ export const referralService = {
     let totalFeesGenerated = 0;
     let totalRewardsDistributed = 0;
     let claimableBalanceProtocol = 0;
-    let totalRefereesCount = referrals.size;
+    const totalRefereesCount = referrals.size;
 
     const tierDistribution = { Bronze: 0, Silver: 0, Gold: 0, Diamond: 0 };
 
