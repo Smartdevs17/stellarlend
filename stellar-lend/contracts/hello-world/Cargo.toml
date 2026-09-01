@@ -21,6 +21,7 @@ stellarlend-security = { path = "../security" }
 calldata-encoding = { path = "../lib/calldata-encoding" }
 stellar-contract-utils = { version = "0.7.2" }
 stellar-macros = { version = "0.6.0" }
+migration-hub = { package = "stellarlend-migration-hub", path = "../migration-hub" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
