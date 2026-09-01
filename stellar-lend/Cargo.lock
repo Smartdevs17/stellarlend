@@ -285,6 +285,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "base64"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
+
+[[package]]
 name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -374,6 +380,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "calldata-encoding"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk 27.0.6",
 ]
 
 [[package]]
@@ -1157,6 +1170,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 name = "hello-world"
 version = "0.0.0"
 dependencies = [
+ "calldata-encoding",
  "flash-loan",
  "shared-events",
  "soroban-sdk 27.0.6",
@@ -1166,7 +1180,9 @@ dependencies = [
  "stellarlend-amm",
  "stellarlend-errors",
  "stellarlend-lending",
+ "stellarlend-migration-hub",
  "stellarlend-oracle-client",
+ "stellarlend-security",
  "stellarlend-shared-deadline",
 ]
 
@@ -1288,7 +1304,7 @@ version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "futures-channel",
  "futures-util",
@@ -1767,7 +1783,7 @@ dependencies = [
 name = "multi-user-simulation"
 version = "0.1.0"
 dependencies = [
- "rand 0.8.6",
+ "rand 0.9.4",
  "soroban-sdk 27.0.6",
  "statrs",
  "tokio",
@@ -2310,7 +2326,7 @@ version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04e9018c9d814e5f30cc16a0f03271aeab3571e609612d9fe78c1aa8d11c2f62"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "futures-core",
  "http",
@@ -2675,7 +2691,7 @@ version = "3.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd5414fad8e6907dbdd5bc441a50ae8d6e26151a03b1de04d89a5576de61d01f"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "chrono",
  "hex",
  "indexmap 1.9.3",
@@ -3116,7 +3132,7 @@ version = "26.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca18ced644f86e1e36a0fddb856d45a6a8478296e6b54941fb5e2daa96076bf7"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "sha2",
  "stellar-xdr 26.0.1",
  "thiserror 1.0.69",
@@ -3129,7 +3145,7 @@ version = "27.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "473404322827b285cbcd87517f365986bd63af7842c78b2a86ee061715fda61e"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "sha2",
  "stellar-xdr 27.0.0",
  "thiserror 1.0.69",
@@ -3286,7 +3302,7 @@ version = "26.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea6e29c7e1f071c2767916460d006668197843d5d93f0ec8893a26f72a14f595"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "cfg_eval",
  "crate-git-revision 0.0.6",
  "escape-bytes",
@@ -3305,7 +3321,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05ff843326969bdf1ef673dcdba94c08f4a3c8f1e58d6e6ef39b1bd4f749179a"
 dependencies = [
  "arbitrary",
- "base64",
+ "base64 0.22.1",
  "cfg_eval",
  "crate-git-revision 0.0.6",
  "escape-bytes",
@@ -3350,7 +3366,7 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "async-trait",
- "base64",
+ "base64 0.23.1",
  "chrono",
  "futures",
  "mockito",
@@ -3463,6 +3479,7 @@ dependencies = [
  "soroban-token-sdk",
  "stellarlend-common",
  "stellarlend-errors",
+ "stellarlend-security",
  "stellarlend-shared-deadline",
  "stellarlend-storage-layer",
 ]
@@ -3497,7 +3514,7 @@ name = "stellarlend-migration-tests"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "rand 0.8.6",
+ "rand 0.9.4",
  "serde",
  "serde_json",
  "soroban-sdk 27.0.6",
@@ -3547,6 +3564,13 @@ name = "stellarlend-safe-math"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "soroban-sdk 27.0.6",
+]
+
+[[package]]
+name = "stellarlend-security"
+version = "0.1.0"
+dependencies = [
  "soroban-sdk 27.0.6",
 ]
 
@@ -4580,7 +4604,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08db1edfb05d9b3c1542e521aea074442088292f00b5f28e435c714a98f85031"
 dependencies = [
  "assert-json-diff",
- "base64",
+ "base64 0.22.1",
  "deadpool",
  "futures",
  "http",

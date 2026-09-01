@@ -2,7 +2,7 @@
 name = "oracle-hub"
 version = "0.1.0"
 edition = "2021"
-description = "Centralized OracleHub contract with feed prioritization, median aggregation, outlier rejection, and emergency freeze"
+description = "Centralized Oracle Hub: pluggable price providers, median/weighted aggregation, health monitoring, emergency freeze, and upgradeable governance"
 
 [dependencies]
 soroban-sdk = { workspace = true }
