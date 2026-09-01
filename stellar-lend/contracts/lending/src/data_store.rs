@@ -38,9 +38,10 @@ use crate::events::{
     DataStoreSaveEvent, DataStoreWriterChangeEvent,
 };
 use crate::reentrancy::{ReentrancyGuard, ReentrancyKey};
+use core::fmt::Debug;
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Bytes, Env,
-    String, Vec,
+    IntoVal, String, TryFromVal, Val, Vec,
 };
 
 // ═══════════════════════════════════════════════════════
@@ -125,6 +126,49 @@ pub enum StoreKey {
 }
 
 // ═══════════════════════════════════════════════════════
+// Storage abstraction
+// ═══════════════════════════════════════════════════════
+
+/// Typed access to the data-store contract's persistent namespace.
+///
+/// Keeping raw SDK storage calls behind this boundary gives migrations,
+/// instrumentation and TTL policy one place to evolve without touching every
+/// contract entry point. `StoreKey` remains the only accepted key type, which
+/// also prevents accidental writes into another module's namespace.
+struct DataStoreRepository<'a> {
+    env: &'a Env,
+}
+
+impl<'a> DataStoreRepository<'a> {
+    fn new(env: &'a Env) -> Self {
+        Self { env }
+    }
+
+    fn has(&self, key: &StoreKey) -> bool {
+        self.env.storage().persistent().has(key)
+    }
+
+    fn get<V>(&self, key: &StoreKey) -> Option<V>
+    where
+        V: TryFromVal<Env, Val>,
+        V::Error: Debug,
+    {
+        self.env.storage().persistent().get(key)
+    }
+
+    fn set<V>(&self, key: &StoreKey, value: &V)
+    where
+        V: IntoVal<Env, Val>,
+    {
+        self.env.storage().persistent().set(key, value);
+    }
+
+    fn remove(&self, key: &StoreKey) {
+        self.env.storage().persistent().remove(key);
+    }
+}
+
+// ═══════════════════════════════════════════════════════
 // Contract
 // ═══════════════════════════════════════════════════════
 
@@ -155,26 +199,23 @@ impl DataStore {
             .unwrap_or_else(|_| panic!("Constructor reentrancy detected"));
 
         admin.require_auth();
+        let store = DataStoreRepository::new(&env);
 
-        if env.storage().persistent().has(&StoreKey::Admin) {
+        if store.has(&StoreKey::Admin) {
             panic_with_error!(&env, DataStoreError::AlreadyInitialized);
         }
 
         // 2. EFFECTS: Update state before any external interactions
-        env.storage().persistent().set(&StoreKey::Admin, &admin);
-        env.storage()
-            .persistent()
-            .set(&StoreKey::SchemaVersion, &0u32);
-        env.storage().persistent().set(&StoreKey::EntryCount, &0u32);
+        store.set(&StoreKey::Admin, &admin);
+        store.set(&StoreKey::SchemaVersion, &0u32);
+        store.set(&StoreKey::EntryCount, &0u32);
 
         // Initialise empty writers set and key index
         let writers: Vec<Address> = Vec::new(&env);
-        env.storage().persistent().set(&StoreKey::Writers, &writers);
+        store.set(&StoreKey::Writers, &writers);
 
         let key_index: Vec<String> = Vec::new(&env);
-        env.storage()
-            .persistent()
-            .set(&StoreKey::KeyIndex, &key_index);
+        store.set(&StoreKey::KeyIndex, &key_index);
 
         // 3. INTERACTIONS: Emit events
         DataStoreInitEvent {
@@ -200,18 +241,17 @@ impl DataStore {
 
         caller.require_auth();
         Self::assert_admin(&env, &caller);
+        let store = DataStoreRepository::new(&env);
 
         // 2. EFFECTS: Update state before any external interactions
-        let mut writers: Vec<Address> = env
-            .storage()
-            .persistent()
+        let mut writers: Vec<Address> = store
             .get(&StoreKey::Writers)
             .unwrap_or_else(|| Vec::new(&env));
 
         // Idempotent: skip if already present
         if !writers.contains(&writer) {
             writers.push_back(writer.clone());
-            env.storage().persistent().set(&StoreKey::Writers, &writers);
+            store.set(&StoreKey::Writers, &writers);
         }
 
         // 3. INTERACTIONS: Emit events
@@ -235,11 +275,10 @@ impl DataStore {
 
         caller.require_auth();
         Self::assert_admin(&env, &caller);
+        let store = DataStoreRepository::new(&env);
 
         // 2. EFFECTS: Update state before any external interactions
-        let writers: Vec<Address> = env
-            .storage()
-            .persistent()
+        let writers: Vec<Address> = store
             .get(&StoreKey::Writers)
             .unwrap_or_else(|| Vec::new(&env));
 
@@ -249,9 +288,7 @@ impl DataStore {
                 new_writers.push_back(w);
             }
         }
-        env.storage()
-            .persistent()
-            .set(&StoreKey::Writers, &new_writers);
+        store.set(&StoreKey::Writers, &new_writers);
 
         // 3. INTERACTIONS: Emit events
         DataStoreWriterChangeEvent {
@@ -294,6 +331,7 @@ impl DataStore {
         caller.require_auth();
         Self::assert_initialized(&env);
         Self::assert_can_write(&env, &caller);
+        let store = DataStoreRepository::new(&env);
 
         // Bounds checks
         if key.len() > MAX_KEY_LEN {
@@ -304,15 +342,11 @@ impl DataStore {
         }
 
         let store_key = StoreKey::Entry(key.clone());
-        let is_new = !env.storage().persistent().has(&store_key);
+        let is_new = !store.has(&store_key);
 
         if is_new {
             // Capacity guard
-            let count: u32 = env
-                .storage()
-                .persistent()
-                .get(&StoreKey::EntryCount)
-                .unwrap_or(0);
+            let count: u32 = store.get(&StoreKey::EntryCount).unwrap_or(0);
 
             if count >= MAX_ENTRIES {
                 panic_with_error!(&env, DataStoreError::StoreFull);
@@ -320,22 +354,16 @@ impl DataStore {
 
             // 2. EFFECTS: Update state before any external interactions
             // Update key index
-            let mut key_index: Vec<String> = env
-                .storage()
-                .persistent()
+            let mut key_index: Vec<String> = store
                 .get(&StoreKey::KeyIndex)
                 .unwrap_or_else(|| Vec::new(&env));
             key_index.push_back(key.clone());
-            env.storage()
-                .persistent()
-                .set(&StoreKey::KeyIndex, &key_index);
+            store.set(&StoreKey::KeyIndex, &key_index);
 
-            env.storage()
-                .persistent()
-                .set(&StoreKey::EntryCount, &(count + 1));
+            store.set(&StoreKey::EntryCount, &(count + 1));
         }
 
-        env.storage().persistent().set(&store_key, &value);
+        store.set(&store_key, &value);
 
         // 3. INTERACTIONS: Emit events
         DataStoreSaveEvent {
@@ -366,8 +394,7 @@ impl DataStore {
     pub fn data_load(env: Env, key: String) -> Bytes {
         Self::assert_initialized(&env);
 
-        env.storage()
-            .persistent()
+        DataStoreRepository::new(&env)
             .get(&StoreKey::Entry(key.clone()))
             .unwrap_or_else(|| panic_with_error!(&env, DataStoreError::KeyNotFound))
     }
@@ -405,11 +432,10 @@ impl DataStore {
         if backup_name.len() > MAX_BACKUP_NAME {
             panic_with_error!(&env, DataStoreError::BackupNameTooLong);
         }
+        let store = DataStoreRepository::new(&env);
 
         // Walk the key index and snapshot each entry
-        let key_index: Vec<String> = env
-            .storage()
-            .persistent()
+        let key_index: Vec<String> = store
             .get(&StoreKey::KeyIndex)
             .unwrap_or_else(|| Vec::new(&env));
 
@@ -418,18 +444,14 @@ impl DataStore {
         let mut snap_vals: Vec<Bytes> = Vec::new(&env);
 
         for k in key_index.iter() {
-            if let Some(v) = env
-                .storage()
-                .persistent()
-                .get::<StoreKey, Bytes>(&StoreKey::Entry(k.clone()))
-            {
+            if let Some(v) = store.get::<Bytes>(&StoreKey::Entry(k.clone())) {
                 snap_keys.push_back(k);
                 snap_vals.push_back(v);
             }
         }
 
         // Pack as (Vec<String>, Vec<Bytes>) tuple stored under one key
-        env.storage().persistent().set(
+        store.set(
             &StoreKey::Backup(backup_name.clone()),
             &(snap_keys, snap_vals),
         );
@@ -470,11 +492,10 @@ impl DataStore {
         caller.require_auth();
         Self::assert_initialized(&env);
         Self::assert_admin(&env, &caller);
+        let store = DataStoreRepository::new(&env);
 
-        let snapshot: Option<(Vec<String>, Vec<Bytes>)> = env
-            .storage()
-            .persistent()
-            .get(&StoreKey::Backup(backup_name.clone()));
+        let snapshot: Option<(Vec<String>, Vec<Bytes>)> =
+            store.get(&StoreKey::Backup(backup_name.clone()));
 
         let (snap_keys, snap_vals) = match snapshot {
             Some(s) => s,
@@ -482,14 +503,12 @@ impl DataStore {
         };
 
         // 1. Remove all existing live entries
-        let old_key_index: Vec<String> = env
-            .storage()
-            .persistent()
+        let old_key_index: Vec<String> = store
             .get(&StoreKey::KeyIndex)
             .unwrap_or_else(|| Vec::new(&env));
 
         for k in old_key_index.iter() {
-            env.storage().persistent().remove(&StoreKey::Entry(k));
+            store.remove(&StoreKey::Entry(k));
         }
 
         // 2. Write snapshot entries
@@ -499,19 +518,13 @@ impl DataStore {
         for i in 0..snap_len {
             let k = snap_keys.get(i).unwrap();
             let v = snap_vals.get(i).unwrap();
-            env.storage()
-                .persistent()
-                .set(&StoreKey::Entry(k.clone()), &v);
+            store.set(&StoreKey::Entry(k.clone()), &v);
             new_key_index.push_back(k);
         }
 
         // 3. Update metadata
-        env.storage()
-            .persistent()
-            .set(&StoreKey::KeyIndex, &new_key_index);
-        env.storage()
-            .persistent()
-            .set(&StoreKey::EntryCount, &snap_len);
+        store.set(&StoreKey::KeyIndex, &new_key_index);
+        store.set(&StoreKey::EntryCount, &snap_len);
 
         DataStoreRestoreEvent {
             caller: caller.clone(),
@@ -554,12 +567,9 @@ impl DataStore {
         caller.require_auth();
         Self::assert_initialized(&env);
         Self::assert_admin(&env, &caller);
+        let store = DataStoreRepository::new(&env);
 
-        let current: u32 = env
-            .storage()
-            .persistent()
-            .get(&StoreKey::SchemaVersion)
-            .unwrap_or(0);
+        let current: u32 = store.get(&StoreKey::SchemaVersion).unwrap_or(0);
 
         if new_version <= current {
             panic_with_error!(&env, DataStoreError::InvalidVersion);
@@ -572,9 +582,7 @@ impl DataStore {
             }
         }
 
-        env.storage()
-            .persistent()
-            .set(&StoreKey::SchemaVersion, &new_version);
+        store.set(&StoreKey::SchemaVersion, &new_version);
 
         DataStoreMigrateEvent {
             caller: caller.clone(),
@@ -591,8 +599,7 @@ impl DataStore {
     /// Return the current schema version.
     pub fn schema_version(env: Env) -> u32 {
         Self::assert_initialized(&env);
-        env.storage()
-            .persistent()
+        DataStoreRepository::new(&env)
             .get(&StoreKey::SchemaVersion)
             .unwrap_or(0)
     }
@@ -600,8 +607,7 @@ impl DataStore {
     /// Return the current number of live entries.
     pub fn entry_count(env: Env) -> u32 {
         Self::assert_initialized(&env);
-        env.storage()
-            .persistent()
+        DataStoreRepository::new(&env)
             .get(&StoreKey::EntryCount)
             .unwrap_or(0)
     }
@@ -609,29 +615,27 @@ impl DataStore {
     /// Return `true` if `key` exists in the store.
     pub fn key_exists(env: Env, key: String) -> bool {
         Self::assert_initialized(&env);
-        env.storage().persistent().has(&StoreKey::Entry(key))
+        DataStoreRepository::new(&env).has(&StoreKey::Entry(key))
     }
 
     /// Return the admin address.
     pub fn get_admin(env: Env) -> Address {
         Self::assert_initialized(&env);
-        env.storage()
-            .persistent()
+        DataStoreRepository::new(&env)
             .get(&StoreKey::Admin)
             .unwrap_or_else(|| panic_with_error!(&env, DataStoreError::NotInitialized))
     }
 
     /// Return `true` if `address` is the admin or a granted writer.
     pub fn is_writer(env: Env, address: Address) -> bool {
-        if !env.storage().persistent().has(&StoreKey::Admin) {
+        let store = DataStoreRepository::new(&env);
+        if !store.has(&StoreKey::Admin) {
             return false;
         }
         if Self::get_admin(env.clone()) == address {
             return true;
         }
-        let writers: Vec<Address> = env
-            .storage()
-            .persistent()
+        let writers: Vec<Address> = store
             .get(&StoreKey::Writers)
             .unwrap_or_else(|| Vec::new(&env));
         writers.contains(&address)
@@ -643,16 +647,14 @@ impl DataStore {
 
     /// Panic with `NotInitialized` if the contract has not been `init`-ed.
     fn assert_initialized(env: &Env) {
-        if !env.storage().persistent().has(&StoreKey::Admin) {
+        if !DataStoreRepository::new(env).has(&StoreKey::Admin) {
             panic_with_error!(env, DataStoreError::NotInitialized);
         }
     }
 
     /// Panic with `NotAuthorized` if `caller` is not the admin.
     fn assert_admin(env: &Env, caller: &Address) {
-        let admin: Address = env
-            .storage()
-            .persistent()
+        let admin: Address = DataStoreRepository::new(env)
             .get(&StoreKey::Admin)
             .unwrap_or_else(|| panic_with_error!(env, DataStoreError::NotInitialized));
 
@@ -663,9 +665,8 @@ impl DataStore {
 
     /// Panic with `NotAuthorized` if `caller` is neither admin nor writer.
     fn assert_can_write(env: &Env, caller: &Address) {
-        let admin: Address = env
-            .storage()
-            .persistent()
+        let store = DataStoreRepository::new(env);
+        let admin: Address = store
             .get(&StoreKey::Admin)
             .unwrap_or_else(|| panic_with_error!(env, DataStoreError::NotInitialized));
 
@@ -673,9 +674,7 @@ impl DataStore {
             return; // admin always can write
         }
 
-        let writers: Vec<Address> = env
-            .storage()
-            .persistent()
+        let writers: Vec<Address> = store
             .get(&StoreKey::Writers)
             .unwrap_or_else(|| Vec::new(env));
 
@@ -688,31 +687,25 @@ impl DataStore {
     pub fn get_total_assets(env: &Env) -> i128 {
         // This is a simplified implementation for invariant testing
         // In a real implementation, this would sum all tracked assets
-        env.storage()
-            .persistent()
+        DataStoreRepository::new(env)
             .get(&StoreKey::TotalAssets)
             .unwrap_or(0)
     }
 
     /// Set total assets (internal use)
     pub fn set_total_assets(env: &Env, assets: i128) {
-        env.storage()
-            .persistent()
-            .set(&StoreKey::TotalAssets, &assets);
+        DataStoreRepository::new(env).set(&StoreKey::TotalAssets, &assets);
     }
 
     /// Get protocol reserves (for invariant testing)
     pub fn get_protocol_reserves(env: &Env) -> i128 {
-        env.storage()
-            .persistent()
+        DataStoreRepository::new(env)
             .get(&StoreKey::ProtocolReserves)
             .unwrap_or(0)
     }
 
     /// Set protocol reserves (internal use)
     pub fn set_protocol_reserves(env: &Env, reserves: i128) {
-        env.storage()
-            .persistent()
-            .set(&StoreKey::ProtocolReserves, &reserves);
+        DataStoreRepository::new(env).set(&StoreKey::ProtocolReserves, &reserves);
     }
 }

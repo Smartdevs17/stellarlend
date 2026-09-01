@@ -115,6 +115,8 @@ impl RunConfig {
         m.insert("hello_world::liquidate".into(), 1_500_000);
         m.insert("hello_world::execute_flash_loan".into(), 1_800_000);
         m.insert("hello_world::set_risk_params".into(), 400_000);
+        m.insert("hello_world::set_packed_pool_config".into(), 300_000);
+        m.insert("hello_world::get_packed_pool_config".into(), 180_000);
         m.insert("hello_world::get_health_factor".into(), 400_000);
         m.insert("hello_world::set_emergency_pause".into(), 200_000);
         // AMM contract

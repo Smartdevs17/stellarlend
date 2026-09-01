@@ -1,4 +1,84 @@
+use core::fmt::Debug;
 use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val, Vec};
+
+/// Typed persistent-storage boundary shared by protocol modules.
+///
+/// Centralizing SDK access keeps key/value conversion, future TTL policy and
+/// instrumentation out of business logic while retaining compile-time types.
+pub struct PersistentStore<'a> {
+    env: &'a Env,
+}
+
+impl<'a> PersistentStore<'a> {
+    pub fn new(env: &'a Env) -> Self {
+        Self { env }
+    }
+
+    #[inline]
+    pub fn has<K>(&self, key: &K) -> bool
+    where
+        K: IntoVal<Env, Val>,
+    {
+        self.env.storage().persistent().has(key)
+    }
+
+    #[inline]
+    pub fn get<K, T>(&self, key: &K) -> Option<T>
+    where
+        K: IntoVal<Env, Val>,
+        T: TryFromVal<Env, Val>,
+        T::Error: Debug,
+    {
+        self.env.storage().persistent().get(key)
+    }
+
+    #[inline]
+    pub fn set<K, T>(&self, key: &K, value: &T)
+    where
+        K: IntoVal<Env, Val>,
+        T: IntoVal<Env, Val>,
+    {
+        self.env.storage().persistent().set(key, value);
+    }
+
+    #[inline]
+    pub fn remove<K>(&self, key: &K)
+    where
+        K: IntoVal<Env, Val>,
+    {
+        self.env.storage().persistent().remove(key);
+    }
+}
+
+/// Typed temporary-storage boundary for transaction-local caches.
+pub struct TemporaryStore<'a> {
+    env: &'a Env,
+}
+
+impl<'a> TemporaryStore<'a> {
+    pub fn new(env: &'a Env) -> Self {
+        Self { env }
+    }
+
+    #[inline]
+    pub fn get<K, T>(&self, key: &K) -> Option<T>
+    where
+        K: IntoVal<Env, Val>,
+        T: TryFromVal<Env, Val>,
+        T::Error: Debug,
+    {
+        self.env.storage().temporary().get(key)
+    }
+
+    #[inline]
+    pub fn set<K, T>(&self, key: &K, value: &T)
+    where
+        K: IntoVal<Env, Val>,
+        T: IntoVal<Env, Val>,
+    {
+        self.env.storage().temporary().set(key, value);
+    }
+}
 
 #[soroban_sdk::contracttype]
 pub struct SnapshotValue {
@@ -15,7 +95,7 @@ where
     T: IntoVal<Env, Val> + TryFromVal<Env, Val>,
 {
     if force_direct {
-        return env.storage().persistent().get::<K, T>(key);
+        return PersistentStore::new(env).get::<K, T>(key);
     }
     None
 }
@@ -47,6 +127,7 @@ pub const FLAG_DEPRECATED: u8 = 1 << 3;
 pub enum PackError {
     BpsFieldOverflow = 1,
     TimestampOverflow = 2,
+    FlagsOverflow = 3,
 }
 
 #[contracttype]
@@ -96,8 +177,11 @@ pub fn pack(config: &PoolConfig) -> Result<PackedConfig, PackError> {
     if config.last_update > TS_MASK {
         return Err(PackError::TimestampOverflow);
     }
+    if config.flags > FLAGS_MASK as u32 {
+        return Err(PackError::FlagsOverflow);
+    }
     let status_word =
-        (config.last_update & TS_MASK) | (((config.flags as u64) & FLAGS_MASK) << FLAGS_SHIFT);
+        (config.last_update & TS_MASK) | ((config.flags as u64) << FLAGS_SHIFT);
 
     Ok(PackedConfig {
         rate_word,
@@ -132,17 +216,14 @@ pub fn flag_with(flags: u32, flag: u8, on: bool) -> u32 {
 // ── Persistence ──────────────────────────────────────────────────────────
 
 pub fn load_pool_config(env: &Env, pool: &Option<Address>) -> Option<PoolConfig> {
-    env.storage()
-        .persistent()
+    PersistentStore::new(env)
         .get::<PoolConfigKey, PackedConfig>(&PoolConfigKey::Config(pool.clone()))
         .map(|p| unpack(&p))
 }
 
 pub fn store_pool_config(env: &Env, pool: &Option<Address>, config: &PoolConfig) -> Result<(), PackError> {
     let packed = pack(config)?;
-    env.storage()
-        .persistent()
-        .set(&PoolConfigKey::Config(pool.clone()), &packed);
+    PersistentStore::new(env).set(&PoolConfigKey::Config(pool.clone()), &packed);
     Ok(())
 }
 
@@ -288,8 +369,7 @@ pub enum TempDataKey {
 }
 
 pub fn get_temp_token_balance(env: &Env, token: &Address, owner: &Address) -> Option<i128> {
-    env.storage()
-        .temporary()
+    TemporaryStore::new(env)
         .get::<TempDataKey, i128>(&TempDataKey::TokenBalanceCache(
             token.clone(),
             owner.clone(),
@@ -297,19 +377,74 @@ pub fn get_temp_token_balance(env: &Env, token: &Address, owner: &Address) -> Op
 }
 
 pub fn set_temp_token_balance(env: &Env, token: &Address, owner: &Address, balance: i128) {
-    env.storage()
-        .temporary()
-        .set(&TempDataKey::TokenBalanceCache(token.clone(), owner.clone()), &balance);
+    TemporaryStore::new(env).set(
+        &TempDataKey::TokenBalanceCache(token.clone(), owner.clone()),
+        &balance,
+    );
 }
 
 pub fn get_temp_lending_index(env: &Env) -> Option<crate::interest_rate::LendingIndex> {
-    env.storage()
-        .temporary()
+    TemporaryStore::new(env)
         .get::<TempDataKey, crate::interest_rate::LendingIndex>(&TempDataKey::LendingIndexCache)
+        // Soroban temporary storage survives transactions. Treat the entry as
+        // a ledger-scoped cache so an older transaction can never serve a
+        // stale cumulative index after time advances.
+        .filter(|index| index.last_update == env.ledger().timestamp())
 }
 
 pub fn set_temp_lending_index(env: &Env, index: crate::interest_rate::LendingIndex) {
-    env.storage()
-        .temporary()
-        .set(&TempDataKey::LendingIndexCache, &index);
+    TemporaryStore::new(env).set(&TempDataKey::LendingIndexCache, &index);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_config() -> PoolConfig {
+        PoolConfig {
+            min_collateral_ratio_bps: 11_000,
+            liquidation_threshold_bps: 10_500,
+            reserve_factor_bps: 1_000,
+            close_factor_bps: 5_000,
+            liquidation_incentive_bps: 1_000,
+            last_update: 1_700_000_000,
+            flags: (FLAG_BORROWING_ENABLED | FLAG_COLLATERAL_ENABLED) as u32,
+        }
+    }
+
+    #[test]
+    fn packed_config_round_trips_without_field_overlap() {
+        let config = sample_config();
+        let packed = pack(&config).unwrap();
+
+        assert_eq!(packed.rate_word >> 80, 0);
+        assert_eq!(unpack(&packed), config);
+    }
+
+    #[test]
+    fn packed_config_rejects_values_that_would_be_truncated() {
+        let mut config = sample_config();
+        config.reserve_factor_bps = 1 << BPS_FIELD_BITS;
+        assert_eq!(pack(&config), Err(PackError::BpsFieldOverflow));
+
+        config = sample_config();
+        config.last_update = 1u64 << TS_BITS;
+        assert_eq!(pack(&config), Err(PackError::TimestampOverflow));
+
+        config = sample_config();
+        config.flags = 1 << 8;
+        assert_eq!(pack(&config), Err(PackError::FlagsOverflow));
+    }
+
+    #[test]
+    fn flag_updates_preserve_neighboring_values() {
+        let mut config = sample_config();
+        config.flags = flag_with(config.flags, FLAG_PAUSED, true);
+        let unpacked = unpack(&pack(&config).unwrap());
+
+        assert!(flag_is_set(unpacked.flags, FLAG_PAUSED));
+        assert!(flag_is_set(unpacked.flags, FLAG_BORROWING_ENABLED));
+        assert_eq!(unpacked.last_update, config.last_update);
+        assert_eq!(unpacked.reserve_factor_bps, config.reserve_factor_bps);
+    }
 }

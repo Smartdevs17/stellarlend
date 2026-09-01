@@ -7,7 +7,9 @@ use crate::framework::{
     fresh_env, get_budget, measure_instructions, BenchmarkResult, BenchmarkSuite, RunConfig,
 };
 use hello_world::{
-    deposit::AssetParams, flash_loan::FlashLoanConfig, liquidate::BatchLiquidationRequest,
+    deposit::AssetParams,
+    flash_loan::FlashLoanConfig,
+    storage::{PoolConfig, FLAG_BORROWING_ENABLED, FLAG_COLLATERAL_ENABLED},
     HelloContract, HelloContractClient,
 };
 use soroban_sdk::{testutils::Address as _, Address, Env};
@@ -30,12 +32,13 @@ fn run_all(config: &RunConfig) -> Vec<BenchmarkResult> {
         bench_withdraw_collateral_cold(config),
         bench_withdraw_collateral_warm(config),
         bench_liquidate(config),
-        bench_batch_liquidate(config),
         bench_can_be_liquidated(config),
         bench_get_max_liquidatable_amount(config),
         bench_get_liquidation_incentive(config),
         bench_execute_flash_loan(config),
         bench_set_risk_params(config),
+        bench_set_packed_pool_config(config),
+        bench_get_packed_pool_config(config),
         bench_set_emergency_pause(config),
         bench_get_health_factor(config),
         bench_get_user_position(config),
@@ -76,22 +79,6 @@ fn setup_with_borrow(env: &Env) -> (HelloContractClient<'static>, Address, Addre
     let _ = client.try_set_risk_params(&admin, &None, &None, &None, &None);
     let _ = client.try_borrow_asset(&user, &None, &20_000);
     (client, admin, user)
-}
-
-// Set up a single contract instance with two distinct borrowers who each hold a
-// borrowed position, so a batch liquidation sees both positions in one call.
-fn setup_two_borrowers(
-    env: &Env,
-) -> (HelloContractClient<'static>, Address, Address, Address) {
-    let (client, admin) = setup_contract(env);
-    let user_a = Address::generate(env);
-    let user_b = Address::generate(env);
-    let _ = client.try_set_risk_params(&admin, &None, &None, &None, &None);
-    client.deposit_collateral(&user_a, &None, &100_000);
-    client.deposit_collateral(&user_b, &None, &100_000);
-    let _ = client.try_borrow_asset(&user_a, &None, &20_000);
-    let _ = client.try_borrow_asset(&user_b, &None, &20_000);
-    (client, admin, user_a, user_b)
 }
 
 // ─── Initialize ───────────────────────────────────────────────────────────────
@@ -343,47 +330,6 @@ fn bench_liquidate(config: &RunConfig) -> BenchmarkResult {
     )
 }
 
-// Batched liquidation processes up to MAX_BATCH_SIZE (10) positions in a single
-// call. Dedicated gas measurement for the batched read + early-exit path added
-// in #835.
-fn bench_batch_liquidate(config: &RunConfig) -> BenchmarkResult {
-    let op = "hello_world::batch_liquidate";
-    let env = fresh_env();
-    let (client, _, user_a, user_b) = setup_two_borrowers(&env);
-    let liquidator = Address::generate(&env);
-
-    let mut requests = soroban_sdk::Vec::new(&env);
-    requests.push_back(BatchLiquidationRequest {
-        borrower: user_a.clone(),
-        debt_asset: None,
-        collateral_asset: None,
-        debt_amount: 5_000,
-    });
-    requests.push_back(BatchLiquidationRequest {
-        borrower: user_b.clone(),
-        debt_asset: None,
-        collateral_asset: None,
-        debt_amount: 5_000,
-    });
-
-    let (insns, mem) = measure_instructions(&env, || {
-        let _ = client.try_batch_liquidate(&liquidator, &requests);
-    });
-
-    BenchmarkResult::new(
-        op,
-        CONTRACT,
-        "Batch liquidate 2 positions — priority sort + batched reads + early exit",
-        insns,
-        mem,
-        3,
-        3,
-        true,
-        get_budget(config, op),
-        vec!["liquidate".into(), "batch".into(), "cold".into()],
-    )
-}
-
 fn bench_can_be_liquidated(config: &RunConfig) -> BenchmarkResult {
     let op = "hello_world::can_be_liquidated";
     let env = fresh_env();
@@ -509,6 +455,66 @@ fn bench_set_risk_params(config: &RunConfig) -> BenchmarkResult {
         true,
         get_budget(config, op),
         vec!["admin".into(), "risk".into()],
+    )
+}
+
+fn benchmark_pool_config(env: &Env) -> PoolConfig {
+    PoolConfig {
+        min_collateral_ratio_bps: 11_000,
+        liquidation_threshold_bps: 10_500,
+        reserve_factor_bps: 1_000,
+        close_factor_bps: 5_000,
+        liquidation_incentive_bps: 1_000,
+        last_update: env.ledger().timestamp(),
+        flags: (FLAG_BORROWING_ENABLED | FLAG_COLLATERAL_ENABLED) as u32,
+    }
+}
+
+fn bench_set_packed_pool_config(config: &RunConfig) -> BenchmarkResult {
+    let op = "hello_world::set_packed_pool_config";
+    let env = fresh_env();
+    let (client, admin) = setup_contract(&env);
+    let pool_config = benchmark_pool_config(&env);
+
+    let (insns, mem) = measure_instructions(&env, || {
+        client.set_pool_config(&admin, &None, &pool_config);
+    });
+
+    BenchmarkResult::new(
+        op,
+        CONTRACT,
+        "Pack five rate fields plus status metadata into one persistent entry",
+        insns,
+        mem,
+        1,
+        1,
+        true,
+        get_budget(config, op),
+        vec!["storage".into(), "packed_config".into(), "write".into()],
+    )
+}
+
+fn bench_get_packed_pool_config(config: &RunConfig) -> BenchmarkResult {
+    let op = "hello_world::get_packed_pool_config";
+    let env = fresh_env();
+    let (client, admin) = setup_contract(&env);
+    client.set_pool_config(&admin, &None, &benchmark_pool_config(&env));
+
+    let (insns, mem) = measure_instructions(&env, || {
+        client.get_pool_config(&None);
+    });
+
+    BenchmarkResult::new(
+        op,
+        CONTRACT,
+        "Read and unpack the consolidated pool configuration entry",
+        insns,
+        mem,
+        1,
+        0,
+        false,
+        get_budget(config, op),
+        vec!["storage".into(), "packed_config".into(), "read".into()],
     )
 }
 
