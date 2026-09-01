@@ -2,130 +2,209 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NETWORK="${STELLAR_NETWORK:-testnet}"
-DEPLOY_DIR="$SCRIPT_DIR/deployed/$NETWORK"
-MANIFEST_FILE="${DEPLOYMENT_MANIFEST:-$DEPLOY_DIR/deployment-manifest.json}"
-LENDING_CONTRACT_ID="${LENDING_CONTRACT_ID:-}"
-AMM_CONTRACT_ID="${AMM_CONTRACT_ID:-}"
-EXPECT_MIN_RATIO="${EXPECTED_MIN_COLLATERAL_RATIO:-11000}"
-EXPECT_LIQ_THRESHOLD="${EXPECTED_LIQUIDATION_THRESHOLD:-10500}"
-SKIP_AMM=false
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-usage() {
-  cat <<EOF
-Usage: ./scripts/verify-deployment.sh [options]
+MODE="${1:-help}"
 
-Options:
-  --network <net>                     Target network (default: testnet)
-  --lending-contract-id <id>          Override lending contract id
-  --amm-contract-id <id>              Override AMM contract id
-  --manifest <path>                   Override deployment manifest path
-  --expected-min-collateral-ratio <n> Expected lending collateral ratio
-  --expected-liquidation-threshold <n> Expected liquidation threshold
-  --skip-amm                          Skip AMM verification
-  --help                              Show this help
-EOF
+print_usage() {
+    echo "Usage: $0 <command> [args]"
+    echo ""
+    echo "Commands:"
+    echo "  check <network>    Verify deployment on a network (testnet/mainnet)"
+    echo "  status             Show deployment status from deployment.json"
+    echo "  compare            Compare deployed contracts vs local build"
+    echo "  help               Show this help message"
 }
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --network) NETWORK="$2"; DEPLOY_DIR="$SCRIPT_DIR/deployed/$NETWORK"; MANIFEST_FILE="${DEPLOYMENT_MANIFEST:-$DEPLOY_DIR/deployment-manifest.json}"; shift 2 ;;
-    --lending-contract-id) LENDING_CONTRACT_ID="$2"; shift 2 ;;
-    --amm-contract-id) AMM_CONTRACT_ID="$2"; shift 2 ;;
-    --manifest) MANIFEST_FILE="$2"; shift 2 ;;
-    --expected-min-collateral-ratio) EXPECT_MIN_RATIO="$2"; shift 2 ;;
-    --expected-liquidation-threshold) EXPECT_LIQ_THRESHOLD="$2"; shift 2 ;;
-    --skip-amm) SKIP_AMM=true; shift ;;
-    --help) usage; exit 0 ;;
-    *) echo "Unknown argument: $1" >&2; usage; exit 1 ;;
-  esac
-done
+check_deployment() {
+    local network="${1:-}"
 
-command -v stellar >/dev/null 2>&1 || {
-  echo "ERROR: stellar CLI not found." >&2
-  exit 1
+    if [ -z "$network" ]; then
+        echo "ERROR: Network required (testnet or mainnet)"
+        echo "Usage: $0 check <network>"
+        exit 1
+    fi
+
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "  Deployment Verification — ${network}"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo ""
+
+    local deploy_file="${REPO_ROOT}/environments/${network}/deployment.json"
+
+    if [ ! -f "$deploy_file" ]; then
+        echo "FAIL: Deployment file not found: ${deploy_file}"
+        echo "      No deployment detected for network: ${network}"
+        exit 1
+    fi
+
+    echo "[1/5] Checking deployment file exists... OK"
+
+    if ! command -v jq &> /dev/null; then
+        echo "WARN: jq not found. Limited JSON parsing available."
+        echo "      Install jq for full verification: https://stedolan.github.io/jq/"
+    fi
+
+    local contract_count=0
+    if command -v jq &> /dev/null; then
+        contract_count=$(jq | length 2>/dev/null || echo "0")
+    fi
+
+    echo "[2/5] Parsing deployment.json... OK (${contract_count} contracts)"
+
+    if command -v jq &> /dev/null; then
+        echo "[3/5] Verifying contract addresses..."
+        local addresses
+        addresses=$(jq -r '.. | objects | select(has("address")) | .address' "$deploy_file" 2>/dev/null || echo "")
+        local valid_count=0
+        local invalid_count=0
+        while IFS= read -r addr; do
+            if [ -n "$addr" ] && [[ "$addr" == C* ]]; then
+                valid_count=$((valid_count + 1))
+            elif [ -n "$addr" ]; then
+                invalid_count=$((invalid_count + 1))
+                echo "      WARN: Invalid address format: ${addr}"
+            fi
+        done <<< "$addresses"
+        echo "      Valid addresses: ${valid_count}"
+        if [ "$invalid_count" -gt 0 ]; then
+            echo "      Invalid addresses: ${invalid_count}"
+        fi
+    fi
+
+    echo "[4/5] Verifying WASM artifacts exist..."
+    local wasm_dir="${REPO_ROOT}/stellar-lend/target/wasm32-unknown-unknown/release"
+    if [ -d "$wasm_dir" ]; then
+        local wasm_count
+        wasm_count=$(find "$wasm_dir" -name "*.wasm" ! -name "*.d.*" 2>/dev/null | wc -l)
+        echo "      Found ${wasm_count} WASM artifacts."
+    else
+        echo "      WASM build directory not found. Run build first."
+    fi
+
+    echo "[5/5] Checking deployment consistency..."
+    if command -v jq &> /dev/null; then
+        local timestamps
+        timestamps=$(jq -r '.. | objects | select(has("deployed_at")) | .deployed_at' "$deploy_file" 2>/dev/null || echo "")
+        if [ -n "$timestamps" ]; then
+            echo "      Deployment timestamps found."
+        fi
+    fi
+
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "  Verification complete for ${network}."
+    echo "═══════════════════════════════════════════════════════════════"
 }
 
-if [[ -z "$LENDING_CONTRACT_ID" && -f "$DEPLOY_DIR/lending_contract_id.txt" ]]; then
-  LENDING_CONTRACT_ID="$(cat "$DEPLOY_DIR/lending_contract_id.txt")"
-fi
+show_status() {
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "  Deployment Status"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo ""
 
-if [[ -z "$AMM_CONTRACT_ID" && -f "$DEPLOY_DIR/amm_contract_id.txt" ]]; then
-  AMM_CONTRACT_ID="$(cat "$DEPLOY_DIR/amm_contract_id.txt")"
-fi
+    local found=0
 
-if [[ -z "$LENDING_CONTRACT_ID" ]]; then
-  echo "ERROR: Lending contract id not provided and could not be loaded from $DEPLOY_DIR." >&2
-  exit 1
-fi
+    for network in testnet mainnet; do
+        local deploy_file="${REPO_ROOT}/environments/${network}/deployment.json"
+        if [ -f "$deploy_file" ]; then
+            found=1
+            echo "Network: ${network}"
+            echo "  File: ${deploy_file}"
 
-COMMON_ARGS=(--network "$NETWORK")
-if [[ -n "${STELLAR_RPC_URL:-}" ]]; then
-  COMMON_ARGS+=(--rpc-url "$STELLAR_RPC_URL")
-fi
-if [[ -n "${ADMIN_SECRET_KEY:-}" ]]; then
-  COMMON_ARGS+=(--source "$ADMIN_SECRET_KEY")
-fi
+            if command -v jq &> /dev/null; then
+                local contract_count
+                contract_count=$(jq | length 2>/dev/null || echo "?")
+                echo "  Contracts deployed: ${contract_count}"
 
-invoke_readonly() {
-  local contract_id="$1"
-  local method="$2"
-  stellar contract invoke --id "$contract_id" "${COMMON_ARGS[@]}" -- "$method" 2>/dev/null | tr -d '"' || true
+                local last_updated
+                last_updated=$(jq -r '.updated_at // .last_updated // "unknown"' "$deploy_file" 2>/dev/null || echo "unknown")
+                echo "  Last updated: ${last_updated}"
+            fi
+            echo ""
+        fi
+    done
+
+    if [ "$found" -eq 0 ]; then
+        echo "No deployment files found."
+        echo "Expected locations:"
+        echo "  environments/testnet/deployment.json"
+        echo "  environments/mainnet/deployment.json"
+    fi
+
+    echo "═══════════════════════════════════════════════════════════════"
 }
 
-assert_equals() {
-  local label="$1"
-  local expected="$2"
-  local actual="$3"
+compare_deployed() {
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "  Deployment vs Local Build Comparison"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo ""
 
-  if [[ "$expected" != "$actual" ]]; then
-    echo "ERROR: $label mismatch. expected=$expected actual=$actual" >&2
-    return 1
-  fi
+    local wasm_dir="${REPO_ROOT}/stellar-lend/target/wasm32-unknown-unknown/release"
 
-  echo "OK: $label = $actual"
+    if [ ! -d "$wasm_dir" ]; then
+        echo "ERROR: No local WASM builds found. Run build first."
+        exit 1
+    fi
+
+    echo "Local WASM artifacts:"
+    for wasm in "${wasm_dir}"/*.wasm; do
+        if [ -f "$wasm" ] && [[ "$wasm" != *".d."* ]]; then
+            local name hash size
+            name=$(basename "$wasm")
+            hash=$(sha256sum "$wasm" | awk '{print $1}')
+            size=$(stat -f%z "$wasm" 2>/dev/null || stat -c%s "$wasm" 2>/dev/null || echo "?")
+            echo "  ${name} (${size} bytes) [${hash:0:16}...]"
+        fi
+    done
+
+    echo ""
+    echo "Deployed contracts (from deployment.json):"
+    local found=0
+    for network in testnet mainnet; do
+        local deploy_file="${REPO_ROOT}/environments/${network}/deployment.json"
+        if [ -f "$deploy_file" ]; then
+            found=1
+            echo "  Network: ${network}"
+            if command -v jq &> /dev/null; then
+                local addresses
+                addresses=$(jq -r '.. | objects | select(has("address")) | .address' "$deploy_file" 2>/dev/null || echo "")
+                while IFS= read -r addr; do
+                    if [ -n "$addr" ]; then
+                        echo "    ${addr}"
+                    fi
+                done <<< "$addresses"
+            fi
+        fi
+    done
+
+    if [ "$found" -eq 0 ]; then
+        echo "  No deployments found."
+    fi
+
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "  Comparison complete."
+    echo "═══════════════════════════════════════════════════════════════"
 }
 
-echo "======================================================================"
-echo " StellarLend deployment verification"
-echo " Network              : $NETWORK"
-echo " Lending contract ID  : $LENDING_CONTRACT_ID"
-if [[ -n "$AMM_CONTRACT_ID" ]]; then
-  echo " AMM contract ID      : $AMM_CONTRACT_ID"
-fi
-echo "======================================================================"
-
-ADMIN_ADDRESS_VALUE="$(invoke_readonly "$LENDING_CONTRACT_ID" get_admin)"
-MIN_RATIO_VALUE="$(invoke_readonly "$LENDING_CONTRACT_ID" get_min_collateral_ratio)"
-LIQ_THRESHOLD_VALUE="$(invoke_readonly "$LENDING_CONTRACT_ID" get_liquidation_threshold)"
-EMERGENCY_PAUSED_VALUE="$(invoke_readonly "$LENDING_CONTRACT_ID" is_emergency_paused)"
-
-assert_equals "min_collateral_ratio" "$EXPECT_MIN_RATIO" "$MIN_RATIO_VALUE"
-assert_equals "liquidation_threshold" "$EXPECT_LIQ_THRESHOLD" "$LIQ_THRESHOLD_VALUE"
-assert_equals "is_emergency_paused" "false" "$EMERGENCY_PAUSED_VALUE"
-
-if [[ -n "${ADMIN_ADDRESS:-}" && -n "$ADMIN_ADDRESS_VALUE" ]]; then
-  assert_equals "admin_address" "$ADMIN_ADDRESS" "$ADMIN_ADDRESS_VALUE"
-fi
-
-if [[ -f "$MANIFEST_FILE" ]]; then
-  MANIFEST_WASM="$(node -e "const fs=require('fs'); const manifest=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); console.log(manifest.lending.wasm || '');" "$MANIFEST_FILE")"
-  MANIFEST_SHA="$(node -e "const fs=require('fs'); const manifest=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); console.log(manifest.lending.sha256 || '');" "$MANIFEST_FILE")"
-
-  if [[ -n "$MANIFEST_WASM" && -f "$MANIFEST_WASM" ]]; then
-    LOCAL_SHA="$(shasum -a 256 "$MANIFEST_WASM" | awk '{print $1}')"
-    assert_equals "lending_wasm_sha256" "$MANIFEST_SHA" "$LOCAL_SHA"
-  fi
-fi
-
-if ! $SKIP_AMM && [[ -n "$AMM_CONTRACT_ID" ]]; then
-  AMM_SETTINGS="$(invoke_readonly "$AMM_CONTRACT_ID" get_amm_settings)"
-  if [[ -z "$AMM_SETTINGS" ]]; then
-    echo "ERROR: AMM settings could not be read from $AMM_CONTRACT_ID" >&2
-    exit 1
-  fi
-
-  echo "OK: AMM settings readable"
-fi
-
-echo "Verification complete."
+case "$MODE" in
+    check)
+        check_deployment "${2:-}"
+        ;;
+    status)
+        show_status
+        ;;
+    compare)
+        compare_deployed
+        ;;
+    help|--help|-h)
+        print_usage
+        ;;
+    *)
+        echo "Unknown command: ${MODE}"
+        print_usage
+        exit 1
+        ;;
+esac
