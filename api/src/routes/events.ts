@@ -35,6 +35,11 @@ const router: Router = Router();
  *           default: 50
  */
 router.get('/', eventsController.getEvents);
+router.get('/schema', eventsController.getSchema);
+router.get('/schema/:name', eventsController.getSchemaByName);
+router.get('/version', eventsController.getVersion);
+router.get('/modules', eventsController.getModules);
+router.get('/actions', eventsController.getActions);
 
 /**
  * @openapi

@@ -25,7 +25,7 @@
 use soroban_sdk::{contracterror, contracttype, Address, Env, IntoVal, Vec};
 
 use crate::deposit::{DepositDataKey, ProtocolAnalytics};
-use crate::storage::{set_temp_lending_index, PersistentStore};
+use crate::storage::set_temp_lending_index;
 
 /// Errors that can occur during interest rate operations
 #[contracterror]
@@ -561,7 +561,8 @@ pub fn get_current_utilization(env: &Env) -> Result<i128, InterestRateError> {
 
 /// Return the stored global lending index, or a fresh default if not yet initialised.
 pub fn get_lending_index(env: &Env) -> LendingIndex {
-    PersistentStore::new(env)
+    env.storage()
+        .persistent()
         .get::<InterestRateDataKey, LendingIndex>(&InterestRateDataKey::LendingIndex)
         .unwrap_or(LendingIndex {
             borrow_index: INDEX_SCALE,
@@ -628,7 +629,9 @@ pub fn update_lending_index(env: &Env) -> Result<LendingIndex, InterestRateError
         .ok_or(InterestRateError::Overflow)?;
     idx.last_update = current_time;
 
-    PersistentStore::new(env).set(&InterestRateDataKey::LendingIndex, &idx);
+    env.storage()
+        .persistent()
+        .set(&InterestRateDataKey::LendingIndex, &idx);
     set_temp_lending_index(env, idx.clone());
 
     // Record a rolling rate snapshot so off-chain consumers and dashboards can

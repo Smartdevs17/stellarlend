@@ -68,7 +68,7 @@ pub struct CircuitBreakerConfig {
     pub auto_deactivate_enabled: bool,
     pub whitelist_enabled: bool,
     pub price_deviation_threshold_bps: u64,
-    pub abnormal_utilization_threshold_bps: u64,
+    pub abnormal_util_bps: u64,
     pub guardian_multisig: Option<Address>,
     pub tier1_auto_trigger_enabled: bool,
     pub tier2_auto_trigger_enabled: bool,
@@ -81,7 +81,7 @@ impl Default for CircuitBreakerConfig {
             auto_deactivate_enabled: true,
             whitelist_enabled: true,
             price_deviation_threshold_bps: PRICE_DEVIATION_THRESHOLD_BPS,
-            abnormal_utilization_threshold_bps: ABNORMAL_UTILIZATION_THRESHOLD_BPS,
+            abnormal_util_bps: ABNORMAL_UTILIZATION_THRESHOLD_BPS,
             guardian_multisig: None,
             tier1_auto_trigger_enabled: true,
             tier2_auto_trigger_enabled: true,
@@ -173,19 +173,30 @@ pub fn activate_circuit_breaker(
         None
     };
 
+    // Legacy activate maps onto the tiered model: emergency => full halt
+    // (Tier3), otherwise a Tier1 pause.
     let status = if emergency_mode {
-        CircuitBreakerStatus::Emergency
+        CircuitBreakerStatus::Tier3Halted
     } else {
-        CircuitBreakerStatus::Paused
+        CircuitBreakerStatus::Tier1Paused
+    };
+    let tier = if emergency_mode {
+        CircuitBreakerTier::Tier3
+    } else {
+        CircuitBreakerTier::Tier1
     };
 
     let state = CircuitBreakerState {
         status,
+        tier,
         activated_at: now,
         activated_by: caller.clone(),
         cooldown_period: config.cooldown_period,
         auto_deactivate_at,
         reason: reason.clone(),
+        affected_pool: None,
+        guardian_multisig: config.guardian_multisig.clone(),
+        governance_vote_required: emergency_mode,
     };
 
     let state_key = storage::DataKey::CircuitBreakerState;
@@ -257,9 +268,10 @@ pub fn is_liquidation_allowed(env: &Env, liquidator: &Address) -> Result<bool, L
 
     match state.status {
         CircuitBreakerStatus::Active => Ok(true),
-        CircuitBreakerStatus::Paused => Ok(false),
-        CircuitBreakerStatus::Emergency => {
-            // Check whitelist
+        CircuitBreakerStatus::Tier1Paused
+        | CircuitBreakerStatus::Tier2Paused
+        | CircuitBreakerStatus::Tier3Halted => {
+            // Halted (and paused) states gate liquidators via the whitelist.
             is_whitelisted(env, liquidator)
         }
     }
@@ -587,7 +599,7 @@ pub fn check_automatic_triggers(
     }
 
     if config.tier2_auto_trigger_enabled
-        && utilization_bps >= config.abnormal_utilization_threshold_bps
+        && utilization_bps >= config.abnormal_util_bps
     {
         return Ok(Some(CircuitBreakerTier::Tier2));
     }
@@ -692,7 +704,7 @@ mod tests {
         activate_circuit_breaker(&env, admin, CircuitBreakerReason::FlashCrash, false).unwrap();
 
         let state = get_circuit_breaker_state(&env).unwrap();
-        assert_eq!(state.status, CircuitBreakerStatus::Paused);
+        assert_eq!(state.status, CircuitBreakerStatus::Tier1Paused);
     }
 
     #[test]

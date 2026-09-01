@@ -1,5 +1,14 @@
 import { Request, Response } from 'express';
-import { getIndexedEvents, getEventTypes, getEventStats } from '../services/events.service';
+import {
+  getIndexedEvents,
+  getEventTypes,
+  getEventStats,
+  getEventSchemaCatalog,
+  getEventSchemaByName,
+  getEventSchemaVersion,
+  getEventModules,
+  getEventActions,
+} from '../services/events.service';
 
 export class EventsController {
   async getEvents(req: Request, res: Response): Promise<void> {
@@ -24,6 +33,50 @@ export class EventsController {
       res.json(types);
     } catch (error) {
       res.status(500).json({ error: 'Failed to fetch event types' });
+    }
+  }
+
+  async getSchema(_req: Request, res: Response): Promise<void> {
+    try {
+      const catalog = getEventSchemaCatalog();
+      res.json(catalog);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch event schema' });
+    }
+  }
+
+  async getSchemaByName(req: Request, res: Response): Promise<void> {
+    try {
+      const { name } = req.params;
+      const schema = getEventSchemaByName(name);
+      if (!schema) return res.status(404).json({ success: false, error: { message: `${name} not found` } });
+      res.json(schema);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch event schema' });
+    }
+  }
+
+  async getVersion(_req: Request, res: Response): Promise<void> {
+    try {
+      res.json(getEventSchemaVersion());
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch schema version' });
+    }
+  }
+
+  async getModules(_req: Request, res: Response): Promise<void> {
+    try {
+      res.json(getEventModules());
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch modules' });
+    }
+  }
+
+  async getActions(_req: Request, res: Response): Promise<void> {
+    try {
+      res.json(getEventActions());
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch actions' });
     }
   }
 

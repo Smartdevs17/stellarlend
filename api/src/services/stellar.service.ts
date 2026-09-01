@@ -435,6 +435,38 @@ export class StellarService {
     return this.simulateContractCall(methodName, ...params);
   }
 
+  /**
+   * Fetch and normalize indexed events from the contract. Returns an array
+   * of lightweight event records suitable for indexing and caching.
+   */
+  public async readIndexedEvents(filters: any): Promise<any[]> {
+    try {
+      const raw = await this.simulateContractCall('get_indexed_events', filters);
+      const arr = Array.isArray(raw) ? raw : [];
+      return arr.map((r: any, i: number) => {
+        const timestamp = Number(r.timestamp ?? r.created_at ?? Date.now());
+        const ledger = Number(r.ledger ?? r.ledger_index ?? 0);
+        const topic = Array.isArray(r.topic) ? r.topic : r.topics ?? [];
+        const id = r.id ?? `evt_${timestamp}_${i}`;
+        const contract = r.contract ?? this.contractId;
+        const type = r.type ?? r.name ?? (topic[0] ?? 'unknown');
+        const data = r.data ?? r.payload ?? r;
+        return {
+          id,
+          type,
+          contract,
+          topic,
+          data,
+          timestamp,
+          ledger,
+        };
+      });
+    } catch (error) {
+      logger.warn('Failed to read indexed events from contract', { error, filters });
+      return [];
+    }
+  }
+
   private async simulateContractCall(methodName: string, ...params: any[]): Promise<any> {
     const tx = this.buildReadOnlyTransaction(methodName, ...params);
     const simulation = await (this.sorobanServer as any).simulateTransaction(tx);

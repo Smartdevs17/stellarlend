@@ -1,121 +1,157 @@
+//! # Oracle Hub
+//!
+//! A dedicated, governance-managed contract for price feed management.
+//!
+//! The hub decouples price aggregation from lending logic:
+//! - **Pluggable providers**: feeds can be push-based (providers call
+//!   `report_price`) or pull-based (external contracts implementing the
+//!   [`interface::PriceProvider`] interface are queried by the hub).
+//! - **Aggregation strategies**: median (default, outlier-resistant) or
+//!   confidence-weighted mean, configurable globally or per asset.
+//! - **Health monitoring**: per-feed staleness classification, consecutive
+//!   failure tracking, and an auto-opening per-asset circuit breaker.
+//! - **Upgrade mechanism**: governance stages a WASM hash and atomically swaps
+//!   the contract code via `env.deployer().update_current_contract_wasm`.
+//! - **Emergency controls**: global freeze plus per-asset governance freeze.
+//!
+//! See the `docs/` directory for the full architecture and integration guide.
+
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, Vec};
+mod aggregation;
+mod health;
+mod interface;
+mod provider;
+mod storage;
+mod types;
+mod upgrade;
 
-pub const VERSION: u32 = 1;
-pub const MAX_FEEDS_PER_ASSET: u32 = 5;
-pub const OUTLIER_DEVIATION_BPS: i128 = 2_000;
-pub const DEFAULT_STALE_THRESHOLD_SECONDS: u64 = 3600;
+#[cfg(test)]
+mod tests;
 
-// ── Priorities ───────────────────────────────────────────────────────────────
+use crate::types::{
+    AggregatedPrice, AggregationStrategy, FeedMode, FeedPriority, FeedQuote, FeedStatus,
+    OracleHealthStatus, PriceFeed, PricePoint, ProviderPrice, VERSION,
+};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, panic_with_error, Address, Bytes, BytesN, Env, Vec,
+};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[contracttype]
-pub enum FeedPriority {
-    Primary = 0,
-    Secondary = 1,
-    Fallback = 2,
-}
-
-// ── Data structures ──────────────────────────────────────────────────────────
-
-#[derive(Clone, Debug, PartialEq)]
-#[contracttype]
-pub struct PriceFeed {
-    pub asset: Bytes,
-    pub oracle_address: Address,
-    pub priority: FeedPriority,
-    pub enabled: bool,
-    pub stale_threshold_seconds: u64,
-    pub registered_at: u64,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-#[contracttype]
-pub struct PricePoint {
-    pub asset: Bytes,
-    pub price: i128,
-    pub timestamp: u64,
-    pub confidence: u32,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-#[contracttype]
-pub struct AggregatedPrice {
-    pub price: i128,
-    pub timestamp: u64,
-    pub confidence: u32,
-    pub num_feeds: u32,
-    pub num_active_feeds: u32,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-#[contracttype]
-pub struct FeedStatus {
-    pub asset: Bytes,
-    pub status: FeedStatusCode,
-    pub last_update: u64,
-    pub is_stale: bool,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-#[contracttype]
-pub enum FeedStatusCode {
-    Active = 0,
-    Stale = 1,
-    Disabled = 2,
+/// Errors surfaced by the Oracle Hub.
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum OracleHubError {
+    NotInitialized = 1,
+    AlreadyInitialized = 2,
     Frozen = 3,
+    FeedNotFound = 4,
+    FeedDisabled = 5,
+    InvalidPrice = 6,
+    NoActiveFeeds = 7,
+    FetchFailed = 8,
+    InvalidConfig = 9,
 }
 
-// ── Contract ─────────────────────────────────────────────────────────────────
-
+/// The Oracle Hub contract.
 #[contract]
 pub struct OracleHubContract;
 
 #[contractimpl]
 impl OracleHubContract {
+    // ── Initialization ─────────────────────────────────────────────────────
+
     pub fn initialize(env: Env, governance: Address, admin: Address) {
+        if env
+            .storage()
+            .instance()
+            .get::<_, Address>(&storage::DataKey::Governance)
+            .is_some()
+        {
+            panic_with_error!(&env, OracleHubError::AlreadyInitialized);
+        }
         env.storage()
             .instance()
-            .set(&DataKey::Governance, &governance);
-        env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::FeedCount, &0u32);
-        env.storage().instance().set(&DataKey::Frozen, &false);
-        env.storage().instance().set(&DataKey::Version, &VERSION);
+            .set(&storage::DataKey::Governance, &governance);
+        env.storage()
+            .instance()
+            .set(&storage::DataKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&storage::DataKey::Version, &VERSION);
+        env.storage()
+            .instance()
+            .set(&storage::DataKey::Frozen, &false);
+        env.storage()
+            .instance()
+            .set(&storage::DataKey::FeedCount, &0u32);
+        env.storage().instance().set(
+            &storage::DataKey::DefaultStrategy,
+            &AggregationStrategy::Median,
+        );
     }
 
     pub fn version(env: Env) -> u32 {
-        env.storage().instance().get(&DataKey::Version).unwrap_or(0)
-    }
-
-    pub fn upgrade(env: Env, new_version: u32) {
-        let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
-        governance.require_auth();
-        assert!(new_version > VERSION, "Version must increase");
-        let old_version: u32 = env.storage().instance().get(&DataKey::Version).unwrap_or(0);
         env.storage()
             .instance()
-            .set(&DataKey::Version, &new_version);
-        env.events()
-            .publish(("upgrade",), (&old_version, &new_version));
+            .get(&storage::DataKey::Version)
+            .unwrap_or(0)
+    }
+
+    // ── Upgrade mechanism ──────────────────────────────────────────────────
+
+    /// Governance stages the next contract code.
+    pub fn stage_upgrade(env: Env, new_wasm: BytesN<32>) {
+        let governance = require_governance(&env);
+        governance.require_auth();
+        require_not_frozen(&env);
+        upgrade::stage_upgrade(&env, new_wasm, &governance);
+    }
+
+    /// Governance applies the staged upgrade, atomically swapping contract code.
+    pub fn upgrade(env: Env) -> BytesN<32> {
+        let governance = require_governance(&env);
+        governance.require_auth();
+        require_not_frozen(&env);
+        upgrade::apply_upgrade(&env, &governance)
+    }
+
+    /// Staged upgrade WASM hash, if any.
+    pub fn pending_wasm_hash(env: Env) -> Option<BytesN<32>> {
+        upgrade::pending_wasm(&env)
     }
 
     // ── Feed management ────────────────────────────────────────────────────
 
+    /// Governance registers a feed slot for an asset.
     pub fn register_feed(
         env: Env,
         asset: Bytes,
         oracle_address: Address,
         priority: FeedPriority,
         stale_threshold_seconds: u64,
+        mode: FeedMode,
+        weight_bps: u32,
     ) {
-        let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
+        let governance = require_governance(&env);
         governance.require_auth();
+        require_not_frozen(&env);
+
+        assert!(!asset.is_empty(), "Asset must not be empty");
+        assert!(
+            oracle_address != env.current_contract_address(),
+            "Oracle must not be the hub contract itself"
+        );
 
         let threshold = if stale_threshold_seconds == 0 {
-            DEFAULT_STALE_THRESHOLD_SECONDS
+            types::DEFAULT_STALE_THRESHOLD_SECONDS
         } else {
             stale_threshold_seconds
+        };
+        let weight = if weight_bps == 0 {
+            types::DEFAULT_FEED_WEIGHT_BPS
+        } else {
+            weight_bps
         };
 
         let feed = PriceFeed {
@@ -125,102 +161,189 @@ impl OracleHubContract {
             enabled: true,
             stale_threshold_seconds: threshold,
             registered_at: env.ledger().timestamp(),
+            mode,
+            weight_bps: weight,
         };
 
-        let feed_key = DataKey::Feed(asset.clone(), priority as u32);
+        let feed_key = storage::DataKey::Feed(asset.clone(), priority as u32);
         env.storage().instance().set(&feed_key, &feed);
 
         let count: u32 = env
             .storage()
             .instance()
-            .get(&DataKey::FeedCount)
+            .get(&storage::DataKey::FeedCount)
             .unwrap_or(0);
         env.storage()
             .instance()
-            .set(&DataKey::FeedCount, &(count + 1));
-        env.events()
-            .publish(("register_feed", &asset), &oracle_address);
+            .set(&storage::DataKey::FeedCount, &(count + 1));
+
+        types::FeedRegisteredEvent {
+            asset: asset.clone(),
+            oracle: oracle_address,
+            priority: priority as u32,
+            mode,
+            weight_bps: weight,
+        }
+        .publish(&env);
     }
 
+    /// Governance updates an existing feed's staleness, mode, and weight.
     pub fn update_feed(
         env: Env,
         asset: Bytes,
         priority: FeedPriority,
         stale_threshold_seconds: u64,
+        mode: FeedMode,
+        weight_bps: u32,
     ) {
-        let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
-        governance.require_auth();
+        require_governance(&env).require_auth();
+        require_not_frozen(&env);
 
-        let feed_key = DataKey::Feed(asset.clone(), priority as u32);
+        let feed_key = storage::DataKey::Feed(asset.clone(), priority as u32);
         let mut feed: PriceFeed = env
             .storage()
             .instance()
             .get(&feed_key)
-            .expect("Feed not found");
+            .unwrap_or_else(|| panic_with_error!(&env, OracleHubError::FeedNotFound));
         feed.stale_threshold_seconds = if stale_threshold_seconds == 0 {
-            DEFAULT_STALE_THRESHOLD_SECONDS
+            types::DEFAULT_STALE_THRESHOLD_SECONDS
         } else {
             stale_threshold_seconds
         };
+        feed.mode = mode;
+        feed.weight_bps = if weight_bps == 0 {
+            types::DEFAULT_FEED_WEIGHT_BPS
+        } else {
+            weight_bps
+        };
         env.storage().instance().set(&feed_key, &feed);
-        env.events().publish(("update_feed", &asset), &priority);
+
+        types::FeedUpdatedEvent {
+            asset: asset.clone(),
+            priority: priority as u32,
+            mode,
+            stale_threshold_seconds: feed.stale_threshold_seconds,
+        }
+        .publish(&env);
+    }
+
+    /// View an asset's feed configuration for a priority slot.
+    pub fn get_feed(env: Env, asset: Bytes, priority: FeedPriority) -> Option<PriceFeed> {
+        env.storage()
+            .instance()
+            .get(&storage::DataKey::Feed(asset, priority as u32))
     }
 
     pub fn disable_feed(env: Env, asset: Bytes, priority: FeedPriority) {
-        let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
-        governance.require_auth();
-
-        let feed_key = DataKey::Feed(asset.clone(), priority as u32);
+        require_governance(&env).require_auth();
+        let feed_key = storage::DataKey::Feed(asset.clone(), priority as u32);
         let mut feed: PriceFeed = env
             .storage()
             .instance()
             .get(&feed_key)
-            .expect("Feed not found");
+            .unwrap_or_else(|| panic_with_error!(&env, OracleHubError::FeedNotFound));
         feed.enabled = false;
         env.storage().instance().set(&feed_key, &feed);
-        env.events().publish(("disable_feed",), &asset);
+        types::FeedDisabledEvent {
+            asset: asset.clone(),
+            priority: priority as u32,
+        }
+        .publish(&env);
     }
 
     pub fn enable_feed(env: Env, asset: Bytes, priority: FeedPriority) {
-        let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
-        governance.require_auth();
-
-        let feed_key = DataKey::Feed(asset.clone(), priority as u32);
+        require_governance(&env).require_auth();
+        let feed_key = storage::DataKey::Feed(asset.clone(), priority as u32);
         let mut feed: PriceFeed = env
             .storage()
             .instance()
             .get(&feed_key)
-            .expect("Feed not found");
+            .unwrap_or_else(|| panic_with_error!(&env, OracleHubError::FeedNotFound));
         feed.enabled = true;
         env.storage().instance().set(&feed_key, &feed);
-        env.events().publish(("enable_feed",), &asset);
+        types::FeedEnabledEvent {
+            asset: asset.clone(),
+            priority: priority as u32,
+        }
+        .publish(&env);
     }
 
-    // ── Emergency freeze ───────────────────────────────────────────────────
+    // ── Aggregation strategy ───────────────────────────────────────────────
+
+    /// Governance sets the default strategy or a per-asset override.
+    pub fn set_aggregation_strategy(env: Env, asset: Option<Bytes>, strategy: AggregationStrategy) {
+        require_governance(&env).require_auth();
+        match asset {
+            Some(asset) => {
+                env.storage()
+                    .instance()
+                    .set(&storage::DataKey::Strategy(asset.clone()), &strategy);
+                types::AssetStrategyUpdatedEvent { asset, strategy }.publish(&env);
+            }
+            None => {
+                env.storage()
+                    .instance()
+                    .set(&storage::DataKey::DefaultStrategy, &strategy);
+                types::DefaultStrategyUpdatedEvent { strategy }.publish(&env);
+            }
+        }
+    }
+
+    /// Effective aggregation strategy for an asset (per-asset override or default).
+    pub fn get_aggregation_strategy(env: Env, asset: Bytes) -> AggregationStrategy {
+        env.storage()
+            .instance()
+            .get::<_, AggregationStrategy>(&storage::DataKey::Strategy(asset))
+            .or_else(|| {
+                env.storage()
+                    .instance()
+                    .get::<_, AggregationStrategy>(&storage::DataKey::DefaultStrategy)
+            })
+            .unwrap_or(AggregationStrategy::Median)
+    }
+
+    // ── Emergency controls ─────────────────────────────────────────────────
 
     pub fn freeze(env: Env) {
-        let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
+        let governance = require_governance(&env);
         governance.require_auth();
-        env.storage().instance().set(&DataKey::Frozen, &true);
-        env.events().publish(("freeze",), &());
+        env.storage()
+            .instance()
+            .set(&storage::DataKey::Frozen, &true);
+        types::FrozenEvent { admin: governance }.publish(&env);
     }
 
     pub fn unfreeze(env: Env) {
-        let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
+        let governance = require_governance(&env);
         governance.require_auth();
-        env.storage().instance().set(&DataKey::Frozen, &false);
-        env.events().publish(("unfreeze",), &());
+        env.storage()
+            .instance()
+            .set(&storage::DataKey::Frozen, &false);
+        types::UnfrozenEvent { admin: governance }.publish(&env);
     }
 
     pub fn is_frozen(env: Env) -> bool {
-        env.storage()
-            .instance()
-            .get(&DataKey::Frozen)
-            .unwrap_or(false)
+        is_globally_frozen(&env)
     }
 
-    // ── Price reporting ────────────────────────────────────────────────────
+    /// Governance freezes a single asset's pricing for the default cooldown.
+    pub fn freeze_asset(env: Env, asset: Bytes) {
+        require_governance(&env).require_auth();
+        health::freeze_asset(&env, &asset);
+    }
 
+    pub fn unfreeze_asset(env: Env, asset: Bytes) {
+        require_governance(&env).require_auth();
+        health::unfreeze_asset(&env, &asset);
+    }
+
+    pub fn is_asset_frozen(env: Env, asset: Bytes) -> bool {
+        health::is_frozen(&env, &asset)
+    }
+
+    // ── Price reporting (push) ─────────────────────────────────────────────
+
+    /// A registered push provider reports a new price for its feed slot.
     pub fn report_price(
         env: Env,
         asset: Bytes,
@@ -228,23 +351,22 @@ impl OracleHubContract {
         confidence: u32,
         priority: FeedPriority,
     ) {
-        let feed_key = DataKey::Feed(asset.clone(), priority as u32);
+        let feed_key = storage::DataKey::Feed(asset.clone(), priority as u32);
         let feed: PriceFeed = env
             .storage()
             .instance()
             .get(&feed_key)
-            .expect("Feed not found");
+            .unwrap_or_else(|| panic_with_error!(&env, OracleHubError::FeedNotFound));
+
         feed.oracle_address.require_auth();
 
-        assert!(
-            !env.storage()
-                .instance()
-                .get::<_, bool>(&DataKey::Frozen)
-                .unwrap_or(false),
-            "OracleHub is frozen"
-        );
-        assert!(feed.enabled, "Feed is disabled");
-        assert!(price > 0, "Price must be positive");
+        require_not_frozen(&env);
+        if !feed.enabled {
+            panic_with_error!(&env, OracleHubError::FeedDisabled);
+        }
+        if price <= 0 {
+            panic_with_error!(&env, OracleHubError::InvalidPrice);
+        }
 
         let price_point = PricePoint {
             asset: asset.clone(),
@@ -252,764 +374,178 @@ impl OracleHubContract {
             timestamp: env.ledger().timestamp(),
             confidence,
         };
-
-        let latest_key = DataKey::LatestPrice(asset.clone(), priority as u32);
+        let latest_key = storage::DataKey::LatestPrice(asset.clone(), priority as u32);
         env.storage().instance().set(&latest_key, &price_point);
-        env.events()
-            .publish(("report_price", &asset), (&price, &confidence, &priority));
+
+        types::PriceReportedEvent {
+            asset: asset.clone(),
+            priority: priority as u32,
+            price,
+            confidence,
+        }
+        .publish(&env);
+    }
+
+    // ── Price pulls (provider interface) ───────────────────────────────────
+
+    /// Pull a live price from any registered `PriceProvider` contract.
+    pub fn fetch_provider_price(env: Env, asset: Bytes, provider: Address) -> ProviderPrice {
+        require_not_frozen(&env);
+        provider::fetch_provider_price(&env, &asset, &provider)
     }
 
     // ── Price queries ──────────────────────────────────────────────────────
 
-    pub fn price(env: Env, _asset: Address) -> i128 {
-        let asset_bytes = Bytes::from_slice(&env, &[0u8; 32]);
-        let result = Self::get_price(env, asset_bytes);
-        result.price
+    /// Raw price (i128) for an asset using its effective strategy.
+    pub fn price(env: Env, asset: Bytes) -> i128 {
+        Self::get_price(env, asset).price
     }
 
+    /// Aggregate all active feeds for an asset into a single price.
+    ///
+    /// Pull-mode feeds are fetched live from their provider; push-mode feeds
+    /// use the latest reported point. Stale feeds are auto-disabled. A
+    /// successful read self-heals any auto-opened asset breaker.
     pub fn get_price(env: Env, asset: Bytes) -> AggregatedPrice {
-        assert!(
-            !env.storage()
-                .instance()
-                .get::<_, bool>(&DataKey::Frozen)
-                .unwrap_or(false),
-            "OracleHub is frozen"
-        );
+        require_not_frozen(&env);
+        if health::is_frozen(&env, &asset) {
+            panic_with_error!(&env, OracleHubError::Frozen);
+        }
 
         let current_time = env.ledger().timestamp();
-        let mut prices: Vec<(i128, u32, u64, u32)> = Vec::new(&env);
-        let mut num_active = 0u32;
+        let mut quotes: Vec<FeedQuote> = Vec::new(&env);
 
         for priority in 0u32..=2 {
-            let feed_key = DataKey::Feed(asset.clone(), priority);
+            let feed_key = storage::DataKey::Feed(asset.clone(), priority);
             if let Some(feed) = env.storage().instance().get::<_, PriceFeed>(&feed_key) {
                 if !feed.enabled {
                     continue;
                 }
 
-                let latest_key = DataKey::LatestPrice(asset.clone(), priority);
-                if let Some(point) = env.storage().instance().get::<_, PricePoint>(&latest_key) {
+                let point =
+                    if feed.mode == FeedMode::Pull {
+                        // Live pull from the provider. Failures revert the read,
+                        // which is the safe behavior: never return a price when a
+                        // registered provider is unavailable.
+                        let fetched =
+                            provider::fetch_provider_price(&env, &asset, &feed.oracle_address);
+                        types::PricePulledEvent {
+                            asset: asset.clone(),
+                            provider: feed.oracle_address.clone(),
+                            price: fetched.price,
+                            confidence: fetched.confidence,
+                        }
+                        .publish(&env);
+                        let point = provider::to_price_point(&env, &asset, fetched);
+                        env.storage().instance().set(
+                            &storage::DataKey::LatestPrice(asset.clone(), priority),
+                            &point,
+                        );
+                        Some(point)
+                    } else {
+                        env.storage().instance().get::<_, PricePoint>(
+                            &storage::DataKey::LatestPrice(asset.clone(), priority),
+                        )
+                    };
+
+                if let Some(point) = point {
                     let stale =
                         current_time.saturating_sub(point.timestamp) > feed.stale_threshold_seconds;
                     if stale {
-                        Self::auto_disable_feed(&env, asset.clone(), priority);
+                        auto_disable_feed(&env, &asset, priority);
                         continue;
                     }
-                    num_active += 1;
-                    prices.push_back((point.price, point.confidence, point.timestamp, priority));
+                    quotes.push_back(FeedQuote {
+                        price: point.price,
+                        timestamp: point.timestamp,
+                        confidence: point.confidence,
+                        priority,
+                        weight_bps: feed.weight_bps,
+                    });
                 }
             }
         }
 
-        assert!(prices.len() > 0, "No active price feeds available");
+        if quotes.is_empty() {
+            panic_with_error!(&env, OracleHubError::NoActiveFeeds);
+        }
 
-        let feed_count = prices.len();
-        let (median_price, median_conf, median_ts) = if prices.len() == 1 {
-            let (p, c, t, _) = prices.get(0).unwrap();
-            (p, c, t)
-        } else {
-            Self::aggregate_with_outlier_rejection(&env, prices)
-        };
+        let strategy = Self::get_aggregation_strategy(env.clone(), asset.clone());
+        let (price, confidence, timestamp) = aggregation::aggregate(&env, quotes.clone(), strategy)
+            .unwrap_or_else(|_| panic_with_error!(&env, OracleHubError::NoActiveFeeds));
+
+        // A successful read proves the asset recovered; clear any auto-opened breaker.
+        health::recover_breaker_if_healthy(&env, &asset);
 
         AggregatedPrice {
-            price: median_price,
-            timestamp: median_ts,
-            confidence: median_conf,
-            num_feeds: feed_count,
-            num_active_feeds: num_active,
+            price,
+            timestamp,
+            confidence,
+            num_feeds: quotes.len(),
+            num_active_feeds: quotes.len(),
+            strategy,
         }
     }
 
-    fn aggregate_with_outlier_rejection(
-        _env: &Env,
-        prices: Vec<(i128, u32, u64, u32)>,
-    ) -> (i128, u32, u64) {
-        let count = prices.len();
-        let median_idx = count / 2;
+    // ── Health monitoring ──────────────────────────────────────────────────
 
-        let mut arr: [i128; 5] = [0; 5];
-        let c = core::cmp::min(count, 5) as usize;
-        for i in 0..c {
-            arr[i] = prices.get(i as u32).unwrap().0;
-        }
-
-        let mut sorted = [0i128; 5];
-        for i in 0..c {
-            sorted[i] = arr[i];
-        }
-
-        for i in 0..c {
-            for j in (i + 1)..c {
-                if sorted[j] < sorted[i] {
-                    let tmp = sorted[i];
-                    sorted[i] = sorted[j];
-                    sorted[j] = tmp;
-                }
-            }
-        }
-
-        let median_price = sorted[median_idx as usize];
-        let mut total_conf: u64 = 0;
-        let mut valid_prices = 0u32;
-        let mut latest_ts = 0u64;
-
-        for i in 0..count {
-            let (p, c_val, ts, _) = prices.get(i).unwrap();
-            if p == 0 {
-                continue;
-            }
-            let deviation_bps = if median_price > 0 {
-                let diff = if p > median_price {
-                    p - median_price
-                } else {
-                    median_price - p
-                };
-                diff.saturating_mul(10_000) / median_price
-            } else {
-                0
-            };
-
-            if deviation_bps <= OUTLIER_DEVIATION_BPS {
-                total_conf += c_val as u64;
-                valid_prices += 1;
-                if ts > latest_ts {
-                    latest_ts = ts;
-                }
-            }
-        }
-
-        let avg_conf = if valid_prices > 0 {
-            (total_conf / valid_prices as u64) as u32
-        } else {
-            0
-        };
-
-        (median_price, avg_conf, latest_ts)
-    }
-
-    fn auto_disable_feed(env: &Env, asset: Bytes, priority: u32) {
-        let feed_key = DataKey::Feed(asset.clone(), priority);
-        let mut feed: PriceFeed = env
-            .storage()
-            .instance()
-            .get(&feed_key)
-            .expect("Feed not found");
-        if feed.enabled {
-            feed.enabled = false;
-            env.storage().instance().set(&feed_key, &feed);
-            env.events()
-                .publish(("auto_disable_feed", &asset), &priority);
-        }
-    }
-
-    // ── Health checks ──────────────────────────────────────────────────────
-
+    /// Per-feed health classification for all registered slots of an asset.
     pub fn check_feed_health(env: Env, asset: Bytes) -> Vec<FeedStatus> {
-        let current_time = env.ledger().timestamp();
-        let mut statuses: Vec<FeedStatus> = Vec::new(&env);
+        health::check_feeds(&env, &asset)
+    }
 
-        for priority in 0u32..=2 {
-            let feed_key = DataKey::Feed(asset.clone(), priority);
-            if let Some(feed) = env.storage().instance().get::<_, PriceFeed>(&feed_key) {
-                let latest_key = DataKey::LatestPrice(asset.clone(), priority);
-                let price = env.storage().instance().get::<_, PricePoint>(&latest_key);
+    /// Record a failed fetch; auto-opens the per-asset breaker on threshold.
+    pub fn monitor_oracle_health(env: Env, asset: Bytes) -> OracleHealthStatus {
+        health::monitor_oracle_health(&env, &asset)
+    }
 
-                let (status_code, last_update, is_stale) = if !feed.enabled {
-                    (FeedStatusCode::Disabled, 0, true)
-                } else if env
-                    .storage()
-                    .instance()
-                    .get::<_, bool>(&DataKey::Frozen)
-                    .unwrap_or(false)
-                {
-                    (FeedStatusCode::Frozen, 0, true)
-                } else if let Some(p) = price {
-                    let stale =
-                        current_time.saturating_sub(p.timestamp) > feed.stale_threshold_seconds;
-                    if stale {
-                        (FeedStatusCode::Stale, p.timestamp, true)
-                    } else {
-                        (FeedStatusCode::Active, p.timestamp, false)
-                    }
-                } else {
-                    (FeedStatusCode::Stale, 0, true)
-                };
+    /// Record a successful fetch, resetting the failure counter and last-success.
+    pub fn record_oracle_success(env: Env, asset: Bytes) {
+        health::record_oracle_success(&env, &asset);
+    }
 
-                statuses.push_back(FeedStatus {
-                    asset: asset.clone(),
-                    status: status_code,
-                    last_update,
-                    is_stale,
-                });
-            }
-        }
-
-        statuses
+    /// Read-only health snapshot for an asset.
+    pub fn get_health(env: Env, asset: Bytes) -> OracleHealthStatus {
+        health::get_health(&env, &asset)
     }
 }
 
-// ── Storage keys ─────────────────────────────────────────────────────────────
+// ── Internal helpers ────────────────────────────────────────────────────────
 
-#[derive(Clone)]
-#[contracttype]
-enum DataKey {
-    Governance,
-    Admin,
-    FeedCount,
-    Version,
-    Frozen,
-    Feed(Bytes, u32),
-    LatestPrice(Bytes, u32),
+fn is_globally_frozen(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get::<_, bool>(&storage::DataKey::Frozen)
+        .unwrap_or(false)
 }
 
-// ── Tests ────────────────────────────────────────────────────────────────────
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use soroban_sdk::testutils::{Address as _, Ledger, MockAuth, MockAuthInvoke};
-    use soroban_sdk::{IntoVal, Vec as SdkVec};
-
-    struct TestEnv {
-        env: Env,
-        contract_id: Address,
-        governance: Address,
-        #[allow(dead_code)]
-        admin: Address,
+fn require_not_frozen(env: &Env) {
+    if is_globally_frozen(env) {
+        panic_with_error!(env, OracleHubError::Frozen);
     }
+}
 
-    fn setup() -> TestEnv {
-        let env = Env::default();
-        let governance = Address::generate(&env);
-        let admin = Address::generate(&env);
-        let contract_id = env.register_contract(None, OracleHubContract);
-        let client = OracleHubContractClient::new(&env, &contract_id);
-        client.initialize(&governance, &admin);
-        TestEnv {
-            env,
-            contract_id,
-            governance,
-            admin,
+fn require_governance(env: &Env) -> Address {
+    env.storage()
+        .instance()
+        .get(&storage::DataKey::Governance)
+        .unwrap_or_else(|| panic_with_error!(env, OracleHubError::NotInitialized))
+}
+
+fn auto_disable_feed(env: &Env, asset: &Bytes, priority: u32) {
+    let feed_key = storage::DataKey::Feed(asset.clone(), priority);
+    let mut feed: PriceFeed = env
+        .storage()
+        .instance()
+        .get(&feed_key)
+        .expect("Feed not found");
+    if feed.enabled {
+        feed.enabled = false;
+        env.storage().instance().set(&feed_key, &feed);
+        types::FeedAutoDisabledEvent {
+            asset: asset.clone(),
+            priority,
         }
-    }
-
-    fn client(te: &TestEnv) -> OracleHubContractClient<'_> {
-        OracleHubContractClient::new(&te.env, &te.contract_id)
-    }
-
-    fn mk_asset(env: &Env, name: &str) -> Bytes {
-        Bytes::from_slice(env, name.as_bytes())
-    }
-
-    fn gov_auth<T>(
-        te: &TestEnv,
-        fn_name: &str,
-        args: impl IntoVal<Env, SdkVec<soroban_sdk::Val>>,
-        f: impl FnOnce() -> T,
-    ) -> T {
-        te.env.mock_auths(&[MockAuth {
-            address: &te.governance,
-            invoke: &MockAuthInvoke {
-                contract: &te.contract_id,
-                fn_name,
-                args: args.into_val(&te.env),
-                sub_invokes: &[],
-            },
-        }]);
-        f()
-    }
-
-    #[test]
-    fn test_initialize() {
-        let te = setup();
-        assert_eq!(client(&te).version(), VERSION);
-        assert!(!client(&te).is_frozen());
-    }
-
-    #[test]
-    fn test_register_feed() {
-        let te = setup();
-        let asset = mk_asset(&te.env, "XLM");
-        let oracle = Address::generate(&te.env);
-
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset, &oracle, &FeedPriority::Primary, &3600u64),
-            || {
-                let o = oracle.clone();
-                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-            },
-        );
-
-        let statuses = client(&te).check_feed_health(&asset);
-        assert_eq!(statuses.len(), 1);
-    }
-
-    #[test]
-    fn test_report_price_and_get_price() {
-        let te = setup();
-        let asset = mk_asset(&te.env, "XLM");
-        let oracle = Address::generate(&te.env);
-
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset, &oracle, &FeedPriority::Primary, &3600u64),
-            || {
-                let o = oracle.clone();
-                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-            },
-        );
-
-        te.env.mock_auths(&[MockAuth {
-            address: &oracle,
-            invoke: &MockAuthInvoke {
-                contract: &te.contract_id,
-                fn_name: "report_price",
-                args: (&asset, &100_000_000i128, &100u32, &FeedPriority::Primary).into_val(&te.env),
-                sub_invokes: &[],
-            },
-        }]);
-        client(&te).report_price(&asset, &100_000_000, &100, &FeedPriority::Primary);
-
-        let aggregated = client(&te).get_price(&asset);
-        assert_eq!(aggregated.price, 100_000_000);
-        assert_eq!(aggregated.num_feeds, 1);
-    }
-
-    #[test]
-    fn test_aggregation_multiple_feeds() {
-        let te = setup();
-        let asset = mk_asset(&te.env, "XLM");
-        let oracle1 = Address::generate(&te.env);
-        let oracle2 = Address::generate(&te.env);
-
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset, &oracle1, &FeedPriority::Primary, &3600u64),
-            || {
-                let o = oracle1.clone();
-                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-            },
-        );
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset, &oracle2, &FeedPriority::Secondary, &3600u64),
-            || {
-                let o = oracle2.clone();
-                client(&te).register_feed(&asset, &o, &FeedPriority::Secondary, &3600);
-            },
-        );
-
-        for (oracle, price, priority_val) in [
-            (&oracle1, &100_000_000i128, &FeedPriority::Primary),
-            (&oracle2, &101_000_000i128, &FeedPriority::Secondary),
-        ] {
-            te.env.mock_auths(&[MockAuth {
-                address: oracle,
-                invoke: &MockAuthInvoke {
-                    contract: &te.contract_id,
-                    fn_name: "report_price",
-                    args: (&asset, price, &100u32, priority_val).into_val(&te.env),
-                    sub_invokes: &[],
-                },
-            }]);
-            client(&te).report_price(&asset, price, &100, priority_val);
-        }
-
-        let aggregated = client(&te).get_price(&asset);
-        assert_eq!(aggregated.num_feeds, 2);
-        assert!(aggregated.price > 0);
-    }
-
-    #[test]
-    fn test_outlier_rejection() {
-        let te = setup();
-        let asset = mk_asset(&te.env, "XLM");
-        let oracle0 = Address::generate(&te.env);
-        let oracle1 = Address::generate(&te.env);
-        let oracle2 = Address::generate(&te.env);
-
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset, &oracle0, &FeedPriority::Primary, &3600u64),
-            || {
-                let o = oracle0.clone();
-                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-            },
-        );
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset, &oracle1, &FeedPriority::Secondary, &3600u64),
-            || {
-                let o = oracle1.clone();
-                client(&te).register_feed(&asset, &o, &FeedPriority::Secondary, &3600);
-            },
-        );
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset, &oracle2, &FeedPriority::Fallback, &3600u64),
-            || {
-                let o = oracle2.clone();
-                client(&te).register_feed(&asset, &o, &FeedPriority::Fallback, &3600);
-            },
-        );
-
-        let price_data = [
-            (&oracle0, 100_000_000i128, FeedPriority::Primary),
-            (&oracle1, 100_000_000i128, FeedPriority::Secondary),
-            (&oracle2, 200_000_000i128, FeedPriority::Fallback),
-        ];
-        for (oracle, price, priority) in &price_data {
-            te.env.mock_auths(&[MockAuth {
-                address: oracle,
-                invoke: &MockAuthInvoke {
-                    contract: &te.contract_id,
-                    fn_name: "report_price",
-                    args: (&asset, price, &100u32, priority).into_val(&te.env),
-                    sub_invokes: &[],
-                },
-            }]);
-            let p = *price;
-            client(&te).report_price(&asset, &p, &100, priority);
-        }
-
-        let aggregated = client(&te).get_price(&asset);
-        assert_eq!(aggregated.price, 100_000_000);
-    }
-
-    #[test]
-    fn test_stale_feed_detection() {
-        let te = setup();
-        let asset = mk_asset(&te.env, "XLM");
-        let oracle = Address::generate(&te.env);
-
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset, &oracle, &FeedPriority::Primary, &100u64),
-            || {
-                let o = oracle.clone();
-                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &100);
-            },
-        );
-
-        te.env.mock_auths(&[MockAuth {
-            address: &oracle,
-            invoke: &MockAuthInvoke {
-                contract: &te.contract_id,
-                fn_name: "report_price",
-                args: (&asset, &100_000_000i128, &100u32, &FeedPriority::Primary).into_val(&te.env),
-                sub_invokes: &[],
-            },
-        }]);
-        client(&te).report_price(&asset, &100_000_000, &100, &FeedPriority::Primary);
-
-        let statuses = client(&te).check_feed_health(&asset);
-        assert_eq!(statuses.get(0).unwrap().status, FeedStatusCode::Active);
-        assert!(!statuses.get(0).unwrap().is_stale);
-
-        te.env.ledger().set_timestamp(200);
-
-        let statuses = client(&te).check_feed_health(&asset);
-        assert_eq!(statuses.get(0).unwrap().status, FeedStatusCode::Stale);
-        assert!(statuses.get(0).unwrap().is_stale);
-    }
-
-    #[test]
-    fn test_fallback_on_stale_primary() {
-        let te = setup();
-        let asset = mk_asset(&te.env, "XLM");
-        let primary = Address::generate(&te.env);
-        let secondary = Address::generate(&te.env);
-
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset, &primary, &FeedPriority::Primary, &100u64),
-            || {
-                let o = primary.clone();
-                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &100);
-            },
-        );
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset, &secondary, &FeedPriority::Secondary, &1000u64),
-            || {
-                let o = secondary.clone();
-                client(&te).register_feed(&asset, &o, &FeedPriority::Secondary, &1000);
-            },
-        );
-
-        for (oracle, price, priority_val) in [
-            (&primary, &100_000_000i128, &FeedPriority::Primary),
-            (&secondary, &101_000_000i128, &FeedPriority::Secondary),
-        ] {
-            te.env.mock_auths(&[MockAuth {
-                address: oracle,
-                invoke: &MockAuthInvoke {
-                    contract: &te.contract_id,
-                    fn_name: "report_price",
-                    args: (&asset, price, &100u32, priority_val).into_val(&te.env),
-                    sub_invokes: &[],
-                },
-            }]);
-            client(&te).report_price(&asset, price, &100, priority_val);
-        }
-
-        te.env.ledger().set_timestamp(500);
-
-        let statuses = client(&te).check_feed_health(&asset);
-        let primary_stale = statuses.get(0).unwrap();
-        assert_eq!(primary_stale.status, FeedStatusCode::Stale);
-
-        let aggregated = client(&te).get_price(&asset);
-        assert_eq!(aggregated.price, 101_000_000);
-        assert_eq!(aggregated.num_feeds, 1);
-    }
-
-    #[test]
-    fn test_emergency_freeze_toggle() {
-        let te = setup();
-
-        gov_auth(&te, "freeze", (), || {
-            client(&te).freeze();
-        });
-        assert!(client(&te).is_frozen());
-
-        gov_auth(&te, "unfreeze", (), || {
-            client(&te).unfreeze();
-        });
-        assert!(!client(&te).is_frozen());
-    }
-
-    #[test]
-    #[should_panic(expected = "HostError")]
-    fn test_get_price_reverts_when_frozen() {
-        let te = setup();
-        let asset = mk_asset(&te.env, "XLM");
-
-        gov_auth(&te, "freeze", (), || {
-            client(&te).freeze();
-        });
-
-        client(&te).get_price(&asset);
-    }
-
-    #[test]
-    fn test_disable_and_enable_feed() {
-        let te = setup();
-        let asset = mk_asset(&te.env, "ETH");
-        let oracle = Address::generate(&te.env);
-
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset, &oracle, &FeedPriority::Primary, &3600u64),
-            || {
-                let o = oracle.clone();
-                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-            },
-        );
-
-        gov_auth(
-            &te,
-            "disable_feed",
-            (&asset, &FeedPriority::Primary),
-            || {
-                client(&te).disable_feed(&asset, &FeedPriority::Primary);
-            },
-        );
-
-        let statuses = client(&te).check_feed_health(&asset);
-        assert_eq!(statuses.get(0).unwrap().status, FeedStatusCode::Disabled);
-
-        gov_auth(&te, "enable_feed", (&asset, &FeedPriority::Primary), || {
-            client(&te).enable_feed(&asset, &FeedPriority::Primary);
-        });
-
-        let statuses = client(&te).check_feed_health(&asset);
-        assert_eq!(statuses.get(0).unwrap().status, FeedStatusCode::Stale);
-    }
-
-    #[test]
-    fn test_upgrade() {
-        let te = setup();
-
-        gov_auth(&te, "upgrade", (&2u32,), || {
-            client(&te).upgrade(&2);
-        });
-        assert_eq!(client(&te).version(), 2);
-    }
-
-    #[test]
-    #[should_panic(expected = "HostError")]
-    fn test_upgrade_downgrade_reverts() {
-        let te = setup();
-
-        client(&te).upgrade(&1);
-    }
-
-    #[test]
-    #[should_panic(expected = "HostError")]
-    fn test_no_feeds_returns_error() {
-        let te = setup();
-        let asset = mk_asset(&te.env, "UNKNOWN");
-
-        client(&te).get_price(&asset);
-    }
-
-    #[test]
-    fn test_update_feed() {
-        let te = setup();
-        let asset = mk_asset(&te.env, "BTC");
-        let oracle = Address::generate(&te.env);
-
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset, &oracle, &FeedPriority::Primary, &3600u64),
-            || {
-                let o = oracle.clone();
-                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-            },
-        );
-
-        gov_auth(
-            &te,
-            "update_feed",
-            (&asset, &FeedPriority::Primary, &7200u64),
-            || {
-                client(&te).update_feed(&asset, &FeedPriority::Primary, &7200);
-            },
-        );
-
-        let statuses = client(&te).check_feed_health(&asset);
-        assert_eq!(statuses.len(), 1);
-    }
-
-    #[test]
-    #[should_panic(expected = "HostError")]
-    fn test_report_price_reverts_when_frozen() {
-        let te = setup();
-        let asset = mk_asset(&te.env, "XLM");
-        let oracle = Address::generate(&te.env);
-
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset, &oracle, &FeedPriority::Primary, &3600u64),
-            || {
-                let o = oracle.clone();
-                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-            },
-        );
-        gov_auth(&te, "freeze", (), || {
-            client(&te).freeze();
-        });
-
-        te.env.mock_auths(&[MockAuth {
-            address: &oracle,
-            invoke: &MockAuthInvoke {
-                contract: &te.contract_id,
-                fn_name: "report_price",
-                args: (&asset, &100_000_000i128, &100u32, &FeedPriority::Primary).into_val(&te.env),
-                sub_invokes: &[],
-            },
-        }]);
-        client(&te).report_price(&asset, &100_000_000, &100, &FeedPriority::Primary);
-    }
-
-    #[test]
-    fn test_confidence_tracking() {
-        let te = setup();
-        let asset = mk_asset(&te.env, "XLM");
-        let oracle = Address::generate(&te.env);
-
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset, &oracle, &FeedPriority::Primary, &3600u64),
-            || {
-                let o = oracle.clone();
-                client(&te).register_feed(&asset, &o, &FeedPriority::Primary, &3600);
-            },
-        );
-
-        te.env.mock_auths(&[MockAuth {
-            address: &oracle,
-            invoke: &MockAuthInvoke {
-                contract: &te.contract_id,
-                fn_name: "report_price",
-                args: (&asset, &100_000_000i128, &95u32, &FeedPriority::Primary).into_val(&te.env),
-                sub_invokes: &[],
-            },
-        }]);
-        client(&te).report_price(&asset, &100_000_000, &95, &FeedPriority::Primary);
-
-        let aggregated = client(&te).get_price(&asset);
-        assert_eq!(aggregated.confidence, 95);
-    }
-
-    #[test]
-    fn test_multiple_assets_independent() {
-        let te = setup();
-        let asset1 = mk_asset(&te.env, "XLM");
-        let asset2 = mk_asset(&te.env, "BTC");
-        let oracle = Address::generate(&te.env);
-
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset1, &oracle, &FeedPriority::Primary, &3600u64),
-            || {
-                let o = oracle.clone();
-                client(&te).register_feed(&asset1, &o, &FeedPriority::Primary, &3600);
-            },
-        );
-        gov_auth(
-            &te,
-            "register_feed",
-            (&asset2, &oracle, &FeedPriority::Primary, &3600u64),
-            || {
-                let o = oracle.clone();
-                client(&te).register_feed(&asset2, &o, &FeedPriority::Primary, &3600);
-            },
-        );
-
-        te.env.mock_auths(&[MockAuth {
-            address: &oracle,
-            invoke: &MockAuthInvoke {
-                contract: &te.contract_id,
-                fn_name: "report_price",
-                args: (&asset1, &50_000_000i128, &100u32, &FeedPriority::Primary).into_val(&te.env),
-                sub_invokes: &[],
-            },
-        }]);
-        client(&te).report_price(&asset1, &50_000_000, &100, &FeedPriority::Primary);
-
-        te.env.mock_auths(&[MockAuth {
-            address: &oracle,
-            invoke: &MockAuthInvoke {
-                contract: &te.contract_id,
-                fn_name: "report_price",
-                args: (&asset2, &1_000_000_000i128, &100u32, &FeedPriority::Primary)
-                    .into_val(&te.env),
-                sub_invokes: &[],
-            },
-        }]);
-        client(&te).report_price(&asset2, &1_000_000_000, &100, &FeedPriority::Primary);
-
-        let agg1 = client(&te).get_price(&asset1);
-        let agg2 = client(&te).get_price(&asset2);
-        assert_eq!(agg1.price, 50_000_000);
-        assert_eq!(agg2.price, 1_000_000_000);
+        .publish(env);
     }
 }
