@@ -348,7 +348,7 @@ jobs:
   quality-gate:
     name: Quality Gate
     runs-on: ubuntu-latest
-    needs: [contracts, fuzzing, api, oracle, workspace]
+    needs: [contracts, fuzzing, invariant-testing, api, oracle, workspace]
     if: always()
     steps:
       - name: Check all jobs passed

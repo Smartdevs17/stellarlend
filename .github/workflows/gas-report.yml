@@ -42,7 +42,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
@@ -70,7 +70,7 @@ jobs:
           echo "CHECK_EXIT=$CHECK_EXIT" >> $GITHUB_OUTPUT
 
       - name: Post report to PR
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
