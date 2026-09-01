@@ -241,7 +241,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 name = "auto-compound-vault"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -330,7 +330,7 @@ dependencies = [
 name = "bridge"
 version = "0.0.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "stellarlend-common",
 ]
 
@@ -360,18 +360,6 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
 name = "bytes-lit"
-version = "0.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0adabf37211a5276e46335feabcbb1530c95eb3fdf85f324c7db942770aa025d"
-dependencies = [
- "num-bigint",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "bytes-lit"
 version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b04f2b1d34cb428043f14aa4c853d14294532e8bbde3b6a3bc2faaaae31a1dd"
@@ -386,7 +374,7 @@ dependencies = [
 name = "calldata-encoding"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -687,7 +675,7 @@ checksum = "092966b41edc516079bdf31ec78a2e0588d1d0c08f78b91d8307215928642b2b"
 name = "delegation-registry"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "stellarlend-shared-deadline",
 ]
 
@@ -932,7 +920,7 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 name = "flash-loan"
 version = "0.0.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
 ]
 
@@ -940,7 +928,7 @@ dependencies = [
 name = "flash-loan-liquidation-tests"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -1173,10 +1161,8 @@ dependencies = [
  "calldata-encoding",
  "flash-loan",
  "shared-events",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
- "stellar-contract-utils",
- "stellar-macros",
  "stellarlend-amm",
  "stellarlend-errors",
  "stellarlend-lending",
@@ -1487,7 +1473,7 @@ checksum = "8e04e2fd2b8188ea827b32ef11de88377086d690286ab35747ef7f9bf3ccb590"
 name = "insurance-marketplace"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -1619,7 +1605,7 @@ name = "lending-core"
 version = "0.1.0"
 dependencies = [
  "lending-types",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "test-utils",
 ]
 
@@ -1628,7 +1614,7 @@ name = "lending-interest"
 version = "0.1.0"
 dependencies = [
  "lending-types",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "stellarlend-safe-math",
 ]
 
@@ -1637,7 +1623,7 @@ name = "lending-risk"
 version = "0.1.0"
 dependencies = [
  "lending-types",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "stellarlend-safe-math",
 ]
 
@@ -1645,14 +1631,14 @@ dependencies = [
 name = "lending-types"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "leveraged-yield"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -1677,7 +1663,7 @@ checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 name = "liquidation-strategy"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -1784,7 +1770,7 @@ name = "multi-user-simulation"
 version = "0.1.0"
 dependencies = [
  "rand 0.9.4",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "statrs",
  "tokio",
 ]
@@ -1918,7 +1904,7 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 name = "oracle-hub"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
 ]
 
@@ -1938,7 +1924,7 @@ dependencies = [
 name = "parameter-store"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -1996,14 +1982,14 @@ dependencies = [
 name = "pool-interfaces"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "position-manager"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -2053,7 +2039,7 @@ dependencies = [
 name = "principal-token"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
 ]
 
@@ -2061,7 +2047,7 @@ dependencies = [
 name = "privacy-pool"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
  "stealth-address",
 ]
@@ -2288,7 +2274,7 @@ dependencies = [
 name = "referral-program"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -2389,7 +2375,7 @@ version = "0.1.0"
 dependencies = [
  "lending-risk",
  "lending-types",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "stellarlend-safe-math",
 ]
 
@@ -2751,7 +2737,7 @@ dependencies = [
 name = "shared-events"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -2759,14 +2745,14 @@ name = "shared-math"
 version = "0.1.0"
 dependencies = [
  "proptest",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "shared-storage"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -2830,7 +2816,7 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 name = "sns-integration"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "stellarlend-common",
  "stellarlend-shared-deadline",
 ]
@@ -2847,18 +2833,6 @@ dependencies = [
 
 [[package]]
 name = "soroban-builtin-sdk-macros"
-version = "26.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc4a09f48a67357fdad682b601f4a2f3fdd8d897f3a97c2e1704fa22b0a474e0"
-dependencies = [
- "itertools",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "soroban-builtin-sdk-macros"
 version = "27.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b77bc93d930032c487cb1506b6ed166b2af49db76d52678ec4887ac621ecce01"
@@ -2867,23 +2841,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "soroban-env-common"
-version = "26.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ededa4063061c00886490bb3290e416ee0b03d7732a7378ccba7bb19211fb00c"
-dependencies = [
- "crate-git-revision 0.0.6",
- "ethnum",
- "num-derive",
- "num-traits",
- "soroban-env-macros 26.1.4",
- "soroban-wasmi",
- "static_assertions",
- "stellar-xdr 26.0.1",
- "wasmparser",
 ]
 
 [[package]]
@@ -2898,21 +2855,11 @@ dependencies = [
  "num-derive",
  "num-traits",
  "serde",
- "soroban-env-macros 27.0.1",
+ "soroban-env-macros",
  "soroban-wasmi",
  "static_assertions",
- "stellar-xdr 27.0.0",
+ "stellar-xdr",
  "wasmparser",
-]
-
-[[package]]
-name = "soroban-env-guest"
-version = "26.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ff2525f31e2453b52e90400a2952ce4618f8925bd03167938573e83c320c33f"
-dependencies = [
- "soroban-env-common 26.1.4",
- "static_assertions",
 ]
 
 [[package]]
@@ -2921,45 +2868,8 @@ version = "27.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b6072f99ca6bf8e8d5b04e05d083dac785e5357d9c0f36a6658f819c2fd7d67"
 dependencies = [
- "soroban-env-common 27.0.1",
+ "soroban-env-common",
  "static_assertions",
-]
-
-[[package]]
-name = "soroban-env-host"
-version = "26.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "755806fedf2c948e882dff4bf69a8e844c9950b1d534abcadba4026150180274"
-dependencies = [
- "ark-bls12-381",
- "ark-bn254",
- "ark-ec",
- "ark-ff",
- "ark-serialize",
- "curve25519-dalek",
- "ecdsa",
- "ed25519-dalek",
- "elliptic-curve",
- "generic-array",
- "getrandom 0.2.17",
- "hex-literal",
- "hmac",
- "k256",
- "num-derive",
- "num-integer",
- "num-traits",
- "p256",
- "rand 0.8.6",
- "rand_chacha 0.3.1",
- "sec1",
- "sha2",
- "sha3",
- "soroban-builtin-sdk-macros 26.1.4",
- "soroban-env-common 26.1.4",
- "soroban-wasmi",
- "static_assertions",
- "stellar-strkey 0.0.13",
- "wasmparser",
 ]
 
 [[package]]
@@ -2991,27 +2901,12 @@ dependencies = [
  "sec1",
  "sha2",
  "sha3",
- "soroban-builtin-sdk-macros 27.0.1",
- "soroban-env-common 27.0.1",
+ "soroban-builtin-sdk-macros",
+ "soroban-env-common",
  "soroban-wasmi",
  "static_assertions",
  "stellar-strkey 0.0.13",
  "wasmparser",
-]
-
-[[package]]
-name = "soroban-env-macros"
-version = "26.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e446ac7f005d89cb77cc4e2cc006377e1a8c970c9b05d11968a32f78e10e4ef4"
-dependencies = [
- "itertools",
- "proc-macro2",
- "quote",
- "serde",
- "serde_json",
- "stellar-xdr 26.0.1",
- "syn 2.0.117",
 ]
 
 [[package]]
@@ -3025,7 +2920,7 @@ dependencies = [
  "quote",
  "serde",
  "serde_json",
- "stellar-xdr 27.0.0",
+ "stellar-xdr",
  "syn 2.0.117",
 ]
 
@@ -3038,28 +2933,9 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "soroban-env-common 27.0.1",
- "soroban-env-host 27.0.1",
+ "soroban-env-common",
+ "soroban-env-host",
  "thiserror 1.0.69",
-]
-
-[[package]]
-name = "soroban-sdk"
-version = "26.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4ce2a22afcbfc9407fe32ce789f441636d62cd078a4cc126191932b74b1e6c4"
-dependencies = [
- "bytes-lit 0.0.5",
- "crate-git-revision 0.0.6",
- "rand 0.8.6",
- "rustc_version",
- "serde",
- "serde_json",
- "soroban-env-guest 26.1.4",
- "soroban-env-host 26.1.4",
- "soroban-sdk-macros 26.1.1",
- "stellar-strkey 0.0.16",
- "visibility",
 ]
 
 [[package]]
@@ -3069,7 +2945,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c3f21971c84fcfb08957e3e8f5a9a70f134cb07ad9ee053ac7e6d7a887a82af"
 dependencies = [
  "arbitrary",
- "bytes-lit 0.0.6",
+ "bytes-lit",
  "crate-git-revision 0.0.9",
  "ctor",
  "derive_arbitrary",
@@ -3078,32 +2954,12 @@ dependencies = [
  "rustc_version",
  "serde",
  "serde_json",
- "soroban-env-guest 27.0.1",
- "soroban-env-host 27.0.1",
+ "soroban-env-guest",
+ "soroban-env-host",
  "soroban-ledger-snapshot",
- "soroban-sdk-macros 27.0.6",
+ "soroban-sdk-macros",
  "stellar-strkey 0.0.16",
  "visibility",
-]
-
-[[package]]
-name = "soroban-sdk-macros"
-version = "26.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6538ceb7d40c01499c2779b449a697c56c62a60bae6e5c5705d3a782075b5028"
-dependencies = [
- "darling 0.20.11",
- "heck",
- "itertools",
- "macro-string",
- "proc-macro2",
- "quote",
- "sha2",
- "soroban-env-common 26.1.4",
- "soroban-spec 26.1.1",
- "soroban-spec-rust 26.1.1",
- "stellar-xdr 26.0.1",
- "syn 2.0.117",
 ]
 
 [[package]]
@@ -3119,24 +2975,11 @@ dependencies = [
  "proc-macro2",
  "quote",
  "sha2",
- "soroban-env-common 27.0.1",
- "soroban-spec 27.0.6",
- "soroban-spec-rust 27.0.6",
- "stellar-xdr 27.0.0",
+ "soroban-env-common",
+ "soroban-spec",
+ "soroban-spec-rust",
+ "stellar-xdr",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "soroban-spec"
-version = "26.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca18ced644f86e1e36a0fddb856d45a6a8478296e6b54941fb5e2daa96076bf7"
-dependencies = [
- "base64 0.22.1",
- "sha2",
- "stellar-xdr 26.0.1",
- "thiserror 1.0.69",
- "wasmparser",
 ]
 
 [[package]]
@@ -3147,25 +2990,9 @@ checksum = "473404322827b285cbcd87517f365986bd63af7842c78b2a86ee061715fda61e"
 dependencies = [
  "base64 0.22.1",
  "sha2",
- "stellar-xdr 27.0.0",
+ "stellar-xdr",
  "thiserror 1.0.69",
  "wasmparser",
-]
-
-[[package]]
-name = "soroban-spec-rust"
-version = "26.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f3e3933a8ca588de7fb70460a48a5e0b043f43836aeb11b6aa0128143d95814"
-dependencies = [
- "prettyplease",
- "proc-macro2",
- "quote",
- "sha2",
- "soroban-spec 26.1.1",
- "stellar-xdr 26.0.1",
- "syn 2.0.117",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -3178,8 +3005,8 @@ dependencies = [
  "proc-macro2",
  "quote",
  "sha2",
- "soroban-spec 27.0.6",
- "stellar-xdr 27.0.0",
+ "soroban-spec",
+ "stellar-xdr",
  "syn 2.0.117",
  "thiserror 1.0.69",
 ]
@@ -3190,7 +3017,7 @@ version = "27.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd6dc437f9eb3fa90aed2b8f98fb709b94eded3d517def4a83e696571819b130"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -3251,28 +3078,8 @@ dependencies = [
 name = "stealth-address"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
-]
-
-[[package]]
-name = "stellar-contract-utils"
-version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c45490c0ca2176bf9283445f59734ab304b17153f55fe9155de7f5cdffa4a85"
-dependencies = [
- "soroban-sdk 26.1.1",
-]
-
-[[package]]
-name = "stellar-macros"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bb4b3dd8f599646dab3e949ba2febc3a060a194bc1a3711ddd5e7c275acfe5e"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]
@@ -3298,24 +3105,6 @@ dependencies = [
 
 [[package]]
 name = "stellar-xdr"
-version = "26.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea6e29c7e1f071c2767916460d006668197843d5d93f0ec8893a26f72a14f595"
-dependencies = [
- "base64 0.22.1",
- "cfg_eval",
- "crate-git-revision 0.0.6",
- "escape-bytes",
- "ethnum",
- "hex",
- "serde",
- "serde_with",
- "sha2",
- "stellar-strkey 0.0.13",
-]
-
-[[package]]
-name = "stellar-xdr"
 version = "27.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05ff843326969bdf1ef673dcdba94c08f4a3c8f1e58d6e6ef39b1bd4f749179a"
@@ -3337,7 +3126,7 @@ dependencies = [
 name = "stellarlend-amm"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
  "stellarlend-common",
 ]
@@ -3351,7 +3140,7 @@ dependencies = [
  "hello-world",
  "serde",
  "serde_json",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
  "stellarlend-amm",
  "stellarlend-lending",
@@ -3388,21 +3177,21 @@ name = "stellarlend-common"
 version = "0.1.0"
 dependencies = [
  "shared-events",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "stellarlend-compliance"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "stellarlend-copy-lending"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "stellarlend-common",
 ]
 
@@ -3411,14 +3200,14 @@ name = "stellarlend-core"
 version = "0.1.0"
 dependencies = [
  "shared-events",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "stellarlend-credit-delegation"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "stellarlend-common",
 ]
 
@@ -3426,7 +3215,7 @@ dependencies = [
 name = "stellarlend-debt-token"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
 ]
 
@@ -3434,7 +3223,7 @@ dependencies = [
 name = "stellarlend-dispute-resolution"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "stellarlend-common",
 ]
 
@@ -3442,7 +3231,7 @@ dependencies = [
 name = "stellarlend-dutch-auction"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
 ]
 
@@ -3450,21 +3239,21 @@ dependencies = [
 name = "stellarlend-earnings-reinvest"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "stellarlend-errors"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "stellarlend-institutional-wallet"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
  "stellarlend-common",
 ]
@@ -3475,7 +3264,7 @@ version = "0.1.0"
 dependencies = [
  "delegation-registry",
  "shared-events",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
  "stellarlend-common",
  "stellarlend-errors",
@@ -3488,7 +3277,7 @@ dependencies = [
 name = "stellarlend-margin"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -3496,14 +3285,14 @@ name = "stellarlend-math"
 version = "0.1.0"
 dependencies = [
  "proptest",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "stellarlend-migration-hub"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
  "stellarlend-common",
  "stellarlend-shared-deadline",
@@ -3517,21 +3306,21 @@ dependencies = [
  "rand 0.9.4",
  "serde",
  "serde_json",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "stellarlend-oracle-client"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "stellarlend-pool-factory"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
  "stellarlend-common",
 ]
@@ -3540,7 +3329,7 @@ dependencies = [
 name = "stellarlend-pool-migration"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "stellarlend-shared-deadline",
 ]
 
@@ -3548,14 +3337,14 @@ dependencies = [
 name = "stellarlend-rate-limit"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "stellarlend-reputation"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "stellarlend-common",
 ]
 
@@ -3564,35 +3353,35 @@ name = "stellarlend-safe-math"
 version = "0.1.0"
 dependencies = [
  "proptest",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "stellarlend-security"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "stellarlend-shared-deadline"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "stellarlend-shared-signatures"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "stellarlend-stablecoin"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
 ]
 
@@ -3600,21 +3389,21 @@ dependencies = [
 name = "stellarlend-storage-layer"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "stellarlend-swap-router"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "stellarlend-token"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
 ]
 
@@ -3622,7 +3411,7 @@ dependencies = [
 name = "stellarlend-token-adapter"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
 ]
 
@@ -3630,7 +3419,7 @@ dependencies = [
 name = "stellarlend-twap-oracle"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
@@ -3750,14 +3539,14 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "test-utils"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
 ]
 
@@ -4103,7 +3892,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 name = "vault-share"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
 ]
 
@@ -4637,21 +4426,21 @@ name = "yield-router"
 version = "0.1.0"
 dependencies = [
  "pool-interfaces",
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "yield-splitter"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
 ]
 
 [[package]]
 name = "yield-token"
 version = "0.1.0"
 dependencies = [
- "soroban-sdk 27.0.6",
+ "soroban-sdk",
  "soroban-token-sdk",
 ]
 

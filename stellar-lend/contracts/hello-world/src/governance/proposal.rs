@@ -85,7 +85,7 @@ pub fn create_proposal(
     ProposalCreatedEvent {
         proposal_id: next_id,
         proposer,
-        proposal_type: proposal.proposal_type,
+        proposal_type: crate::events::to_shared_proposal_type(&proposal.proposal_type),
         description,
         start_time: proposal.start_time,
         end_time: proposal.end_time,

@@ -26,7 +26,17 @@
 //! - Audit trail through events
 
 #![allow(unused)]
-use soroban_sdk::{contracterror, contractevent, contracttype, Address, Env, Map, Symbol, Vec};
+use soroban_sdk::{contracterror, contractevent, contracttype, Address, Env, Map, String, Symbol, Vec};
+
+/// Canonical all-zero ed25519 account address, used as the "null recipient"
+/// sentinel. `soroban_sdk::Address` has no `zero()` constructor, so the
+/// well-known zero-key strkey is parsed instead.
+pub fn zero_address(env: &Env) -> Address {
+    Address::from_string(&String::from_str(
+        env,
+        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    ))
+}
 
 use crate::deposit::DepositDataKey;
 use crate::errors::LendingError;
@@ -334,7 +344,7 @@ fn move_debt_token_ownership(
     token_id: u64,
 ) -> Result<(), DebtTokenError> {
     // Validate inputs
-    if to == Address::zero() {
+    if to == zero_address(env) {
         return Err(DebtTokenError::ZeroAddress);
     }
 
@@ -366,8 +376,8 @@ fn move_debt_token_ownership(
     let mut from_tokens = owner_tokens;
     let index = from_tokens
         .iter()
-        .position(|&id| id == token_id)
-        .ok_or(DebtTokenError::TokenNotFound)?;
+        .position(|id| id == token_id)
+        .ok_or(DebtTokenError::TokenNotFound)? as u32;
     from_tokens.remove(index);
 
     let from_key = DebtTokenDataKey::OwnerTokens(from.clone());
@@ -580,8 +590,8 @@ pub fn burn_debt_token(
     let mut user_tokens = owner_tokens;
     let index = user_tokens
         .iter()
-        .position(|&id| id == token_id)
-        .ok_or(DebtTokenError::TokenNotFound)?;
+        .position(|id| id == token_id)
+        .ok_or(DebtTokenError::TokenNotFound)? as u32;
     user_tokens.remove(index);
 
     let owner_key = DebtTokenDataKey::OwnerTokens(user.clone());
