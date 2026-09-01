@@ -1164,6 +1164,7 @@ dependencies = [
  "stellar-contract-utils",
  "stellar-macros",
  "stellarlend-amm",
+ "stellarlend-errors",
  "stellarlend-lending",
  "stellarlend-oracle-client",
  "stellarlend-shared-deadline",
@@ -3437,6 +3438,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellarlend-errors"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk 27.0.6",
+]
+
+[[package]]
 name = "stellarlend-institutional-wallet"
 version = "0.1.0"
 dependencies = [
@@ -3454,7 +3462,9 @@ dependencies = [
  "soroban-sdk 27.0.6",
  "soroban-token-sdk",
  "stellarlend-common",
+ "stellarlend-errors",
  "stellarlend-shared-deadline",
+ "stellarlend-storage-layer",
 ]
 
 [[package]]
@@ -3518,6 +3528,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "stellarlend-rate-limit"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk 27.0.6",
+]
+
+[[package]]
 name = "stellarlend-reputation"
 version = "0.1.0"
 dependencies = [
@@ -3553,6 +3570,13 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk 27.0.6",
  "soroban-token-sdk",
+]
+
+[[package]]
+name = "stellarlend-storage-layer"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk 27.0.6",
 ]
 
 [[package]]
