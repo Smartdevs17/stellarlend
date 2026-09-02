@@ -37,6 +37,9 @@
     {"operation":"get_user_position","scenario":"read_cold","cpu_insns":60829,"mem_bytes":11265},
     {"operation":"get_user_position","scenario":"read_warm","cpu_insns":60829,"mem_bytes":11265},
     {"operation":"update_asset_config","scenario":"write","cpu_insns":100183,"mem_bytes":21472},
-    {"operation":"configure_flash_loan","scenario":"write","cpu_insns":72431,"mem_bytes":14496}
+    {"operation":"configure_flash_loan","scenario":"write","cpu_insns":72431,"mem_bytes":14496},
+    {"operation":"error_normalize","scenario":"lending_code_to_core_hit","cpu_insns":28,"mem_bytes":12},
+    {"operation":"error_normalize","scenario":"lending_code_to_core_miss","cpu_insns":24,"mem_bytes":8},
+    {"operation":"error_normalize","scenario":"into_core_chain","cpu_insns":42,"mem_bytes":16}
   ]
 }

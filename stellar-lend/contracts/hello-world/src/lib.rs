@@ -44,6 +44,8 @@ pub mod storage;
 #[cfg(test)]
 mod test_utils;
 #[cfg(test)]
+mod error_consolidation_test;
+#[cfg(test)]
 mod tests;
 pub mod timelock;
 pub mod treasury;

@@ -3178,6 +3178,7 @@ version = "0.1.0"
 dependencies = [
  "shared-events",
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]

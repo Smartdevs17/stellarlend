@@ -59,7 +59,6 @@ members = [
   "contracts/shared-math",
   "contracts/shared-storage",
   "contracts/errors",
-  "contracts/governance",
   "contracts/storage-layer",
   "contracts/rate-limit",
   "contracts/earnings-reinvest",

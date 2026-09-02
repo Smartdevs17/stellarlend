@@ -425,3 +425,68 @@ impl From<EmergencyWithdrawalError> for LendingError {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Unified error framework bridge
+// ---------------------------------------------------------------------------
+//
+// Every internal error in this contract implements
+// [`stellarlend_errors::IntoError`] so the consolidated analytics, logging, and
+// recovery stack in the `stellarlend-errors` crate can normalize failures to a
+// single [`stellarlend_errors::CoreError`] category. Combined with the existing
+// `From<ModuleError> for LendingError` impls above, the full path is:
+//
+//     ModuleError -> LendingError -> CoreError
+//
+// All three hops are total (no panics, no fall-through).
+
+use stellarlend_errors::{CoreError, IntoError, LendingCode};
+
+impl LendingCode for LendingError {
+    #[inline]
+    fn code(&self) -> u32 {
+        *self as u32
+    }
+}
+
+// `LendingCode` already provides `IntoError` via the blanket impl in the
+// `stellarlend-errors` crate. The `LendingError` -> `CoreError` mapping comes
+// from `lending_code_to_core`. This gives us a free, single-source-of-truth
+// hop. We still expose a `lending_error_to_core` helper for callers that want
+// to do the lookup without consuming the value.
+#[inline]
+pub fn lending_error_to_core(err: LendingError) -> CoreError {
+    err.into_core()
+}
+
+macro_rules! impl_into_core {
+    ($ty:ty, $variant:path) => {
+        impl IntoError for $ty {
+            #[inline]
+            fn into_core(self) -> CoreError {
+                <$variant as Into<LendingError>>::into(self).into_core()
+            }
+        }
+    };
+}
+
+impl_into_core!(AdminError, AdminError);
+impl_into_core!(AnalyticsError, AnalyticsError);
+impl_into_core!(BorrowError, BorrowError);
+impl_into_core!(CrossAssetError, CrossAssetError);
+impl_into_core!(DebtTokenError, DebtTokenError);
+impl_into_core!(DepositError, DepositError);
+impl_into_core!(EmergencyWithdrawalError, EmergencyWithdrawalError);
+impl_into_core!(FlashLoanError, FlashLoanError);
+impl_into_core!(InterestRateError, InterestRateError);
+impl_into_core!(LiquidationError, LiquidationError);
+impl_into_core!(MevProtectionError, MevProtectionError);
+impl_into_core!(RateLimitError, RateLimitError);
+impl_into_core!(RebalancingError, RebalancingError);
+impl_into_core!(RepayError, RepayError);
+impl_into_core!(ReserveError, ReserveError);
+impl_into_core!(RiskManagementError, RiskManagementError);
+impl_into_core!(RiskParamsError, RiskParamsError);
+impl_into_core!(TreasuryError, TreasuryError);
+impl_into_core!(WithdrawError, WithdrawError);
+impl_into_core!(GovernanceError, GovernanceError);

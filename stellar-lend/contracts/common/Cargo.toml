@@ -2,10 +2,12 @@
 name = "stellarlend-common"
 version = "0.1.0"
 edition = "2021"
+description = "Shared utilities for StellarLend contracts: re-exports the unified error handling framework, plus storage, events, message bus, cache, upgrade, and shared types."
 
 [dependencies]
 shared-events = { path = "../shared-events" }
 soroban-sdk = { workspace = true }
+stellarlend-errors = { path = "../errors" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
