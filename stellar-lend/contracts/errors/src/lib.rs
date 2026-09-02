@@ -11,27 +11,72 @@
 //!
 //! * [`CoreError`] is the canonical, namespace-agnostic error type. Each operational
 //!   outcome a module can express gets a single well-documented variant.
-//! * [`ErrorCode`] mirrors the contract's own `#[contracterror]` enums without forcing
-//!   modules to re-declare them here. Modules convert their `u32` codes via
-//!   [`FromCode`] / [`TryFromCode`] and map to [`CoreError`] through [`IntoError`].
-//! * Numeric ABI is intentionally **kept in each contract crate**. This library does
-//!   not redefine codes owned by deployed contracts (that would break the on-chain
-//!   interface); it provides the shared *framework* around them.
+//! * Each contract exposes its own `#[contracterror]` enum (e.g. `LendingError` in
+//!   `hello-world`). The numeric ABI codes are owned by the contract crate so the
+//!   on-chain interface does not change. This crate only re-declares the
+//!   *category* mapping in [`mapping::lending_code_to_core`].
+//! * Implement [`IntoError`] (or the lighter-weight [`LendingCode`] trait) on every
+//!   per-module error enum so the framework can normalize failures with a single
+//!   `into_core()` call. A blanket impl for `T: LendingCode` means most contracts
+//!   only need to write `impl LendingCode for MyError { fn code(&self) -> u32 { *self as u32 } }`.
+//! * Three stable helpers build on top of the normalized category:
+//!   * [`analytics::ErrorAnalytics`] — per-category counters for dashboards.
+//!   * [`logging::log_error`] — uniform Soroban event emission.
+//!   * [`recovery::recover`] — decide `Retry` vs `Terminal`.
 //!
 //! This crate is `#![no_std]` so it can be compiled into Soroban WASM contracts.
+//!
+//! ## Quick start
+//!
+//! ```rust
+//! use soroban_sdk::{contracterror, Env};
+//! use stellarlend_errors::{
+//!     lending_code_to_core, CoreError, ErrorAnalytics, IntoError,
+//!     LendingCode, RecoveryDecision,
+//! };
+//! use stellarlend_errors::recovery::recover;
+//!
+//! // 1. Declare your contract's public error enum with stable numeric codes.
+//! #[contracterror]
+//! #[derive(Copy, Clone, Debug)]
+//! #[repr(u32)]
+//! pub enum MyError {
+//!     Unauthorized = 1,
+//!     Insufficient = 5,
+//! }
+//!
+//! // 2. Connect it to the unified framework.
+//! impl LendingCode for MyError {
+//!     fn code(&self) -> u32 { *self as u32 }
+//! }
+//! // `IntoError` is now provided by the blanket impl — no manual impl needed.
+//!
+//! // 3. Use it.
+//! let env = Env::default();
+//! let mut tally = ErrorAnalytics::new(&env);
+//! tally.record(MyError::Unauthorized);
+//!
+//! let core = MyError::Insufficient.into_core();
+//! assert_eq!(core, CoreError::Insufficient);
+//! assert_eq!(recover(core), RecoveryDecision::Terminal);
+//! assert_eq!(lending_code_to_core(1), Some(CoreError::Unauthorized));
+//! ```
 
 #![no_std]
 
 use soroban_sdk::{contracterror, Env, Symbol};
 
 pub mod analytics;
+pub mod benchmark;
 pub mod logging;
+pub mod mapping;
 pub mod recovery;
 pub mod testing;
 
 pub use analytics::ErrorAnalytics;
 pub use logging::{log_error, log_error_with_tag};
-pub use recovery::{recover, RecoveryDecision};
+pub use mapping::{lending_code_to_core, lending_code_to_core_or_internal, LendingCode};
+pub use recovery::{recover, hint, RecoveryDecision};
 
 /// Canonical, namespace-agnostic error categories shared across all contracts.
 ///
@@ -110,20 +155,15 @@ impl CoreError {
 ///
 /// Implement this for each module's `#[contracterror]` enum so `?`-style mapping and
 /// the analytics stack can normalize any module error into the shared hierarchy.
+///
+/// In most cases you don't need to write a manual `IntoError` impl — instead
+/// implement [`LendingCode`] (a one-method trait that returns the error's
+/// numeric code) and the blanket `impl<T: LendingCode> IntoError for T` does the
+/// rest. Only use a manual `IntoError` impl when the error category depends on
+/// the variant (e.g. to collapse several variants into one category, or to
+/// enrich with context before mapping).
 pub trait IntoError {
     fn into_core(self) -> CoreError;
-}
-
-/// Converts a raw contract error `u32` code into a [`CoreError`].
-///
-/// Rather than forcing every contract crate to expose its enum here, modules that
-/// want analytical normalization can supply a closure mapping their code numbers to a
-/// [`CoreError`]; [`TryFromCode::from_code`] centralizes "translate a numeric ABI code
-/// into a category".
-pub trait TryFromCode: Sized {
-    /// Given an `env` (unused today but reserved for future structured-log wiring)
-    /// and a contract error code, produce a `CoreError`.
-    fn from_code(env: &Env, code: u32) -> Option<CoreError>;
 }
 
 /// Trivial, dependency-free implementation of [`IntoError`] for [`CoreError`] itself.
@@ -133,6 +173,9 @@ impl IntoError for CoreError {
         self
     }
 }
+
+#[cfg(test)]
+mod integration_test;
 
 #[cfg(test)]
 mod tests {
