@@ -7,7 +7,7 @@ edition = "2021"
 soroban-sdk = { workspace = true, features = ["testutils"] }
 tokio = { version = "1", features = ["full"] }
 rand = "0.9"
-statrs = "0.16"
+statrs = "0.19"
 
 [[bin]]
 name = "simulator"
