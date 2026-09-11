@@ -81,9 +81,9 @@ fn test_weighted_strategy_distinguishes_from_median() {
     report(&te, &asset, &o1, 100_000_000, &FeedPriority::Primary);
     report(&te, &asset, &o2, 120_000_000, &FeedPriority::Secondary);
 
-    // Median -> upper median of [100M, 120M] = 120M.
+    // Median -> lower median of [100M, 120M] = 100M.
     let median_agg = client(&te).get_price(&asset);
-    assert_eq!(median_agg.price, 120_000_000);
+    assert_eq!(median_agg.price, 100_000_000);
 
     // Weighted (equal weights) -> mean = 110M.
     allow_all(&te);

@@ -40,9 +40,9 @@ fn sorted_prices(env: &Env, quotes: &Vec<FeedQuote>) -> Vec<i128> {
     sorted
 }
 
-/// Median price of the sorted list (upper median for even counts).
+/// Median price of the sorted list (lower median for even counts).
 fn median_of(sorted: &Vec<i128>) -> i128 {
-    sorted.get(sorted.len() / 2).unwrap()
+    sorted.get((sorted.len() - 1) / 2).unwrap()
 }
 
 /// Deviation in basis points of `price` from `reference`.
@@ -83,32 +83,8 @@ fn filter_quotes(env: &Env, quotes: &Vec<FeedQuote>) -> Vec<FeedQuote> {
 /// Median result: price = median of kept quotes, confidence = average
 /// confidence of kept quotes, timestamp = latest timestamp of kept quotes.
 fn median_result(env: &Env, kept: &Vec<FeedQuote>) -> (i128, u32, u64) {
-    let price = {
-        let mut prices = Vec::new(env);
-        for q in kept.iter() {
-            prices.push_back(q.price);
-        }
-        let mut sorted = Vec::new(env);
-        for i in 0..prices.len() {
-            sorted.push_back(prices.get(i).unwrap());
-        }
-        let mut i = 1;
-        while i < sorted.len() {
-            let key = sorted.get(i).unwrap();
-            let mut j = i;
-            while j > 0 {
-                let prev = sorted.get(j - 1).unwrap();
-                if prev <= key {
-                    break;
-                }
-                sorted.set(j, prev);
-                j -= 1;
-            }
-            sorted.set(j, key);
-            i += 1;
-        }
-        sorted.get(sorted.len() / 2).unwrap()
-    };
+    let sorted = sorted_prices(env, kept);
+    let price = median_of(&sorted);
 
     let mut total_conf: u64 = 0;
     let mut latest_ts = 0u64;

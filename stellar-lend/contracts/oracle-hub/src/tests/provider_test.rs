@@ -53,10 +53,10 @@ fn test_mixed_push_and_pull_aggregation() {
     set_mock_price(&te, &provider, &asset, 100_000_000, 100);
     report(&te, &asset, &oracle, 101_000_000, &FeedPriority::Secondary);
 
-    // Median of [100M, 101M] (upper median index 1) = 101M.
+    // Median of [100M, 101M] (lower median index 0) = 100M.
     let agg = client(&te).get_price(&asset);
     assert_eq!(agg.num_feeds, 2);
-    assert_eq!(agg.price, 101_000_000);
+    assert_eq!(agg.price, 100_000_000);
 }
 
 #[test]
@@ -71,8 +71,8 @@ fn test_multiple_pull_feeds_aggregate() {
 
     let agg = client(&te).get_price(&asset);
     assert_eq!(agg.num_feeds, 2);
-    // Upper median of [1000M, 1010M] = 1010M.
-    assert_eq!(agg.price, 1_010_000_000);
+    // Lower median of [1000M, 1010M] = 1000M.
+    assert_eq!(agg.price, 1_000_000_000);
 }
 
 #[test]
