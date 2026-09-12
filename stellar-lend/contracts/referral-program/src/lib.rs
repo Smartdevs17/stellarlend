@@ -146,7 +146,7 @@ impl ReferralProgram {
         if let Some(l1_record) = env
             .storage()
             .persistent()
-            .get::<Symbol, ReferralRecord>(&l1_key)
+            .get::<PersistentDataKey, ReferralRecord>(&l1_key)
         {
             let mut l1_stats = Self::get_referrer_stats_internal(&env, &l1_record.referrer);
             l1_stats.l2_referrals += 1;
@@ -187,7 +187,7 @@ impl ReferralProgram {
         if let Some(l1_record) = env
             .storage()
             .persistent()
-            .get::<Symbol, ReferralRecord>(&l1_key)
+            .get::<PersistentDataKey, ReferralRecord>(&l1_key)
         {
             let l2_share = (fee_amount * config.l2_fee_share_bps as i128) / 10_000;
             if l2_share > 0 {
