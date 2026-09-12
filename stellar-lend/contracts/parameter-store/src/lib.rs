@@ -101,6 +101,10 @@ pub struct ParameterStoreContract;
 #[contractimpl]
 impl ParameterStoreContract {
     pub fn initialize(env: Env, governance: Address, admin: Address) {
+        if env.storage().instance().has(&DataKey::Governance) {
+            panic!("Already initialized");
+        }
+        governance.require_auth();
         env.storage()
             .instance()
             .set(&DataKey::Governance, &governance);
@@ -465,6 +469,7 @@ mod tests {
 
     fn setup() -> TestEnv {
         let env = Env::default();
+        env.mock_all_auths();
         let governance = Address::generate(&env);
         let admin = Address::generate(&env);
         let contract_id = env.register_contract(None, ParameterStoreContract);
@@ -503,6 +508,33 @@ mod tests {
     #[test]
     fn test_initialize() {
         let te = setup();
+        let stored: Address = te
+            .env
+            .as_contract(&te.contract_id, || {
+                te.env.storage().instance().get(&DataKey::Governance)
+            })
+            .unwrap();
+        assert_eq!(stored, te.governance);
+    }
+
+    #[test]
+    fn initialize_requires_governance_auth() {
+        let env = Env::default();
+        let governance = Address::generate(&env);
+        let admin = Address::generate(&env);
+        let contract_id = env.register_contract(None, ParameterStoreContract);
+        let client = ParameterStoreContractClient::new(&env, &contract_id);
+
+        assert!(client.try_initialize(&governance, &admin).is_err());
+    }
+
+    #[test]
+    fn initialize_cannot_overwrite_governance() {
+        let te = setup();
+        let attacker = Address::generate(&te.env);
+
+        assert!(client(&te).try_initialize(&attacker, &attacker).is_err());
+
         let stored: Address = te
             .env
             .as_contract(&te.contract_id, || {
