@@ -931,3 +931,77 @@ fn test_rounding_asymmetry_prevention() {
         "Round up should be >= round down"
     );
 }
+
+// ============================================================================
+// 10. CROSS-ASSET — Zero and Negative Amount Rejection Tests (Issue #912)
+// ============================================================================
+
+#[test]
+fn test_cross_asset_withdraw_zero_amount_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(HelloContract, ());
+    let client = HelloContractClient::new(&env, &contract_id);
+    let user = Address::generate(&env);
+
+    let res = client.try_cross_asset_withdraw(&user, &None, &0);
+    assert_eq!(res, Err(Ok(LendingError::InvalidAmount)));
+}
+
+#[test]
+fn test_cross_asset_withdraw_negative_amount_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(HelloContract, ());
+    let client = HelloContractClient::new(&env, &contract_id);
+    let user = Address::generate(&env);
+
+    // Negative withdraw must revert with InvalidAmount rather than inflating collateral
+    let res = client.try_cross_asset_withdraw(&user, &None, &(-1_000_000));
+    assert_eq!(res, Err(Ok(LendingError::InvalidAmount)));
+}
+
+#[test]
+fn test_cross_asset_deposit_zero_and_negative_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(HelloContract, ());
+    let client = HelloContractClient::new(&env, &contract_id);
+    let user = Address::generate(&env);
+
+    let res_zero = client.try_cross_asset_deposit(&user, &None, &0);
+    assert_eq!(res_zero, Err(Ok(LendingError::InvalidAmount)));
+
+    let res_neg = client.try_cross_asset_deposit(&user, &None, &(-500));
+    assert_eq!(res_neg, Err(Ok(LendingError::InvalidAmount)));
+}
+
+#[test]
+fn test_cross_asset_borrow_zero_and_negative_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(HelloContract, ());
+    let client = HelloContractClient::new(&env, &contract_id);
+    let user = Address::generate(&env);
+
+    let res_zero = client.try_cross_asset_borrow(&user, &None, &0);
+    assert_eq!(res_zero, Err(Ok(LendingError::InvalidAmount)));
+
+    let res_neg = client.try_cross_asset_borrow(&user, &None, &(-100));
+    assert_eq!(res_neg, Err(Ok(LendingError::InvalidAmount)));
+}
+
+#[test]
+fn test_cross_asset_repay_zero_and_negative_reverts() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(HelloContract, ());
+    let client = HelloContractClient::new(&env, &contract_id);
+    let user = Address::generate(&env);
+
+    let res_zero = client.try_ca_repay_debt(&user, &None, &0);
+    assert_eq!(res_zero, Err(Ok(LendingError::InvalidAmount)));
+
+    let res_neg = client.try_ca_repay_debt(&user, &None, &(-250));
+    assert_eq!(res_neg, Err(Ok(LendingError::InvalidAmount)));
+}

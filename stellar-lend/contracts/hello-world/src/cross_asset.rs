@@ -155,6 +155,8 @@ pub enum CrossAssetError {
     VolatilityUnavailable = 12,
     /// Reentrant call detected
     Reentrancy = 13,
+    /// Amount is zero or negative
+    InvalidAmount = 14,
 }
 
 /// Admin address authorized for protocol management
@@ -481,6 +483,7 @@ pub fn get_user_position_summary(
 /// Updated [`AssetPosition`] after the deposit.
 ///
 /// # Errors
+/// * `InvalidAmount` - Amount is zero or negative
 /// * `AssetNotConfigured` - Asset is not registered
 /// * `AssetDisabled` - Asset is not enabled for collateral
 /// * `SupplyCapExceeded` - Deposit would exceed the asset's supply cap
@@ -494,6 +497,10 @@ pub fn cross_asset_deposit(
         crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
 
     let asset_key = AssetKey::from_option(asset.clone());
     let config = get_asset_config(env, &asset_key)?;
@@ -546,6 +553,7 @@ pub fn cross_asset_deposit(
 /// Updated [`AssetPosition`] after the borrow.
 ///
 /// # Errors
+/// * `InvalidAmount` - Amount is zero or negative
 /// * `AssetNotConfigured` - Asset is not registered
 /// * `AssetDisabled` - Asset is not enabled for borrowing
 /// * `BorrowCapExceeded` - Borrow would exceed the asset's borrow cap
@@ -561,6 +569,10 @@ pub fn cross_asset_borrow(
         crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
 
     let asset_key = AssetKey::from_option(asset.clone());
     let config = get_asset_config(env, &asset_key)?;
@@ -636,6 +648,7 @@ pub fn cross_asset_borrow(
 /// Updated [`AssetPosition`] after the withdrawal.
 ///
 /// # Errors
+/// * `InvalidAmount` - Amount is zero or negative
 /// * `InsufficientCollateral` - User's collateral balance is below `amount`
 /// * `UnhealthyPosition` - Withdrawal would drop health factor below 1.0
 /// * `PriceStale` - Stale price prevents health factor calculation
@@ -649,6 +662,10 @@ pub fn cross_asset_withdraw(
         crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
 
     let asset_key = AssetKey::from_option(asset.clone());
 
@@ -695,6 +712,7 @@ pub fn cross_asset_withdraw(
 /// Amount of collateral actually transferred to liquidator.
 ///
 /// # Errors
+/// * `InvalidAmount` - Liquidation repayment or collateral amount is zero or negative
 /// * `AssetNotConfigured` - Either asset is not registered
 /// * `AssetDisabled` - Assets are disabled for liquidation
 /// * `InsufficientCollateral` - User position is not liquidatable
@@ -715,6 +733,11 @@ pub fn cross_asset_liquidate(
 
     liquidator.require_auth();
 
+    // Validate liquidation amounts
+    if debt_to_repay <= 0 || collateral_to_receive <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
+
     // Get asset configurations
     let debt_asset_key = AssetKey::from_option(debt_asset.clone());
     let collateral_asset_key = AssetKey::from_option(collateral_asset.clone());
@@ -731,11 +754,6 @@ pub fn cross_asset_liquidate(
     // Get user positions for both assets
     let mut debt_position = get_user_asset_position(env, &user, debt_asset.clone());
     let mut collateral_position = get_user_asset_position(env, &user, collateral_asset.clone());
-
-    // Validate liquidation amounts
-    if debt_to_repay <= 0 || collateral_to_receive <= 0 {
-        return Err(CrossAssetError::InsufficientCollateral);
-    }
 
     // Calculate actual collateral to receive with liquidation incentive
     let liquidation_incentive =
@@ -784,6 +802,9 @@ pub fn cross_asset_liquidate(
 ///
 /// # Returns
 /// Updated [`AssetPosition`] after the repayment.
+///
+/// # Errors
+/// * `InvalidAmount` - Amount is zero or negative
 pub fn cross_asset_repay(
     env: &Env,
     user: Address,
@@ -794,6 +815,10 @@ pub fn cross_asset_repay(
         crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
 
     let asset_key = AssetKey::from_option(asset.clone());
 
