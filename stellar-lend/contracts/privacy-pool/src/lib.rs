@@ -101,6 +101,11 @@ impl PrivacyPool {
             return Err(PrivacyPoolError::AlreadyInitialized);
         }
 
+        // Initialization chooses the authority that can pause the pool and
+        // change compliance policy. The caller must prove control of that
+        // address before any initialization state is written.
+        admin.require_auth();
+
         if !(10..=32).contains(&tree_depth) {
             return Err(PrivacyPoolError::InvalidProof);
         }
