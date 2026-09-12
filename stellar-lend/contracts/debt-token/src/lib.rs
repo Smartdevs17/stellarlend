@@ -140,6 +140,8 @@ impl StellarLendDebtToken {
             return Err(DebtTokenError::AlreadyInitialized);
         }
 
+        admin.require_auth();
+
         let config = DebtTokenConfig {
             admin,
             lending_pool,
@@ -912,6 +914,8 @@ mod tests {
     }
 
     fn setup_contract(env: &Env) -> (Address, Address, Address) {
+        env.mock_all_auths();
+
         let admin = Address::generate(env);
         let lending_pool = Address::generate(env);
         let underlying_asset = Address::generate(env);
@@ -925,6 +929,25 @@ mod tests {
         client.initialize(&admin, &lending_pool, &underlying_asset, &name, &symbol);
 
         (admin, lending_pool, underlying_asset)
+    }
+
+    #[test]
+    #[should_panic(expected = "HostError")]
+    fn initialize_requires_admin_auth() {
+        let env = create_env();
+        let admin = Address::generate(&env);
+        let lending_pool = Address::generate(&env);
+        let underlying_asset = Address::generate(&env);
+        let contract_id = env.register_contract(None, StellarLendDebtToken);
+        let client = StellarLendDebtTokenClient::new(&env, &contract_id);
+
+        client.initialize(
+            &admin,
+            &lending_pool,
+            &underlying_asset,
+            &String::from_str(&env, "StellarLend Debt Token"),
+            &String::from_str(&env, "dToken"),
+        );
     }
 
     #[test]
