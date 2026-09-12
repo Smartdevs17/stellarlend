@@ -24,6 +24,7 @@ pub fn setup() -> TestEnv {
     let admin = Address::generate(&env);
     let contract_id = env.register(OracleHubContract, ());
     let client = OracleHubContractClient::new(&env, &contract_id);
+    env.mock_all_auths();
     client.initialize(&governance, &admin);
     TestEnv {
         env,
