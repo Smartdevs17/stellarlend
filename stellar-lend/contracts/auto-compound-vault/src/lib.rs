@@ -1,6 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token::StellarAssetClient,
+    contract, contracterror, contractevent, contractimpl, contracttype,
+    token::{Client as TokenClient, StellarAssetClient},
     Address, Env,
 };
 
@@ -248,6 +249,9 @@ impl AutoCompoundVault {
             return Err(VaultError::SlippageExceeded);
         }
 
+        let underlying_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        underlying_client.transfer(&user, &env.current_contract_address(), &amount);
+
         let new_total_assets = total_assets
             .checked_add(amount)
             .ok_or(VaultError::Overflow)?;
@@ -358,6 +362,9 @@ impl AutoCompoundVault {
             return Err(VaultError::InsufficientBalance);
         }
 
+        let underlying_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        underlying_client.transfer(&env.current_contract_address(), &user, &assets);
+
         let new_total_assets = total_assets
             .checked_sub(assets)
             .ok_or(VaultError::Overflow)?;
@@ -423,13 +430,21 @@ impl AutoCompoundVault {
             .get(&DataKey::TotalAssets)
             .unwrap_or(0);
 
-        let rewards_claimed = total_assets
-            .checked_mul(100)
-            .ok_or(VaultError::Overflow)?
-            .checked_div(10_000)
+        if Self::get_reward_asset(&env) != Self::get_underlying_asset(&env) {
+            return Err(VaultError::NoRewardsToHarvest);
+        }
+
+        let underlying_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        let vault_balance = underlying_client.balance(&env.current_contract_address());
+        if vault_balance < total_assets {
+            return Err(VaultError::InsufficientBalance);
+        }
+
+        let rewards_claimed = vault_balance
+            .checked_sub(total_assets)
             .ok_or(VaultError::Overflow)?;
 
-        if rewards_claimed < min_rewards {
+        if rewards_claimed <= 0 || rewards_claimed < min_rewards {
             return Err(VaultError::NoRewardsToHarvest);
         }
 
@@ -612,6 +627,17 @@ impl AutoCompoundVault {
 
     fn get_share_token(env: &Env) -> Address {
         env.storage().instance().get(&DataKey::ShareToken).unwrap()
+    }
+
+    fn get_underlying_asset(env: &Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::UnderlyingAsset)
+            .unwrap()
+    }
+
+    fn get_reward_asset(env: &Env) -> Address {
+        env.storage().instance().get(&DataKey::RewardAsset).unwrap()
     }
 
     fn get_share_balance(env: &Env, user: &Address) -> i128 {
