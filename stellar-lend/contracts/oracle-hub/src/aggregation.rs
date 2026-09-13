@@ -197,13 +197,13 @@ pub fn aggregate(
         return Err("Too many feeds to aggregate");
     }
 
-    let mut kept = filter_quotes(env, &quotes);
-    if kept.is_empty() {
-        // Defensive: every quote was an outlier; degrade to the full set so
-        // the system never bricks on pathological inputs.
-        for q in quotes.iter() {
-            kept.push_back(q);
-        }
+    let kept = filter_quotes(env, &quotes);
+    if kept.len() < 2 {
+        // A single surviving quote is not enough to distinguish an honest
+        // source from a corrupt one when the feed set has multiple sources.
+        // Returning an error is safer than allowing the unvalidated quote to
+        // control the aggregate price.
+        return Err("Insufficient feeds after outlier filtering");
     }
 
     let result = match strategy {

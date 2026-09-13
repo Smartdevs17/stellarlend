@@ -69,6 +69,31 @@ fn test_outlier_rejection() {
 }
 
 #[test]
+fn test_two_feed_outlier_does_not_return_single_survivor() {
+    let te = setup();
+    let asset = mk_asset(&te.env, "XLM");
+    let honest = Address::generate(&te.env);
+    let corrupt = Address::generate(&te.env);
+
+    register_push_feed(&te, &asset, &honest, &FeedPriority::Primary, 3600);
+    register_push_feed(&te, &asset, &corrupt, &FeedPriority::Secondary, 3600);
+
+    report(&te, &asset, &honest, 100_000_000, &FeedPriority::Primary);
+    report(
+        &te,
+        &asset,
+        &corrupt,
+        1_000_000_000,
+        &FeedPriority::Secondary,
+    );
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client(&te).get_price(&asset);
+    }));
+    assert!(result.is_err());
+}
+
+#[test]
 fn test_weighted_strategy_distinguishes_from_median() {
     let te = setup();
     let asset = mk_asset(&te.env, "ETH");
