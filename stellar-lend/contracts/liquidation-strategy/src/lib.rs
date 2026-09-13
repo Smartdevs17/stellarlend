@@ -301,6 +301,11 @@ pub struct LiquidationStrategyContract;
 #[contractimpl]
 impl LiquidationStrategyContract {
     pub fn initialize(env: Env, governance: Address, admin: Address) {
+        if env.storage().instance().has(&DataKey::Governance) {
+            panic!("Already initialized");
+        }
+        governance.require_auth();
+        admin.require_auth();
         env.storage()
             .instance()
             .set(&DataKey::Governance, &governance);
@@ -515,6 +520,7 @@ mod tests {
         let governance = Address::generate(&env);
         let admin = Address::generate(&env);
         let contract_id = env.register_contract(None, LiquidationStrategyContract);
+        env.mock_all_auths();
         let client = LiquidationStrategyContractClient::new(&env, &contract_id);
         client.initialize(&governance, &admin);
         TestEnv {
@@ -561,6 +567,26 @@ mod tests {
             })
             .unwrap();
         assert_eq!(stored, te.governance);
+    }
+
+    #[test]
+    #[should_panic(expected = "Already initialized")]
+    fn test_initialize_cannot_be_called_twice() {
+        let te = setup();
+        let replacement_governance = Address::generate(&te.env);
+        let replacement_admin = Address::generate(&te.env);
+        client(&te).initialize(&replacement_governance, &replacement_admin);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_initialize_requires_authority_auth() {
+        let env = Env::default();
+        let governance = Address::generate(&env);
+        let admin = Address::generate(&env);
+        let contract_id = env.register_contract(None, LiquidationStrategyContract);
+        LiquidationStrategyContractClient::new(&env, &contract_id)
+            .initialize(&governance, &admin);
     }
 
     #[test]
