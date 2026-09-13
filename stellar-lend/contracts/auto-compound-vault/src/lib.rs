@@ -1,6 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token::StellarAssetClient,
+    contract, contracterror, contractevent, contractimpl, contracttype,
+    token::{Client as TokenClient, StellarAssetClient},
     Address, Env,
 };
 
@@ -248,6 +249,9 @@ impl AutoCompoundVault {
             return Err(VaultError::SlippageExceeded);
         }
 
+        let underlying_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        underlying_client.transfer(&user, &env.current_contract_address(), &amount);
+
         let new_total_assets = total_assets
             .checked_add(amount)
             .ok_or(VaultError::Overflow)?;
@@ -358,6 +362,13 @@ impl AutoCompoundVault {
             return Err(VaultError::InsufficientBalance);
         }
 
+        let underlying_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        let vault_address = env.current_contract_address();
+        if underlying_client.balance(&vault_address) < assets {
+            return Err(VaultError::InsufficientBalance);
+        }
+        underlying_client.transfer(&vault_address, &user, &assets);
+
         let new_total_assets = total_assets
             .checked_sub(assets)
             .ok_or(VaultError::Overflow)?;
@@ -423,11 +434,20 @@ impl AutoCompoundVault {
             .get(&DataKey::TotalAssets)
             .unwrap_or(0);
 
-        let rewards_claimed = total_assets
-            .checked_mul(100)
-            .ok_or(VaultError::Overflow)?
-            .checked_div(10_000)
+        let accrued_perf_fees: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::AccruedPerformanceFees)
+            .unwrap_or(0);
+        let recognized_assets = total_assets
+            .checked_add(accrued_perf_fees)
             .ok_or(VaultError::Overflow)?;
+        let underlying_balance = TokenClient::new(&env, &Self::get_underlying_asset(&env))
+            .balance(&env.current_contract_address());
+
+        let rewards_claimed = underlying_balance
+            .checked_sub(recognized_assets)
+            .ok_or(VaultError::InsufficientBalance)?;
 
         if rewards_claimed < min_rewards {
             return Err(VaultError::NoRewardsToHarvest);
@@ -447,11 +467,6 @@ impl AutoCompoundVault {
             .checked_add(rewards_reinvested)
             .ok_or(VaultError::Overflow)?;
 
-        let accrued_perf_fees: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::AccruedPerformanceFees)
-            .unwrap_or(0);
         let new_accrued = accrued_perf_fees
             .checked_add(performance_fee)
             .ok_or(VaultError::Overflow)?;
@@ -612,6 +627,13 @@ impl AutoCompoundVault {
 
     fn get_share_token(env: &Env) -> Address {
         env.storage().instance().get(&DataKey::ShareToken).unwrap()
+    }
+
+    fn get_underlying_asset(env: &Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::UnderlyingAsset)
+            .unwrap()
     }
 
     fn get_share_balance(env: &Env, user: &Address) -> i128 {
