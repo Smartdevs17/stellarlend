@@ -24,7 +24,26 @@ pub fn setup() -> TestEnv {
     let admin = Address::generate(&env);
     let contract_id = env.register(OracleHubContract, ());
     let client = OracleHubContractClient::new(&env, &contract_id);
-    env.mock_all_auths();
+    env.mock_auths(&[
+        MockAuth {
+            address: &governance,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "initialize",
+                args: (&governance, &admin).into_val(&env),
+                sub_invokes: &[],
+            },
+        },
+        MockAuth {
+            address: &admin,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "initialize",
+                args: (&governance, &admin).into_val(&env),
+                sub_invokes: &[],
+            },
+        },
+    ]);
     client.initialize(&governance, &admin);
     TestEnv {
         env,
