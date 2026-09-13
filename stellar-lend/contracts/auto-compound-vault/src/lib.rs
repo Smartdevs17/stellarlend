@@ -363,7 +363,11 @@ impl AutoCompoundVault {
         }
 
         let underlying_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
-        underlying_client.transfer(&env.current_contract_address(), &user, &assets);
+        let vault_address = env.current_contract_address();
+        if underlying_client.balance(&vault_address) < assets {
+            return Err(VaultError::InsufficientBalance);
+        }
+        underlying_client.transfer(&vault_address, &user, &assets);
 
         let new_total_assets = total_assets
             .checked_sub(assets)
@@ -434,15 +438,23 @@ impl AutoCompoundVault {
             return Err(VaultError::NoRewardsToHarvest);
         }
 
+        let accrued_perf_fees: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::AccruedPerformanceFees)
+            .unwrap_or(0);
+        let recognized_assets = total_assets
+            .checked_add(accrued_perf_fees)
+            .ok_or(VaultError::Overflow)?;
         let underlying_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
         let vault_balance = underlying_client.balance(&env.current_contract_address());
-        if vault_balance < total_assets {
+        if vault_balance < recognized_assets {
             return Err(VaultError::InsufficientBalance);
         }
 
         let rewards_claimed = vault_balance
-            .checked_sub(total_assets)
-            .ok_or(VaultError::Overflow)?;
+            .checked_sub(recognized_assets)
+            .ok_or(VaultError::InsufficientBalance)?;
 
         if rewards_claimed <= 0 || rewards_claimed < min_rewards {
             return Err(VaultError::NoRewardsToHarvest);
@@ -462,11 +474,6 @@ impl AutoCompoundVault {
             .checked_add(rewards_reinvested)
             .ok_or(VaultError::Overflow)?;
 
-        let accrued_perf_fees: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::AccruedPerformanceFees)
-            .unwrap_or(0);
         let new_accrued = accrued_perf_fees
             .checked_add(performance_fee)
             .ok_or(VaultError::Overflow)?;

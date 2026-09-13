@@ -26,8 +26,7 @@ fn setup() -> (Env, Address, Address, AutoCompoundVaultClient<'static>) {
     (env, admin, share_token, client)
 }
 
-fn setup_with_real_tokens(
-) -> (
+fn setup_with_real_tokens() -> (
     Env,
     Address,
     Address,
@@ -38,7 +37,9 @@ fn setup_with_real_tokens(
     env.mock_all_auths();
     let admin = Address::generate(&env);
     let contract_id = env.register(AutoCompoundVault, ());
-    let share_token = env.register_stellar_asset_contract_v2(contract_id.clone()).address();
+    let share_token = env
+        .register_stellar_asset_contract_v2(contract_id.clone())
+        .address();
     let underlying_admin = Address::generate(&env);
     let underlying = env
         .register_stellar_asset_contract_v2(underlying_admin)
@@ -54,13 +55,7 @@ fn setup_with_real_tokens(
         withdraw_paused: false,
         active: true,
     };
-    client.initialize(
-        &admin,
-        &share_token,
-        &underlying,
-        &underlying,
-        &config,
-    );
+    client.initialize(&admin, &share_token, &underlying, &underlying, &config);
 
     (env, contract_id, share_token, underlying, client)
 }
@@ -172,6 +167,16 @@ fn deposit_and_withdraw_move_underlying_tokens() {
 }
 
 #[test]
+fn deposit_requires_underlying_balance() {
+    let (env, _contract_id, share_token, _underlying, client) = setup_with_real_tokens();
+    let user = Address::generate(&env);
+
+    assert!(client.try_deposit(&user, &1_000, &0).is_err());
+    assert_eq!(client.get_vault_snapshot().total_assets, 0);
+    assert_eq!(token::Client::new(&env, &share_token).balance(&user), 0);
+}
+
+#[test]
 fn harvest_only_counts_actual_underlying_surplus() {
     let (env, contract_id, _share_token, underlying, client) = setup_with_real_tokens();
     let user = Address::generate(&env);
@@ -185,6 +190,26 @@ fn harvest_only_counts_actual_underlying_surplus() {
 
     assert_eq!(reinvested, 90);
     assert_eq!(client.get_vault_snapshot().total_assets, 1_090);
+}
+
+#[test]
+fn harvest_does_not_recount_accrued_performance_fees() {
+    let (env, contract_id, _share_token, underlying, client) = setup_with_real_tokens();
+    let user = Address::generate(&env);
+    let caller = Address::generate(&env);
+    let underlying_client = token::StellarAssetClient::new(&env, &underlying);
+    underlying_client.mint(&user, &1_000);
+    client.deposit(&user, &1_000, &1_000);
+
+    underlying_client.mint(&contract_id, &100);
+    assert_eq!(client.harvest(&caller, &0), 90);
+    assert_eq!(client.get_vault_snapshot().accrued_performance_fees, 10);
+
+    underlying_client.mint(&contract_id, &100);
+    assert_eq!(client.harvest(&caller, &0), 90);
+    let snapshot = client.get_vault_snapshot();
+    assert_eq!(snapshot.total_assets, 1_180);
+    assert_eq!(snapshot.accrued_performance_fees, 20);
 }
 
 #[test]
