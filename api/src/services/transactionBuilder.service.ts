@@ -8,11 +8,16 @@ import type {
 } from '../types/transaction';
 import { StellarService } from './stellar.service';
 import logger from '../utils/logger';
+import {
+  ValidationError,
+  NotFoundError,
+  ForbiddenError,
+  ExpiredError,
+} from '../utils/errors';
 
-const DEFAULT_TTL_SECONDS = 600; // 10 minutes
+const DEFAULT_TTL_SECONDS = 600;
 const MAX_STEPS = 10;
 
-// In-memory store. Replace with Redis/DB in production.
 const transactions = new Map<string, MultiStepTransaction>();
 
 function now(): string {
@@ -23,15 +28,37 @@ function isExpired(tx: MultiStepTransaction): boolean {
   return Date.now() > new Date(tx.expiresAt).getTime();
 }
 
+/**
+ * Resets the in-memory transaction store for testing isolation.
+ */
+export function resetTransactionStore(): void {
+  transactions.clear();
+}
+
+/**
+ * Manages multi-step transaction preparation, execution, and state transitions.
+ */
 export class TransactionBuilderService {
   private stellar = new StellarService();
 
-  create(req: CreateTransactionRequest): MultiStepTransaction {
+  /**
+   * Initializes a multi-step transaction workflow.
+   */
+  create(req: CreateTransactionRequest, callerAddress?: string): MultiStepTransaction {
+    if (callerAddress && req.userAddress && req.userAddress !== callerAddress) {
+      throw new ForbiddenError('Cannot create transaction for another user');
+    }
+
+    const userAddress = callerAddress ?? req.userAddress;
+    if (!userAddress) {
+      throw new ValidationError('User address is required');
+    }
+
     if (!req.steps || req.steps.length === 0) {
-      throw Object.assign(new Error('At least one step is required'), { status: 400 });
+      throw new ValidationError('At least one step is required');
     }
     if (req.steps.length > MAX_STEPS) {
-      throw Object.assign(new Error(`Maximum ${MAX_STEPS} steps allowed`), { status: 400 });
+      throw new ValidationError(`Maximum ${MAX_STEPS} steps allowed`);
     }
 
     const txId = randomUUID();
@@ -42,7 +69,7 @@ export class TransactionBuilderService {
       stepId: randomUUID(),
       index: i,
       operation: s.operation,
-      userAddress: req.userAddress,
+      userAddress,
       amount: s.amount,
       assetAddress: s.assetAddress,
       status: 'pending',
@@ -52,7 +79,7 @@ export class TransactionBuilderService {
 
     const tx: MultiStepTransaction = {
       txId,
-      userAddress: req.userAddress,
+      userAddress,
       description: req.description ?? `Multi-step transaction (${steps.length} steps)`,
       steps,
       currentStepIndex: 0,
@@ -68,15 +95,18 @@ export class TransactionBuilderService {
     return tx;
   }
 
-  async prepareStep(txId: string, stepId: string): Promise<MultiStepTransaction> {
-    const tx = this.assertActive(txId);
+  /**
+   * Prepares the next step by generating an unsigned transaction XDR.
+   */
+  async prepareStep(txId: string, stepId: string, callerAddress?: string): Promise<MultiStepTransaction> {
+    const tx = this.assertActive(txId, callerAddress);
     const step = this.findStep(tx, stepId);
 
     if (step.index !== tx.currentStepIndex) {
-      throw Object.assign(new Error('Steps must be prepared in order'), { status: 400 });
+      throw new ValidationError('Steps must be prepared in order');
     }
     if (step.status !== 'pending') {
-      throw Object.assign(new Error(`Step is already in status: ${step.status}`), { status: 400 });
+      throw new ValidationError(`Step is already in status: ${step.status}`);
     }
 
     const unsignedXdr = await this.stellar.buildUnsignedTransaction(
@@ -87,7 +117,7 @@ export class TransactionBuilderService {
     );
 
     step.unsignedXdr = unsignedXdr;
-    step.status = 'approved'; // awaiting signature from client
+    step.status = 'approved';
     step.updatedAt = now();
     tx.status = 'pending_approval';
     tx.updatedAt = now();
@@ -97,14 +127,15 @@ export class TransactionBuilderService {
     return tx;
   }
 
-  async approveStep(req: ApproveStepRequest): Promise<MultiStepTransaction> {
-    const tx = this.assertActive(req.txId);
+  /**
+   * Submits a signed step transaction on-chain.
+   */
+  async approveStep(req: ApproveStepRequest, callerAddress?: string): Promise<MultiStepTransaction> {
+    const tx = this.assertActive(req.txId, callerAddress);
     const step = this.findStep(tx, req.stepId);
 
     if (step.status !== 'approved') {
-      throw Object.assign(new Error('Step must be in approved status before execution'), {
-        status: 400,
-      });
+      throw new ValidationError('Step must be in approved status before execution');
     }
 
     step.signedXdr = req.signedXdr;
@@ -141,8 +172,11 @@ export class TransactionBuilderService {
     return tx;
   }
 
-  rejectStep(req: RejectStepRequest): MultiStepTransaction {
-    const tx = this.assertActive(req.txId);
+  /**
+   * Rejects an in-progress step and marks the workflow as failed.
+   */
+  rejectStep(req: RejectStepRequest, callerAddress?: string): MultiStepTransaction {
+    const tx = this.assertActive(req.txId, callerAddress);
     const step = this.findStep(tx, req.stepId);
 
     step.status = 'rejected';
@@ -156,10 +190,16 @@ export class TransactionBuilderService {
     return tx;
   }
 
-  getTransaction(txId: string): MultiStepTransaction {
+  /**
+   * Retrieves a single transaction workflow by identifier.
+   */
+  getTransaction(txId: string, callerAddress?: string): MultiStepTransaction {
     const tx = transactions.get(txId);
     if (!tx) {
-      throw Object.assign(new Error('Transaction not found'), { status: 404 });
+      throw new NotFoundError('Transaction not found');
+    }
+    if (callerAddress && tx.userAddress !== callerAddress) {
+      throw new ForbiddenError('Cannot access transaction belonging to another user');
     }
     if (isExpired(tx) && tx.status !== 'completed' && tx.status !== 'failed') {
       this.markExpired(tx);
@@ -167,7 +207,13 @@ export class TransactionBuilderService {
     return tx;
   }
 
-  listForUser(userAddress: string): MultiStepTransaction[] {
+  /**
+   * Lists all transactions associated with a user address.
+   */
+  listForUser(userAddress: string, callerAddress?: string): MultiStepTransaction[] {
+    if (callerAddress && userAddress !== callerAddress) {
+      throw new ForbiddenError('Cannot list transactions for another user');
+    }
     const result: MultiStepTransaction[] = [];
     for (const tx of transactions.values()) {
       if (tx.userAddress !== userAddress) continue;
@@ -179,9 +225,12 @@ export class TransactionBuilderService {
     return result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
+  /**
+   * Cleans up expired and old terminal transactions.
+   */
   cleanupExpired(): number {
     let count = 0;
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000; // keep 24h of completed/failed
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
     for (const [txId, tx] of transactions.entries()) {
       const isOldTerminal =
         (tx.status === 'completed' || tx.status === 'failed') &&
@@ -195,25 +244,28 @@ export class TransactionBuilderService {
     return count;
   }
 
-  private assertActive(txId: string): MultiStepTransaction {
+  private assertActive(txId: string, callerAddress?: string): MultiStepTransaction {
     const tx = transactions.get(txId);
-    if (!tx) throw Object.assign(new Error('Transaction not found'), { status: 404 });
+    if (!tx) throw new NotFoundError('Transaction not found');
+    if (callerAddress && tx.userAddress !== callerAddress) {
+      throw new ForbiddenError('Cannot access transaction belonging to another user');
+    }
     if (isExpired(tx)) {
       this.markExpired(tx);
-      throw Object.assign(new Error('Transaction has expired'), { status: 410 });
+      throw new ExpiredError('Transaction has expired');
     }
     if (tx.status === 'completed') {
-      throw Object.assign(new Error('Transaction is already completed'), { status: 400 });
+      throw new ValidationError('Transaction is already completed');
     }
     if (tx.status === 'failed') {
-      throw Object.assign(new Error('Transaction has failed'), { status: 400 });
+      throw new ValidationError('Transaction has failed');
     }
     return tx;
   }
 
   private findStep(tx: MultiStepTransaction, stepId: string): TransactionStep {
     const step = tx.steps.find((s) => s.stepId === stepId);
-    if (!step) throw Object.assign(new Error('Step not found'), { status: 404 });
+    if (!step) throw new NotFoundError('Step not found');
     return step;
   }
 
@@ -232,5 +284,5 @@ export class TransactionBuilderService {
 
 export const transactionBuilderService = new TransactionBuilderService();
 
-// Periodic cleanup every 15 minutes
-setInterval(() => transactionBuilderService.cleanupExpired(), 15 * 60 * 1000);
+const cleanupInterval = setInterval(() => transactionBuilderService.cleanupExpired(), 15 * 60 * 1000);
+cleanupInterval.unref();
