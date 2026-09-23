@@ -116,6 +116,64 @@ const referralController = {
       next(error);
     }
   },
+
+  async getLeaderboard(req: Request, res: Response, next: NextFunction) {
+    try {
+      const limit = Number(req.query.limit) || 10;
+      const sortBy = (req.query.sortBy as 'totalEarned' | 'totalReferrals' | 'claimable') || 'totalEarned';
+      const leaderboard = referralService.getLeaderboard(limit, sortBy);
+      res.json({ success: true, data: leaderboard });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getAnalytics(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const analytics = referralService.getGlobalAnalytics();
+      res.json({ success: true, data: analytics });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getConfig(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const conf = referralService.getConfig();
+      res.json({ success: true, data: conf });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async updateConfig(req: Request, res: Response, next: NextFunction) {
+    try {
+      const updated = referralService.updateConfig(req.body);
+      res.json({ success: true, data: updated });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async distributeRewards(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userAddresses } = req.body;
+      const result = referralService.distributeRewards(userAddresses);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getDistributions(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userAddress = req.query.userAddress as string | undefined;
+      const history = referralService.getDistributionHistory(userAddress);
+      res.json({ success: true, data: history });
+    } catch (error) {
+      next(error);
+    }
+  },
 };
 
 router.post('/generate-code', referralController.generateCode);
@@ -126,5 +184,11 @@ router.get('/stats', referralController.getStats);
 router.get('/link', referralController.getLink);
 router.get('/funnel', referralController.getConversionFunnel);
 router.get('/anti-sybil', referralController.getAntiSybilStatus);
+router.get('/leaderboard', referralController.getLeaderboard);
+router.get('/analytics', referralController.getAnalytics);
+router.get('/config', referralController.getConfig);
+router.put('/config', referralController.updateConfig);
+router.post('/distribute', referralController.distributeRewards);
+router.get('/distributions', referralController.getDistributions);
 
 export default router;

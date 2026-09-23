@@ -9,12 +9,18 @@ crate-type = ["cdylib", "lib"]
 doctest = false
 
 [dependencies]
+shared-events = { path = "../shared-events" }
+stellarlend-errors = { path = "../errors" }
+stellarlend-flash-loan = { package = "flash-loan", path = "../flash-loan" }
 soroban-sdk = { workspace = true }
 soroban-token-sdk = { workspace = true }
 stellarlend-amm = { path = "../amm" }
 stellarlend-oracle-client = { path = "../../packages/oracle-client" }
-stellar-contract-utils = { version = "0.6.0" }
-stellar-macros = { version = "0.6.0" }
+stellarlend-shared-deadline = { path = "../shared-deadline" }
+stellarlend-security = { path = "../security" }
+calldata-encoding = { path = "../lib/calldata-encoding" }
+migration-hub = { package = "stellarlend-migration-hub", path = "../migration-hub" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+stellarlend-lending = { path = "../lending" }

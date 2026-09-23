@@ -74,11 +74,22 @@ impl CreditDelegationContract {
     ) -> u64 {
         delegator.require_auth();
 
+        if delegator == delegate {
+            panic!("cannot delegate to self");
+        }
         if max_amount <= 0 {
             panic!("max amount must be positive");
         }
         if interest_rate_bps < 0 || interest_rate_bps > 10000 {
             panic!("interest rate must be between 0 and 10000 bps");
+        }
+        if maturity <= u64::from(env.ledger().sequence()) {
+            panic!("maturity must be in the future");
+        }
+        if let Some(c) = collateral {
+            if c < 0 {
+                panic!("collateral must be non-negative");
+            }
         }
 
         let mut counter: u64 = env.storage().instance().get(&CREDIT_COUNTER).unwrap_or(0);
@@ -109,6 +120,10 @@ impl CreditDelegationContract {
 
     pub fn draw(env: Env, credit_line_id: u64, delegate: Address, amount: i128) {
         delegate.require_auth();
+        if amount <= 0 {
+            panic!("draw amount must be positive");
+        }
+
         let mut credit_line: CreditLine = env
             .storage()
             .instance()
@@ -125,22 +140,39 @@ impl CreditDelegationContract {
             panic!("credit line has matured");
         }
 
-        let new_drawn = credit_line.drawn_amount + amount;
+        let new_drawn = credit_line
+            .drawn_amount
+            .checked_add(amount)
+            .unwrap_or_else(|| panic!("overflow"));
         if new_drawn > credit_line.max_amount {
             panic!("draw exceeds credit limit");
         }
 
         credit_line.drawn_amount = new_drawn;
         credit_line.status = CreditStatus::Drawn;
-        credit_line.updated_at = env.ledger().sequence().into();
+        let now: u64 = env.ledger().sequence().into();
+        credit_line.updated_at = now;
 
         env.storage()
             .instance()
             .set(&CreditDataKey::CreditLine(credit_line_id), &credit_line);
+
+        let record = DrawRecord {
+            credit_line_id,
+            amount,
+            drawn_at: now,
+        };
+        env.storage()
+            .instance()
+            .set(&CreditDataKey::Draws(credit_line_id), &record);
     }
 
     pub fn repay(env: Env, credit_line_id: u64, delegate: Address, amount: i128) {
         delegate.require_auth();
+        if amount <= 0 {
+            panic!("repayment amount must be positive");
+        }
+
         let mut credit_line: CreditLine = env
             .storage()
             .instance()
@@ -153,8 +185,14 @@ impl CreditDelegationContract {
         if credit_line.status != CreditStatus::Active && credit_line.status != CreditStatus::Drawn {
             panic!("credit line is not active");
         }
+        if credit_line.drawn_amount == 0 {
+            panic!("no debt to repay");
+        }
 
-        let new_repaid = credit_line.repaid_amount + amount;
+        let new_repaid = credit_line
+            .repaid_amount
+            .checked_add(amount)
+            .unwrap_or_else(|| panic!("overflow"));
         if new_repaid > credit_line.drawn_amount {
             panic!("repayment exceeds drawn amount");
         }
@@ -163,11 +201,22 @@ impl CreditDelegationContract {
         if new_repaid >= credit_line.drawn_amount {
             credit_line.status = CreditStatus::Repaid;
         }
-        credit_line.updated_at = env.ledger().sequence().into();
+        let now: u64 = env.ledger().sequence().into();
+        credit_line.updated_at = now;
 
         env.storage()
             .instance()
             .set(&CreditDataKey::CreditLine(credit_line_id), &credit_line);
+
+        let record = RepaymentRecord {
+            credit_line_id,
+            amount,
+            accrued_interest: 0,
+            repaid_at: now,
+        };
+        env.storage()
+            .instance()
+            .set(&CreditDataKey::Repayments(credit_line_id), &record);
     }
 
     pub fn claim_default(env: Env, credit_line_id: u64, delegator: Address) {
@@ -190,6 +239,9 @@ impl CreditDelegationContract {
         if credit_line.status == CreditStatus::Defaulted {
             panic!("already defaulted");
         }
+        if credit_line.status == CreditStatus::Repaid {
+            panic!("credit line already repaid");
+        }
 
         credit_line.status = CreditStatus::Defaulted;
         credit_line.updated_at = env.ledger().sequence().into();
@@ -201,6 +253,10 @@ impl CreditDelegationContract {
 
     pub fn adjust_limit(env: Env, credit_line_id: u64, delegator: Address, new_max: i128) {
         delegator.require_auth();
+        if new_max <= 0 {
+            panic!("new limit must be positive");
+        }
+
         let mut credit_line: CreditLine = env
             .storage()
             .instance()
@@ -209,6 +265,9 @@ impl CreditDelegationContract {
 
         if credit_line.delegator != delegator {
             panic!("not authorized as delegator");
+        }
+        if credit_line.status != CreditStatus::Active && credit_line.status != CreditStatus::Drawn {
+            panic!("credit line is not active");
         }
         if new_max < credit_line.drawn_amount {
             panic!("new limit below drawn amount");
@@ -229,6 +288,10 @@ impl CreditDelegationContract {
         new_delegator: Address,
     ) {
         current_delegator.require_auth();
+        if current_delegator == new_delegator {
+            panic!("cannot transfer to self");
+        }
+
         let mut credit_line: CreditLine = env
             .storage()
             .instance()
@@ -237,6 +300,12 @@ impl CreditDelegationContract {
 
         if credit_line.delegator != current_delegator {
             panic!("not authorized as delegator");
+        }
+        if new_delegator == credit_line.delegate {
+            panic!("cannot transfer to delegate");
+        }
+        if credit_line.status == CreditStatus::Defaulted || credit_line.status == CreditStatus::Repaid {
+            panic!("cannot transfer inactive credit line");
         }
 
         credit_line.delegator = new_delegator;
@@ -253,4 +322,19 @@ impl CreditDelegationContract {
             .instance()
             .get(&CreditDataKey::CreditLine(credit_line_id))
     }
+
+    pub fn get_draw_record(env: Env, credit_line_id: u64) -> Option<DrawRecord> {
+        env.storage()
+            .instance()
+            .get(&CreditDataKey::Draws(credit_line_id))
+    }
+
+    pub fn get_repayment_record(env: Env, credit_line_id: u64) -> Option<RepaymentRecord> {
+        env.storage()
+            .instance()
+            .get(&CreditDataKey::Repayments(credit_line_id))
+    }
 }
+
+#[cfg(test)]
+mod test;

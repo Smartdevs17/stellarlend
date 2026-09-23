@@ -203,6 +203,8 @@ router.get('/auction/:slotId', mevController.getAuctionResult);
  *         description: Dashboard snapshot
  */
 router.get('/dashboard', mevController.getDashboard);
+router.get('/sandwich-report', mevController.getSandwichReport);
+router.get('/sandwich-log', mevController.getSandwichLog);
 
 /**
  * @openapi

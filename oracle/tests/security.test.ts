@@ -1,8 +1,8 @@
-import { SecurityEngine } from "../src/security/simulation-engine";
-import { MonitoringService } from "../src/security/monitoring-service";
-import { RiskLevel } from "../src/security/types";
+import { SecurityEngine } from '../src/security/simulation-engine';
+import { MonitoringService } from '../src/security/monitoring-service';
+import { RiskLevel } from '../src/security/types';
 
-describe("Economic Security Simulation Framework", () => {
+describe('Economic Security Simulation Framework', () => {
   let engine: SecurityEngine;
   let monitor: MonitoringService;
 
@@ -21,13 +21,13 @@ describe("Economic Security Simulation Framework", () => {
     marketVolatility: 0.1,
   };
 
-  test("should calculate a risk score based on protocol state", async () => {
+  test('should calculate a risk score based on protocol state', async () => {
     const score = await engine.runSecurityAudit(mockProtocolState);
     expect(score.aggregateScore).toBeGreaterThan(0);
     expect(score.level).toBeDefined();
   });
 
-  test("should detect high risk in a volatile market", async () => {
+  test('should detect high risk in a volatile market', async () => {
     const highVolatilityState = {
       ...mockProtocolState,
       marketVolatility: 0.8,
@@ -37,7 +37,7 @@ describe("Economic Security Simulation Framework", () => {
     expect(score.level).toBe(RiskLevel.HIGH);
   });
 
-  test("should trigger alerts when risk level is critical", async () => {
+  test('should trigger alerts when risk level is critical', async () => {
     const criticalState = {
       ...mockProtocolState,
       assets: [{ price: 200, totalBorrowed: 10000000 }], // Massive borrowing against inflated price

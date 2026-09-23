@@ -1,0 +1,23 @@
+{
+    "verify": [
+        "LendingContract:certora/core_lending_invariants.spec",
+        "LendingContract:certora/health_factor_bounds.spec",
+        "LendingContract:certora/interest_accrual.spec",
+        "LendingContract:certora/interest_rate_model.spec",
+        "LendingContract:certora/oracle_integration.spec"
+    ],
+    "prover_args": [
+        "-depth 10",
+        "-timeout 300",
+        "-smt_nonLinearArithmetic true"
+    ],
+    "solc_map": {
+        "LendingContract": "solc"
+    },
+    "loop_iter": 3,
+    "optimistic_loop": true,
+    "global_timeout": 600,
+    "server": "https://prover.certora.com",
+    "core_prover_memory": "16G",
+    "rule_sanity": "basic"
+}

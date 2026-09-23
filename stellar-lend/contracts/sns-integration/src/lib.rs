@@ -48,11 +48,7 @@ impl SNSIntegration {
         Ok(())
     }
 
-    pub fn register_name(
-        env: Env,
-        name: String,
-        address: Address,
-    ) -> Result<(), SNSError> {
+    pub fn register_name(env: Env, name: String, address: Address) -> Result<(), SNSError> {
         address.require_auth();
         Self::require_initialized(&env)?;
 
@@ -94,11 +90,7 @@ impl SNSIntegration {
         env.storage().persistent().set(&KEY_CACHE, &cache);
 
         // Update analytics
-        let mut analytics: SNSAnalytics = env
-            .storage()
-            .instance()
-            .get(&KEY_ANALYTICS)
-            .unwrap();
+        let mut analytics: SNSAnalytics = env.storage().instance().get(&KEY_ANALYTICS).unwrap();
         analytics.total_names_registered += 1;
         env.storage().instance().set(&KEY_ANALYTICS, &analytics);
 
@@ -112,11 +104,7 @@ impl SNSIntegration {
 
         // Check cache first
         if let Some(cached) = Self::get_from_cache(&env, &name) {
-            let mut analytics: SNSAnalytics = env
-                .storage()
-                .instance()
-                .get(&KEY_ANALYTICS)
-                .unwrap();
+            let mut analytics: SNSAnalytics = env.storage().instance().get(&KEY_ANALYTICS).unwrap();
             analytics.total_resolutions += 1;
             if analytics.cache_hit_rate < 100 {
                 analytics.cache_hit_rate += 1;
@@ -161,11 +149,7 @@ impl SNSIntegration {
         env.storage().persistent().set(&KEY_CACHE, &cache);
 
         // Update analytics
-        let mut analytics: SNSAnalytics = env
-            .storage()
-            .instance()
-            .get(&KEY_ANALYTICS)
-            .unwrap();
+        let mut analytics: SNSAnalytics = env.storage().instance().get(&KEY_ANALYTICS).unwrap();
         analytics.total_resolutions += 1;
         env.storage().instance().set(&KEY_ANALYTICS, &analytics);
 
@@ -246,10 +230,7 @@ impl SNSIntegration {
     }
 
     fn get_from_cache(env: &Env, name: &String) -> Option<SNSCache> {
-        let cache: Map<String, SNSCache> = env
-            .storage()
-            .persistent()
-            .get(&KEY_CACHE)?;
+        let cache: Map<String, SNSCache> = env.storage().persistent().get(&KEY_CACHE)?;
 
         let entry = cache.get(name.clone())?;
         if env.ledger().timestamp() < entry.cached_at + entry.ttl {

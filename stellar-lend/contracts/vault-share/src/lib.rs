@@ -162,9 +162,10 @@ impl VaultShare {
             .checked_sub(amount)
             .ok_or(VaultShareError::Overflow)?;
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Allowance(from.clone(), spender.clone()), &new_allowance);
+        env.storage().persistent().set(
+            &DataKey::Allowance(from.clone(), spender.clone()),
+            &new_allowance,
+        );
         Self::do_transfer(&env, &from, &to, amount)?;
 
         TransferEvent { from, to, amount }.publish(&env);
@@ -181,15 +182,16 @@ impl VaultShare {
         env.storage()
             .persistent()
             .set(&DataKey::Allowance(owner.clone(), spender.clone()), &amount);
-        ApprovalEvent { owner, spender, amount }.publish(&env);
+        ApprovalEvent {
+            owner,
+            spender,
+            amount,
+        }
+        .publish(&env);
         Ok(())
     }
 
-    pub fn mint(
-        env: Env,
-        to: Address,
-        amount: i128,
-    ) -> Result<(), VaultShareError> {
+    pub fn mint(env: Env, to: Address, amount: i128) -> Result<(), VaultShareError> {
         let vault: Address = env
             .storage()
             .instance()
@@ -221,19 +223,13 @@ impl VaultShare {
         supply = supply
             .checked_add(amount)
             .ok_or(VaultShareError::Overflow)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::TotalSupply, &supply);
+        env.storage().instance().set(&DataKey::TotalSupply, &supply);
 
         MintEvent { to, amount }.publish(&env);
         Ok(())
     }
 
-    pub fn burn(
-        env: Env,
-        from: Address,
-        amount: i128,
-    ) -> Result<(), VaultShareError> {
+    pub fn burn(env: Env, from: Address, amount: i128) -> Result<(), VaultShareError> {
         let vault: Address = env
             .storage()
             .instance()
@@ -268,9 +264,7 @@ impl VaultShare {
         supply = supply
             .checked_sub(amount)
             .ok_or(VaultShareError::Overflow)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::TotalSupply, &supply);
+        env.storage().instance().set(&DataKey::TotalSupply, &supply);
 
         BurnEvent { from, amount }.publish(&env);
         Ok(())

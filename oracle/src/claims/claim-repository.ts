@@ -6,11 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type {
-  InsuranceClaim,
-  ClaimHistoryEntry,
-  ClaimSubmissionRequest,
-} from './types.js';
+import type { InsuranceClaim, ClaimHistoryEntry, ClaimSubmissionRequest } from './types.js';
 import { ClaimStatus, FraudSignal } from './types.js';
 import { logger } from '../utils/logger.js';
 
@@ -74,7 +70,11 @@ export class ClaimRepository {
     };
 
     this.persist(id, claim);
-    logger.info('Claim created', { claimId: id, asset: claim.asset, claimant: claim.claimantAddress });
+    logger.info('Claim created', {
+      claimId: id,
+      asset: claim.asset,
+      claimant: claim.claimantAddress,
+    });
     return claim;
   }
 
@@ -146,9 +146,7 @@ export class ClaimRepository {
   }
 
   findByAddress(address: string): InsuranceClaim[] {
-    return Array.from(this.store.values()).filter(
-      (c) => c.claimantAddress === address
-    );
+    return Array.from(this.store.values()).filter((c) => c.claimantAddress === address);
   }
 
   findByStatus(status: ClaimStatus): InsuranceClaim[] {
@@ -159,9 +157,7 @@ export class ClaimRepository {
    * Return all claims submitted since a given Unix timestamp.
    */
   findSince(sinceTimestamp: number): InsuranceClaim[] {
-    return Array.from(this.store.values()).filter(
-      (c) => c.submittedAt >= sinceTimestamp
-    );
+    return Array.from(this.store.values()).filter((c) => c.submittedAt >= sinceTimestamp);
   }
 
   /**
@@ -203,8 +199,6 @@ export class ClaimRepository {
 /**
  * Factory function.
  */
-export function createClaimRepository(
-  config?: Partial<ClaimRepositoryConfig>
-): ClaimRepository {
+export function createClaimRepository(config?: Partial<ClaimRepositoryConfig>): ClaimRepository {
   return new ClaimRepository(config);
 }

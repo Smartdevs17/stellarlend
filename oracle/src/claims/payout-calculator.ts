@@ -69,14 +69,11 @@ export class PayoutCalculator {
     const grossAmount = claim.claimedAmount;
 
     // 2. Apply coverage cap
-    const cappedAmount =
-      grossAmount > claim.coverageLimit ? claim.coverageLimit : grossAmount;
+    const cappedAmount = grossAmount > claim.coverageLimit ? claim.coverageLimit : grossAmount;
 
     // 3. Apply deductible
     const deductibleAmount = this.computeDeductible(cappedAmount);
-    const afterDeductible = cappedAmount > deductibleAmount
-      ? cappedAmount - deductibleAmount
-      : 0n;
+    const afterDeductible = cappedAmount > deductibleAmount ? cappedAmount - deductibleAmount : 0n;
 
     // 4. Apply confidence discount
     const confidenceDiscount = this.computeConfidenceDiscount(oracle.confidence);
@@ -136,8 +133,6 @@ export class PayoutCalculator {
 /**
  * Factory function.
  */
-export function createPayoutCalculator(
-  config?: Partial<PayoutCalculatorConfig>
-): PayoutCalculator {
+export function createPayoutCalculator(config?: Partial<PayoutCalculatorConfig>): PayoutCalculator {
   return new PayoutCalculator(config);
 }

@@ -5,14 +5,12 @@
 
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
 use soroban_sdk::token::StellarAssetClient;
+use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 use crate::{
-    errors::GovernanceError,
-    governance::MAX_DESCRIPTION_LEN,
-    types::ProposalType,
-    HelloContract, HelloContractClient,
+    errors::GovernanceError, governance::MAX_DESCRIPTION_LEN, types::ProposalType, HelloContract,
+    HelloContractClient,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -32,7 +30,7 @@ fn setup(env: &Env) -> (HelloContractClient, Address, Address) {
         &Some(259200),
         &Some(86400),
         &Some(400),
-        &Some(0),   // no token threshold so any proposer works
+        &Some(0), // no token threshold so any proposer works
         &Some(604800),
         &Some(5000),
     );
@@ -96,11 +94,8 @@ fn test_admin_proposal_over_max_len_rejected() {
     let (client, admin, _) = setup(&env);
 
     let desc = str_of_len(&env, MAX_DESCRIPTION_LEN as usize + 1);
-    let result = client.try_gov_create_admin_proposal(
-        &admin,
-        &ProposalType::EmergencyPause(false),
-        &desc,
-    );
+    let result =
+        client.try_gov_create_admin_proposal(&admin, &ProposalType::EmergencyPause(false), &desc);
     assert_eq!(
         result.unwrap_err().unwrap(),
         GovernanceError::InputTooLong.into()

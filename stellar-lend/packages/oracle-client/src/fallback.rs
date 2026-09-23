@@ -1,7 +1,7 @@
 use soroban_sdk::{Address, Env};
 
 use crate::{
-    validate_price, OracleClientError, OracleClientConfig, OraclePrice, PriceCache, PriceOracle,
+    validate_price, OracleClientConfig, OracleClientError, OraclePrice, PriceCache, PriceOracle,
 };
 
 pub fn resolve_with_fallback<P, S, C>(

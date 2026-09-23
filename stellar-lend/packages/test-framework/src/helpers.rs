@@ -12,11 +12,7 @@ pub fn assert_equal_with_tolerance(actual: i128, expected: i128, tolerance_bps: 
     );
 }
 
-pub fn health_factor_bps(
-    collateral_value: i128,
-    debt_value: i128,
-    threshold_bps: i128,
-) -> i128 {
+pub fn health_factor_bps(collateral_value: i128, debt_value: i128, threshold_bps: i128) -> i128 {
     if debt_value <= 0 {
         return i128::MAX;
     }
@@ -30,11 +26,7 @@ pub fn is_liquidatable(health_factor: i128) -> bool {
     health_factor < 10_000
 }
 
-pub fn calculate_interest_accrual(
-    principal: i128,
-    rate_bps: i128,
-    seconds: u64,
-) -> i128 {
+pub fn calculate_interest_accrual(principal: i128, rate_bps: i128, seconds: u64) -> i128 {
     let seconds_per_year = 365 * 24 * 3600;
     (principal * rate_bps as i128 * seconds as i128) / (10_000 * seconds_per_year as i128)
 }

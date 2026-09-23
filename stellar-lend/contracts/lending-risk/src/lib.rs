@@ -36,8 +36,8 @@ impl RiskManager {
         new_borrow: i128,
         collateral_factor_bps: i128,
     ) -> Result<bool, MathError> {
-        let max_borrow =
-            safe_mul(collateral_value, collateral_factor_bps).and_then(|v| safe_div(v, BPS_DIVISOR))?;
+        let max_borrow = safe_mul(collateral_value, collateral_factor_bps)
+            .and_then(|v| safe_div(v, BPS_DIVISOR))?;
         let total_debt = safe_add(existing_debt, new_borrow)?;
         Ok(total_debt <= max_borrow)
     }
@@ -128,12 +128,12 @@ impl RiskMetrics {
         let health_factor =
             calculate_health_factor(collateral_value, debt_value, liquidation_threshold_bps);
         let ltv_ratio = RiskManager::calculate_ltv(debt_value, collateral_value)?;
-        let borrow_capacity =
-            safe_mul(collateral_value, collateral_factor_bps).and_then(|v| safe_div(v, BPS_DIVISOR))?;
+        let borrow_capacity = safe_mul(collateral_value, collateral_factor_bps)
+            .and_then(|v| safe_div(v, BPS_DIVISOR))?;
 
         let liquidation_price = if collateral_value > 0 {
-            let effective_collateral =
-                safe_mul(collateral_value, liquidation_threshold_bps).and_then(|v| safe_div(v, BPS_DIVISOR))?;
+            let effective_collateral = safe_mul(collateral_value, liquidation_threshold_bps)
+                .and_then(|v| safe_div(v, BPS_DIVISOR))?;
             if effective_collateral == 0 {
                 0
             } else {

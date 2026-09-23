@@ -95,6 +95,46 @@ export interface OptimizationSuggestion {
   estimatedImpact?: string;
 }
 
+export interface LendingPoolAllocationInput {
+  poolId: string;
+  assetSymbol: string;
+  totalLiquidity: string;
+  borrowedLiquidity: string;
+  supplyApy: number;
+  borrowApy: number;
+  reserveFactorBps?: number;
+}
+
+export interface LendingPoolAllocationOptions {
+  targetUtilization?: number;
+  maxUtilization?: number;
+  rebalanceThresholdPct?: number;
+  automationEnabled?: boolean;
+}
+
+export type AllocationAction = 'supply' | 'withdraw' | 'monitor';
+
+export interface LendingPoolAllocationRecommendation {
+  poolId: string;
+  assetSymbol: string;
+  currentUtilization: number;
+  targetAllocation: string;
+  rebalanceAmount: string;
+  action: AllocationAction;
+  priority: SuggestionPriority;
+  expectedNetApy: number;
+  reason: string;
+}
+
+export interface LendingPoolAllocationPlan {
+  generatedAt: string;
+  totalAvailableLiquidity: string;
+  targetUtilization: number;
+  maxUtilization: number;
+  automationEnabled: boolean;
+  recommendations: LendingPoolAllocationRecommendation[];
+}
+
 export interface PerformanceSummary {
   totalDeposited: string;
   totalWithdrawn: string;

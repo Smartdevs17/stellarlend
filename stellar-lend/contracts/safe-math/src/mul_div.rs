@@ -13,12 +13,7 @@ pub fn mul_div(env: &Env, a: i128, b: i128, denominator: i128) -> Result<i128, M
     result.to_i128().ok_or(MathError::Overflow)
 }
 
-pub fn mul_div_round_up(
-    env: &Env,
-    a: i128,
-    b: i128,
-    denominator: i128,
-) -> Result<i128, MathError> {
+pub fn mul_div_round_up(env: &Env, a: i128, b: i128, denominator: i128) -> Result<i128, MathError> {
     if denominator == 0 {
         return Err(MathError::DivisionByZero);
     }
@@ -31,10 +26,7 @@ pub fn mul_div_round_up(
     let zero = I256::from_i128(env, 0);
     if remainder > zero {
         let one = I256::from_i128(env, 1);
-        result
-            .add(&one)
-            .to_i128()
-            .ok_or(MathError::Overflow)
+        result.add(&one).to_i128().ok_or(MathError::Overflow)
     } else {
         result.to_i128().ok_or(MathError::Overflow)
     }

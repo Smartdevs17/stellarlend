@@ -1,9 +1,9 @@
-use soroban_sdk::{contracterror, Address, Env, Vec};
 use crate::{
-    errors::LendingError,
     deposit::DepositDataKey,
-    types::{EmergencyTrigger, EmergencyState, EmergencyWithdrawal},
+    errors::LendingError,
+    types::{EmergencyState, EmergencyTrigger, EmergencyWithdrawal},
 };
+use soroban_sdk::{contracterror, Address, Env, Vec};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -26,7 +26,7 @@ const DEFAULT_WITHDRAWAL_CAP_BPS: i128 = 3000; // 30%
 pub fn initialize_emergency_withdrawal(env: &Env) {
     let default_state = EmergencyState {
         is_active: false,
-        trigger: EmergencyTrigger::AdminEmergency,
+        trigger: EmergencyTrigger::Admin,
         started_at: 0,
         window_opens_at: 0,
         window_closes_at: 0,
@@ -34,7 +34,9 @@ pub fn initialize_emergency_withdrawal(env: &Env) {
         total_withdrawn_this_window: 0,
         bad_debt: 0,
     };
-    env.storage().persistent().set(&DepositDataKey::EmergencyState, &default_state);
+    env.storage()
+        .persistent()
+        .set(&DepositDataKey::EmergencyState, &default_state);
 }
 
 pub fn trigger_emergency(
@@ -45,7 +47,8 @@ pub fn trigger_emergency(
     bad_debt: Option<i128>,
 ) -> Result<(), EmergencyWithdrawalError> {
     // Check authorization: admin or governance
-    crate::risk_management::require_admin(env, &caller).map_err(|_| EmergencyWithdrawalError::NotAuthorized)?;
+    crate::risk_management::require_admin(env, &caller)
+        .map_err(|_| EmergencyWithdrawalError::NotAuthorized)?;
 
     let mut state = get_emergency_state(env);
     if state.is_active {
@@ -70,11 +73,9 @@ pub fn trigger_emergency(
     Ok(())
 }
 
-pub fn cancel_emergency(
-    env: &Env,
-    caller: Address,
-) -> Result<(), EmergencyWithdrawalError> {
-    crate::risk_management::require_admin(env, &caller).map_err(|_| EmergencyWithdrawalError::NotAuthorized)?;
+pub fn cancel_emergency(env: &Env, caller: Address) -> Result<(), EmergencyWithdrawalError> {
+    crate::risk_management::require_admin(env, &caller)
+        .map_err(|_| EmergencyWithdrawalError::NotAuthorized)?;
 
     let mut state = get_emergency_state(env);
     if !state.is_active {
@@ -101,7 +102,7 @@ pub fn get_emergency_state(env: &Env) -> EmergencyState {
         .get(&DepositDataKey::EmergencyState)
         .unwrap_or(EmergencyState {
             is_active: false,
-            trigger: EmergencyTrigger::AdminEmergency,
+            trigger: EmergencyTrigger::Admin,
             started_at: 0,
             window_opens_at: 0,
             window_closes_at: 0,
@@ -171,7 +172,9 @@ pub fn emergency_withdraw(
     save_emergency_state(env, &new_state);
 
     // Transfer tokens to user
-    let token_address = asset.clone().unwrap_or_else(|| env.current_contract_address());
+    let token_address = asset
+        .clone()
+        .unwrap_or_else(|| env.current_contract_address());
     let token_client = soroban_sdk::token::Client::new(env, &token_address);
     token_client.transfer(&env.current_contract_address(), &user, &amount_after_loss);
 

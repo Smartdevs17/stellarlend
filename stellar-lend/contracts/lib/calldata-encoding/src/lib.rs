@@ -1,14 +1,18 @@
 #![no_std]
 
+extern crate alloc;
+
 use soroban_sdk::{contracttype, Bytes, Env, Vec};
 
 #[contracttype]
+#[derive(Clone)]
 pub struct EncodedOperation {
-    pub op_type: u8,
+    pub op_type: u32,
     pub data: Bytes,
 }
 
 #[contracttype]
+#[derive(Clone)]
 pub struct CompressedBatch {
     pub shared_params: Bytes,
     pub operations: Vec<EncodedOperation>,
@@ -18,8 +22,8 @@ pub struct CompressedBatch {
 pub struct CalldataEncoder;
 
 impl CalldataEncoder {
-    pub fn encode_varint(value: u64) -> Vec<u8> {
-        let mut result = Vec::new();
+    pub fn encode_varint(value: u64) -> alloc::vec::Vec<u8> {
+        let mut result = alloc::vec::Vec::new();
         let mut v = value;
 
         while v >= 128 {
@@ -59,7 +63,7 @@ impl CalldataEncoder {
         Ok(result)
     }
 
-    pub fn encode_delta(current: i128, previous: i128) -> Vec<u8> {
+    pub fn encode_delta(current: i128, previous: i128) -> alloc::vec::Vec<u8> {
         let delta = current - previous;
         Self::encode_varint(delta as u64)
     }
@@ -74,8 +78,8 @@ impl CalldataEncoder {
         mask
     }
 
-    pub fn decode_bitmask(mask: u8) -> Vec<bool> {
-        let mut result = Vec::new();
+    pub fn decode_bitmask(mask: u8) -> alloc::vec::Vec<bool> {
+        let mut result = alloc::vec::Vec::new();
         for i in 0..8 {
             result.push((mask & (1 << i)) != 0);
         }
@@ -88,7 +92,7 @@ impl CalldataEncoder {
         shared_user: &[u8],
         operations: Vec<EncodedOperation>,
     ) -> CompressedBatch {
-        let mut shared_params = Vec::new();
+        let mut shared_params = alloc::vec::Vec::new();
 
         if !shared_asset.is_empty() {
             shared_params.extend_from_slice(shared_asset);
@@ -97,11 +101,13 @@ impl CalldataEncoder {
             shared_params.extend_from_slice(shared_user);
         }
 
-        let original_size = operations.len() * 256;
-        let compressed_size = shared_params.len() + (operations.len() * 64);
+        let n_ops = operations.len() as u32;
+        let shared_len = shared_params.len() as u32;
+        let original_size = n_ops * 256u32;
+        let compressed_size = shared_len + (n_ops * 64u32);
 
         let compression_ratio = if compressed_size > 0 {
-            ((original_size - compressed_size) * 100) as u32 / original_size as u32
+            ((original_size - compressed_size) * 100) / original_size
         } else {
             0
         };
@@ -137,12 +143,40 @@ pub mod tests {
 
     #[test]
     fn test_bitmask_encoding() {
-        let values = vec![true, false, true, false, false, false, false, false];
+        let values = [true, false, true, false, false, false, false, false];
         let mask = CalldataEncoder::encode_bitmask(&values);
         let decoded = CalldataEncoder::decode_bitmask(mask);
 
         for (i, &expected) in values.iter().enumerate() {
             assert_eq!(decoded[i], expected);
         }
+    }
+
+    #[test]
+    fn test_varint_roundtrip() {
+        for value in [0u64, 1, 127, 128, 300, 65535, 1048576] {
+            let encoded = CalldataEncoder::encode_varint(value);
+            let mut offset = 0usize;
+            let decoded = CalldataEncoder::decode_varint(&encoded, &mut offset).unwrap();
+            assert_eq!(decoded, value);
+            assert_eq!(offset, encoded.len());
+        }
+    }
+
+    #[test]
+    fn test_compress_batch_layout() {
+        let env = soroban_sdk::Env::default();
+        let op = EncodedOperation {
+            op_type: 0,
+            data: Bytes::from_slice(&env, &[0x00, 0x02, 0x05]),
+        };
+        let ops = soroban_sdk::vec![&env, op.clone()];
+        let batch = CalldataEncoder::compress_batch(&env, &[0u8; 4], &[0u8; 4], ops);
+
+        // Shared params carry the deduplicated asset/user bytes.
+        assert_eq!(batch.shared_params.len(), 8);
+        assert_eq!(batch.operations.len(), 1);
+        assert_eq!(batch.operations.get(0).unwrap().op_type, 0);
+        assert!(batch.compression_ratio > 0);
     }
 }

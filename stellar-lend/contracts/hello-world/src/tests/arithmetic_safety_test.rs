@@ -46,4 +46,3 @@ fn test_withdraw_underflow_errors_not_wraps() {
     let res = client.try_withdraw_collateral(&user, &None, &101);
     assert!(res.is_err());
 }
-

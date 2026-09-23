@@ -1,0 +1,18 @@
+[package]
+name = "stellarlend-storage-layer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Storage abstraction layer for StellarLend contracts (issue #707)"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+
+[features]
+testutils = ["soroban-sdk/testutils"]

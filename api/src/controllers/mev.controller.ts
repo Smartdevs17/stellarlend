@@ -12,6 +12,8 @@
  *  GET  /mev/gas-analysis        — gas price bidding analysis
  *  GET  /mev/route               — private mempool routing hint
  *  GET  /mev/fee-preview         — preview effective MEV fee
+ *  GET  /mev/sandwich-report     — sandwich attack summary (issue #725)
+ *  GET  /mev/sandwich-log        — recent sandwich attack records (issue #725)
  */
 
 import { Request, Response, NextFunction } from 'express';
@@ -215,6 +217,36 @@ export const getDashboard = async (
 ): Promise<void> => {
   try {
     const data = await mevService.getDashboard();
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    next(err);
+    return;
+  }
+};
+
+// ─── Sandwich Attack Reporting (issue #725) ────────────────────────────────────
+
+export const getSandwichReport = async (
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const data = await mevService.getSandwichReport();
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    next(err);
+    return;
+  }
+};
+
+export const getSandwichLog = async (
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const data = await mevService.getSandwichLog();
     res.status(200).json({ success: true, data });
   } catch (err) {
     next(err);

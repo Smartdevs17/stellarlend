@@ -1,5 +1,7 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, Vec,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -176,10 +178,7 @@ impl LeveragedYield {
     }
 
     pub fn get_config(env: Env) -> LeverageConfig {
-        env.storage()
-            .instance()
-            .get(&DataKey::Config)
-            .unwrap()
+        env.storage().instance().get(&DataKey::Config).unwrap()
     }
 
     pub fn open_position(
@@ -213,7 +212,8 @@ impl LeveragedYield {
             return Err(LeveragedYieldError::MinHealthFactorNotMet);
         }
 
-        let borrowed_amount = Self::calculate_borrow_amount(collateral_amount, target_leverage_bps)?;
+        let borrowed_amount =
+            Self::calculate_borrow_amount(collateral_amount, target_leverage_bps)?;
 
         let mut counter: u64 = env
             .storage()
@@ -222,11 +222,8 @@ impl LeveragedYield {
             .unwrap_or(0);
         counter += 1;
 
-        let hf = Self::compute_health_factor(
-            collateral_amount,
-            borrowed_amount,
-            config.target_ltv_bps,
-        );
+        let hf =
+            Self::compute_health_factor(collateral_amount, borrowed_amount, config.target_ltv_bps);
 
         let position = LeveragedPosition {
             position_id: counter,
@@ -345,8 +342,7 @@ impl LeveragedYield {
             .get(&DataKey::Config)
             .ok_or(LeveragedYieldError::NotInitialized)?;
 
-        if new_leverage_bps < config.min_leverage_bps
-            || new_leverage_bps > config.max_leverage_bps
+        if new_leverage_bps < config.min_leverage_bps || new_leverage_bps > config.max_leverage_bps
         {
             return Err(LeveragedYieldError::LeverageOutOfRange);
         }
@@ -373,7 +369,11 @@ impl LeveragedYield {
         let new_borrowed_amount =
             Self::calculate_borrow_amount(new_total_collateral, new_leverage_bps)?;
 
-        let hf = Self::compute_health_factor(new_total_collateral, new_borrowed_amount, config.target_ltv_bps);
+        let hf = Self::compute_health_factor(
+            new_total_collateral,
+            new_borrowed_amount,
+            config.target_ltv_bps,
+        );
 
         if hf < min_health_factor || hf < MIN_HEALTH_FACTOR {
             return Err(LeveragedYieldError::MinHealthFactorNotMet);
@@ -459,7 +459,11 @@ impl LeveragedYield {
             return Err(LeveragedYieldError::SlippageExceeded);
         }
 
-        let hf = Self::compute_health_factor(new_total_collateral, new_borrowed_amount, config.target_ltv_bps);
+        let hf = Self::compute_health_factor(
+            new_total_collateral,
+            new_borrowed_amount,
+            config.target_ltv_bps,
+        );
 
         position.collateral_amount = new_total_collateral;
         position.borrowed_amount = new_borrowed_amount;
@@ -509,13 +513,31 @@ impl LeveragedYield {
             return Err(LeveragedYieldError::HealthFactorTooLow);
         }
 
-        let deleverage_factor_bps = 10_000u32;
-        let target_borrowed = position
-            .borrowed_amount
-            .checked_mul(config.deleverage_target_bps as i128)
-            .ok_or(LeveragedYieldError::Overflow)?
-            .checked_div(deleverage_factor_bps as i128)
-            .ok_or(LeveragedYieldError::Overflow)?;
+        let target_leverage_bps = if config.deleverage_target_bps < position.leverage_bps {
+            config.deleverage_target_bps
+        } else {
+            config.min_leverage_bps
+        };
+
+        let current_leverage_debt = position
+            .leverage_bps
+            .checked_sub(MAX_BPS)
+            .ok_or(LeveragedYieldError::InvalidLeverage)?;
+
+        let target_leverage_debt = target_leverage_bps
+            .checked_sub(MAX_BPS)
+            .ok_or(LeveragedYieldError::InvalidLeverage)?;
+
+        let target_borrowed = if current_leverage_debt > 0 {
+            position
+                .borrowed_amount
+                .checked_mul(target_leverage_debt as i128)
+                .ok_or(LeveragedYieldError::Overflow)?
+                .checked_div(current_leverage_debt as i128)
+                .ok_or(LeveragedYieldError::Overflow)?
+        } else {
+            0
+        };
 
         let debt_repay = position
             .borrowed_amount
@@ -523,14 +545,19 @@ impl LeveragedYield {
             .ok_or(LeveragedYieldError::Overflow)?;
 
         let new_borrowed_amount = target_borrowed;
-        let new_collateral = position
-            .collateral_amount
-            .checked_mul(new_borrowed_amount)
-            .ok_or(LeveragedYieldError::Overflow)?
-            .checked_div(position.borrowed_amount)
-            .ok_or(LeveragedYieldError::Overflow)?;
+        let new_collateral = if position.borrowed_amount > 0 {
+            position
+                .collateral_amount
+                .checked_mul(new_borrowed_amount)
+                .ok_or(LeveragedYieldError::Overflow)?
+                .checked_div(position.borrowed_amount)
+                .ok_or(LeveragedYieldError::Overflow)?
+        } else {
+            position.collateral_amount
+        };
 
-        let hf = Self::compute_health_factor(new_collateral, new_borrowed_amount, config.target_ltv_bps);
+        let hf =
+            Self::compute_health_factor(new_collateral, new_borrowed_amount, config.target_ltv_bps);
 
         let collateral_withdrawn = position
             .collateral_amount
@@ -539,7 +566,7 @@ impl LeveragedYield {
 
         position.collateral_amount = new_collateral;
         position.borrowed_amount = new_borrowed_amount;
-        position.leverage_bps = config.deleverage_target_bps;
+        position.leverage_bps = target_leverage_bps;
         position.health_factor = hf;
         position.last_harvested_at = env.ledger().timestamp();
 
@@ -576,11 +603,8 @@ impl LeveragedYield {
 
         let collateral_value = position.collateral_amount;
         let debt_value = position.borrowed_amount;
-        let health_factor = Self::compute_health_factor(
-            collateral_value,
-            debt_value,
-            config.target_ltv_bps,
-        );
+        let health_factor =
+            Self::compute_health_factor(collateral_value, debt_value, config.target_ltv_bps);
         let liquidation_threshold = collateral_value
             .checked_mul(LIQUIDATION_THRESHOLD_BPS as i128)
             .ok_or(LeveragedYieldError::Overflow)?
@@ -597,10 +621,7 @@ impl LeveragedYield {
         })
     }
 
-    pub fn get_position(
-        env: Env,
-        position_id: u64,
-    ) -> Option<LeveragedPosition> {
+    pub fn get_position(env: Env, position_id: u64) -> Option<LeveragedPosition> {
         env.storage()
             .persistent()
             .get(&DataKey::Position(position_id))
@@ -692,11 +713,7 @@ impl LeveragedYield {
         Ok(collateral)
     }
 
-    fn compute_health_factor(
-        collateral: i128,
-        debt: i128,
-        target_ltv_bps: u32,
-    ) -> i128 {
+    fn compute_health_factor(collateral: i128, debt: i128, target_ltv_bps: u32) -> i128 {
         if debt <= 0 {
             return i128::MAX;
         }

@@ -122,6 +122,21 @@ export class PriceAggregator {
 
     const aggregated = this.aggregate(upperAsset, validPrices);
 
+    const twapResult = this.priceHistory.calculateTWAP(upperAsset, 1800);
+    if (twapResult) {
+      const twapSpot = Number(twapResult.twap) / 1e8;
+      const spot = Number(aggregated.price) / 1e8;
+      const deviation = Math.abs((spot - twapSpot) / twapSpot) * 100;
+      if (deviation > 5) {
+        logger.warn(`TWAP manipulation detected for ${upperAsset}`, {
+          spot,
+          twap: twapSpot,
+          deviationPercent: deviation,
+        });
+        return null;
+      }
+    }
+
     this.cache.setPrice(upperAsset, aggregated.price);
 
     // Store in price history
@@ -378,9 +393,7 @@ export class PriceAggregator {
   /**
    * Get circuit breaker metrics for all providers
    */
-  getCircuitBreakerMetrics(): Array<
-    CircuitBreakerMetrics & { providerName: string; state: CircuitState }
-  > {
+  getCircuitBreakerMetrics(): CircuitBreakerMetrics[] {
     const metrics: CircuitBreakerMetrics[] = [];
 
     for (const breaker of this.circuitBreakers.values()) {

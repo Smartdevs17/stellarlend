@@ -154,12 +154,34 @@ pub struct ProposalSimulationResult {
     pub note: String,
 }
 
+/// Dry-run execution preview with state diff and impact metrics (Issue #662).
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct StateDiffEntry {
+    pub field: String,
+    pub current_value: i128,
+    pub proposed_value: i128,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct ProposalDryRunResult {
+    pub proposal_id: u64,
+    pub would_succeed: bool,
+    pub tvl_delta: i128,
+    pub apy_delta_bps: i128,
+    pub risk_score_delta: i128,
+    pub gas_units_estimate: u64,
+    pub diffs: Vec<StateDiffEntry>,
+    pub simulated_at: u64,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub struct ParameterOptimizationRecommendation {
     pub generated_at: u64,
     pub suggested_quorum_bps: u32,
-    pub suggested_vote_threshold: i128,
+    pub suggested_vote_threshold_bps: i128,
     pub suggested_voting_period: u64,
     pub transparency_note: String,
 }
@@ -213,6 +235,7 @@ pub struct RecoveryRequest {
     pub initiator: Address,
     pub initiated_at: u64,
     pub expires_at: u64,
+    pub ready_at: u64,
 }
 
 // ========================================================================
@@ -244,21 +267,26 @@ pub const DELEGATION_DEADLINE: u64 = 24 * 60 * 60; // 24 hours
 pub const MAX_DELEGATION_DEPTH: u32 = 3;
 pub const PROPOSAL_RATE_LIMIT: u32 = 5;
 pub const PROPOSAL_RATE_WINDOW: u64 = 24 * 60 * 60; // 24 hours
+pub const MAX_DESCRIPTION_LEN: u32 = 2_000; // Max chars for governance proposal descriptions
+pub const DEFAULT_RECOVERY_DELAY: u64 = 2 * 24 * 60 * 60; // 2 days
 
-// ========================================================================
-// Emergency Withdrawal Types
-// ========================================================================
+// ============================================================================
+// Emergency Withdrawal (issue #446)
+// ============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+/// Trigger source for an emergency state.
 #[contracttype]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
 pub enum EmergencyTrigger {
-    GovernanceVote,
-    OracleFailure,
-    AdminEmergency,
+    Admin = 0,
+    CircuitBreaker = 1,
+    OracleFailure = 2,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+/// Protocol-wide emergency state.
 #[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EmergencyState {
     pub is_active: bool,
     pub trigger: EmergencyTrigger,
@@ -270,8 +298,9 @@ pub struct EmergencyState {
     pub bad_debt: i128,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+/// Per-user withdrawal record during an emergency window.
 #[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EmergencyWithdrawal {
     pub user: Address,
     pub asset: Option<Address>,

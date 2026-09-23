@@ -3,4 +3,5 @@
 pub mod amm;
 pub mod bridge;
 pub mod encoding;
+pub mod governance;
 pub mod lending;

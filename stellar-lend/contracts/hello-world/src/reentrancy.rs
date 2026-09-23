@@ -79,14 +79,14 @@ impl<'a> ReentrancyGuard<'a> {
     /// Create a cross-contract reentrancy guard
     pub fn new_cross_contract(env: &'a Env, caller: &Address) -> Result<Self, u32> {
         let key = ReentrancyKey::CrossContractLock(caller.clone()).into_val(env);
-        
+
         // Check for cross-contract reentrancy
         if env.storage().temporary().has(&key) {
             return Err(7);
         }
 
         env.storage().temporary().set(&key, &true);
-        
+
         Ok(Self {
             env,
             key,
@@ -98,7 +98,7 @@ impl<'a> ReentrancyGuard<'a> {
     /// Create a read-only reentrancy guard
     pub fn new_read_only(env: &'a Env) -> Result<Self, u32> {
         let key = ReentrancyKey::ReadOnlyLock.into_val(env);
-        
+
         // Read-only functions can be re-entered but we track it
         let state_before = if env.storage().temporary().has(&key) {
             GuardState::Entered
@@ -107,7 +107,7 @@ impl<'a> ReentrancyGuard<'a> {
         };
 
         env.storage().temporary().set(&key, &true);
-        
+
         Ok(Self {
             env,
             key,
@@ -119,13 +119,13 @@ impl<'a> ReentrancyGuard<'a> {
     /// Create a constructor reentrancy guard
     pub fn new_constructor(env: &'a Env) -> Result<Self, u32> {
         let key = ReentrancyKey::ConstructorLock.into_val(env);
-        
+
         if env.storage().temporary().has(&key) {
             return Err(7);
         }
 
         env.storage().temporary().set(&key, &true);
-        
+
         Ok(Self {
             env,
             key,
@@ -137,13 +137,13 @@ impl<'a> ReentrancyGuard<'a> {
     /// Create a delegate call reentrancy guard
     pub fn new_delegate_call(env: &'a Env) -> Result<Self, u32> {
         let key = ReentrancyKey::DelegateCallLock.into_val(env);
-        
+
         if env.storage().temporary().has(&key) {
             return Err(7);
         }
 
         env.storage().temporary().set(&key, &true);
-        
+
         Ok(Self {
             env,
             key,

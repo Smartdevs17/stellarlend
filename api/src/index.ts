@@ -4,16 +4,20 @@ import { config } from './config';
 import logger from './utils/logger';
 import { createPriceWebSocket } from './ws/priceWebSocket';
 import { createHealthWebSocket } from './ws/healthWebSocket';
+import { createCollateralRatioWebSocket } from './ws/collateralRatioWebSocket';
 import { SubscriptionService } from './services/subscription.service';
 import { startRiskEngineScheduler } from './services/risk-engine';
+import { startPoolSnapshotCron } from './jobs/poolSnapshot.job';
+import { startEventIndexerFromEnv } from './services/eventIndex';
 
 const PORT = config.server.port;
 
 const server = createServer(app);
 
-// Attach WebSocket price and health servers to the same HTTP server
+// Attach WebSocket price, health, and collateral ratio servers to the same HTTP server
 createPriceWebSocket(server);
 createHealthWebSocket(server);
+createCollateralRatioWebSocket(server);
 
 // Start subscription keeper for recurring operations
 const subscriptionService = new SubscriptionService();
@@ -21,6 +25,10 @@ subscriptionService.startKeeper();
 
 // Start risk engine hourly recalculation scheduler
 startRiskEngineScheduler();
+startPoolSnapshotCron();
+
+// Contract event indexer (#685) — polls Soroban RPC when EVENT_INDEXER_ENABLED=true
+startEventIndexerFromEnv();
 
 server.listen(PORT, () => {
   logger.info(`StellarLend API server running on port ${PORT}`);

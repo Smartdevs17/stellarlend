@@ -72,6 +72,47 @@ pub fn withdraw(
     Ok(position.amount)
 }
 
+/// Reduced emergency fee in basis points (10 bps = 0.10%)
+pub const REDUCED_EMERGENCY_FEE_BPS: i128 = 10;
+
+/// Emergency withdraw collateral from the protocol with reduced fee.
+/// Bypasses pause state for emergency liquidity access.
+pub fn emergency_withdraw(
+    env: &Env,
+    user: Address,
+    asset: Address,
+    amount: i128,
+) -> Result<i128, WithdrawError> {
+    let _guard = NonReentrant::new(env.clone(), GuardKey::WithdrawGuard)
+        .map_err(|_| WithdrawError::Reentrancy)?;
+
+    user.require_auth();
+
+    if amount <= 0 {
+        return Err(WithdrawError::InvalidAmount);
+    }
+
+    let mut position = get_withdraw_position(env, &user);
+    if position.amount < amount {
+        return Err(WithdrawError::InsufficientBalance);
+    }
+
+    let fee = (amount * REDUCED_EMERGENCY_FEE_BPS) / 10000;
+    let net_amount = amount.checked_sub(fee).ok_or(WithdrawError::Overflow)?;
+
+    position.amount = position.amount.checked_sub(amount)
+        .ok_or(WithdrawError::Overflow)?;
+    position.last_withdraw_time = env.ledger().timestamp();
+    position.expires_at = env.ledger().timestamp().saturating_add(WITHDRAW_POSITION_TTL);
+
+    save_withdraw_position(env, &user, &position);
+
+    let token_client = token::Client::new(env, &asset);
+    token_client.transfer(&env.current_contract_address(), &user, &net_amount);
+
+    Ok(net_amount)
+}
+
 fn get_withdraw_position(env: &Env, user: &Address) -> WithdrawPosition {
     let now = env.ledger().timestamp();
     if let Some(stored) = env

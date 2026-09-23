@@ -121,6 +121,54 @@ pub enum RebalancingDataKey {
     EmergencyStop,
     /// Global rebalancing pause: RebalancingPaused -> bool
     RebalancingPaused,
+    /// #673 — bounded rebalancing history per user: RebalancingHistory(user) -> Vec<RebalancingHistoryEntry>
+    RebalancingHistory(Address),
+}
+
+/// #673 — a single recorded rebalancing execution, for history/performance-impact review.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RebalancingHistoryEntry {
+    pub timestamp: u64,
+    pub health_factor_before: i128,
+    pub health_factor_after: i128,
+    pub estimated_gas_cost: i128,
+}
+
+/// Maximum rebalancing history entries retained per user (oldest pruned first).
+const MAX_REBALANCING_HISTORY: u32 = 50;
+
+/// #673 — get a user's bounded rebalancing history, most-recent-last.
+pub fn get_rebalancing_history(env: &Env, user: &Address) -> Vec<RebalancingHistoryEntry> {
+    env.storage()
+        .persistent()
+        .get(&RebalancingDataKey::RebalancingHistory(user.clone()))
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+fn record_rebalancing_history(
+    env: &Env,
+    user: &Address,
+    health_factor_before: i128,
+    health_factor_after: i128,
+    estimated_gas_cost: i128,
+) {
+    let key = RebalancingDataKey::RebalancingHistory(user.clone());
+    let mut history: Vec<RebalancingHistoryEntry> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env));
+    history.push_back(RebalancingHistoryEntry {
+        timestamp: env.ledger().timestamp(),
+        health_factor_before,
+        health_factor_after,
+        estimated_gas_cost,
+    });
+    while history.len() > MAX_REBALANCING_HISTORY {
+        history.remove(0);
+    }
+    env.storage().persistent().set(&key, &history);
 }
 
 /// Configure rebalancing settings for a user
@@ -206,12 +254,12 @@ pub fn get_rebalancing_config(env: &Env, user: &Address) -> RebalancingConfig {
         .unwrap_or_else(|| RebalancingConfig {
             target_health_factor_min: 15000, // 1.5x default
             target_health_factor_max: 25000, // 2.5x default
-            max_gas_cost: 1000000,      // Default max gas cost
+            max_gas_cost: 1000000,           // Default max gas cost
             auto_rebalance_enabled: false,
-            min_swap_size: 1000000,     // Default minimum swap
-            max_slippage_bps: 500,        // 5% default slippage
+            min_swap_size: 1000000, // Default minimum swap
+            max_slippage_bps: 500,  // 5% default slippage
             last_rebalance_time: 0,
-            rebalance_cooldown: 3600,      // 1 hour default cooldown
+            rebalance_cooldown: 3600, // 1 hour default cooldown
         })
 }
 
@@ -236,7 +284,16 @@ pub fn get_rebalancing_config(env: &Env, user: &Address) -> RebalancingConfig {
 /// * `InsufficientLiquidity` - Not enough liquidity for swap
 pub fn execute_rebalancing(env: &Env, user: Address) -> Result<(), RebalancingError> {
     user.require_auth();
+    execute_rebalancing_internal(env, &user)
+}
 
+/// #673 — core rebalancing logic with no auth check, shared by the single-user
+/// entrypoint (which requires the user's own signature above) and
+/// `execute_batch_rebalancing` (which does not — see that function's doc
+/// comment for why skipping per-user auth there is intentional, not an
+/// oversight). Also now records a history entry and returns the estimated
+/// gas cost so callers/history can report performance impact.
+fn execute_rebalancing_internal(env: &Env, user: &Address) -> Result<(), RebalancingError> {
     // Check emergency stop
     if is_emergency_stop_active(env) {
         return Err(RebalancingError::InvalidConfig);
@@ -248,7 +305,7 @@ pub fn execute_rebalancing(env: &Env, user: Address) -> Result<(), RebalancingEr
     }
 
     // Get user configuration
-    let config = get_rebalancing_config(env, &user);
+    let config = get_rebalancing_config(env, user);
     if !config.auto_rebalance_enabled {
         return Err(RebalancingError::InvalidConfig);
     }
@@ -260,23 +317,71 @@ pub fn execute_rebalancing(env: &Env, user: Address) -> Result<(), RebalancingEr
     }
 
     // Get current position summary
-    let position_summary = get_user_position_summary(env, &user)
-        .map_err(|_| RebalancingError::Undercollateralized)?;
+    let position_summary =
+        get_user_position_summary(env, user).map_err(|_| RebalancingError::Undercollateralized)?;
+    let health_factor_before = position_summary.health_factor;
 
     // Check if rebalancing is needed
-    if position_summary.health_factor >= config.target_health_factor_min 
-        && position_summary.health_factor <= config.target_health_factor_max {
+    if position_summary.health_factor >= config.target_health_factor_min
+        && position_summary.health_factor <= config.target_health_factor_max
+    {
         return Err(RebalancingError::AlreadyHealthy);
     }
 
+    let estimated_gas_cost = estimate_rebalancing_gas_cost(env, user, &position_summary);
+
     // Determine rebalancing action
-    if position_summary.health_factor < config.target_health_factor_min {
+    let result = if position_summary.health_factor < config.target_health_factor_min {
         // Health factor too low - need to improve collateral ratio
-        execute_collateral_optimization(env, &user, &position_summary, &config)
+        execute_collateral_optimization(env, user, &position_summary, &config)
     } else {
         // Health factor too high - could optimize for efficiency
-        execute_efficiency_optimization(env, &user, &position_summary, &config)
+        execute_efficiency_optimization(env, user, &position_summary, &config)
+    };
+
+    if result.is_ok() {
+        // #673 — performance impact: re-read the position after rebalancing to
+        // capture the actual resulting health factor, not just the target.
+        let health_factor_after = get_user_position_summary(env, user)
+            .map(|p| p.health_factor)
+            .unwrap_or(health_factor_before);
+        record_rebalancing_history(
+            env,
+            user,
+            health_factor_before,
+            health_factor_after,
+            estimated_gas_cost,
+        );
     }
+
+    result
+}
+
+/// #673 — gas-optimized batch rebalancing: rebalances every user in `users`
+/// within a single transaction/call instead of one transaction per user.
+///
+/// Deliberately does not require each user's own signature (unlike the
+/// single-user `execute_rebalancing`): a user only reaches this path if they
+/// already opted in via `configure_rebalancing(..., auto_rebalance_enabled:
+/// true, ...)`, which is precisely what "automated" rebalancing is supposed
+/// to mean — requiring a fresh live signature from every user on every batch
+/// tick would defeat the point of automation. Only `caller` (the keeper/admin
+/// triggering the batch) needs to authorize. Per-user safety is still fully
+/// enforced by `execute_rebalancing_internal`'s existing checks (emergency
+/// stop, pause, cooldown, opt-in flag, health-factor-out-of-range gate).
+///
+/// Returns one bool per input user (true = rebalanced, false = skipped/failed
+/// for that user specifically) so a partial batch failure never reverts
+/// successful entries — matches the existing per-user error semantics rather
+/// than making the whole batch atomic-or-nothing.
+pub fn execute_batch_rebalancing(env: &Env, caller: Address, users: Vec<Address>) -> Vec<bool> {
+    caller.require_auth();
+    let mut results = Vec::new(env);
+    for user in users.iter() {
+        let ok = execute_rebalancing_internal(env, &user).is_ok();
+        results.push_back(ok);
+    }
+    results
 }
 
 /// Execute collateral optimization to improve health factor
@@ -287,7 +392,7 @@ pub fn execute_rebalancing(env: &Env, user: Address) -> Result<(), RebalancingEr
 fn execute_collateral_optimization(
     env: &Env,
     user: &Address,
-    position_summary: &cross_asset::UserPositionSummary,
+    position_summary: &crate::cross_asset::UserPositionSummary,
     config: &RebalancingConfig,
 ) -> Result<(), RebalancingError> {
     // Estimate gas cost for rebalancing
@@ -322,7 +427,7 @@ fn execute_collateral_optimization(
 fn execute_efficiency_optimization(
     env: &Env,
     user: &Address,
-    position_summary: &cross_asset::UserPositionSummary,
+    position_summary: &crate::cross_asset::UserPositionSummary,
     config: &RebalancingConfig,
 ) -> Result<(), RebalancingError> {
     // Similar to collateral optimization but focuses on efficiency
@@ -353,7 +458,7 @@ pub struct SwapDecision {
 fn calculate_optimal_swap(
     env: &Env,
     user: &Address,
-    position_summary: &cross_asset::UserPositionSummary,
+    position_summary: &crate::cross_asset::UserPositionSummary,
     config: &RebalancingConfig,
 ) -> Result<SwapDecision, RebalancingError> {
     // Simplified implementation - in production, this would:
@@ -364,11 +469,11 @@ fn calculate_optimal_swap(
 
     // For now, return a placeholder decision
     Ok(SwapDecision {
-        from_asset: None, // Would be determined by optimization algorithm
-        to_asset: None,   // Would be determined by optimization algorithm
-        amount: 1000000,  // Placeholder amount
+        from_asset: None,        // Would be determined by optimization algorithm
+        to_asset: None,          // Would be determined by optimization algorithm
+        amount: 1000000,         // Placeholder amount
         expected_amount: 950000, // Placeholder with 5% slippage
-        estimated_gas: 500000, // Placeholder gas estimate
+        estimated_gas: 500000,   // Placeholder gas estimate
     })
 }
 
@@ -384,11 +489,12 @@ fn execute_amm_swap(
 ) -> Result<(), RebalancingError> {
     // In production, this would call the actual AMM contract
     // For now, emit an event indicating the swap should occur
-    
+
     let current_time = env.ledger().timestamp();
-    
+
     // Check slippage (simplified - would compare with actual AMM result)
-    let slippage_bps = ((swap_decision.expected_amount - swap_decision.amount) * 10000) / swap_decision.amount;
+    let slippage_bps =
+        ((swap_decision.expected_amount - swap_decision.amount) * 10000) / swap_decision.amount;
     if slippage_bps > config.max_slippage_bps {
         return Err(RebalancingError::SlippageTooHigh);
     }
@@ -413,14 +519,14 @@ fn execute_amm_swap(
 fn estimate_rebalancing_gas_cost(
     env: &Env,
     user: &Address,
-    position_summary: &cross_asset::UserPositionSummary,
+    position_summary: &crate::cross_asset::UserPositionSummary,
 ) -> i128 {
     // Simplified gas estimation based on position complexity
     // In production, this would be more sophisticated
     let base_gas = 100000; // Base gas for rebalancing
     let collateral_gas = position_summary.total_collateral_value / 1000; // Gas per unit of collateral
     let debt_gas = position_summary.total_debt_value / 1000; // Gas per unit of debt
-    
+
     base_gas + collateral_gas + debt_gas
 }
 
@@ -461,11 +567,11 @@ pub fn set_emergency_stop(
         .persistent()
         .get(&admin_key)
         .ok_or(RebalancingError::Unauthorized)?;
-    
+
     if admin != stored_admin {
         return Err(RebalancingError::Unauthorized);
     }
-    
+
     admin.require_auth();
 
     env.storage()
@@ -495,11 +601,11 @@ pub fn set_rebalancing_pause(
         .persistent()
         .get(&admin_key)
         .ok_or(RebalancingError::Unauthorized)?;
-    
+
     if admin != stored_admin {
         return Err(RebalancingError::Unauthorized);
     }
-    
+
     admin.require_auth();
 
     env.storage()

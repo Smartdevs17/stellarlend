@@ -10,15 +10,21 @@ crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
 
 [dependencies]
+shared-events = { path = "../shared-events" }
+stellarlend-errors = { path = "../errors" }
+stellarlend-storage-layer = { path = "../storage-layer" }
 soroban-sdk = { workspace = true }
 soroban-token-sdk = { workspace = true }
 stellarlend-common = { path = "../common" }
 stellarlend-shared-deadline = { path = "../shared-deadline" }
+stellarlend-security = { path = "../security" }
 
 [dev-dependencies]
 stellarlend-common = { path = "../common", features = ["testutils"] }
 soroban-sdk = { workspace = true, features = ["testutils"] }
 delegation-registry = { path = "../delegation-registry" }
+proptest = "1"
+serde_json = "1"
 
 [features]
 testutils = ["soroban-sdk/testutils"]
@@ -27,3 +33,6 @@ testutils = ["soroban-sdk/testutils"]
 spec = []
 # Kani bounded model-checking harnesses (requires `cargo kani`).
 kani = []
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

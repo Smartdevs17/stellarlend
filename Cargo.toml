@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "contracts/hello-world",
+    "contracts/migration-hub",
+    "contracts/amm",
+    "contracts/flash-loan",
+    "contracts/lending",
+    "contracts/shared-events",
+    "contracts/shared-deadline",
+    "packages/oracle-client",
+    "packages/common",
+]
+
+[workspace.dependencies]
+soroban-sdk = { version = "22.0.0", default-features = false, features = ["alloc"] }
+soroban-token-sdk = { version = "22.0.0", default-features = false, features = ["alloc"] }
+migration-hub = { path = "contracts/migration-hub" }

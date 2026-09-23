@@ -17,6 +17,7 @@ members = [
   "contracts/lending-interest",
   "contracts/lending-risk",
   "contracts/safe-math",
+  "contracts/math",
   "contracts/stablecoin",
   "contracts/institutional-wallet",
   "contracts/migration-hub",
@@ -38,7 +39,9 @@ members = [
   "contracts/sns-integration",
   "contracts/referral-program",
   "contracts/storage",
+  "contracts/insurance-marketplace",
   "contracts/token-adapter",
+  "contracts/token",
   "contracts/compliance",
   "contracts/leveraged-yield",
   "contracts/position-manager",
@@ -47,10 +50,25 @@ members = [
   "contracts/yield-splitter",
   "contracts/vault-share",
   "contracts/auto-compound-vault",
+  "contracts/risk-scoring",
   "contracts/pool-interfaces",
+  "contracts/pool-migration",
   "contracts/yield-router",
+  "contracts/shared-events",
   "contracts/dutch-auction",
   "contracts/debt-token",
+  "contracts/shared-math",
+  "contracts/shared-storage",
+  "contracts/errors",
+  "contracts/storage-layer",
+  "contracts/rate-limit",
+  "contracts/earnings-reinvest",
+  "contracts/twap-oracle",
+  "tests/simulation/multi-user",
+  "tests/integration/flash-loan-liquidation",   "contracts/flash-loan",
+  "contracts/security",
+  "contracts/lib/calldata-encoding",
+  "contracts/dca-module",
 ]
 exclude = [
   "fuzz",
@@ -62,9 +80,11 @@ exclude = [
 [workspace.lints.rust]
 
 [workspace.dependencies]
-soroban-sdk = "23.4.1"
+soroban-sdk = "27.0.2"
 stellarlend-safe-math = { path = "contracts/safe-math" }
-soroban-token-sdk = { version = "23.4.1" }
+stellarlend-math = { path = "contracts/math" }
+stellarlend-token = { path = "contracts/token" }
+soroban-token-sdk = { version = "27.0.6" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }

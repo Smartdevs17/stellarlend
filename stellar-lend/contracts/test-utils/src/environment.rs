@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, String as SorobanString};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, String as SorobanString};
 
 pub struct TestEnv {
     pub env: Env,

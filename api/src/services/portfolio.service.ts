@@ -11,6 +11,10 @@ import {
   LiquidationPrice,
   HealthFactorHistoryPoint,
   HealthFactorMonitor,
+  LendingPoolAllocationInput,
+  LendingPoolAllocationOptions,
+  LendingPoolAllocationPlan,
+  LendingPoolAllocationRecommendation,
 } from '../types/portfolio';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -29,6 +33,9 @@ const Z_95 = 1.6449; // 95 % one-tailed z-score
 const Z_99 = 2.3263; // 99 % one-tailed z-score
 
 const STROOP_SCALE = 10_000_000n; // 1 XLM = 10,000,000 stroops
+const DEFAULT_TARGET_POOL_UTILIZATION = 0.75;
+const DEFAULT_MAX_POOL_UTILIZATION = 0.9;
+const DEFAULT_REBALANCE_THRESHOLD_PCT = 5;
 
 // ─── BigInt helpers ────────────────────────────────────────────────────────────
 
@@ -53,6 +60,11 @@ function formatRatio(numerator: bigint, denominator: bigint): string {
   const whole = numerator / denominator;
   const remainder = ((numerator % denominator) * 10000n) / denominator;
   return `${whole}.${remainder.toString().padStart(4, '0')}`;
+}
+
+function clampRatio(value: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(1, Math.max(0, value));
 }
 
 // ─── Portfolio value ───────────────────────────────────────────────────────────
@@ -278,6 +290,89 @@ export function toCSV(history: TransactionHistoryItem[]): string {
     ].join(',')
   );
   return [header, ...rows].join('\n');
+}
+
+// ─── Lending pool allocation optimizer ────────────────────────────────────────
+
+export function optimizeLendingPoolAllocation(
+  pools: LendingPoolAllocationInput[],
+  options: LendingPoolAllocationOptions = {}
+): LendingPoolAllocationPlan {
+  const targetUtilization = clampRatio(
+    options.targetUtilization ?? DEFAULT_TARGET_POOL_UTILIZATION,
+    DEFAULT_TARGET_POOL_UTILIZATION
+  );
+  const maxUtilization = clampRatio(
+    options.maxUtilization ?? DEFAULT_MAX_POOL_UTILIZATION,
+    DEFAULT_MAX_POOL_UTILIZATION
+  );
+  const rebalanceThresholdPct =
+    options.rebalanceThresholdPct ?? DEFAULT_REBALANCE_THRESHOLD_PCT;
+  const thresholdRatio = Math.max(0, rebalanceThresholdPct) / 100;
+
+  const totalAvailableLiquidity = pools.reduce(
+    (sum, pool) => sum + safeBigInt(pool.totalLiquidity),
+    0n
+  );
+
+  const recommendations: LendingPoolAllocationRecommendation[] = pools.map((pool) => {
+    const totalLiquidity = safeBigInt(pool.totalLiquidity);
+    const borrowedLiquidity = safeBigInt(pool.borrowedLiquidity);
+    const utilization =
+      totalLiquidity > 0n ? Number(borrowedLiquidity) / Number(totalLiquidity) : 0;
+    const targetAllocation = scaleByFloat(totalLiquidity, targetUtilization);
+    const currentGap = targetAllocation - borrowedLiquidity;
+    const absoluteGap = currentGap < 0n ? -currentGap : currentGap;
+    const gapRatio = totalLiquidity > 0n ? Number(absoluteGap) / Number(totalLiquidity) : 0;
+    const reserveDrag = (pool.reserveFactorBps ?? 0) / 10_000;
+    const expectedNetApy = pool.supplyApy * (1 - reserveDrag) - pool.borrowApy * utilization;
+
+    let action: LendingPoolAllocationRecommendation['action'] = 'monitor';
+    let priority: LendingPoolAllocationRecommendation['priority'] = 'optional';
+    let reason = 'Pool is within the configured utilization band.';
+
+    if (utilization > maxUtilization) {
+      action = 'supply';
+      priority = 'urgent';
+      reason = 'Pool utilization exceeds the configured maximum and needs added liquidity.';
+    } else if (gapRatio >= thresholdRatio && currentGap > 0n) {
+      action = 'supply';
+      priority = 'recommended';
+      reason = 'Pool is below target utilization and can absorb additional liquidity.';
+    } else if (gapRatio >= thresholdRatio && currentGap < 0n) {
+      action = 'withdraw';
+      priority = utilization > targetUtilization ? 'recommended' : 'optional';
+      reason = 'Pool is above target allocation; move excess liquidity to stronger opportunities.';
+    }
+
+    return {
+      poolId: pool.poolId,
+      assetSymbol: pool.assetSymbol,
+      currentUtilization: Number(utilization.toFixed(4)),
+      targetAllocation: targetAllocation.toString(),
+      rebalanceAmount: absoluteGap.toString(),
+      action,
+      priority,
+      expectedNetApy: Number(expectedNetApy.toFixed(4)),
+      reason,
+    };
+  });
+
+  recommendations.sort((a, b) => {
+    const priorityScore = { urgent: 0, recommended: 1, optional: 2 };
+    const priorityDelta = priorityScore[a.priority] - priorityScore[b.priority];
+    if (priorityDelta !== 0) return priorityDelta;
+    return b.expectedNetApy - a.expectedNetApy;
+  });
+
+  return {
+    generatedAt: new Date().toISOString(),
+    totalAvailableLiquidity: totalAvailableLiquidity.toString(),
+    targetUtilization,
+    maxUtilization,
+    automationEnabled: options.automationEnabled ?? false,
+    recommendations,
+  };
 }
 
 // ─── Interest Accrual Projections ──────────────────────────────────────────────

@@ -6,6 +6,7 @@ use crate::borrow::BorrowError;
 use crate::cross_asset::CrossAssetError;
 use crate::debt_token::DebtTokenError;
 use crate::deposit::DepositError;
+use crate::emergency_withdrawal::EmergencyWithdrawalError;
 use crate::flash_loan::FlashLoanError;
 use crate::interest_rate::InterestRateError;
 use crate::liquidate::LiquidationError;
@@ -18,7 +19,6 @@ use crate::risk_management::RiskManagementError;
 use crate::risk_params::RiskParamsError;
 use crate::treasury::TreasuryError;
 use crate::withdraw::WithdrawError;
-use crate::emergency_withdrawal::EmergencyWithdrawalError;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -71,6 +71,10 @@ pub enum GovernanceError {
     InvalidTimelockStatus = 144,
     InvalidTimelockConfig = 145,
     InvalidTimelockDelay = 146,
+    RecoveryNotReady = 147,
+    InvalidActionTypeDelay = 148,
+    EmergencyOverrideAlreadyApproved = 149,
+    InsufficientEmergencyApprovals = 150,
 }
 
 /// Unified public contract error type for the lending interface.
@@ -176,6 +180,7 @@ impl_from_error!(AnalyticsError, {
     AnalyticsError::InvalidParameter => LendingError::InvalidParameter,
     AnalyticsError::Overflow => LendingError::Overflow,
     AnalyticsError::DataNotFound => LendingError::DataNotFound,
+    AnalyticsError::Unauthorized => LendingError::Unauthorized,
 });
 
 impl_from_error!(BorrowError, {
@@ -212,6 +217,14 @@ impl_from_error!(FlashLoanError, {
     FlashLoanError::Reentrancy => LendingError::Reentrancy,
     FlashLoanError::InvalidCallback => LendingError::InvalidCallback,
     FlashLoanError::CallbackFailed => LendingError::CallbackFailed,
+    FlashLoanError::ExceedsLiquidityCap => LendingError::LimitExceeded,
+    FlashLoanError::ExcessivePriceImpact => LendingError::LimitExceeded,
+    FlashLoanError::ConcurrentLoan => LendingError::Reentrancy,
+    FlashLoanError::PriceManipulationDetected => LendingError::InvalidState,
+    FlashLoanError::Expired => LendingError::InvalidState,
+    FlashLoanError::Unprofitable => LendingError::InvalidState,
+    FlashLoanError::EmptyLegs => LendingError::InvalidAmount,
+    FlashLoanError::TooManyLegs => LendingError::LimitExceeded,
 });
 
 impl_from_error!(ReserveError, {
@@ -260,6 +273,7 @@ impl_from_error!(LiquidationError, {
     LiquidationError::PriceNotAvailable => LendingError::PriceUnavailable,
     LiquidationError::InsufficientLiquidation => LendingError::InvalidState,
     LiquidationError::Reentrancy => LendingError::Reentrancy,
+    LiquidationError::UnprofitableLiquidation => LendingError::InvalidState,
 });
 
 impl_from_error!(RateLimitError, {
@@ -278,10 +292,15 @@ impl_from_error!(MevProtectionError, {
     MevProtectionError::FeeCapExceeded => LendingError::FeeCapExceeded,
     MevProtectionError::InvalidAmount => LendingError::InvalidAmount,
     MevProtectionError::InvalidOperation => LendingError::InvalidState,
-    MevProtectionError::DeadlineExpired => LendingError::CommitExpired,
+    MevProtectionError::SlippageExpired => LendingError::CommitExpired,
     MevProtectionError::SlippageExceeded => LendingError::LimitExceeded,
-    MevProtectionError::AuctionWindowOpen => LendingError::InvalidState,
-    MevProtectionError::NoBidsInAuction => LendingError::DataNotFound,
+    MevProtectionError::AuctionNotFound => LendingError::NotFound,
+    MevProtectionError::AuctionNotOpen => LendingError::InvalidState,
+    MevProtectionError::AuctionNotReady => LendingError::CommitNotReady,
+    MevProtectionError::BidNotFound => LendingError::NotFound,
+    MevProtectionError::BidTooLow => LendingError::LimitExceeded,
+    MevProtectionError::PrivateRouteRequired => LendingError::CommitRequired,
+    MevProtectionError::PrivateRouteNotFound => LendingError::NotFound,
 });
 
 impl_from_error!(RepayError, {
@@ -366,6 +385,10 @@ impl_from_error!(DebtTokenError, {
     DebtTokenError::ZeroAddress => LendingError::InvalidParameter,
     DebtTokenError::AlreadyTokenized => LendingError::AlreadyExists,
     DebtTokenError::PositionNotFound => LendingError::DataNotFound,
+    DebtTokenError::NotListed => LendingError::DataNotFound,
+    DebtTokenError::AlreadyListed => LendingError::AlreadyExists,
+    DebtTokenError::NotSeller => LendingError::Unauthorized,
+    DebtTokenError::InvalidPrice => LendingError::InvalidParameter,
 });
 
 impl From<CrossAssetError> for LendingError {
@@ -381,17 +404,89 @@ impl From<CrossAssetError> for LendingError {
             CrossAssetError::InvalidPrice => LendingError::PriceUnavailable,
             CrossAssetError::PriceStale => LendingError::PriceUnavailable,
             CrossAssetError::NotAuthorized => LendingError::Unauthorized,
+            CrossAssetError::InvalidCorrelation => LendingError::InvalidParameter,
+            CrossAssetError::VolatilityUnavailable => LendingError::InvalidParameter,
+            CrossAssetError::Reentrancy => LendingError::Reentrancy,
         }
     }
 }
 
-impl_from_error!(EmergencyWithdrawalError, {
-    EmergencyWithdrawalError::NotActive => LendingError::InvalidState,
-    EmergencyWithdrawalError::AlreadyActive => LendingError::AlreadyExists,
-    EmergencyWithdrawalError::WindowNotOpen => LendingError::InvalidState,
-    EmergencyWithdrawalError::NotAuthorized => LendingError::Unauthorized,
-    EmergencyWithdrawalError::InsufficientBalance => LendingError::InsufficientBalance,
-    EmergencyWithdrawalError::ExceedsWithdrawalCap => LendingError::LimitExceeded,
-    EmergencyWithdrawalError::InvalidParameter => LendingError::InvalidParameter,
-    EmergencyWithdrawalError::AlreadyWithdrawn => LendingError::AlreadyExists,
-});
+impl From<EmergencyWithdrawalError> for LendingError {
+    fn from(error: EmergencyWithdrawalError) -> Self {
+        match error {
+            EmergencyWithdrawalError::NotActive => LendingError::InvalidState,
+            EmergencyWithdrawalError::AlreadyActive => LendingError::AlreadyExists,
+            EmergencyWithdrawalError::WindowNotOpen => LendingError::InvalidState,
+            EmergencyWithdrawalError::NotAuthorized => LendingError::Unauthorized,
+            EmergencyWithdrawalError::InsufficientBalance => LendingError::InsufficientBalance,
+            EmergencyWithdrawalError::ExceedsWithdrawalCap => LendingError::LimitExceeded,
+            EmergencyWithdrawalError::InvalidParameter => LendingError::InvalidParameter,
+            EmergencyWithdrawalError::AlreadyWithdrawn => LendingError::AlreadyExists,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Unified error framework bridge
+// ---------------------------------------------------------------------------
+//
+// Every internal error in this contract implements
+// [`stellarlend_errors::IntoError`] so the consolidated analytics, logging, and
+// recovery stack in the `stellarlend-errors` crate can normalize failures to a
+// single [`stellarlend_errors::CoreError`] category. Combined with the existing
+// `From<ModuleError> for LendingError` impls above, the full path is:
+//
+//     ModuleError -> LendingError -> CoreError
+//
+// All three hops are total (no panics, no fall-through).
+
+use stellarlend_errors::{CoreError, IntoError, LendingCode};
+
+impl LendingCode for LendingError {
+    #[inline]
+    fn code(&self) -> u32 {
+        *self as u32
+    }
+}
+
+// `LendingCode` already provides `IntoError` via the blanket impl in the
+// `stellarlend-errors` crate. The `LendingError` -> `CoreError` mapping comes
+// from `lending_code_to_core`. This gives us a free, single-source-of-truth
+// hop. We still expose a `lending_error_to_core` helper for callers that want
+// to do the lookup without consuming the value.
+#[inline]
+pub fn lending_error_to_core(err: LendingError) -> CoreError {
+    err.into_core()
+}
+
+macro_rules! impl_into_core {
+    ($ty:ty, $variant:path) => {
+        impl IntoError for $ty {
+            #[inline]
+            fn into_core(self) -> CoreError {
+                <$variant as Into<LendingError>>::into(self).into_core()
+            }
+        }
+    };
+}
+
+impl_into_core!(AdminError, AdminError);
+impl_into_core!(AnalyticsError, AnalyticsError);
+impl_into_core!(BorrowError, BorrowError);
+impl_into_core!(CrossAssetError, CrossAssetError);
+impl_into_core!(DebtTokenError, DebtTokenError);
+impl_into_core!(DepositError, DepositError);
+impl_into_core!(EmergencyWithdrawalError, EmergencyWithdrawalError);
+impl_into_core!(FlashLoanError, FlashLoanError);
+impl_into_core!(InterestRateError, InterestRateError);
+impl_into_core!(LiquidationError, LiquidationError);
+impl_into_core!(MevProtectionError, MevProtectionError);
+impl_into_core!(RateLimitError, RateLimitError);
+impl_into_core!(RebalancingError, RebalancingError);
+impl_into_core!(RepayError, RepayError);
+impl_into_core!(ReserveError, ReserveError);
+impl_into_core!(RiskManagementError, RiskManagementError);
+impl_into_core!(RiskParamsError, RiskParamsError);
+impl_into_core!(TreasuryError, TreasuryError);
+impl_into_core!(WithdrawError, WithdrawError);
+impl_into_core!(GovernanceError, GovernanceError);

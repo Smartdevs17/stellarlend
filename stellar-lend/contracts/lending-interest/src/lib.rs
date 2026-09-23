@@ -1,7 +1,41 @@
 #![no_std]
 
-use soroban_sdk::Env;
-use stellarlend_safe_math::{bps_mul, safe_add, safe_div, safe_mul, MathError};
+use soroban_sdk::{contracttype, Env};
+use stellarlend_safe_math::{bps_mul, safe_add, safe_div, safe_mul, MathError, WAD};
+
+/// Fixed-point scale used by the cumulative interest index.
+pub const INTEREST_INDEX_SCALE: i128 = WAD;
+
+#[contracttype]
+#[derive(Clone)]
+enum InterestCacheKey {
+    GlobalIndex,
+}
+
+/// Persisted cumulative interest state.
+///
+/// Positions only need to retain the index observed at their last mutation.
+/// Accrual then advances this global index for the elapsed segment instead of
+/// recomputing every position's full history.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InterestIndexCache {
+    pub index: i128,
+    pub last_update: u64,
+    pub last_ledger: u32,
+    pub rate_bps: i128,
+}
+
+impl InterestIndexCache {
+    fn fresh(env: &Env, rate_bps: i128) -> Self {
+        Self {
+            index: INTEREST_INDEX_SCALE,
+            last_update: env.ledger().timestamp(),
+            last_ledger: env.ledger().sequence(),
+            rate_bps,
+        }
+    }
+}
 
 pub struct InterestRateModel {
     pub base_rate: i128,
@@ -66,6 +100,84 @@ pub fn accrue_interest(
     stellarlend_safe_math::simple_interest(env, principal, rate, time_elapsed)
 }
 
+/// Load the persisted cumulative index, or return a fresh in-memory index.
+pub fn get_interest_cache(env: &Env, initial_rate_bps: i128) -> InterestIndexCache {
+    env.storage()
+        .persistent()
+        .get(&InterestCacheKey::GlobalIndex)
+        .unwrap_or_else(|| InterestIndexCache::fresh(env, initial_rate_bps))
+}
+
+/// Advance and persist the cumulative index for only the newly elapsed time.
+///
+/// The elapsed segment is charged at the previously cached rate. The supplied
+/// `current_rate_bps` becomes the rate for the next segment, so rate changes do
+/// not retroactively affect already elapsed time. Repeated calls in the same
+/// ledger with an unchanged rate perform no storage write.
+pub fn update_interest_cache(
+    env: &Env,
+    current_rate_bps: i128,
+) -> Result<InterestIndexCache, MathError> {
+    let stored: Option<InterestIndexCache> = env
+        .storage()
+        .persistent()
+        .get(&InterestCacheKey::GlobalIndex);
+    let mut cache = stored
+        .clone()
+        .unwrap_or_else(|| InterestIndexCache::fresh(env, current_rate_bps));
+    let now = env.ledger().timestamp();
+    let ledger = env.ledger().sequence();
+    let mut changed = stored.is_none();
+
+    // Never rewind the index if ledger time moves backwards during a reorg.
+    if ledger != cache.last_ledger && now > cache.last_update {
+        let elapsed = now - cache.last_update;
+        let delta = accrue_interest(env, cache.index, cache.rate_bps, elapsed)?;
+        cache.index = safe_add(cache.index, delta)?;
+        cache.last_update = now;
+        cache.last_ledger = ledger;
+        changed = true;
+    }
+
+    if cache.rate_bps != current_rate_bps {
+        cache.rate_bps = current_rate_bps;
+        changed = true;
+    }
+
+    if changed {
+        env.storage()
+            .persistent()
+            .set(&InterestCacheKey::GlobalIndex, &cache);
+    }
+
+    Ok(cache)
+}
+
+/// Preview the up-to-date index without writing to storage.
+pub fn preview_interest_index(env: &Env, current_rate_bps: i128) -> Result<i128, MathError> {
+    let cache = get_interest_cache(env, current_rate_bps);
+    let now = env.ledger().timestamp();
+    if now <= cache.last_update {
+        return Ok(cache.index);
+    }
+
+    let delta = accrue_interest(env, cache.index, cache.rate_bps, now - cache.last_update)?;
+    safe_add(cache.index, delta)
+}
+
+/// Calculate a position's accrued interest from two cumulative-index snapshots.
+pub fn interest_from_index(
+    principal: i128,
+    entry_index: i128,
+    current_index: i128,
+) -> Result<i128, MathError> {
+    if principal <= 0 || entry_index <= 0 || current_index <= entry_index {
+        return Ok(0);
+    }
+    let growth = safe_add(current_index, -entry_index)?;
+    safe_mul(principal, growth).and_then(|value| safe_div(value, entry_index))
+}
+
 /// Compound interest over discrete periods using bps_mul for each step.
 pub fn compound_interest(principal: i128, rate: i128, periods: u64) -> Result<i128, MathError> {
     let mut result = principal;
@@ -79,7 +191,15 @@ pub fn compound_interest(principal: i128, rate: i128, periods: u64) -> Result<i1
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::Env;
+    use soroban_sdk::{contract, contractimpl, testutils::Ledger as _, Env};
+
+    #[contract]
+    struct CacheTestContract;
+
+    #[contractimpl]
+    impl CacheTestContract {
+        pub fn initialize(_env: Env) {}
+    }
 
     #[test]
     fn test_utilization_calculation() {
@@ -148,5 +268,61 @@ mod tests {
         // reserve_factor = 10_000 → net_factor = 0 → supply rate = 0.
         let rate = model.calculate_supply_rate(500, 5_000, 10_000).unwrap();
         assert_eq!(rate, 0);
+    }
+
+    #[test]
+    fn test_interest_from_index() {
+        let grown_index = INTEREST_INDEX_SCALE + INTEREST_INDEX_SCALE / 20;
+        assert_eq!(
+            interest_from_index(1_000_000, INTEREST_INDEX_SCALE, grown_index),
+            Ok(50_000)
+        );
+    }
+
+    #[test]
+    fn test_cache_updates_incrementally_and_switches_rate() {
+        let env = Env::default();
+        let contract_id = env.register(CacheTestContract, ());
+
+        env.as_contract(&contract_id, || {
+            let initial = update_interest_cache(&env, 500).unwrap();
+            assert_eq!(initial.index, INTEREST_INDEX_SCALE);
+
+            env.ledger().set_sequence_number(2);
+            env.ledger()
+                .set_timestamp(stellarlend_safe_math::SECONDS_PER_YEAR);
+            let accrued = update_interest_cache(&env, 1_000).unwrap();
+            assert_eq!(
+                accrued.index,
+                INTEREST_INDEX_SCALE + INTEREST_INDEX_SCALE * 5 / 100
+            );
+            assert_eq!(accrued.rate_bps, 1_000);
+
+            // Same-ledger calls reuse the cached value.
+            assert_eq!(update_interest_cache(&env, 1_000).unwrap(), accrued);
+        });
+    }
+
+    #[test]
+    fn test_preview_does_not_persist() {
+        let env = Env::default();
+        let contract_id = env.register(CacheTestContract, ());
+
+        env.as_contract(&contract_id, || {
+            update_interest_cache(&env, 500).unwrap();
+            env.ledger().set_sequence_number(2);
+            env.ledger()
+                .set_timestamp(stellarlend_safe_math::SECONDS_PER_YEAR);
+
+            let preview = preview_interest_index(&env, 500).unwrap();
+            assert_eq!(
+                preview,
+                INTEREST_INDEX_SCALE + INTEREST_INDEX_SCALE * 5 / 100
+            );
+            assert_eq!(
+                get_interest_cache(&env, 500).index,
+                INTEREST_INDEX_SCALE
+            );
+        });
     }
 }

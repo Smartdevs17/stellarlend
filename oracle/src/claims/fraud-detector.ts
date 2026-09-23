@@ -10,11 +10,7 @@
  *   4. Duplicate claim — identical (address, asset, lossTimestamp) tuple.
  */
 
-import type {
-  InsuranceClaim,
-  FraudDetectionResult,
-  FraudSignal,
-} from './types.js';
+import type { InsuranceClaim, FraudDetectionResult, FraudSignal } from './types.js';
 import { FraudSeverity, FraudSignalType } from './types.js';
 import { logger } from '../utils/logger.js';
 
@@ -160,9 +156,7 @@ export class FraudDetector {
     claim: InsuranceClaim,
     allClaims: InsuranceClaim[]
   ): FraudSignal | null {
-    const assetClaims = allClaims.filter(
-      (c) => c.asset === claim.asset && c.id !== claim.id
-    );
+    const assetClaims = allClaims.filter((c) => c.asset === claim.asset && c.id !== claim.id);
 
     if (assetClaims.length < this.config.anomalyMinDataPoints) {
       return null; // Not enough data to establish a baseline
@@ -203,10 +197,7 @@ export class FraudDetector {
     return null;
   }
 
-  private checkDuplicate(
-    claim: InsuranceClaim,
-    allClaims: InsuranceClaim[]
-  ): FraudSignal | null {
+  private checkDuplicate(claim: InsuranceClaim, allClaims: InsuranceClaim[]): FraudSignal | null {
     const duplicate = allClaims.find(
       (c) =>
         c.id !== claim.id &&
@@ -244,8 +235,8 @@ export class FraudDetector {
       FraudSeverity.HIGH,
       FraudSeverity.CRITICAL,
     ];
-    return signals.reduce((max, s) =>
-      order.indexOf(s.severity) > order.indexOf(max) ? s.severity : max,
+    return signals.reduce(
+      (max, s) => (order.indexOf(s.severity) > order.indexOf(max) ? s.severity : max),
       signals[0]!.severity
     );
   }
@@ -254,8 +245,6 @@ export class FraudDetector {
 /**
  * Factory function.
  */
-export function createFraudDetector(
-  config?: Partial<FraudDetectorConfig>
-): FraudDetector {
+export function createFraudDetector(config?: Partial<FraudDetectorConfig>): FraudDetector {
   return new FraudDetector(config);
 }

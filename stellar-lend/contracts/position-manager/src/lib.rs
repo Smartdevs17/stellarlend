@@ -67,7 +67,9 @@ impl PositionManager {
         }
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::CurrentPositionId, &0u64);
+        env.storage()
+            .instance()
+            .set(&DataKey::CurrentPositionId, &0u64);
         Ok(())
     }
 

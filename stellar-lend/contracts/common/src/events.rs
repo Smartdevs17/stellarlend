@@ -1,77 +1,63 @@
 #![allow(unused)]
+pub use shared_events::*;
 
-use soroban_sdk::{contractevent, Address, Env};
+use soroban_sdk::{contractevent, Env};
 
 // Minimal event set required by `upgrade.rs`.
 // These are emitted by publishing the struct instance (Soroban SDK pattern).
 
-#[contractevent]
+// ─── Cross-contract integration event helpers (Issue #688) ──────────────────
+
+/// Payload for a multi-contract state transition (lending + oracle + token).
 #[derive(Clone, Debug)]
-pub struct UpgradeInitEvent {
-    pub admin: Address,
-    pub required_approvals: u32,
+#[contractevent]
+pub struct CrossContractStepEvent {
+    pub scenario: soroban_sdk::String,
+    pub step_index: u32,
+    pub step_name: soroban_sdk::String,
+    pub success: bool,
+    pub timestamp: u64,
 }
 
-#[contractevent]
+/// Payload for an invariant check result during state simulation.
 #[derive(Clone, Debug)]
-pub struct UpgradeApproverAddedEvent {
-    pub caller: Address,
-    pub approver: Address,
+#[contractevent]
+pub struct InvariantCheckEvent {
+    pub scenario: soroban_sdk::String,
+    pub invariant_id: soroban_sdk::String,
+    pub passed: bool,
+    pub observed: i128,
+    pub expected: i128,
 }
 
-#[contractevent]
-#[derive(Clone, Debug)]
-pub struct UpgradeApproverRemovedEvent {
-    pub caller: Address,
-    pub approver: Address,
+/// Publish a cross-contract step marker (useful for indexing test runs).
+pub fn emit_cross_contract_step(
+    env: &Env,
+    scenario: &str,
+    step_index: u32,
+    step_name: &str,
+    success: bool,
+) {
+    let topics = (
+        soroban_sdk::symbol_short!("xstep"),
+        soroban_sdk::Symbol::new(env, if success { "ok" } else { "fail" }),
+    );
+    let data = (scenario, step_index, step_name);
+    env.events().publish(topics, data);
 }
 
-#[contractevent]
-#[derive(Clone, Debug)]
-pub struct UpgradeProposedEvent {
-    pub caller: Address,
-    pub id: u64,
-    pub new_version: u32,
-}
-
-#[contractevent]
-#[derive(Clone, Debug)]
-pub struct UpgradeApprovalRecordedEvent {
-    pub caller: Address,
-    pub proposal_id: u64,
-    pub approval_count: u32,
-}
-
-#[contractevent]
-#[derive(Clone, Debug)]
-pub struct UpgradeExecutedEvent {
-    pub caller: Address,
-    pub proposal_id: u64,
-    pub new_version: u32,
-}
-
-#[contractevent]
-#[derive(Clone, Debug)]
-pub struct UpgradeRollbackEvent {
-    pub caller: Address,
-    pub proposal_id: u64,
-    pub prev_version: u32,
-}
-
-#[contractevent]
-#[derive(Clone, Debug)]
-pub struct UpgradeTimelockQueuedEvent {
-    pub caller: Address,
-    pub proposal_id: u64,
-    pub execute_after: u64,
-    pub is_emergency: bool,
-}
-
-#[contractevent]
-#[derive(Clone, Debug)]
-pub struct UpgradeEmergencyProposedEvent {
-    pub caller: Address,
-    pub id: u64,
-    pub new_version: u32,
-    pub execute_after: u64,
+/// Publish an invariant observation for multi-contract state simulation.
+pub fn emit_invariant_check(
+    env: &Env,
+    invariant_id: &str,
+    passed: bool,
+    observed: i128,
+    expected: i128,
+) {
+    let topics = (
+        soroban_sdk::symbol_short!("invar"),
+        soroban_sdk::Symbol::new(env, if passed { "pass" } else { "fail" }),
+    );
+    let data = (invariant_id, observed, expected);
+    env.events().publish(topics, data);
 }

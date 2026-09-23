@@ -736,7 +736,7 @@ fn test_dust_withdraw_reverts() {
     let user = Address::generate(&env);
 
     client.deposit_collateral(&user, &None, &1000);
-    
+
     // Dust amount (below minimum threshold of 1)
     let res = client.try_withdraw_collateral(&user, &None, &0);
     assert!(res.is_err());
@@ -751,7 +751,7 @@ fn test_dust_borrow_reverts() {
     let user = Address::generate(&env);
 
     client.deposit_collateral(&user, &None, &10_000);
-    
+
     // Dust amount (below minimum threshold of 1)
     let res = client.try_borrow_asset(&user, &None, &0);
     assert!(res.is_err());
@@ -811,7 +811,10 @@ fn test_dust_accumulation_prevention() {
 
     // Verify no dust accumulation
     let position = position_of(&env, &contract_id, &user);
-    assert!(position.is_none(), "No position should exist after dust attempts");
+    assert!(
+        position.is_none(),
+        "No position should exist after dust attempts"
+    );
 }
 
 #[test]
@@ -824,7 +827,10 @@ fn test_minimum_transaction_amount_enforcement() {
 
     // Valid minimum amount (1)
     let res = client.try_deposit_collateral(&user, &None, &1);
-    assert!(res.is_ok(), "Minimum transaction amount of 1 should be accepted");
+    assert!(
+        res.is_ok(),
+        "Minimum transaction amount of 1 should be accepted"
+    );
 
     // Below minimum (0)
     let res = client.try_deposit_collateral(&user, &None, &0);
@@ -862,7 +868,7 @@ fn test_rounding_direction_consistency() {
     // Test that rounding is depositor-friendly
     // Deposits: round down (depositor keeps more)
     // Withdrawals: round up (user receives at least what they expect)
-    
+
     // This is a conceptual test - actual implementation uses rounding.rs module
     // The key invariant: withdraw_amount >= repay_amount for same fraction
     let balance = 1000;
@@ -871,11 +877,14 @@ fn test_rounding_direction_consistency() {
 
     // Withdraw should round up
     let withdraw = (balance * fraction + scale - 1) / scale;
-    
+
     // Repay should round down
     let repay = (balance * fraction) / scale;
 
-    assert!(withdraw >= repay, "Withdraw should be >= repay for same fraction");
+    assert!(
+        withdraw >= repay,
+        "Withdraw should be >= repay for same fraction"
+    );
 }
 
 #[test]
@@ -887,9 +896,12 @@ fn test_precision_loss_in_interest_calculation() {
 
     // Interest calculation: principal * rate / scale
     let interest = (principal * rate) / scale;
-    
+
     // With minimum principal, interest should be 0 (rounds down)
-    assert_eq!(interest, 0, "Small principal may result in zero interest due to rounding");
+    assert_eq!(
+        interest, 0,
+        "Small principal may result in zero interest due to rounding"
+    );
 }
 
 #[test]
@@ -904,12 +916,18 @@ fn test_rounding_asymmetry_prevention() {
     let round_up = (amount * fraction + scale - 1) / scale;
 
     // For exact fractions, both should be equal
-    assert_eq!(round_down, round_up, "Exact fractions should have same result");
+    assert_eq!(
+        round_down, round_up,
+        "Exact fractions should have same result"
+    );
 
     // For inexact fractions, round_up > round_down
     let inexact_fraction = 3333;
     let round_down_inexact = (amount * inexact_fraction) / scale;
     let round_up_inexact = (amount * inexact_fraction + scale - 1) / scale;
-    
-    assert!(round_up_inexact >= round_down_inexact, "Round up should be >= round down");
+
+    assert!(
+        round_up_inexact >= round_down_inexact,
+        "Round up should be >= round down"
+    );
 }

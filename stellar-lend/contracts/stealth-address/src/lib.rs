@@ -1,6 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Bytes, BytesN, Env, Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, Bytes, BytesN,
+    Env, Vec,
 };
 
 #[contracterror]
@@ -38,6 +39,7 @@ pub enum StealthDataKey {
     RegisteredCount,
     RecipientsList,
     StealthAddressMeta(Address),
+    StealthByPublicKey(BytesN<32>),
 }
 
 #[contractevent]
@@ -58,9 +60,12 @@ pub struct StealthAddressGeneratedEvent {
     pub timestamp: u64,
 }
 
-use soroban_sdk::contractevent;
+const MAX_REGISTRANTS: u32 = 1000;
 
-const MAX_REGISTRANTS: u32 = 10000;
+fn is_valid_public_key(key: &BytesN<32>) -> bool {
+    let arr: [u8; 32] = key.clone().into();
+    arr != [0u8; 32]
+}
 
 #[contract]
 pub struct StealthAddressRegistry;
@@ -74,6 +79,10 @@ impl StealthAddressRegistry {
         view_public_key: BytesN<32>,
     ) -> Result<(), StealthError> {
         user.require_auth();
+
+        if !is_valid_public_key(&spend_public_key) || !is_valid_public_key(&view_public_key) {
+            return Err(StealthError::InvalidPublicKey);
+        }
 
         if env
             .storage()
@@ -141,6 +150,10 @@ impl StealthAddressRegistry {
         recipient: Address,
         ephemeral_public_key: BytesN<32>,
     ) -> Result<StealthAddress, StealthError> {
+        if !is_valid_public_key(&ephemeral_public_key) {
+            return Err(StealthError::InvalidPublicKey);
+        }
+
         let meta = env
             .storage()
             .persistent()
@@ -148,7 +161,7 @@ impl StealthAddressRegistry {
             .ok_or(StealthError::NotRegistered)?;
 
         let shared_secret =
-            compute_shared_secret(&env, &meta.spend_public_key, &ephemeral_public_key);
+            compute_shared_secret(&env, &meta.view_public_key, &ephemeral_public_key);
         let stealth_public_key = derive_stealth_key(&env, &meta.spend_public_key, &shared_secret);
         let view_tag = compute_view_tag(&env, &shared_secret);
 
@@ -160,6 +173,11 @@ impl StealthAddressRegistry {
 
         env.storage().persistent().set(
             &StealthDataKey::StealthAddressMeta(recipient.clone()),
+            &addr,
+        );
+
+        env.storage().persistent().set(
+            &StealthDataKey::StealthByPublicKey(stealth_public_key.clone()),
             &addr,
         );
 
@@ -178,6 +196,32 @@ impl StealthAddressRegistry {
         env.storage()
             .persistent()
             .get(&StealthDataKey::StealthAddressMeta(user))
+    }
+
+    pub fn get_stealth_address_by_key(
+        env: Env,
+        stealth_public_key: BytesN<32>,
+    ) -> Option<StealthAddress> {
+        env.storage()
+            .persistent()
+            .get(&StealthDataKey::StealthByPublicKey(stealth_public_key))
+    }
+
+    pub fn verify_view_tag(
+        env: Env,
+        view_public_key: BytesN<32>,
+        ephemeral_public_key: BytesN<32>,
+        expected_view_tag: BytesN<16>,
+    ) -> Result<bool, StealthError> {
+        if !is_valid_public_key(&view_public_key) || !is_valid_public_key(&ephemeral_public_key) {
+            return Err(StealthError::InvalidPublicKey);
+        }
+        let shared_secret = compute_shared_secret(&env, &view_public_key, &ephemeral_public_key);
+        let computed_tag = compute_view_tag(&env, &shared_secret);
+        if computed_tag != expected_view_tag {
+            return Err(StealthError::InvalidViewTag);
+        }
+        Ok(true)
     }
 
     pub fn is_registered(env: Env, user: Address) -> bool {
@@ -199,16 +243,36 @@ impl StealthAddressRegistry {
             .get(&StealthDataKey::RecipientsList)
             .unwrap_or(Vec::new(&env))
     }
+
+    pub fn get_recipients_page(env: Env, start: u32, limit: u32) -> Vec<Address> {
+        let list: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&StealthDataKey::RecipientsList)
+            .unwrap_or(Vec::new(&env));
+        let total = list.len();
+        if start >= total || limit == 0 {
+            return Vec::new(&env);
+        }
+        let mut page = Vec::new(&env);
+        let end = core::cmp::min(start + limit, total);
+        for i in start..end {
+            if let Some(addr) = list.get(i) {
+                page.push_back(addr);
+            }
+        }
+        page
+    }
 }
 
 fn compute_shared_secret(
     env: &Env,
-    spend_public_key: &BytesN<32>,
+    view_public_key: &BytesN<32>,
     ephemeral_public_key: &BytesN<32>,
 ) -> BytesN<32> {
     let mut input = Bytes::new(env);
-    let spend_arr: [u8; 32] = spend_public_key.clone().into();
-    input.append(&Bytes::from_array(env, &spend_arr));
+    let view_arr: [u8; 32] = view_public_key.clone().into();
+    input.append(&Bytes::from_array(env, &view_arr));
     let ephemeral_arr: [u8; 32] = ephemeral_public_key.clone().into();
     input.append(&Bytes::from_array(env, &ephemeral_arr));
     let digest = env.crypto().keccak256(&input);

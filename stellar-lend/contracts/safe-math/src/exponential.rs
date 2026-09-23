@@ -17,7 +17,7 @@ pub fn wad_exp(env: &Env, x: i128) -> Result<i128, MathError> {
     let mut k: i128 = 1;
     loop {
         term = fp_mul(env, term, x)?;
-        term = term / k;
+        term /= k;
         let next = result + term;
         if next == result || term == 0 {
             break;

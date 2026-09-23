@@ -56,7 +56,7 @@ pub fn safe_sub(a: i128, b: i128) -> Result<i128, MathError> {
 /// Proof reference: `kani_proof_mul_no_silent_overflow` in safe-math-proofs.
 #[inline]
 pub fn safe_mul(a: i128, b: i128) -> Result<i128, MathError> {
-    a.checked_mul(b).ok_or_else(|| {
+    a.checked_mul(b).ok_or({
         // Overflow direction: positive when signs match, negative otherwise.
         if (a > 0 && b > 0) || (a < 0 && b < 0) {
             MathError::Overflow

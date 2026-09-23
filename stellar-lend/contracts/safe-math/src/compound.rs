@@ -1,5 +1,5 @@
 use crate::error::MathError;
-use crate::fixed_point::{fp_div, fp_mul, WAD};
+use crate::fixed_point::{fp_div, fp_mul};
 use crate::int128::safe_add;
 use soroban_sdk::Env;
 

@@ -20,6 +20,10 @@ pub enum ReputationError {
     NotFound = 4,
     /// Invalid configuration parameters.
     InvalidConfig = 5,
+    /// Invalid amount.
+    InvalidAmount = 6,
+    /// Arithmetic overflow.
+    Overflow = 7,
 }
 
 // ---------------------------------------------------------------------------
@@ -182,10 +186,12 @@ impl ReputationContract {
         }
         admin.require_auth();
 
-        // Validate thresholds are ordered.
-        if config.silver_threshold >= config.gold_threshold
+        // Validate thresholds are ordered and positive.
+        if config.silver_threshold == 0
+            || config.silver_threshold >= config.gold_threshold
             || config.gold_threshold >= config.platinum_threshold
             || config.platinum_threshold > 1000
+            || (config.decay_rate > 0 && config.decay_interval == 0)
         {
             return Err(ReputationError::InvalidConfig);
         }
@@ -206,12 +212,19 @@ impl ReputationContract {
     ) -> Result<ReputationScore, ReputationError> {
         let config = require_admin(&env, &admin)?;
 
-        let mut rep = Self::get_or_default(&env, &borrower);
-        rep.total_repayments += 1;
-        if on_time {
-            rep.on_time_repayments += 1;
+        if amount < 0 {
+            return Err(ReputationError::InvalidAmount);
         }
-        rep.total_borrowed += amount;
+
+        let mut rep = Self::get_or_default(&env, &borrower);
+        rep.total_repayments = rep.total_repayments.saturating_add(1);
+        if on_time {
+            rep.on_time_repayments = rep.on_time_repayments.saturating_add(1);
+        }
+        rep.total_borrowed = rep
+            .total_borrowed
+            .checked_add(amount)
+            .ok_or(ReputationError::Overflow)?;
         rep.score = compute_score(rep.total_repayments, rep.on_time_repayments, rep.defaults);
         rep.tier = tier_from_score(&config, rep.score);
         rep.last_activity_timestamp = env.ledger().timestamp();
@@ -231,7 +244,7 @@ impl ReputationContract {
         let config = require_admin(&env, &admin)?;
 
         let mut rep = Self::get_or_default(&env, &borrower);
-        rep.defaults += 1;
+        rep.defaults = rep.defaults.saturating_add(1);
         rep.score = compute_score(rep.total_repayments, rep.on_time_repayments, rep.defaults);
         rep.tier = tier_from_score(&config, rep.score);
         rep.last_activity_timestamp = env.ledger().timestamp();
@@ -308,7 +321,13 @@ impl ReputationContract {
         let total_decay = (intervals as u32).saturating_mul(config.decay_rate);
         rep.score = rep.score.saturating_sub(total_decay);
         rep.tier = tier_from_score(&config, rep.score);
-        // Do NOT update last_activity_timestamp — decay is not "activity".
+
+        // Advance last_activity_timestamp by the exact intervals accounted for,
+        // preventing repeated decay within the same interval and quadratic decay compounding.
+        let elapsed_intervals_secs = (intervals as u64).saturating_mul(config.decay_interval);
+        rep.last_activity_timestamp = rep
+            .last_activity_timestamp
+            .saturating_add(elapsed_intervals_secs);
 
         env.storage()
             .persistent()
@@ -326,9 +345,11 @@ impl ReputationContract {
     ) -> Result<(), ReputationError> {
         require_admin(&env, &admin)?;
 
-        if config.silver_threshold >= config.gold_threshold
+        if config.silver_threshold == 0
+            || config.silver_threshold >= config.gold_threshold
             || config.gold_threshold >= config.platinum_threshold
             || config.platinum_threshold > 1000
+            || (config.decay_rate > 0 && config.decay_interval == 0)
         {
             return Err(ReputationError::InvalidConfig);
         }
@@ -752,5 +773,64 @@ mod tests {
         // total = 55000 / 100 = 550
         let score = compute_score(10, 10, 3);
         assert_eq!(score, 550);
+    }
+
+    #[test]
+    fn test_apply_decay_idempotent_within_same_interval_prevents_griefing() {
+        let s = setup();
+        let config = default_config(&s.admin);
+        s.client.initialize(&s.admin, &config);
+
+        let borrower = Address::generate(&s.env);
+
+        // Build up score with 50 repayments
+        for _ in 0..50 {
+            s.client.record_repayment(&s.admin, &borrower, &100, &true);
+        }
+        let before = s.client.get_reputation(&borrower);
+
+        // Advance by 2 days (2 decay intervals * 10 = 20 points)
+        advance_time(&s.env, 86_400 * 2);
+
+        // First decay call
+        let after1 = s.client.apply_decay(&borrower);
+        assert_eq!(after1.score, before.score - 20);
+
+        // Attacker attempts to drain score by calling apply_decay repeatedly in the same interval
+        for _ in 0..10 {
+            let spam = s.client.apply_decay(&borrower);
+            assert_eq!(spam.score, after1.score); // Score remains protected
+        }
+
+        // Advance by 1 more day (1 decay interval = 10 points)
+        advance_time(&s.env, 86_400);
+        let after2 = s.client.apply_decay(&borrower);
+        assert_eq!(after2.score, after1.score - 10);
+    }
+
+    #[test]
+    fn test_record_repayment_rejects_negative_amount() {
+        let s = setup();
+        let config = default_config(&s.admin);
+        s.client.initialize(&s.admin, &config);
+
+        let borrower = Address::generate(&s.env);
+        let result = s.client.try_record_repayment(&s.admin, &borrower, &-100, &true);
+        assert_eq!(result.unwrap_err().unwrap(), ReputationError::InvalidAmount);
+    }
+
+    #[test]
+    fn test_initialize_rejects_zero_decay_interval_with_rate_or_zero_silver() {
+        let s = setup();
+        let mut config = default_config(&s.admin);
+        config.decay_interval = 0;
+        config.decay_rate = 10;
+        let res1 = s.client.try_initialize(&s.admin, &config);
+        assert_eq!(res1.unwrap_err().unwrap(), ReputationError::InvalidConfig);
+
+        let mut config2 = default_config(&s.admin);
+        config2.silver_threshold = 0;
+        let res2 = s.client.try_initialize(&s.admin, &config2);
+        assert_eq!(res2.unwrap_err().unwrap(), ReputationError::InvalidConfig);
     }
 }

@@ -15,18 +15,30 @@ interface EmergencyNotification {
   read: boolean;
 }
 
+interface EmergencyLimits {
+  maxPerTransaction: number;
+  maxDailyPerUser: number;
+  maxDailyPoolDrain: number;
+}
+
 interface EmergencyStatusBannerProps {
   userAddress?: string;
   onEmergencyWithdraw?: () => void;
 }
 
 export const EmergencyStatusBanner: React.FC<EmergencyStatusBannerProps> = ({
-  userAddress,
+  userAddress = 'current',
   onEmergencyWithdraw,
 }) => {
   const [state, setState] = useState<EmergencyState | null>(null);
   const [notifications, setNotifications] = useState<EmergencyNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState(1000);
+  const [asset, setAsset] = useState('USDC');
+  const [limits, setLimits] = useState<EmergencyLimits | null>(null);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [executionResult, setExecutionResult] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchStatus = async () => {
@@ -58,31 +70,53 @@ export const EmergencyStatusBanner: React.FC<EmergencyStatusBannerProps> = ({
       }
     };
 
+    const fetchLimits = async () => {
+      try {
+        const response = await fetch('/api/emergency/limits');
+        const data = await response.json();
+        if (data.success) {
+          setLimits(data.data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch emergency limits:', error);
+      }
+    };
+
     fetchStatus();
     fetchNotifications();
+    fetchLimits();
     const interval = setInterval(fetchStatus, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   const getBannerColor = (): string => {
     if (!state?.paused) return '#28a745';
     switch (state.reason) {
-      case 'auto-failure-threshold': return '#dc3545';
-      case 'oracle-failure': return '#fd7e14';
-      case 'governance-vote': return '#ffc107';
-      default: return '#6c757d';
+      case 'auto-failure-threshold':
+        return '#dc3545';
+      case 'oracle-failure':
+        return '#fd7e14';
+      case 'governance-vote':
+        return '#ffc107';
+      default:
+        return '#6c757d';
     }
   };
 
   const getReasonLabel = (reason: string | null): string => {
     switch (reason) {
-      case 'manual': return 'Manual Pause';
-      case 'auto-failure-threshold': return 'System Failure Threshold';
-      case 'governance-vote': return 'Governance Vote';
-      case 'oracle-failure': return 'Oracle Failure';
-      default: return 'Unknown';
+      case 'manual':
+        return 'Manual Pause';
+      case 'auto-failure-threshold':
+        return 'System Failure Threshold';
+      case 'governance-vote':
+        return 'Governance Vote';
+      case 'oracle-failure':
+        return 'Oracle Failure';
+      default:
+        return 'Unknown';
     }
   };
 
@@ -93,6 +127,40 @@ export const EmergencyStatusBanner: React.FC<EmergencyStatusBannerProps> = ({
     if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
     return `${Math.floor(seconds / 86400)}d ago`;
   };
+
+  const handleExecuteEmergencyWithdraw = async () => {
+    setIsExecuting(true);
+    setExecutionResult(null);
+    try {
+      const res = await fetch('/api/emergency/withdraw', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userAddress,
+          assetAddress: asset,
+          amount: withdrawAmount,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setExecutionResult(
+          `Success: Withdrew ${data.data.netAmount} ${asset} (Fee: ${data.data.feeAmount}, Saved ${data.data.feeSavings})! Tx: ${data.data.txHash}`,
+        );
+        if (onEmergencyWithdraw) onEmergencyWithdraw();
+      } else {
+        setExecutionResult(`Error: ${data.error}`);
+      }
+    } catch (err) {
+      setExecutionResult(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
+  // Fee calculation (standard 50 bps vs emergency 10 bps)
+  const standardFee = (withdrawAmount * 50) / 10_000;
+  const emergencyFee = (withdrawAmount * 10) / 10_000;
+  const savings = standardFee - emergencyFee;
 
   if (!state) return null;
 
@@ -106,9 +174,7 @@ export const EmergencyStatusBanner: React.FC<EmergencyStatusBannerProps> = ({
       >
         <div style={styles.bannerContent}>
           <div style={styles.bannerLeft}>
-            <span style={styles.statusIcon}>
-              {state.paused ? '\u26A0' : '\u2714'}
-            </span>
+            <span style={styles.statusIcon}>{state.paused ? '\u26A0' : '\u2714'}</span>
             <div>
               <span style={styles.statusText}>
                 {state.paused ? 'EMERGENCY PAUSE ACTIVE' : 'System Operating Normally'}
@@ -130,33 +196,119 @@ export const EmergencyStatusBanner: React.FC<EmergencyStatusBannerProps> = ({
               </div>
             )}
 
-            {state.paused && onEmergencyWithdraw && (
-              <button onClick={onEmergencyWithdraw} style={styles.emergencyButton}>
-                Emergency Withdraw
-              </button>
-            )}
+            <button onClick={() => setShowWithdrawModal(true)} style={styles.emergencyButton}>
+              Emergency Withdraw
+            </button>
 
-            <button
-              onClick={() => setShowNotifications(!showNotifications)}
-              style={styles.notifButton}
-            >
+            <button onClick={() => setShowNotifications(!showNotifications)} style={styles.notifButton}>
               Bell
-              {unreadCount > 0 && (
-                <span style={styles.notifBadge}>{unreadCount}</span>
-              )}
+              {unreadCount > 0 && <span style={styles.notifBadge}>{unreadCount}</span>}
             </button>
           </div>
         </div>
       </div>
 
+      {/* Emergency Withdrawal Modal */}
+      {showWithdrawModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalContent}>
+            <div style={styles.notifHeader}>
+              <h4>Emergency Withdrawal Mechanism</h4>
+              <button onClick={() => setShowWithdrawModal(false)} style={styles.closeButton}>
+                Close
+              </button>
+            </div>
+            <div style={{ padding: '16px' }}>
+              <p style={{ fontSize: '13px', color: '#555', marginBottom: '12px' }}>
+                In emergency conditions, lenders have guaranteed immediate access to deposited collateral with
+                <strong> 80% reduced emergency fees</strong> (0.10% vs standard 0.50%).
+              </p>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#444' }}>
+                    Asset
+                  </label>
+                  <select
+                    value={asset}
+                    onChange={(e) => setAsset(e.target.value)}
+                    style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+                  >
+                    <option value="USDC">USDC</option>
+                    <option value="XLM">XLM</option>
+                    <option value="BTC">BTC</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', color: '#444' }}>
+                    Amount
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={withdrawAmount}
+                    onChange={(e) => setWithdrawAmount(Number(e.target.value))}
+                    style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
+                  />
+                </div>
+              </div>
+
+              {/* Reduced Fee Breakdown */}
+              <div style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '12px', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#166534', marginBottom: '4px' }}>
+                  <span>Standard Protocol Fee (0.50%):</span>
+                  <span style={{ textDecoration: 'line-through' }}>${standardFee.toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 'bold', color: '#15803d', marginBottom: '4px' }}>
+                  <span>Reduced Emergency Fee (0.10%):</span>
+                  <span>${emergencyFee.toFixed(2)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 'bold', color: '#15803d' }}>
+                  <span>Lender Savings (80% Discount):</span>
+                  <span>+${savings.toFixed(2)}</span>
+                </div>
+              </div>
+
+              {/* Limits Information */}
+              {limits && (
+                <div style={{ fontSize: '11px', color: '#666', marginBottom: '16px' }}>
+                  Per-transaction limit: ${limits.maxPerTransaction.toLocaleString()} | Daily User Limit: ${limits.maxDailyPerUser.toLocaleString()}
+                </div>
+              )}
+
+              {executionResult && (
+                <div style={{ padding: '10px', backgroundColor: executionResult.startsWith('Success') ? '#dcfce7' : '#fee2e2', borderRadius: '4px', fontSize: '12px', marginBottom: '12px' }}>
+                  {executionResult}
+                </div>
+              )}
+
+              <button
+                disabled={isExecuting || withdrawAmount <= 0}
+                onClick={handleExecuteEmergencyWithdraw}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  backgroundColor: '#dc3545',
+                  color: 'white',
+                  fontWeight: 'bold',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: isExecuting ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isExecuting ? 'Processing Withdrawal...' : `Confirm Emergency Withdraw ${withdrawAmount} ${asset}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notifications Panel */}
       {showNotifications && (
         <div style={styles.notificationPanel}>
           <div style={styles.notifHeader}>
             <h4>Emergency Notifications</h4>
-            <button
-              onClick={() => setShowNotifications(false)}
-              style={styles.closeButton}
-            >
+            <button onClick={() => setShowNotifications(false)} style={styles.closeButton}>
               Close
             </button>
           </div>
@@ -169,18 +321,18 @@ export const EmergencyStatusBanner: React.FC<EmergencyStatusBannerProps> = ({
                   key={notif.id}
                   style={{
                     ...styles.notifItem,
-                    borderLeftColor: notif.severity === 'critical' ? '#dc3545'
-                      : notif.severity === 'warning' ? '#ffc107' : '#007bff',
+                    borderLeftColor:
+                      notif.severity === 'critical'
+                        ? '#dc3545'
+                        : notif.severity === 'warning'
+                        ? '#ffc107'
+                        : '#007bff',
                     opacity: notif.read ? 0.6 : 1,
                   }}
                 >
-                  <div style={styles.notifSeverity}>
-                    {notif.severity.toUpperCase()}
-                  </div>
+                  <div style={styles.notifSeverity}>{notif.severity.toUpperCase()}</div>
                   <div style={styles.notifMessage}>{notif.message}</div>
-                  <div style={styles.notifTime}>
-                    {new Date(notif.timestamp).toLocaleString()}
-                  </div>
+                  <div style={styles.notifTime}>{new Date(notif.timestamp).toLocaleString()}</div>
                 </div>
               ))
             )}
@@ -272,6 +424,26 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '10px',
     fontSize: '10px',
     fontWeight: 'bold',
+  },
+  modalOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: '8px',
+    width: '90%',
+    maxWidth: '500px',
+    boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+    overflow: 'hidden',
   },
   notificationPanel: {
     backgroundColor: 'white',

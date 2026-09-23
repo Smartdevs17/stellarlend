@@ -457,6 +457,39 @@ contract.health_check()
    - Configuration issues
    - Resolution actions
 
+## Formal Verification
+
+The oracle integration contracts are covered by formal verification specifications to ensure correctness of critical oracle operations:
+
+### Certora Specifications
+
+The `stellar-lend/contracts/lending/certora/oracle_integration.spec` file defines machine-checkable specifications for oracle contract operations:
+
+- **ORA-001**: Price positivity — all reported prices must be strictly positive
+- **ORA-002**: Freeze blocks updates — oracle freeze state prevents price reporting
+- **ORA-003**: Unfreeze restores updates — unfreeze re-enables price reporting
+- **ORA-004**: Feed count monotonicity — registered feed count never decreases
+- **ORA-005**: Disable feed marks stale — disabled feeds are excluded from aggregation
+- **ORA-006**: Enable feed restores active — re-enabled feeds participate in aggregation
+- **ORA-007**: Staleness detection — prices exceeding `stale_threshold_seconds` are flagged
+- **ORA-008**: No active feeds error — `get_price` reverts when no feeds are available
+- **ORA-009**: Multiple feeds require active sources — aggregation needs at least one active feed
+- **ORA-010**: Feed count non-negative — feed registry count never goes below zero
+
+### Rust Property Tests
+
+The `contracts/lending/src/spec/oracle_spec.rs` module provides additional property-based tests for oracle data consumption paths within the lending contract.
+
+### Running Verification
+
+```bash
+# Run Certora specs (requires Certora Prover subscription)
+certoraRun stellar-lend/contracts/lending/certora/oracle_integration.spec
+
+# Run Rust property tests
+cargo test -p stellarlend-lending --features spec -- spec::oracle_spec
+```
+
 ## Conclusion
 
 Effective oracle configuration management is critical for the security and reliability of the StellarLend protocol. This guide provides the procedures and considerations necessary for maintaining a robust oracle system while ensuring proper role separation and security controls.

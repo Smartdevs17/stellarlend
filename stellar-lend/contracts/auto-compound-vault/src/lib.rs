@@ -1,5 +1,8 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, token::StellarAssetClient, Address, Env};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, token::Client as TokenClient,
+    token::StellarAssetClient, Address, Env,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -173,11 +176,7 @@ impl AutoCompoundVault {
         Ok(())
     }
 
-    pub fn set_config(
-        env: Env,
-        admin: Address,
-        config: VaultConfig,
-    ) -> Result<(), VaultError> {
+    pub fn set_config(env: Env, admin: Address, config: VaultConfig) -> Result<(), VaultError> {
         let stored_admin: Address = env
             .storage()
             .instance()
@@ -200,10 +199,7 @@ impl AutoCompoundVault {
     }
 
     pub fn get_config(env: Env) -> VaultConfig {
-        env.storage()
-            .instance()
-            .get(&DataKey::Config)
-            .unwrap()
+        env.storage().instance().get(&DataKey::Config).unwrap()
     }
 
     pub fn deposit(
@@ -276,6 +272,9 @@ impl AutoCompoundVault {
             .instance()
             .set(&DataKey::TotalShares, &new_total_shares);
 
+        let asset_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        asset_client.transfer(&user, &env.current_contract_address(), &amount);
+
         let share_client = StellarAssetClient::new(&env, &Self::get_share_token(&env));
         share_client.mint(&user, &shares);
 
@@ -290,9 +289,10 @@ impl AutoCompoundVault {
         env.storage()
             .persistent()
             .set(&DataKey::UserDeposits(user.clone()), &user_deposits);
-        env.storage()
-            .persistent()
-            .set(&DataKey::UserLastDepositAt(user.clone()), &env.ledger().timestamp());
+        env.storage().persistent().set(
+            &DataKey::UserLastDepositAt(user.clone()),
+            &env.ledger().timestamp(),
+        );
 
         DepositEvent {
             user,
@@ -388,6 +388,9 @@ impl AutoCompoundVault {
         let share_client = StellarAssetClient::new(&env, &Self::get_share_token(&env));
         share_client.burn(&user, &shares);
 
+        let asset_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        asset_client.transfer(&env.current_contract_address(), &user, &assets);
+
         WithdrawEvent {
             user,
             shares_burned: shares,
@@ -400,11 +403,7 @@ impl AutoCompoundVault {
         Ok(assets)
     }
 
-    pub fn harvest(
-        env: Env,
-        caller: Address,
-        min_rewards: i128,
-    ) -> Result<i128, VaultError> {
+    pub fn harvest(env: Env, caller: Address, min_rewards: i128) -> Result<i128, VaultError> {
         caller.require_auth();
 
         let config: VaultConfig = env
@@ -618,18 +617,11 @@ impl AutoCompoundVault {
     }
 
     fn get_share_token(env: &Env) -> Address {
-        env.storage()
-            .instance()
-            .get(&DataKey::ShareToken)
-            .unwrap()
+        env.storage().instance().get(&DataKey::ShareToken).unwrap()
     }
 
     fn get_share_balance(env: &Env, user: &Address) -> i128 {
-        let share_token: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::ShareToken)
-            .unwrap();
+        let share_token: Address = env.storage().instance().get(&DataKey::ShareToken).unwrap();
         let client = soroban_sdk::token::Client::new(env, &share_token);
         client.balance(user)
     }

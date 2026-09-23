@@ -1,7 +1,7 @@
 #![cfg(test)]
 
+use crate::cross_asset::{initialize_asset, AssetConfig};
 use soroban_sdk::{Address, Env};
-use crate::cross_asset::{AssetConfig, initialize_asset};
 
 pub fn create_test_asset_config() -> AssetConfig {
     AssetConfig {
@@ -28,7 +28,12 @@ pub fn setup_admin(env: &Env) {
         .set(&DepositDataKey::Admin, &admin);
 }
 
-pub fn setup_test_environment(env: &Env, admin: &Address, asset: Option<Address>, config: AssetConfig) {
+pub fn setup_test_environment(
+    env: &Env,
+    admin: &Address,
+    asset: Option<Address>,
+    config: AssetConfig,
+) {
     setup_admin(env);
     let _ = initialize_asset(env, asset, config);
 }

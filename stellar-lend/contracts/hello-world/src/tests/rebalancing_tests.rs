@@ -5,11 +5,11 @@
 
 use soroban_sdk::{Address, Env, Symbol};
 
-use crate::rebalancing::{
-    configure_rebalancing, execute_rebalancing, get_rebalancing_config,
-    set_emergency_stop, set_rebalancing_pause, RebalancingConfig, RebalancingError,
-};
 use crate::deposit::DepositDataKey;
+use crate::rebalancing::{
+    configure_rebalancing, execute_rebalancing, get_rebalancing_config, set_emergency_stop,
+    set_rebalancing_pause, RebalancingConfig, RebalancingError,
+};
 use crate::test_utils::*;
 
 #[test]
@@ -21,17 +21,17 @@ fn test_configure_rebalancing_success() {
     let result = configure_rebalancing(
         &env,
         user.clone(),
-        12000, // 1.2x min health
-        25000, // 2.5x max health
+        12000,   // 1.2x min health
+        25000,   // 2.5x max health
         1000000, // Max gas cost
-        true,   // Enable auto-rebalance
+        true,    // Enable auto-rebalance
         1000000, // Min swap size
-        500,    // 5% max slippage
-        3600,   // 1 hour cooldown
+        500,     // 5% max slippage
+        3600,    // 1 hour cooldown
     );
-    
+
     assert!(result.is_ok());
-    
+
     // Verify configuration
     let config = get_rebalancing_config(&env, &user);
     assert_eq!(config.target_health_factor_min, 12000);
@@ -60,7 +60,7 @@ fn test_configure_rebalancing_invalid_config() {
         500,
         3600,
     );
-    
+
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), RebalancingError::InvalidConfig);
 }
@@ -82,7 +82,7 @@ fn test_configure_rebalancing_invalid_gas_cost() {
         500,
         3600,
     );
-    
+
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), RebalancingError::InvalidConfig);
 }
@@ -103,13 +103,14 @@ fn test_execute_rebalancing_already_healthy() {
         1000000,
         500,
         3600,
-    ).unwrap();
+    )
+    .unwrap();
 
     // Mock healthy position (within target range)
     // This would require mocking the cross_asset module
     // For now, test the authorization and basic flow
     let result = execute_rebalancing(&env, user.clone());
-    
+
     // Should fail because position is already healthy (mock scenario)
     // In real implementation, this would check actual position
     assert!(result.is_err());
@@ -132,11 +133,12 @@ fn test_execute_rebalancing_cooldown_active() {
         1000000,
         500,
         10, // 10 second cooldown
-    ).unwrap();
+    )
+    .unwrap();
 
     // Execute rebalancing twice
     execute_rebalancing(&env, user.clone()).unwrap(); // First call succeeds
-    
+
     // Second call should fail due to cooldown
     let result = execute_rebalancing(&env, user.clone());
     assert!(result.is_err());
@@ -156,7 +158,7 @@ fn test_set_emergency_stop_success() {
     // Test emergency stop
     let result = set_emergency_stop(&env, admin.clone(), true);
     assert!(result.is_ok());
-    
+
     // Verify emergency stop is active
     assert!(is_emergency_stop_active(&env));
 }
@@ -191,7 +193,7 @@ fn test_set_rebalancing_pause_success() {
     // Test rebalancing pause
     let result = set_rebalancing_pause(&env, admin.clone(), true);
     assert!(result.is_ok());
-    
+
     // Verify pause is active
     assert!(is_rebalancing_paused(&env));
 }
@@ -203,7 +205,7 @@ fn test_get_rebalancing_config_default() {
 
     // Test getting default configuration for new user
     let config = get_rebalancing_config(&env, &user);
-    
+
     // Verify default values
     assert_eq!(config.target_health_factor_min, 15000); // 1.5x default
     assert_eq!(config.target_health_factor_max, 25000); // 2.5x default
@@ -230,7 +232,8 @@ fn test_rebalancing_gas_cost_estimation() {
         1000000,
         500,
         3600,
-    ).unwrap();
+    )
+    .unwrap();
 
     // Test rebalancing with high estimated gas cost
     // This would require mocking the position summary

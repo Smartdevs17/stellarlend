@@ -1,5 +1,6 @@
-use soroban_sdk::{contractimpl, Address, Env};
+use soroban_sdk::{contract, contractimpl, Address, Env};
 
+#[contract]
 pub struct MockToken;
 
 #[contractimpl]
@@ -34,6 +35,7 @@ impl MockToken {
     }
 }
 
+#[contract]
 pub struct MockOracle;
 
 #[contractimpl]
@@ -42,8 +44,8 @@ impl MockOracle {
         env.storage().instance().set(&"admin", &admin);
     }
 
-    pub fn get_price(_env: Env, _asset: Address) -> i128 {
-        1_000_000
+    pub fn get_price(env: Env, asset: Address) -> i128 {
+        env.storage().persistent().get(&asset).unwrap_or(1_000_000)
     }
 
     pub fn set_price(env: Env, asset: Address, price: i128) {

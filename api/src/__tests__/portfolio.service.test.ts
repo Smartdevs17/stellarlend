@@ -1,4 +1,8 @@
-import { analyzePortfolio, toCSV } from '../services/portfolio.service';
+import {
+  analyzePortfolio,
+  optimizeLendingPoolAllocation,
+  toCSV,
+} from '../services/portfolio.service';
 import { PositionResponse, TransactionHistoryItem } from '../types';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -292,6 +296,84 @@ describe('toCSV', () => {
     const csv = toCSV(txs);
     expect(csv).toContain('tx_abc');
     expect(csv).toContain('tx2');
+  });
+});
+
+// ─── Lending pool allocation optimizer ────────────────────────────────────────
+
+describe('optimizeLendingPoolAllocation', () => {
+  it('sums available liquidity and echoes automation settings', () => {
+    const plan = optimizeLendingPoolAllocation(
+      [
+        {
+          poolId: 'xlm',
+          assetSymbol: 'XLM',
+          totalLiquidity: '10000000',
+          borrowedLiquidity: '5000000',
+          supplyApy: 0.05,
+          borrowApy: 0.08,
+        },
+        {
+          poolId: 'usdc',
+          assetSymbol: 'USDC',
+          totalLiquidity: '20000000',
+          borrowedLiquidity: '10000000',
+          supplyApy: 0.04,
+          borrowApy: 0.06,
+        },
+      ],
+      { automationEnabled: true }
+    );
+
+    expect(plan.totalAvailableLiquidity).toBe('30000000');
+    expect(plan.automationEnabled).toBe(true);
+    expect(plan.recommendations).toHaveLength(2);
+  });
+
+  it('prioritizes pools above the configured max utilization', () => {
+    const plan = optimizeLendingPoolAllocation([
+      {
+        poolId: 'overheated',
+        assetSymbol: 'XLM',
+        totalLiquidity: '10000000',
+        borrowedLiquidity: '9500000',
+        supplyApy: 0.03,
+        borrowApy: 0.08,
+      },
+      {
+        poolId: 'balanced',
+        assetSymbol: 'USDC',
+        totalLiquidity: '10000000',
+        borrowedLiquidity: '7500000',
+        supplyApy: 0.07,
+        borrowApy: 0.1,
+      },
+    ]);
+
+    expect(plan.recommendations[0]).toMatchObject({
+      poolId: 'overheated',
+      action: 'supply',
+      priority: 'urgent',
+    });
+  });
+
+  it('recommends withdrawing excess allocation when utilization is far above target', () => {
+    const plan = optimizeLendingPoolAllocation(
+      [
+        {
+          poolId: 'excess',
+          assetSymbol: 'AQUA',
+          totalLiquidity: '10000000',
+          borrowedLiquidity: '8500000',
+          supplyApy: 0.02,
+          borrowApy: 0.05,
+        },
+      ],
+      { maxUtilization: 0.95, targetUtilization: 0.7, rebalanceThresholdPct: 5 }
+    );
+
+    expect(plan.recommendations[0].action).toBe('withdraw');
+    expect(plan.recommendations[0].rebalanceAmount).toBe('1500000');
   });
 });
 

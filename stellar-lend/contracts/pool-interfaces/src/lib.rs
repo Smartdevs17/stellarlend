@@ -68,8 +68,18 @@ pub enum PoolInterfaceError {
 
 pub trait PoolInterface {
     fn get_pool_info(env: soroban_sdk::Env, pool: Address) -> PoolInfo;
-    fn deposit(env: soroban_sdk::Env, pool: Address, user: Address, amount: i128) -> Result<i128, PoolInterfaceError>;
-    fn withdraw(env: soroban_sdk::Env, pool: Address, user: Address, amount: i128) -> Result<i128, PoolInterfaceError>;
+    fn deposit(
+        env: soroban_sdk::Env,
+        pool: Address,
+        user: Address,
+        amount: i128,
+    ) -> Result<i128, PoolInterfaceError>;
+    fn withdraw(
+        env: soroban_sdk::Env,
+        pool: Address,
+        user: Address,
+        amount: i128,
+    ) -> Result<i128, PoolInterfaceError>;
     fn get_apy(env: soroban_sdk::Env, pool: Address) -> u32;
     fn get_utilization(env: soroban_sdk::Env, pool: Address) -> u32;
     fn get_available_liquidity(env: soroban_sdk::Env, pool: Address) -> i128;

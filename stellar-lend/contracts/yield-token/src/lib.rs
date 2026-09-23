@@ -109,17 +109,11 @@ impl YieldToken {
     }
 
     pub fn name(env: Env) -> String {
-        env.storage()
-            .instance()
-            .get(&DataKey::Name)
-            .unwrap()
+        env.storage().instance().get(&DataKey::Name).unwrap()
     }
 
     pub fn symbol(env: Env) -> String {
-        env.storage()
-            .instance()
-            .get(&DataKey::Symbol)
-            .unwrap()
+        env.storage().instance().get(&DataKey::Symbol).unwrap()
     }
 
     pub fn decimals(env: Env) -> u32 {
@@ -185,9 +179,10 @@ impl YieldToken {
             .checked_sub(amount)
             .ok_or(YieldTokenError::Overflow)?;
 
-        env.storage()
-            .persistent()
-            .set(&DataKey::Allowance(from.clone(), spender.clone()), &new_allowance);
+        env.storage().persistent().set(
+            &DataKey::Allowance(from.clone(), spender.clone()),
+            &new_allowance,
+        );
         Self::do_transfer(&env, &from, &to, amount)?;
 
         TransferEvent { from, to, amount }.publish(&env);
@@ -206,15 +201,16 @@ impl YieldToken {
             .persistent()
             .set(&DataKey::Allowance(owner.clone(), spender.clone()), &amount);
 
-        ApprovalEvent { owner, spender, amount }.publish(&env);
+        ApprovalEvent {
+            owner,
+            spender,
+            amount,
+        }
+        .publish(&env);
         Ok(())
     }
 
-    pub fn mint(
-        env: Env,
-        to: Address,
-        amount: i128,
-    ) -> Result<(), YieldTokenError> {
+    pub fn mint(env: Env, to: Address, amount: i128) -> Result<(), YieldTokenError> {
         let splitter: Address = env
             .storage()
             .instance()
@@ -254,19 +250,13 @@ impl YieldToken {
         supply = supply
             .checked_add(amount)
             .ok_or(YieldTokenError::Overflow)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::TotalSupply, &supply);
+        env.storage().instance().set(&DataKey::TotalSupply, &supply);
 
         MintEvent { to, amount }.publish(&env);
         Ok(())
     }
 
-    pub fn burn(
-        env: Env,
-        from: Address,
-        amount: i128,
-    ) -> Result<(), YieldTokenError> {
+    pub fn burn(env: Env, from: Address, amount: i128) -> Result<(), YieldTokenError> {
         let splitter: Address = env
             .storage()
             .instance()
@@ -301,9 +291,7 @@ impl YieldToken {
         supply = supply
             .checked_sub(amount)
             .ok_or(YieldTokenError::Overflow)?;
-        env.storage()
-            .instance()
-            .set(&DataKey::TotalSupply, &supply);
+        env.storage().instance().set(&DataKey::TotalSupply, &supply);
 
         BurnEvent { from, amount }.publish(&env);
         Ok(())
@@ -328,11 +316,7 @@ impl YieldToken {
             .unwrap_or(false)
     }
 
-    pub fn set_active(
-        env: Env,
-        admin: Address,
-        active: bool,
-    ) -> Result<(), YieldTokenError> {
+    pub fn set_active(env: Env, admin: Address, active: bool) -> Result<(), YieldTokenError> {
         let stored_admin: Address = env
             .storage()
             .instance()

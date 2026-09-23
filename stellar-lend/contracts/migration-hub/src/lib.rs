@@ -1,8 +1,9 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, log, symbol_short, Address, Env, String, Symbol, Val, Vec,
+    contract, contractimpl, log, symbol_short, Address, BytesN, Env, String, Symbol, Val, Vec,
 };
+use stellarlend_common::upgrade;
 
 mod adapter;
 mod types;
@@ -60,6 +61,46 @@ impl MigrationHub {
         Ok(())
     }
 
+    pub fn upgrade_init(env: Env, admin: Address, current_wasm_hash: BytesN<32>, required_approvals: u32) {
+        upgrade::UpgradeManager::init(env, admin, current_wasm_hash, required_approvals);
+    }
+
+    pub fn upgrade_add_approver(env: Env, caller: Address, approver: Address) {
+        upgrade::UpgradeManager::add_approver(env, caller, approver);
+    }
+
+    pub fn upgrade_remove_approver(env: Env, caller: Address, approver: Address) {
+        upgrade::UpgradeManager::remove_approver(env, caller, approver);
+    }
+
+    pub fn upgrade_propose(env: Env, caller: Address, new_wasm_hash: BytesN<32>, new_version: u32) -> u64 {
+        upgrade::UpgradeManager::upgrade_propose(env, caller, new_wasm_hash, new_version)
+    }
+
+    pub fn upgrade_approve(env: Env, caller: Address, proposal_id: u64) -> u32 {
+        upgrade::UpgradeManager::upgrade_approve(env, caller, proposal_id)
+    }
+
+    pub fn upgrade_execute(env: Env, caller: Address, proposal_id: u64) {
+        upgrade::UpgradeManager::upgrade_execute(env, caller, proposal_id);
+    }
+
+    pub fn upgrade_rollback(env: Env, caller: Address, proposal_id: u64) {
+        upgrade::UpgradeManager::upgrade_rollback(env, caller, proposal_id);
+    }
+
+    pub fn upgrade_status(env: Env, proposal_id: u64) -> upgrade::UpgradeStatus {
+        upgrade::UpgradeManager::upgrade_status(env, proposal_id)
+    }
+
+    pub fn current_wasm_hash(env: Env) -> BytesN<32> {
+        upgrade::UpgradeManager::current_wasm_hash(env)
+    }
+
+    pub fn current_version(env: Env) -> u32 {
+        upgrade::UpgradeManager::current_version(env)
+    }
+
     /// Migrate funds from a source protocol.
     pub fn migrate(
         env: Env,
@@ -92,6 +133,11 @@ impl MigrationHub {
             amount,
             status: MigrationStatus::Pending,
             timestamp: env.ledger().timestamp(),
+            source_pool: source_contract.clone(),
+            destination_pool: config.lending_contract.clone(),
+            interest_at_migration: 0,
+            is_partial: false,
+            source_position_id: None,
         };
 
         // 2. Protocol Specific Migration
@@ -125,25 +171,13 @@ impl MigrationHub {
         }
 
         // 3. Deposit into StellarLend
-        // We'll call the lending contract's deposit function.
         // The Hub is now the temporary holder of the funds.
-        let lending_client = stellarlend_common::LendingClient::new(&env, &config.lending_contract);
-
-        // Approve lending contract to spend hub's tokens
-        let token = soroban_sdk::token::Client::new(&env, &asset);
-        token.approve(&config.lending_contract, &amount);
-
-        // Deposit on behalf of user
-        // Note: The lending contract needs to support 'deposit_for' or we need to
-        // handle the user's position mapping here.
-        // Assuming lending contract has a compatible deposit function.
-        // In our lending contract, deposit(env, user, asset, amount)
-        // We call it as the user? No, we call it as the Hub but the Hub specifies the user.
-        // Since we don't have deposit_for, we'll transfer the funds back to the user
-        // and then they can deposit, OR we implement a proxy deposit.
-        // For the sake of "tooling", we'll simulate the deposit logic.
-
-        // lending_client.deposit(&user, &asset, &amount); // This would require user auth if called directly
+        // Note: The deposit step is simulated (see the commented-out `deposit`
+        // call below): the hub successfully pulled the funds and the user can
+        // now deposit directly. In a real migration tool this would be atomic.
+        // A `LendingClient` no longer exists in `stellarlend_common`, and the
+        // prior `approve` used the pre-soroban-sdk-27 two-arg signature, so the
+        // dead calls were removed rather than updated.
 
         // Simplified: The hub successfully pulled the funds. The user can now deposit.
         // In a real migration tool, this would be atomic.
@@ -354,7 +388,7 @@ impl MigrationHub {
         env: Env,
         user: Address,
     ) -> Vec<MigrationRecord> {
-        let mut history: Vec<MigrationRecord> = Vec::new();
+        let mut history: Vec<MigrationRecord> = Vec::new(&env);
 
         // Simplified: would iterate through all migrations and filter by user
         // For now, return empty vector as we'd need better indexing

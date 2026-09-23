@@ -1,5 +1,5 @@
-import { SecurityEngine } from "./simulation-engine";
-import { RiskLevel, SecurityAlert } from "./types";
+import { SecurityEngine } from './simulation-engine';
+import { RiskLevel, SecurityAlert } from './types';
 
 export class MonitoringService {
   private engine: SecurityEngine;

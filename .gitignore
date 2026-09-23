@@ -45,6 +45,7 @@ lerna-debug.log*
 # Build error logs
 build_errors*.txt
 TEST_FIX.txt
+**/dist/
 
 # IDE / Tools
 .claude/
@@ -57,10 +58,18 @@ stellar-lend/fuzz/coverage/
 
 # Test snapshots and coverage
 **/*.snap
+**/*.snap.new
+**/test-snapshots/
+**/testsnapshots/
+**/__snapshots__/
 **/coverage/
 **/.nyc_output/
 **/test-results/
 *.lcov
+*.snap.tmp
+*.snap.bak
+tests/e2e/e2e-report.json
+tests/e2e/e2e-report.json
 
 # Database files
 *.db
@@ -88,3 +97,17 @@ Thumbs.db
 **/.stryker-tmp/
 **/reports/mutation/
 **/trace-output/
+
+# mimo AI tooling outputs
+.mimo/
+**/.mimo/
+mimo-session*.json
+mimo-context*.json
+mimo_*.log
+
+issue.md
+pr.md
+
+# Generated test / indexing artifacts
+tests/e2e/reports/
+api/data/

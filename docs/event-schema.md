@@ -4,6 +4,10 @@ All smart-contract events in the StellarLend workspace follow a single set of
 conventions so that indexers, block explorers, and off-chain consumers can
 process them consistently without per-contract logic.
 
+Note: the canonical schema version is exported to the API as
+`EVENT_SCHEMA_VERSION` and can be discovered via `GET /api/events/version`.
+The full machine-readable catalog is available at `GET /api/events/schema`.
+
 ---
 
 ## 1. Mandatory fields

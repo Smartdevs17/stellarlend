@@ -1,6 +1,8 @@
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol,
+};
 
 mod token {
     use soroban_sdk::symbol_short;
@@ -137,6 +139,9 @@ impl StellarLendDebtToken {
         if env.storage().instance().has(&storage::INITIALIZED) {
             return Err(DebtTokenError::AlreadyInitialized);
         }
+        admin.require_auth();
+
+        admin.require_auth();
 
         let config = DebtTokenConfig {
             admin,
@@ -151,18 +156,14 @@ impl StellarLendDebtToken {
 
         env.storage().instance().set(&storage::CONFIG, &config);
         env.storage().instance().set(&storage::INITIALIZED, &true);
-        env.storage().instance().set(&storage::TRANSFER_LOCKED, &false);
+        env.storage()
+            .instance()
+            .set(&storage::TRANSFER_LOCKED, &false);
 
-        env.storage()
-            .instance()
-            .set(&token::NAME, &name);
-        env.storage()
-            .instance()
-            .set(&token::SYMBOL, &symbol);
+        env.storage().instance().set(&token::NAME, &name);
+        env.storage().instance().set(&token::SYMBOL, &symbol);
         env.storage().instance().set(&token::DECIMALS, &9u32);
-        env.storage()
-            .instance()
-            .set(&token::TOTAL_SUPPLY, &0i128);
+        env.storage().instance().set(&token::TOTAL_SUPPLY, &0i128);
 
         Ok(())
     }
@@ -189,17 +190,17 @@ impl StellarLendDebtToken {
             Self::calculate_tokens_for_principal(&env, principal_amount, current_index)?;
 
         let position_key = (storage::POSITIONS, depositor.clone());
-        let mut position: Position = env
-            .storage()
-            .persistent()
-            .get(&position_key)
-            .unwrap_or(Position {
-                owner: depositor.clone(),
-                principal: 0,
-                minted_tokens: 0,
-                deposit_timestamp: env.ledger().timestamp(),
-                last_interest_update: env.ledger().timestamp(),
-            });
+        let mut position: Position =
+            env.storage()
+                .persistent()
+                .get(&position_key)
+                .unwrap_or(Position {
+                    owner: depositor.clone(),
+                    principal: 0,
+                    minted_tokens: 0,
+                    deposit_timestamp: env.ledger().timestamp(),
+                    last_interest_update: env.ledger().timestamp(),
+                });
 
         position.principal = position
             .principal
@@ -210,9 +211,7 @@ impl StellarLendDebtToken {
             .checked_add(tokens_to_mint)
             .ok_or(DebtTokenError::Overflow)?;
 
-        env.storage()
-            .persistent()
-            .set(&position_key, &position);
+        env.storage().persistent().set(&position_key, &position);
 
         let current_balance = Self::read_balance(&env, &depositor)?;
         let new_balance = current_balance
@@ -246,11 +245,7 @@ impl StellarLendDebtToken {
         Ok(tokens_to_mint)
     }
 
-    pub fn redeem(
-        env: Env,
-        redeemer: Address,
-        token_amount: i128,
-    ) -> Result<i128, DebtTokenError> {
+    pub fn redeem(env: Env, redeemer: Address, token_amount: i128) -> Result<i128, DebtTokenError> {
         redeemer.require_auth();
 
         if token_amount <= 0 {
@@ -315,9 +310,7 @@ impl StellarLendDebtToken {
             0
         };
 
-        env.storage()
-            .persistent()
-            .set(&position_key, &position);
+        env.storage().persistent().set(&position_key, &position);
 
         config.total_principal = config
             .total_principal
@@ -382,11 +375,7 @@ impl StellarLendDebtToken {
 
         env.events().publish(
             (symbol_short!("TRANSFER"),),
-            TransferEvent {
-                from,
-                to,
-                amount,
-            },
+            TransferEvent { from, to, amount },
         );
 
         Ok(())
@@ -567,7 +556,11 @@ impl StellarLendDebtToken {
             return Ok(config.interest_index);
         }
 
-        let new_index = config.interest_index;
+        let new_index = total_supply
+            .checked_mul(ONE)
+            .ok_or(DebtTokenError::Overflow)?
+            .checked_div(total_principal)
+            .ok_or(DebtTokenError::Overflow)?;
 
         let mut updated_config = config.clone();
         updated_config.interest_index = new_index;
@@ -598,20 +591,20 @@ impl StellarLendDebtToken {
     }
 
     pub fn get_analytics(env: Env) -> DebtTokenAnalytics {
-        let config: DebtTokenConfig = env
-            .storage()
-            .instance()
-            .get(&storage::CONFIG)
-            .unwrap_or(DebtTokenConfig {
-                admin: Address::from_str(&env, &soroban_sdk::Bytes::new()),
-                lending_pool: Address::from_str(&env, &soroban_sdk::Bytes::new()),
-                underlying_asset: Address::from_str(&env, &soroban_sdk::Bytes::new()),
-                name: symbol_short!("DEBT"),
-                symbol: symbol_short!("dToken"),
-                decimals: 9,
-                interest_index: ONE,
-                total_principal: 0,
-            });
+        let config: DebtTokenConfig =
+            env.storage()
+                .instance()
+                .get(&storage::CONFIG)
+                .unwrap_or(DebtTokenConfig {
+                    admin: Address::from_str(&env, &soroban_sdk::Bytes::new()),
+                    lending_pool: Address::from_str(&env, &soroban_sdk::Bytes::new()),
+                    underlying_asset: Address::from_str(&env, &soroban_sdk::Bytes::new()),
+                    name: symbol_short!("DEBT"),
+                    symbol: symbol_short!("dToken"),
+                    decimals: 9,
+                    interest_index: ONE,
+                    total_principal: 0,
+                });
 
         let total_supply = Self::read_total_supply(&env).unwrap_or(0);
         let total_principal = config.total_principal;
@@ -824,9 +817,7 @@ impl StellarLendDebtToken {
         }
 
         position.last_interest_update = env.ledger().timestamp();
-        env.storage()
-            .persistent()
-            .set(&position_key, &position);
+        env.storage().persistent().set(&position_key, &position);
 
         Ok(())
     }
@@ -840,23 +831,20 @@ impl StellarLendDebtToken {
         let from_key = (storage::POSITIONS, from.clone());
         let to_key = (storage::POSITIONS, to.clone());
 
-        let mut from_position: Position = env
-            .storage()
-            .persistent()
-            .get(&from_key)
-            .unwrap_or(Position {
-                owner: from.clone(),
-                principal: 0,
-                minted_tokens: 0,
-                deposit_timestamp: env.ledger().timestamp(),
-                last_interest_update: env.ledger().timestamp(),
-            });
+        let mut from_position: Position =
+            env.storage()
+                .persistent()
+                .get(&from_key)
+                .unwrap_or(Position {
+                    owner: from.clone(),
+                    principal: 0,
+                    minted_tokens: 0,
+                    deposit_timestamp: env.ledger().timestamp(),
+                    last_interest_update: env.ledger().timestamp(),
+                });
 
-        let mut to_position: Position = env
-            .storage()
-            .persistent()
-            .get(&to_key)
-            .unwrap_or(Position {
+        let mut to_position: Position =
+            env.storage().persistent().get(&to_key).unwrap_or(Position {
                 owner: to.clone(),
                 principal: 0,
                 minted_tokens: 0,
@@ -894,12 +882,8 @@ impl StellarLendDebtToken {
             .ok_or(DebtTokenError::Overflow)?;
         to_position.last_interest_update = env.ledger().timestamp();
 
-        env.storage()
-            .persistent()
-            .set(&from_key, &from_position);
-        env.storage()
-            .persistent()
-            .set(&to_key, &to_position);
+        env.storage().persistent().set(&from_key, &from_position);
+        env.storage().persistent().set(&to_key, &to_position);
 
         Ok(())
     }
@@ -931,6 +915,8 @@ mod tests {
     }
 
     fn setup_contract(env: &Env) -> (Address, Address, Address) {
+        env.mock_all_auths();
+
         let admin = Address::generate(env);
         let lending_pool = Address::generate(env);
         let underlying_asset = Address::generate(env);
@@ -947,6 +933,25 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "HostError")]
+    fn initialize_requires_admin_auth() {
+        let env = create_env();
+        let admin = Address::generate(&env);
+        let lending_pool = Address::generate(&env);
+        let underlying_asset = Address::generate(&env);
+        let contract_id = env.register_contract(None, StellarLendDebtToken);
+        let client = StellarLendDebtTokenClient::new(&env, &contract_id);
+
+        client.initialize(
+            &admin,
+            &lending_pool,
+            &underlying_asset,
+            &String::from_str(&env, "StellarLend Debt Token"),
+            &String::from_str(&env, "dToken"),
+        );
+    }
+
+    #[test]
     fn test_initialize() {
         let env = create_env();
         let (admin, lending_pool, underlying_asset) = setup_contract(&env);
@@ -954,7 +959,10 @@ mod tests {
         let contract_id = env.register_contract(None, StellarLendDebtToken);
         let client = StellarLendDebtTokenClient::new(&env, &contract_id);
 
-        assert_eq!(client.name(), String::from_str(&env, "StellarLend Debt Token"));
+        assert_eq!(
+            client.name(),
+            String::from_str(&env, "StellarLend Debt Token")
+        );
         assert_eq!(client.symbol(), String::from_str(&env, "dToken"));
         assert_eq!(client.decimals(), 9u32);
         assert_eq!(client.total_supply(), 0);
