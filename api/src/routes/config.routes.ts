@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import * as configController from '../controllers/config.controller';
-import { authenticateToken } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 
 const router: Router = Router();
@@ -17,7 +16,7 @@ const router: Router = Router();
  *       200:
  *         description: Current configuration
  */
-router.get('/', authenticateToken, requireRole('operator'), configController.getConfig);
+router.get('/', requireRole('operator'), configController.getConfig);
 
 /**
  * @openapi
@@ -28,12 +27,7 @@ router.get('/', authenticateToken, requireRole('operator'), configController.get
  *     tags:
  *       - Config
  */
-router.get(
-  '/validate',
-  authenticateToken,
-  requireRole('operator'),
-  configController.validateCurrentConfig
-);
+router.get('/validate', requireRole('operator'), configController.validateCurrentConfig);
 
 /**
  * @openapi
@@ -44,12 +38,7 @@ router.get(
  *     tags:
  *       - Config
  */
-router.post(
-  '/reload',
-  authenticateToken,
-  requireRole('admin'),
-  configController.reloadConfiguration
-);
+router.post('/reload', requireRole('admin'), configController.reloadConfiguration);
 
 /**
  * @openapi
@@ -60,12 +49,7 @@ router.post(
  *     tags:
  *       - Config
  */
-router.post(
-  '/update',
-  authenticateToken,
-  requireRole('admin'),
-  configController.updateConfigSection
-);
+router.post('/update', requireRole('admin'), configController.updateConfigSection);
 
 /**
  * @openapi
@@ -76,11 +60,6 @@ router.post(
  *     tags:
  *       - Config
  */
-router.get(
-  '/audit-log',
-  authenticateToken,
-  requireRole('operator'),
-  configController.getConfigAuditLog
-);
+router.get('/audit-log', requireRole('operator'), configController.getConfigAuditLog);
 
 export default router;

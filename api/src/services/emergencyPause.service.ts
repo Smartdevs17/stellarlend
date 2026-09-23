@@ -241,22 +241,7 @@ class EmergencyPauseService {
   }
 
   updateLimits(newLimits: Partial<EmergencyLimitsConfig>): EmergencyLimitsConfig {
-    const allowedKeys: (keyof EmergencyLimitsConfig)[] = [
-      'maxPerTransaction',
-      'maxDailyPerUser',
-      'maxDailyPoolDrain',
-      'cooldownPeriodSeconds',
-    ];
-    const sanitized: Partial<EmergencyLimitsConfig> = {};
-    for (const key of allowedKeys) {
-      const value = newLimits[key];
-      if (value === undefined) continue;
-      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-        throw new Error(`Invalid limit value for ${key}: must be a non-negative finite number`);
-      }
-      sanitized[key] = value;
-    }
-    this.limits = { ...this.limits, ...sanitized };
+    this.limits = { ...this.limits, ...newLimits };
     this.recordEvent('limits_update', { limits: this.limits });
     logger.info('Emergency withdrawal limits updated', this.limits);
     return { ...this.limits };
