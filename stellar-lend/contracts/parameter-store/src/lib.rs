@@ -101,6 +101,12 @@ pub struct ParameterStoreContract;
 #[contractimpl]
 impl ParameterStoreContract {
     pub fn initialize(env: Env, governance: Address, admin: Address) {
+        if env.storage().instance().has(&DataKey::Governance) {
+            panic!("Already initialized");
+        }
+        governance.require_auth();
+        admin.require_auth();
+
         env.storage()
             .instance()
             .set(&DataKey::Governance, &governance);

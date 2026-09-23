@@ -1,5 +1,8 @@
 use super::*;
-use soroban_sdk::{testutils::Address as _, token, Address, Bytes, Env};
+use soroban_sdk::{
+    testutils::{Address as _, MockAuth, MockAuthInvoke},
+    token, Address, Bytes, Env, IntoVal,
+};
 
 fn setup_env() -> (Env, Address, PrivacyPoolClient<'static>, Address, Address) {
     let env = Env::default();
@@ -101,6 +104,34 @@ fn test_initialize() {
     assert_eq!(config.asset, asset);
     assert_eq!(config.tree_depth, 20);
     assert_eq!(config.min_anonymity_set, 10);
+}
+
+#[test]
+fn test_initialize_requires_admin_auth() {
+    let env = Env::default();
+    let contract_id = env.register(PrivacyPool, ());
+    let client = PrivacyPoolClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token_contract = env.register_stellar_asset_contract_v2(token_admin);
+    let asset = token_contract.address();
+
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "initialize",
+            args: (&admin, &asset, &20u32, &false).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    assert!(client
+        .try_initialize(&admin, &asset, &20, &false)
+        .is_err());
+    assert!(client.try_get_config().is_err());
 }
 
 #[test]

@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env};
 
 const BPS_DENOM: i128 = 10_000;
 const DEFAULT_WINDOW_SECS: u64 = 1800;
@@ -79,6 +79,7 @@ impl TwapOracle {
         if env.storage().instance().has(&TwapKey::Config) {
             return Err(TwapOracleError::AlreadyInitialized);
         }
+        admin.require_auth();
 
         let config = TwapConfig {
             admin,
@@ -222,7 +223,7 @@ impl TwapOracle {
     pub fn get_liquidation_price(env: Env, asset: Address) -> TwapResult {
         let result = Self::get_twap(env, asset);
 
-        if result.used_fallback || result.manipulation_detected {
+        if result.used_fallback {
             TwapResult {
                 twap: result.spot_price,
                 ..result
@@ -301,7 +302,7 @@ impl TwapOracle {
                     last_price: price,
                 });
 
-        if acc.last_update == 0 {
+        if acc.sample_count == 0 {
             acc.price_sum = price;
             acc.total_time = 1;
             acc.twap = price;
@@ -349,22 +350,14 @@ impl TwapOracle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::Address as _;
-
-    fn setup_env() -> (Env, Address) {
-        let env = Env::default();
-        let admin = Address::generate(&env);
-        let contract_id = env.register_contract(None, TwapOracle);
-        let client = TwapOracleClient::new(&env, &contract_id);
-        client.initialize(&admin);
-        (env, admin)
-    }
+    use soroban_sdk::testutils::{Address as _, Ledger as _};
 
     #[test]
     fn test_initialize() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
-        let contract_id = env.register_contract(None, TwapOracle);
+        let contract_id = env.register(TwapOracle, ());
         let client = TwapOracleClient::new(&env, &contract_id);
         client.initialize(&admin);
 
@@ -378,8 +371,9 @@ mod tests {
     #[test]
     fn test_double_initialize_fails() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
-        let contract_id = env.register_contract(None, TwapOracle);
+        let contract_id = env.register(TwapOracle, ());
         let client = TwapOracleClient::new(&env, &contract_id);
         client.initialize(&admin);
 
@@ -390,9 +384,10 @@ mod tests {
     #[test]
     fn test_record_and_get_twap() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let asset = Address::generate(&env);
-        let contract_id = env.register_contract(None, TwapOracle);
+        let contract_id = env.register(TwapOracle, ());
         let client = TwapOracleClient::new(&env, &contract_id);
         client.initialize(&admin);
 
@@ -409,9 +404,10 @@ mod tests {
     #[test]
     fn test_insufficient_samples_fallback() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let asset = Address::generate(&env);
-        let contract_id = env.register_contract(None, TwapOracle);
+        let contract_id = env.register(TwapOracle, ());
         let client = TwapOracleClient::new(&env, &contract_id);
         client.initialize(&admin);
 
@@ -425,9 +421,10 @@ mod tests {
     #[test]
     fn test_deviation_check_passes() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let asset = Address::generate(&env);
-        let contract_id = env.register_contract(None, TwapOracle);
+        let contract_id = env.register(TwapOracle, ());
         let client = TwapOracleClient::new(&env, &contract_id);
         client.initialize(&admin);
 
@@ -436,17 +433,16 @@ mod tests {
         client.record_price(&asset, &1000i128);
 
         let result = client.check_deviation(&asset, &1010i128);
-        assert!(result.is_ok());
-        let ok = result.unwrap();
-        assert!(!ok.manipulation_detected);
+        assert!(!result.manipulation_detected);
     }
 
     #[test]
     fn test_deviation_check_fails() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let asset = Address::generate(&env);
-        let contract_id = env.register_contract(None, TwapOracle);
+        let contract_id = env.register(TwapOracle, ());
         let client = TwapOracleClient::new(&env, &contract_id);
         client.initialize(&admin);
 
@@ -454,16 +450,17 @@ mod tests {
         client.record_price(&asset, &1000i128);
         client.record_price(&asset, &1000i128);
 
-        let result = client.check_deviation(&asset, &2000i128);
+        let result = client.try_check_deviation(&asset, &2000i128);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_liquidation_price_uses_twap() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let asset = Address::generate(&env);
-        let contract_id = env.register_contract(None, TwapOracle);
+        let contract_id = env.register(TwapOracle, ());
         let client = TwapOracleClient::new(&env, &contract_id);
         client.initialize(&admin);
 
@@ -478,10 +475,55 @@ mod tests {
     }
 
     #[test]
+    fn test_liquidation_price_during_manipulation_preserves_twap() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let contract_id = env.register(TwapOracle, ());
+        let client = TwapOracleClient::new(&env, &contract_id);
+        client.initialize(&admin);
+
+        client.record_price(&asset, &1000i128);
+        client.record_price(&asset, &1000i128);
+        client.record_price(&asset, &1000i128);
+
+        // Record a manipulated price spike (100% higher than baseline TWAP)
+        client.record_price(&asset, &2000i128);
+
+        let result = client.get_liquidation_price(&asset);
+        assert!(result.manipulation_detected);
+        assert_eq!(result.spot_price, 2000);
+        // TWAP must remain resistant and not be overwritten with the manipulated spot price
+        assert_ne!(result.twap, 2000);
+        assert_eq!(result.twap, 1250);
+    }
+
+    #[test]
+    fn test_liquidation_price_fallback_when_insufficient_samples() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let contract_id = env.register(TwapOracle, ());
+        let client = TwapOracleClient::new(&env, &contract_id);
+        client.initialize(&admin);
+
+        client.record_price(&asset, &1000i128);
+
+        let result = client.get_liquidation_price(&asset);
+        assert!(result.used_fallback);
+        assert_eq!(result.sample_count, 1);
+        assert_eq!(result.twap, 1000);
+        assert_eq!(result.spot_price, 1000);
+    }
+
+    #[test]
     fn test_set_config() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
-        let contract_id = env.register_contract(None, TwapOracle);
+        let contract_id = env.register(TwapOracle, ());
         let client = TwapOracleClient::new(&env, &contract_id);
         client.initialize(&admin);
 
@@ -496,9 +538,10 @@ mod tests {
     #[test]
     fn test_get_twap_no_data() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let asset = Address::generate(&env);
-        let contract_id = env.register_contract(None, TwapOracle);
+        let contract_id = env.register(TwapOracle, ());
         let client = TwapOracleClient::new(&env, &contract_id);
         client.initialize(&admin);
 
@@ -510,9 +553,10 @@ mod tests {
     #[test]
     fn test_window_reset() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let asset = Address::generate(&env);
-        let contract_id = env.register_contract(None, TwapOracle);
+        let contract_id = env.register(TwapOracle, ());
         let client = TwapOracleClient::new(&env, &contract_id);
         client.initialize(&admin);
 

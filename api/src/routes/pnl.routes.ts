@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import * as controller from '../controllers/pnl.controller';
+import { authenticateToken } from '../middleware/auth';
 
 const router: Router = Router();
 
-router.post('/revenue', controller.postRevenue);
-router.post('/expense', controller.postExpense);
+router.post('/revenue', authenticateToken, controller.postRevenue);
+router.post('/expense', authenticateToken, controller.postExpense);
 router.get('/summary', controller.getSummary);
 router.get('/breakdown', controller.getBreakdown);
 router.get('/history', controller.getHistory);

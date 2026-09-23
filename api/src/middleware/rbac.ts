@@ -1,6 +1,9 @@
 import { NextFunction, Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { UnauthorizedError, ValidationError } from '../utils/errors';
 import logger from '../utils/logger';
+import { config } from '../config';
+import type { AuthRequest } from './auth';
 
 export type Role = 'admin' | 'operator' | 'user' | 'viewer';
 
@@ -78,25 +81,102 @@ type PendingRevocation = {
 const pendingRevocations = new Map<string, PendingRevocation>();
 const currentRoles = new Map<string, Role>();
 
-function resolveRole(req: Request): Role {
-  const role = (req.headers['x-user-role'] || 'viewer').toString().toLowerCase();
-  if (role === 'admin' || role === 'operator' || role === 'user' || role === 'viewer') {
-    return role as Role;
+/**
+ * Resolves the authenticated actor identity.
+ * Prioritizes req.user.address, then verifies Authorization Bearer token if present.
+ * Prevents spoofed x-user-address header from impersonating another identity.
+ */
+export function resolveActor(req: Request, allowUnauthenticated = false): string {
+  const authReq = req as AuthRequest;
+  if (authReq.user?.address) {
+    const headerAddress = req.headers['x-user-address'];
+    if (headerAddress && typeof headerAddress === 'string') {
+      const trimmed = headerAddress.trim();
+      if (trimmed.toLowerCase() !== authReq.user.address.toLowerCase()) {
+        throw new UnauthorizedError('Header x-user-address does not match authenticated token identity');
+      }
+    }
+    return authReq.user.address;
   }
-  throw new ValidationError('x-user-role must be one of: admin, operator, user, viewer');
+
+  // Verify Authorization Bearer token if attached
+  const authHeader = req.headers['authorization'];
+  if (authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    if (token && config.auth?.jwtSecret) {
+      try {
+        const decoded = jwt.verify(token, config.auth.jwtSecret) as { address: string };
+        if (decoded?.address) {
+          authReq.user = decoded;
+          return decoded.address;
+        }
+      } catch {
+        throw new UnauthorizedError('Invalid or expired authentication token');
+      }
+    }
+  }
+
+  if (allowUnauthenticated) {
+    const headerAddress = (req.headers['x-user-address'] || '').toString().trim();
+    return headerAddress || 'anonymous';
+  }
+
+  throw new UnauthorizedError('Authentication required');
 }
 
-function resolveActor(req: Request): string {
-  const actor = (req.headers['x-user-address'] || '').toString().trim();
-  if (!actor) throw new UnauthorizedError('x-user-address header is required');
-  return actor;
+/**
+ * Resolves the caller's authoritative role.
+ * Rejects unauthenticated callers attempting to assert privileged roles via X-User-Role header.
+ * Derives role strictly from verified storage (currentRoles) or bootstrap admin configuration.
+ */
+export function resolveRole(req: Request): Role {
+  const authReq = req as AuthRequest;
+
+  // Ensure identity is resolved from token if present
+  let actor: string | null = null;
+  try {
+    actor = resolveActor(req, true);
+  } catch (err) {
+    if (err instanceof UnauthorizedError && err.message.includes('Header x-user-address does not match')) {
+      throw err;
+    }
+    actor = null;
+  }
+
+  // If unauthenticated:
+  if (!authReq.user?.address) {
+    const assertedRole = (req.headers['x-user-role'] || '').toString().toLowerCase();
+    if (assertedRole === 'admin' || assertedRole === 'operator' || assertedRole === 'user') {
+      throw new UnauthorizedError('Authentication required to assume privileged role');
+    }
+    return 'viewer';
+  }
+
+  // Authenticated user:
+  applyMatureRoleRevocations(currentRoles);
+  const userAddress = authReq.user.address;
+
+  // 1. Check assigned roles in persistent/in-memory store
+  const assigned = currentRoles.get(userAddress);
+  if (assigned) {
+    return assigned;
+  }
+
+  // 2. Check environment admin address
+  const adminAddress = process.env.ADMIN_ADDRESS;
+  if (adminAddress && userAddress.toLowerCase() === adminAddress.toLowerCase()) {
+    return 'admin';
+  }
+
+  // 3. Default authenticated role
+  return 'user';
 }
 
 export function requireRole(minimum: Role) {
   return (req: Request, _res: Response, next: NextFunction) => {
     const callerRole = resolveRole(req);
     if (ROLE_WEIGHT[callerRole] < ROLE_WEIGHT[minimum]) {
-      const actor = (req.headers['x-user-address'] || 'unknown').toString();
+      const actor = (req as AuthRequest).user?.address || (req.headers['x-user-address'] || 'unknown').toString();
       logger.warn('Unauthorized role access attempt', {
         actor,
         callerRole,
@@ -116,7 +196,7 @@ export function requirePermission(resource: Resource, action: Action) {
     const callerRole = resolveRole(req);
     const allowed = PERMISSION_MATRIX[callerRole][resource] ?? [];
     if (!allowed.includes(action)) {
-      const actor = (req.headers['x-user-address'] || 'unknown').toString();
+      const actor = (req as AuthRequest).user?.address || (req.headers['x-user-address'] || 'unknown').toString();
       logger.warn('Unauthorized permission access attempt', {
         actor,
         callerRole,
@@ -197,7 +277,7 @@ export function roleAssignmentAllowed(req: Request, targetRole: Role): boolean {
 
 export function getRbacAuditContext(req: Request): { actor: string; role: Role } {
   return {
-    actor: resolveActor(req),
+    actor: resolveActor(req, false),
     role: resolveRole(req),
   };
 }

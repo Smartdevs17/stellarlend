@@ -35,14 +35,18 @@ and are completely absent from the production WASM binary.
 | `spec::withdraw_spec` | `withdraw` | W-01 â€¦ W-07 |
 | `spec::protocol_invariants` | protocol accounting, health factor, interest index | P-01 ... P-05, H-01 ... H-05, I-01 ... I-03 |
 
-| `spec::oracle_spec` | `get_price` — oracle data consumption paths | ORA-001 … ORA-010 |
-| `spec::cross_contract_spec` | Reentrancy, flash loans, AMM callbacks, migration atomicity | INV-REENTRANCY … INV-MIGRATION-COMPLETENESS |
-| `spec::upgrade_spec` | Upgrade state machine, storage safety | INV-UPGRADE-VERSION … INV-UPGRADE-ROLLBACK |
-| `spec::migration_hub` | Migration deadline, rate-limit, rollback | INV-MIG-DEADLINE … INV-MIG-ANALYTICS |
-| certora `interest_rate_model.spec` | IRM boundary conditions | IRM-001 … IRM-008 |
-| certora `oracle_integration.spec` | Oracle integration contracts | ORA-001 … ORA-010 |
+| `spec::oracle_spec` | `get_price` ï¿½ oracle data consumption paths | ORA-001 ï¿½ ORA-010 |
+| `spec::cross_contract_spec` | Reentrancy, flash loans, AMM callbacks, migration atomicity | INV-REENTRANCY ï¿½ INV-MIGRATION-COMPLETENESS |
+| `spec::upgrade_spec` | Upgrade state machine, storage safety | INV-UPGRADE-VERSION ï¿½ INV-UPGRADE-ROLLBACK |
+| `spec::migration_hub` | Migration deadline, rate-limit, rollback | INV-MIG-DEADLINE ï¿½ INV-MIG-ANALYTICS |
+| certora `interest_rate_model.spec` | IRM boundary conditions | IRM-001 ï¿½ IRM-008 |
+| certora `oracle_integration.spec` | Oracle integration contracts | ORA-001 ï¿½ ORA-010 |
+| certora `health_factor_bounds.spec` | Health factor bounds & monotonicity | HF-001 ï¿½ HF-007 (Issue #687) |
+| certora `interest_accrual.spec` | Interest accrual invariants | IA-001 ï¿½ IA-008 (Issue #687) |
 
-**Total: 69 lemmas across 9 critical function groups + 18 Certora rules across 2 new spec files + 4 new Rust spec modules**
+**Total: 69 lemmas across 9 critical function groups + 33 Certora rules across 5 spec files + 4 new Rust spec modules**
+
+Issue #687 adds health-factor and interest-accrual Certora specs, `scripts/verification-report.sh` structure checks, and a `verification-baseline.json` CI gate. Run `bash scripts/verification-report.sh` to validate the suite locally.
 
 
 ---

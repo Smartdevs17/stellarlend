@@ -481,11 +481,19 @@ function trustedUsers(): Set<string> {
 }
 
 function userIdFromRequest(req: Request): string {
+  const authUser = (req as { user?: { address?: string } }).user?.address;
+  if (authUser) {
+    return `auth:${authUser}`;
+  }
   const bodyUser = typeof req.body?.userAddress === 'string' ? req.body.userAddress : undefined;
   const queryUser = typeof req.query?.userAddress === 'string' ? req.query.userAddress : undefined;
   const headerUser =
     typeof req.headers['x-user-address'] === 'string' ? req.headers['x-user-address'] : undefined;
-  return bodyUser || queryUser || headerUser || req.ip || 'anonymous';
+  const claimed = bodyUser || queryUser || headerUser;
+  if (claimed) {
+    return `ip-claim:${req.ip || 'anonymous'}:${claimed}`;
+  }
+  return req.ip || 'anonymous';
 }
 
 function operationFromRequest(req: Request): Operation | undefined {

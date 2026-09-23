@@ -155,6 +155,8 @@ pub enum CrossAssetError {
     VolatilityUnavailable = 12,
     /// Reentrant call detected
     Reentrancy = 13,
+    /// Amount must be strictly positive
+    InvalidAmount = 14,
 }
 
 /// Admin address authorized for protocol management
@@ -495,6 +497,10 @@ pub fn cross_asset_deposit(
 
     user.require_auth();
 
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
+
     let asset_key = AssetKey::from_option(asset.clone());
     let config = get_asset_config(env, &asset_key)?;
 
@@ -561,6 +567,10 @@ pub fn cross_asset_borrow(
         crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
 
     let asset_key = AssetKey::from_option(asset.clone());
     let config = get_asset_config(env, &asset_key)?;
@@ -649,6 +659,10 @@ pub fn cross_asset_withdraw(
         crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
 
     let asset_key = AssetKey::from_option(asset.clone());
 
@@ -794,6 +808,10 @@ pub fn cross_asset_repay(
         crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
 
     let asset_key = AssetKey::from_option(asset.clone());
 

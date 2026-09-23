@@ -107,3 +107,7 @@ mimo_*.log
 
 issue.md
 pr.md
+
+# Generated test / indexing artifacts
+tests/e2e/reports/
+api/data/

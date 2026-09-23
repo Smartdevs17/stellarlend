@@ -5,7 +5,11 @@
   "private": true,
   "scripts": {
     "test": "jest --runInBand --forceExit",
-    "test:verbose": "jest --runInBand --forceExit --verbose"
+    "test:verbose": "jest --runInBand --forceExit --verbose",
+    "test:report": "jest --runInBand --forceExit --json --outputFile=chaos-report.json",
+    "test:partition": "jest --runInBand --forceExit network-partition.test.ts",
+    "test:rpc": "jest --runInBand --forceExit network-failures.test.ts",
+    "report": "bash ../../scripts/fuzz/chaos_report.sh"
   },
   "devDependencies": {
     "@types/jest": "^29.5.11",

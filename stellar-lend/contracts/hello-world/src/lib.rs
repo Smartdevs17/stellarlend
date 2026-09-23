@@ -273,6 +273,7 @@ impl HelloContract {
     }
 
     pub fn initialize(env: Env, admin: Address) -> Result<(), LendingError> {
+        admin.require_auth();
         if crate::admin::has_admin(&env) {
             return Err(LendingError::Unauthorized);
         }

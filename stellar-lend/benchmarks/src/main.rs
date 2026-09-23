@@ -14,6 +14,7 @@
 mod amm_benchmarks;
 mod bridge_benchmarks;
 mod framework;
+mod governance_benchmarks;
 mod hello_world_benchmarks;
 mod lending_benchmarks;
 mod pool_factory_benchmarks;
@@ -38,6 +39,7 @@ fn main() {
     // Register all contract benchmark modules
     lending_benchmarks::register(&mut suite);
     hello_world_benchmarks::register(&mut suite);
+    governance_benchmarks::register(&mut suite);
     amm_benchmarks::register(&mut suite);
     bridge_benchmarks::register(&mut suite);
     pool_factory_benchmarks::register(&mut suite);

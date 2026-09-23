@@ -22,6 +22,7 @@ import verificationRoutes from './routes/verification.routes';
 import configRoutes from './routes/config.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import gasUsageAnalyticsRoutes from './routes/gasUsageAnalytics.routes';
+import gasReportRoutes from './routes/gasReport.routes';
 import poolPerformanceRoutes from './routes/poolPerformance.routes';
 import flashLoanRoutes from './routes/flashLoan.routes';
 import governanceSimulationRoutes from './routes/governanceSimulation.routes';
@@ -163,9 +164,17 @@ const userRateLimiter = rateLimit({
   max: 10, // 10 requests per minute per user
   store: userRateLimitStore,
   keyGenerator: (req) => {
-    // Try to get userAddress from request body first, then query params, then fall back to IP
-    const userAddress = req.body?.userAddress || req.query?.userAddress || req.ip;
-    return userAddress;
+    // Prioritize verified authenticated principal from JWT or API key
+    const authUser = (req as { user?: { address?: string } }).user?.address;
+    if (authUser) {
+      return `auth:${authUser}`;
+    }
+    // For unauthenticated callers, bind to IP so rotating userAddress does not yield fresh buckets
+    const claimedAddress = req.body?.userAddress || req.query?.userAddress || req.headers?.['x-user-address'];
+    if (claimedAddress && typeof claimedAddress === 'string') {
+      return `ip-claim:${req.ip}:${claimedAddress}`;
+    }
+    return `ip:${req.ip}`;
   },
   message: { success: false, error: 'Too many requests for this account' },
   standardHeaders: true,
@@ -236,6 +245,7 @@ app.use('/api/zk', legacySecurityCompat, zkProofRoutes);
 app.use('/api/verification', legacySecurityCompat, verificationRoutes);
 app.use('/api/config', legacySystemCompat, configRoutes);
 app.use('/api/analytics', legacySystemCompat, analyticsRoutes);
+app.use('/api/analytics/gas/contract', legacySystemCompat, gasReportRoutes);
 app.use('/api/analytics/gas', legacySystemCompat, gasUsageAnalyticsRoutes);
 app.use('/api/pool-performance', legacySystemCompat, poolPerformanceRoutes);
 app.use('/api/flash-loan', legacyLendingCompat, flashLoanRoutes);
@@ -288,7 +298,7 @@ void redisCacheService.warmup(async () => {
   const { StellarService } = await import('./services/stellar.service.js');
   const svc = new StellarService();
   await svc.getProtocolStats();
-  
+
   // Initialize invariant monitor
   invariantMonitorService.registerCheck(new SupplyCheck());
   invariantMonitorService.registerCheck(new HealthCheck());

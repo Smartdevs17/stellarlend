@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, Map, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, Address, Env, Symbol, Vec,
 };
 
 #[contracterror]
@@ -21,6 +21,7 @@ pub enum ComplianceError {
     InvalidJurisdiction = 12,
     SARAlreadyFiled = 13,
     CompliancePaused = 14,
+    InvalidAmount = 15,
 }
 
 #[contracttype]
@@ -159,7 +160,7 @@ impl ComplianceContract {
         let entry = SanctionsEntry {
             address: address.clone(),
             source,
-            reason,
+            reason: reason.clone(),
             sanctioned_at: env.ledger().timestamp(),
             expires_at,
             active: true,
@@ -299,7 +300,7 @@ impl ComplianceContract {
         env.storage()
             .persistent()
             .get(&DataKey::TxLimits(address.clone()))
-            .unwrap_or_else(|| Self::get_config(&env).default_limits)
+            .unwrap_or_else(|| Self::get_config_internal(&env).default_limits)
     }
 
     pub fn check_transaction(
@@ -309,7 +310,13 @@ impl ComplianceContract {
         amount: i128,
         asset: Address,
     ) -> Result<(), ComplianceError> {
-        let config = Self::get_config(&env);
+        from.require_auth();
+
+        if amount <= 0 {
+            return Err(ComplianceError::InvalidAmount);
+        }
+
+        let config = Self::get_config_internal(&env);
         if config.paused {
             return Err(ComplianceError::CompliancePaused);
         }
@@ -333,26 +340,47 @@ impl ComplianceContract {
                 }
             }
         }
+
+        let has_volume = env
+            .storage()
+            .persistent()
+            .has(&DataKey::TxVolume(from.clone()));
         let mut volume = Self::get_tx_volume(env.clone(), &from);
-        volume.daily_volume += amount;
-        volume.weekly_volume += amount;
         let now = env.ledger().timestamp();
-        if now.saturating_sub(volume.last_tx_timestamp) > 86400 {
-            volume.daily_volume = amount;
+
+        if has_volume {
+            if (now / 86400) > (volume.last_tx_timestamp / 86400) {
+                volume.daily_volume = 0;
+            }
+            if (now / 604800) > (volume.last_tx_timestamp / 604800) {
+                volume.weekly_volume = 0;
+            }
         }
-        if now.saturating_sub(volume.last_tx_timestamp) > 604800 {
-            volume.weekly_volume = amount;
+
+        let new_daily_volume = volume
+            .daily_volume
+            .checked_add(amount)
+            .ok_or(ComplianceError::DailyLimitExceeded)?;
+        let new_weekly_volume = volume
+            .weekly_volume
+            .checked_add(amount)
+            .ok_or(ComplianceError::WeeklyLimitExceeded)?;
+
+        if new_daily_volume > limits.daily_limit {
+            return Err(ComplianceError::DailyLimitExceeded);
         }
+        if new_weekly_volume > limits.weekly_limit {
+            return Err(ComplianceError::WeeklyLimitExceeded);
+        }
+
+        volume.daily_volume = new_daily_volume;
+        volume.weekly_volume = new_weekly_volume;
         volume.last_tx_timestamp = now;
+
         env.storage()
             .persistent()
             .set(&DataKey::TxVolume(from.clone()), &volume);
-        if volume.daily_volume > limits.daily_limit {
-            return Err(ComplianceError::DailyLimitExceeded);
-        }
-        if volume.weekly_volume > limits.weekly_limit {
-            return Err(ComplianceError::WeeklyLimitExceeded);
-        }
+
         Self::record_event(
             &env,
             &Symbol::new(&env, "TX_CHECKED"),
@@ -385,6 +413,9 @@ impl ComplianceContract {
         asset: Address,
     ) -> Result<u64, ComplianceError> {
         Self::require_admin(&env, &admin)?;
+        if amount <= 0 {
+            return Err(ComplianceError::InvalidAmount);
+        }
         let sar_id: u64 = env
             .storage()
             .persistent()
@@ -426,7 +457,7 @@ impl ComplianceContract {
         jurisdiction: Symbol,
     ) -> Result<(), ComplianceError> {
         Self::require_admin(&env, &admin)?;
-        let mut config = Self::get_config(&env);
+        let mut config = Self::get_config_internal(&env);
         if !config.restricted_jurisdictions.contains(&jurisdiction) {
             config.restricted_jurisdictions.push_back(jurisdiction);
         }
@@ -440,7 +471,7 @@ impl ComplianceContract {
         jurisdiction: Symbol,
     ) -> Result<(), ComplianceError> {
         Self::require_admin(&env, &admin)?;
-        let mut config = Self::get_config(&env);
+        let mut config = Self::get_config_internal(&env);
         let mut new_list: Vec<Symbol> = Vec::new(&env);
         for j in config.restricted_jurisdictions.iter() {
             if j != jurisdiction {
@@ -454,7 +485,7 @@ impl ComplianceContract {
 
     pub fn pause(env: Env, admin: Address) -> Result<(), ComplianceError> {
         Self::require_admin(&env, &admin)?;
-        let mut config = Self::get_config(&env);
+        let mut config = Self::get_config_internal(&env);
         config.paused = true;
         env.storage().persistent().set(&DataKey::Config, &config);
         Ok(())
@@ -462,13 +493,17 @@ impl ComplianceContract {
 
     pub fn unpause(env: Env, admin: Address) -> Result<(), ComplianceError> {
         Self::require_admin(&env, &admin)?;
-        let mut config = Self::get_config(&env);
+        let mut config = Self::get_config_internal(&env);
         config.paused = false;
         env.storage().persistent().set(&DataKey::Config, &config);
         Ok(())
     }
 
     pub fn get_config(env: Env) -> ComplianceConfig {
+        Self::get_config_internal(&env)
+    }
+
+    fn get_config_internal(env: &Env) -> ComplianceConfig {
         env.storage().persistent().get(&DataKey::Config).unwrap()
     }
 
@@ -514,3 +549,7 @@ impl ComplianceContract {
             .set(&DataKey::NextEventId, &(event_id + 1));
     }
 }
+
+#[cfg(test)]
+mod lib_test;
+

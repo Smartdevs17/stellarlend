@@ -40,6 +40,7 @@ pub mod cross_contract_test;
 pub mod mev_protection_test;
 pub mod multisig_governance_execution_test;
 pub mod multisig_test;
+pub mod network_failure_resilience_test;
 pub mod recovery_test;
 // Temporarily disabled due to pre-existing issues (not related to governance attack prevention)
 // pub mod timelock_test;

@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env};
 
 pub mod hello_world_bridge;
 
@@ -169,12 +169,20 @@ impl LiquidationStrategyTrait for FixedDiscountStrategy {
 
     fn calculate_discount(
         &self,
-        _params: &Bytes,
+        params: &Bytes,
         _collateral_value: i128,
         debt_value: i128,
         _time_since_unhealthy: u64,
     ) -> LiquidationDiscount {
-        let premium_bps = 1_000i128;
+        let premium_bps = if let Some(decoded) = hello_world_bridge::decode_fixed_discount_params(params) {
+            if decoded.discount_bps > 0 {
+                decoded.discount_bps
+            } else {
+                1_000i128
+            }
+        } else {
+            1_000i128
+        };
         let discount = debt_value.saturating_mul(premium_bps) / 10_000;
         LiquidationDiscount {
             base_premium_bps: premium_bps,
@@ -301,6 +309,11 @@ pub struct LiquidationStrategyContract;
 #[contractimpl]
 impl LiquidationStrategyContract {
     pub fn initialize(env: Env, governance: Address, admin: Address) {
+        if env.storage().instance().has(&DataKey::Governance) {
+            panic!("Already initialized");
+        }
+        admin.require_auth();
+
         env.storage()
             .instance()
             .set(&DataKey::Governance, &governance);
@@ -514,8 +527,9 @@ mod tests {
         let env = Env::default();
         let governance = Address::generate(&env);
         let admin = Address::generate(&env);
-        let contract_id = env.register_contract(None, LiquidationStrategyContract);
+        let contract_id = env.register(LiquidationStrategyContract, ());
         let client = LiquidationStrategyContractClient::new(&env, &contract_id);
+        env.mock_all_auths();
         client.initialize(&governance, &admin);
         TestEnv {
             env,
@@ -561,6 +575,15 @@ mod tests {
             })
             .unwrap();
         assert_eq!(stored, te.governance);
+    }
+
+    #[test]
+    #[should_panic(expected = "Already initialized")]
+    fn test_double_initialize_fails() {
+        let te = setup();
+        let other_gov = Address::generate(&te.env);
+        let other_admin = Address::generate(&te.env);
+        client(&te).initialize(&other_gov, &other_admin);
     }
 
     #[test]
@@ -643,6 +666,28 @@ mod tests {
         let discount = client(&te).calculate_discount(&strategy_id, &10_000_000, &5_000_000, &0);
         assert_eq!(discount.base_premium_bps, 1_000);
         assert_eq!(discount.calculated_discount, 500_000);
+    }
+
+    #[test]
+    fn test_calculate_fixed_discount_with_custom_params() {
+        let te = setup();
+        let pool = Address::generate(&te.env);
+        // Custom 1500 bps (15%) discount parameter
+        let params = hello_world_bridge::fixed_discount_params_from_liquidation_incentive_bps(
+            &te.env,
+            1_500,
+        );
+
+        let strategy_id = gov_auth(
+            &te,
+            "register_strategy",
+            (&pool, &StrategyType::FixedDiscount, &params),
+            || client(&te).register_strategy(&pool, &StrategyType::FixedDiscount, &params),
+        );
+
+        let discount = client(&te).calculate_discount(&strategy_id, &10_000_000, &5_000_000, &0);
+        assert_eq!(discount.base_premium_bps, 1_500);
+        assert_eq!(discount.calculated_discount, 750_000);
     }
 
     #[test]

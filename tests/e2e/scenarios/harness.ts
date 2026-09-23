@@ -136,6 +136,318 @@ export async function runCrossContractScenario(
   return responses;
 }
 
+// ─── Governance ─────────────────────────────────────────────────────────────
+// Mirrors the on-chain lifecycle in `hello-world/src/governance/`:
+// Pending → Active → Queued → Executed | Defeated | Cancelled | Expired.
+
+export enum GovProposalStatus {
+  Pending = 'Pending',
+  Active = 'Active',
+  Succeeded = 'Succeeded',
+  Defeated = 'Defeated',
+  Expired = 'Expired',
+  Queued = 'Queued',
+  Executed = 'Executed',
+  Cancelled = 'Cancelled',
+}
+
+const BASIS_POINTS_SCALE = 10_000;
+
+export interface GovConfig {
+  votingPeriod: number;
+  executionDelay: number;
+  quorumBps: number;
+  proposalThreshold: number;
+  timelockDuration: number;
+  defaultVotingThreshold: number;
+}
+
+export interface GovProposal {
+  id: number;
+  proposer: string;
+  proposalType: string;
+  description: string;
+  status: GovProposalStatus;
+  startTime: number;
+  endTime: number;
+  executionTime: number | null;
+  votingThreshold: number;
+  forVotes: number;
+  againstVotes: number;
+  abstainVotes: number;
+  totalVotingPower: number;
+  createdAt: number;
+  executedAt: number | null;
+  events: string[];
+}
+
+let govInitialized = false;
+let govConfig: GovConfig | null = null;
+let govNow = 0;
+let nextProposalId = 0;
+const govProposals = new Map<number, GovProposal>();
+const govVotes = new Map<string, string>(); // `${proposalId}:${voter}` → voteType
+const govBalances = new Map<string, number>(); // address → vote-token balance
+
+export function initializeGovernance(config: Partial<GovConfig> & { balances?: Record<string, number> }): void {
+  govInitialized = true;
+  govConfig = {
+    votingPeriod: config.votingPeriod ?? 100,
+    executionDelay: config.executionDelay ?? 50,
+    quorumBps: config.quorumBps ?? 4000,
+    proposalThreshold: config.proposalThreshold ?? 100,
+    timelockDuration: config.timelockDuration ?? 200,
+    defaultVotingThreshold: config.defaultVotingThreshold ?? 5000,
+  };
+  govNow = 0;
+  nextProposalId = 0;
+  govProposals.clear();
+  govVotes.clear();
+  govBalances.clear();
+  for (const [addr, bal] of Object.entries(config.balances ?? {})) {
+    govBalances.set(addr, bal);
+  }
+}
+
+function govBalance(address: string): number {
+  return govBalances.get(address) ?? 0;
+}
+
+function getGovProposal(id: number): GovProposal | undefined {
+  return govProposals.get(id);
+}
+
+export function buildGovernanceApp(): Application {
+  const app = express();
+  app.use(express.json());
+
+  app.post('/api/governance/initialize', (req, res) => {
+    if (govInitialized) {
+      res.status(409).json({ error: 'governance already initialized' });
+      return;
+    }
+    initializeGovernance(req.body ?? {});
+    res.json({ success: true, config: govConfig });
+  });
+
+  app.get('/api/governance/config', (_req, res) => {
+    if (!govConfig) {
+      res.status(404).json({ error: 'governance not initialized' });
+      return;
+    }
+    res.json(govConfig);
+  });
+
+  app.post('/api/governance/advance-time', (req, res) => {
+    const { seconds } = req.body;
+    if (!(seconds > 0)) {
+      res.status(400).json({ error: 'positive seconds required' });
+      return;
+    }
+    govNow += seconds;
+    res.json({ success: true, now: govNow });
+  });
+
+  app.post('/api/governance/proposals', (req, res) => {
+    if (!govConfig) {
+      res.status(404).json({ error: 'governance not initialized' });
+      return;
+    }
+    const { proposer, proposalType, description, votingThreshold } = req.body;
+    if (!proposer || !proposalType || !description) {
+      res.status(400).json({ error: 'proposer, proposalType, and description are required' });
+      return;
+    }
+    if (govConfig.proposalThreshold > 0 && govBalance(proposer) < govConfig.proposalThreshold) {
+      res.status(400).json({ error: 'insufficient proposal power for threshold' });
+      return;
+    }
+    const id = nextProposalId++;
+    const proposal: GovProposal = {
+      id,
+      proposer,
+      proposalType,
+      description,
+      status: GovProposalStatus.Pending,
+      startTime: govNow,
+      endTime: govNow + govConfig.votingPeriod,
+      executionTime: null,
+      votingThreshold: votingThreshold ?? govConfig.defaultVotingThreshold,
+      forVotes: 0,
+      againstVotes: 0,
+      abstainVotes: 0,
+      totalVotingPower: 0,
+      createdAt: govNow,
+      executedAt: null,
+      events: ['created'],
+    };
+    govProposals.set(id, proposal);
+    res.json({ success: true, proposalId: id, proposal });
+  });
+
+  app.get('/api/governance/proposals/:id', (req, res) => {
+    const proposal = getGovProposal(Number(req.params.id));
+    if (!proposal) {
+      res.status(404).json({ error: 'proposal not found' });
+      return;
+    }
+    res.json(proposal);
+  });
+
+  app.post('/api/governance/proposals/:id/vote', (req, res) => {
+    const proposal = getGovProposal(Number(req.params.id));
+    if (!proposal) {
+      res.status(404).json({ error: 'proposal not found' });
+      return;
+    }
+    const { voter, voteType } = req.body;
+    if (!voter || !['For', 'Against', 'Abstain'].includes(voteType)) {
+      res.status(400).json({ error: 'voter and voteType (For|Against|Abstain) are required' });
+      return;
+    }
+    if (proposal.status === GovProposalStatus.Pending && govNow >= proposal.startTime) {
+      proposal.status = GovProposalStatus.Active;
+    }
+    if (proposal.status !== GovProposalStatus.Active) {
+      res.status(409).json({ error: 'proposal is not active' });
+      return;
+    }
+    const voteKey = `${proposal.id}:${voter}`;
+    if (govVotes.has(voteKey)) {
+      res.status(409).json({ error: 'voter has already voted' });
+      return;
+    }
+    const power = govBalance(voter);
+    if (power === 0) {
+      res.status(400).json({ error: 'voter has no voting power' });
+      return;
+    }
+    if (voteType === 'For') proposal.forVotes += power;
+    else if (voteType === 'Against') proposal.againstVotes += power;
+    else proposal.abstainVotes += power;
+    proposal.totalVotingPower += power;
+    govVotes.set(voteKey, voteType);
+    proposal.events.push('voted');
+    res.json({ success: true, proposal });
+  });
+
+  app.post('/api/governance/proposals/:id/queue', (req, res) => {
+    const proposal = getGovProposal(Number(req.params.id));
+    if (!proposal) {
+      res.status(404).json({ error: 'proposal not found' });
+      return;
+    }
+    if (!govConfig) {
+      res.status(404).json({ error: 'governance not initialized' });
+      return;
+    }
+    if (govNow <= proposal.endTime) {
+      res.status(409).json({ error: 'voting has not ended' });
+      return;
+    }
+    if (
+      proposal.status === GovProposalStatus.Executed ||
+      proposal.status === GovProposalStatus.Cancelled ||
+      proposal.status === GovProposalStatus.Expired ||
+      proposal.status === GovProposalStatus.Queued
+    ) {
+      res.status(409).json({ error: 'invalid proposal status for queueing' });
+      return;
+    }
+
+    const totalVotes =
+      proposal.forVotes + proposal.againstVotes + proposal.abstainVotes;
+    const quorumRequired = Math.floor((totalVotes * govConfig.quorumBps) / BASIS_POINTS_SCALE);
+    const quorumReached = totalVotes >= quorumRequired;
+    const thresholdVotes = Math.floor(
+      (proposal.totalVotingPower * proposal.votingThreshold) / BASIS_POINTS_SCALE
+    );
+    const thresholdMet = proposal.forVotes >= thresholdVotes;
+    const succeeded = quorumReached && thresholdMet;
+
+    if (succeeded) {
+      proposal.executionTime = govNow + govConfig.executionDelay;
+      proposal.status = GovProposalStatus.Queued;
+      proposal.events.push('queued');
+    } else {
+      proposal.status = GovProposalStatus.Defeated;
+      proposal.events.push('defeated');
+    }
+
+    res.json({
+      success: true,
+      succeeded,
+      quorumReached,
+      quorumRequired,
+      thresholdMet,
+      proposal,
+    });
+  });
+
+  app.post('/api/governance/proposals/:id/execute', (req, res) => {
+    const proposal = getGovProposal(Number(req.params.id));
+    if (!proposal) {
+      res.status(404).json({ error: 'proposal not found' });
+      return;
+    }
+    if (!govConfig) {
+      res.status(404).json({ error: 'governance not initialized' });
+      return;
+    }
+    if (proposal.status !== GovProposalStatus.Queued) {
+      res.status(409).json({ error: 'proposal is not queued' });
+      return;
+    }
+    if (proposal.executionTime === null) {
+      res.status(409).json({ error: 'missing execution time' });
+      return;
+    }
+    if (govNow < proposal.executionTime) {
+      res.status(409).json({ error: 'execution too early: delay not elapsed' });
+      return;
+    }
+    if (govNow > proposal.executionTime + govConfig.timelockDuration) {
+      proposal.status = GovProposalStatus.Expired;
+      proposal.events.push('expired');
+      res.status(410).json({ error: 'proposal expired: timelock window passed', proposal });
+      return;
+    }
+    proposal.status = GovProposalStatus.Executed;
+    proposal.executedAt = govNow;
+    proposal.events.push('executed');
+    res.json({ success: true, proposal });
+  });
+
+  app.post('/api/governance/proposals/:id/cancel', (req, res) => {
+    const proposal = getGovProposal(Number(req.params.id));
+    if (!proposal) {
+      res.status(404).json({ error: 'proposal not found' });
+      return;
+    }
+    const { caller } = req.body;
+    if (!caller) {
+      res.status(400).json({ error: 'caller is required' });
+      return;
+    }
+    if (caller !== proposal.proposer && caller !== 'GADMIN') {
+      res.status(403).json({ error: 'unauthorized: only proposer or admin may cancel' });
+      return;
+    }
+    if (
+      proposal.status === GovProposalStatus.Executed ||
+      proposal.status === GovProposalStatus.Queued
+    ) {
+      res.status(409).json({ error: 'cannot cancel executed or queued proposal' });
+      return;
+    }
+    proposal.status = GovProposalStatus.Cancelled;
+    proposal.events.push('cancelled');
+    res.json({ success: true, proposal });
+  });
+
+  return app;
+}
+
 // ─── App ────────────────────────────────────────────────────────────────────
 
 export function buildLendingApp(): Application {
@@ -315,4 +627,11 @@ export function reset(): void {
   prices.clear();
   positions.clear();
   paused = false;
+  govInitialized = false;
+  govConfig = null;
+  govNow = 0;
+  nextProposalId = 0;
+  govProposals.clear();
+  govVotes.clear();
+  govBalances.clear();
 }

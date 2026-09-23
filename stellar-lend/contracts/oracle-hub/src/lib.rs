@@ -70,6 +70,12 @@ impl OracleHubContract {
         {
             panic_with_error!(&env, OracleHubError::AlreadyInitialized);
         }
+
+        // Governance controls feeds, freezes, and upgrades. Both authorities
+        // must authorize the one-time configuration before it is persisted.
+        governance.require_auth();
+        admin.require_auth();
+
         env.storage()
             .instance()
             .set(&storage::DataKey::Governance, &governance);
