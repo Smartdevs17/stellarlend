@@ -1,6 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token::StellarAssetClient,
+    contract, contracterror, contractevent, contractimpl, contracttype,
+    token::{Client, StellarAssetClient},
     Address, Env, Vec,
 };
 
@@ -25,6 +26,7 @@ pub enum YieldSplitterError {
     SplitAlreadyExists = 15,
     NoYieldAccrued = 16,
     LossExceedsPrincipal = 17,
+    InvalidPenalty = 18,
 }
 
 #[contracttype]
@@ -167,6 +169,16 @@ impl YieldSplitter {
             return Err(YieldSplitterError::Unauthorized);
         }
 
+        // Take custody of the underlying before issuing claims. Without this
+        // transfer, callers could mint unbacked PT/YT balances by supplying a
+        // user-controlled amount only in the call arguments.
+        let underlying_client = Client::new(&env, &underlying_asset);
+        underlying_client.transfer(
+            &owner,
+            &env.current_contract_address(),
+            &amount,
+        );
+
         let mut counter: u64 = env
             .storage()
             .instance()
@@ -275,11 +287,18 @@ impl YieldSplitter {
                 .ok_or(YieldSplitterError::LossExceedsPrincipal)?;
         }
 
+        let underlying_client = Client::new(&env, &split.underlying_asset);
+        let contract_address = env.current_contract_address();
+        if underlying_client.balance(&contract_address) < total_return {
+            return Err(YieldSplitterError::InsufficientBalance);
+        }
+
         let pyth_client = StellarAssetClient::new(&env, &split.principal_token);
         let yth_client = StellarAssetClient::new(&env, &split.yield_token);
 
         pyth_client.burn(&owner, &split.pt_amount);
         yth_client.burn(&owner, &split.yt_amount);
+        underlying_client.transfer(&contract_address, &owner, &total_return);
 
         env.storage()
             .persistent()
@@ -328,6 +347,10 @@ impl YieldSplitter {
             return Err(YieldSplitterError::MaturityPassed);
         }
 
+        if !(0..=BPS_DENOMINATOR).contains(&penalty_bps) {
+            return Err(YieldSplitterError::InvalidPenalty);
+        }
+
         split.redeemed = true;
 
         let penalty = split
@@ -342,11 +365,18 @@ impl YieldSplitter {
             .checked_sub(penalty)
             .ok_or(YieldSplitterError::LossExceedsPrincipal)?;
 
+        let underlying_client = Client::new(&env, &split.underlying_asset);
+        let contract_address = env.current_contract_address();
+        if underlying_client.balance(&contract_address) < total_return {
+            return Err(YieldSplitterError::InsufficientBalance);
+        }
+
         let pyth_client = StellarAssetClient::new(&env, &split.principal_token);
         let yth_client = StellarAssetClient::new(&env, &split.yield_token);
 
         pyth_client.burn(&owner, &split.pt_amount);
         yth_client.burn(&owner, &split.yt_amount);
+        underlying_client.transfer(&contract_address, &owner, &total_return);
 
         env.storage()
             .persistent()

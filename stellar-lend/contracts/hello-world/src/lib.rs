@@ -51,6 +51,9 @@ pub mod timelock;
 pub mod treasury;
 pub mod types;
 pub mod withdraw;
+// Read/write segregation modules (Issue #699)
+pub mod views;
+pub mod operations;
 
 use crate::deposit::Position;
 use crate::errors::LendingError;
@@ -273,6 +276,7 @@ impl HelloContract {
     }
 
     pub fn initialize(env: Env, admin: Address) -> Result<(), LendingError> {
+        admin.require_auth();
         if crate::admin::has_admin(&env) {
             return Err(LendingError::Unauthorized);
         }

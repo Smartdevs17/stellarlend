@@ -19,6 +19,22 @@
 //! existing typed emission, so consumers of the typed events are unaffected.
 //! See `api/src/routes/events.ts` for the machine-readable catalog served to
 //! off-chain consumers.
+//!
+//! # Indexing contract
+//!
+//! The off-chain indexer (`api/src/services/eventIndex`, docs in
+//! `backend/elasticsearch/README.md`) relies on this layout:
+//!
+//! - the first topic is the event name — the struct's snake_case name
+//!   (`DepositEvent` → `deposit_event`) or `proto_evt` for the envelope;
+//! - address `#[topic]` fields come next, primary actor first;
+//! - payloads are maps, so fields are read by name (`asset`, `amount`, …);
+//! - the envelope carries [`EVENT_SCHEMA_VERSION`]; the indexer upcasts older
+//!   versions and flags newer ones rather than dropping them.
+//!
+//! Renaming an event struct or reordering its topics is a breaking change for
+//! indexed history. `stellar-lend/contracts/lending/tests/event_topics.rs`
+//! pins the lending contract's layout.
 
 pub use shared_events::*;
 

@@ -23,6 +23,8 @@ stellarlend-security = { path = "../security" }
 stellarlend-common = { path = "../common", features = ["testutils"] }
 soroban-sdk = { workspace = true, features = ["testutils"] }
 delegation-registry = { path = "../delegation-registry" }
+proptest = "1"
+serde_json = "1"
 
 [features]
 testutils = ["soroban-sdk/testutils"]

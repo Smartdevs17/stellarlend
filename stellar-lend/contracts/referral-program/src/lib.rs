@@ -63,8 +63,18 @@ pub struct TierInfo {
     pub total_bonus_earned: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum PersistentDataKey {
+    Referee(Address),
+    ReferrerStats(Address),
+}
+
 #[contract]
 pub struct ReferralProgram;
+
+#[cfg(test)]
+mod test;
 
 #[contractimpl]
 impl ReferralProgram {
@@ -136,7 +146,7 @@ impl ReferralProgram {
         if let Some(l1_record) = env
             .storage()
             .persistent()
-            .get::<Symbol, ReferralRecord>(&l1_key)
+            .get::<PersistentDataKey, ReferralRecord>(&l1_key)
         {
             let mut l1_stats = Self::get_referrer_stats_internal(&env, &l1_record.referrer);
             l1_stats.l2_referrals += 1;
@@ -152,6 +162,7 @@ impl ReferralProgram {
     }
 
     pub fn accrue_fee(env: Env, referee: Address, fee_amount: i128) -> Result<(), ReferralError> {
+        referee.require_auth();
         Self::require_initialized(&env)?;
         let config = Self::get_config(&env)?;
 
@@ -176,7 +187,7 @@ impl ReferralProgram {
         if let Some(l1_record) = env
             .storage()
             .persistent()
-            .get::<Symbol, ReferralRecord>(&l1_key)
+            .get::<PersistentDataKey, ReferralRecord>(&l1_key)
         {
             let l2_share = (fee_amount * config.l2_fee_share_bps as i128) / 10_000;
             if l2_share > 0 {
@@ -303,12 +314,12 @@ impl ReferralProgram {
             .ok_or(ReferralError::NotInitialized)
     }
 
-    fn referee_key(addr: &Address) -> Symbol {
-        symbol_short!("ref")
+    fn referee_key(addr: &Address) -> PersistentDataKey {
+        PersistentDataKey::Referee(addr.clone())
     }
 
-    fn referrer_stats_key(addr: &Address) -> Symbol {
-        symbol_short!("stats")
+    fn referrer_stats_key(addr: &Address) -> PersistentDataKey {
+        PersistentDataKey::ReferrerStats(addr.clone())
     }
 
     fn get_referrer_stats_internal(env: &Env, referrer: &Address) -> ReferrerStats {

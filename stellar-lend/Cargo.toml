@@ -38,6 +38,7 @@ members = [
   "contracts/liquidation-strategy",
   "contracts/sns-integration",
   "contracts/referral-program",
+  "contracts/storage",
   "contracts/insurance-marketplace",
   "contracts/token-adapter",
   "contracts/token",
@@ -67,6 +68,7 @@ members = [
   "tests/integration/flash-loan-liquidation",   "contracts/flash-loan",
   "contracts/security",
   "contracts/lib/calldata-encoding",
+  "contracts/dca-module",
 ]
 exclude = [
   "fuzz",

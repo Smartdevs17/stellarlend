@@ -513,13 +513,31 @@ impl LeveragedYield {
             return Err(LeveragedYieldError::HealthFactorTooLow);
         }
 
-        let deleverage_factor_bps = 10_000u32;
-        let target_borrowed = position
-            .borrowed_amount
-            .checked_mul(config.deleverage_target_bps as i128)
-            .ok_or(LeveragedYieldError::Overflow)?
-            .checked_div(deleverage_factor_bps as i128)
-            .ok_or(LeveragedYieldError::Overflow)?;
+        let target_leverage_bps = if config.deleverage_target_bps < position.leverage_bps {
+            config.deleverage_target_bps
+        } else {
+            config.min_leverage_bps
+        };
+
+        let current_leverage_debt = position
+            .leverage_bps
+            .checked_sub(MAX_BPS)
+            .ok_or(LeveragedYieldError::InvalidLeverage)?;
+
+        let target_leverage_debt = target_leverage_bps
+            .checked_sub(MAX_BPS)
+            .ok_or(LeveragedYieldError::InvalidLeverage)?;
+
+        let target_borrowed = if current_leverage_debt > 0 {
+            position
+                .borrowed_amount
+                .checked_mul(target_leverage_debt as i128)
+                .ok_or(LeveragedYieldError::Overflow)?
+                .checked_div(current_leverage_debt as i128)
+                .ok_or(LeveragedYieldError::Overflow)?
+        } else {
+            0
+        };
 
         let debt_repay = position
             .borrowed_amount
@@ -527,12 +545,16 @@ impl LeveragedYield {
             .ok_or(LeveragedYieldError::Overflow)?;
 
         let new_borrowed_amount = target_borrowed;
-        let new_collateral = position
-            .collateral_amount
-            .checked_mul(new_borrowed_amount)
-            .ok_or(LeveragedYieldError::Overflow)?
-            .checked_div(position.borrowed_amount)
-            .ok_or(LeveragedYieldError::Overflow)?;
+        let new_collateral = if position.borrowed_amount > 0 {
+            position
+                .collateral_amount
+                .checked_mul(new_borrowed_amount)
+                .ok_or(LeveragedYieldError::Overflow)?
+                .checked_div(position.borrowed_amount)
+                .ok_or(LeveragedYieldError::Overflow)?
+        } else {
+            position.collateral_amount
+        };
 
         let hf =
             Self::compute_health_factor(new_collateral, new_borrowed_amount, config.target_ltv_bps);
@@ -544,7 +566,7 @@ impl LeveragedYield {
 
         position.collateral_amount = new_collateral;
         position.borrowed_amount = new_borrowed_amount;
-        position.leverage_bps = config.deleverage_target_bps;
+        position.leverage_bps = target_leverage_bps;
         position.health_factor = hf;
         position.last_harvested_at = env.ledger().timestamp();
 
