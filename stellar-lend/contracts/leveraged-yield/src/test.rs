@@ -1,7 +1,5 @@
 #![cfg(test)]
-use crate::{
-    LeverageConfig, LeveragedPosition, LeveragedYield, LeveragedYieldClient, LeveragedYieldError,
-};
+use crate::{LeverageConfig, LeveragedYield, LeveragedYieldClient, LeveragedYieldError};
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
 fn setup() -> (Env, Address, LeveragedYieldClient<'static>) {
@@ -27,7 +25,7 @@ fn setup() -> (Env, Address, LeveragedYieldClient<'static>) {
 
 #[test]
 fn test_initialize() {
-    let (env, admin, client) = setup();
+    let (_env, admin, client) = setup();
     let stored_admin = client.get_admin();
     assert_eq!(stored_admin, Some(admin));
 }
@@ -242,6 +240,38 @@ fn test_auto_deleverage() {
 
     let result = client.try_auto_deleverage(&position_id);
     assert!(result.is_err());
+}
+
+#[test]
+fn test_auto_deleverage_when_unhealthy() {
+    let (_env, admin, client) = setup();
+    let owner = Address::generate(&_env);
+    let pool = Address::generate(&_env);
+    let deposit_asset = Address::generate(&_env);
+    let borrow_asset = Address::generate(&_env);
+
+    let position_id = client.open_position(
+        &owner,
+        &pool,
+        &deposit_asset,
+        &borrow_asset,
+        &100_000,
+        &30_000,
+        &15_000,
+    );
+
+    let mut config = client.get_config();
+    config.auto_deleverage_threshold = 15_000;
+    config.deleverage_target_bps = 20_000;
+    client.set_config(&admin, &config);
+
+    let result = client.try_auto_deleverage(&position_id);
+    assert!(result.is_ok());
+    let deleveraged = result.unwrap().unwrap();
+    assert_eq!(deleveraged.leverage_bps, 20_000);
+    assert_eq!(deleveraged.borrowed_amount, 100_000);
+    assert_eq!(deleveraged.collateral_amount, 50_000);
+    assert!(deleveraged.active);
 }
 
 #[test]

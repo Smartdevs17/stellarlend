@@ -105,6 +105,7 @@ impl ParameterStoreContract {
             panic!("Already initialized");
         }
         governance.require_auth();
+        admin.require_auth();
         env.storage()
             .instance()
             .set(&DataKey::Governance, &governance);

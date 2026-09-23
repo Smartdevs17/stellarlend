@@ -79,6 +79,10 @@ pub struct DutchAuctionContract;
 #[contractimpl]
 impl DutchAuctionContract {
     pub fn initialize(env: Env, admin: Address) {
+        if env.storage().instance().has(&DataKey::Admin) {
+            panic!("already initialized");
+        }
+        admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::AuctionCount, &0u64);
         env.storage()
@@ -462,6 +466,7 @@ mod tests {
             let admin = Address::generate(&env);
             let borrower = Address::generate(&env);
             let contract_id = env.register(DutchAuctionContract, ());
+            env.mock_all_auths();
             let client = DutchAuctionContractClient::new(&env, &contract_id);
             client.initialize(&admin);
 
@@ -521,6 +526,14 @@ mod tests {
             })
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "already initialized")]
+    fn test_initialize_cannot_be_called_twice() {
+        let t = TestEnv::new();
+        let replacement_admin = Address::generate(&t.env);
+        t.client().initialize(&replacement_admin);
     }
 
     #[test]

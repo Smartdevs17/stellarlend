@@ -1,4 +1,10 @@
 import { randomUUID } from 'crypto';
+import {
+  ConflictError,
+  NotFoundError,
+  UnauthorizedError,
+  ValidationError,
+} from '../../utils/errors';
 
 export type ClaimStatus = 'submitted' | 'approved' | 'denied' | 'disputed';
 export type Trigger = 'oracle_failure' | 'contract_compromise';
@@ -53,11 +59,19 @@ class InsuranceService {
   private coverages = new Map<string, PurchasedCoverage>();
   private claims = new Map<string, InsuranceClaim>();
 
+  resetStore() {
+    this.providers.clear();
+    this.policies.clear();
+    this.coverages.clear();
+    this.claims.clear();
+  }
+
   onboardProvider(input: Omit<InsuranceProvider, 'id' | 'availableCollateral' | 'rating'>) {
-    if (input.collateral <= 0) throw new Error('Provider collateral must be positive');
+    if (input.collateral <= 0) throw new ValidationError('Provider collateral must be positive');
     const provider: InsuranceProvider = {
       ...input,
       id: randomUUID(),
+      kycStatus: input.kycStatus || 'pending',
       availableCollateral: input.collateral,
       rating: 0,
     };
@@ -65,12 +79,24 @@ class InsuranceService {
     return provider;
   }
 
-  createPolicy(input: Omit<InsurancePolicy, 'id' | 'active'>) {
+  updateKycStatus(providerId: string, status: 'pending' | 'approved' | 'rejected'): InsuranceProvider {
+    const provider = this.providers.get(providerId);
+    if (!provider) throw new NotFoundError('Provider not found');
+    provider.kycStatus = status;
+    return provider;
+  }
+
+  createPolicy(input: Omit<InsurancePolicy, 'id' | 'active'>, callerAddress?: string) {
     const provider = this.providers.get(input.providerId);
-    if (!provider || provider.kycStatus !== 'approved')
-      throw new Error('Approved provider required');
+    if (!provider) throw new NotFoundError('Provider not found');
+    if (callerAddress && provider.address !== callerAddress) {
+      throw new UnauthorizedError('Caller does not own this insurance provider');
+    }
+    if (provider.kycStatus !== 'approved') {
+      throw new ValidationError('Approved provider required');
+    }
     if (input.coverageAmount <= 0 || input.coverageAmount > provider.availableCollateral) {
-      throw new Error('Coverage exceeds provider collateral');
+      throw new ValidationError('Coverage exceeds provider collateral');
     }
     const policy = { ...input, id: randomUUID(), active: true };
     this.policies.set(policy.id, policy);
@@ -82,15 +108,19 @@ class InsuranceService {
   }
 
   purchase(policyId: string, lender: string, positionId: string, requestedCoverage?: number) {
+    if (!lender) throw new ValidationError('Lender address is required');
+    if (!positionId) throw new ValidationError('Position ID is required');
     const policy = this.policies.get(policyId);
-    if (!policy?.active) throw new Error('Policy is unavailable');
-    const provider = this.providers.get(policy.providerId)!;
+    if (!policy?.active) throw new ValidationError('Policy is unavailable');
+    const provider = this.providers.get(policy.providerId);
+    if (!provider) throw new NotFoundError('Provider not found');
     const coverageAmount = Math.min(
       requestedCoverage ?? policy.coverageAmount,
       policy.coverageAmount
     );
-    if (coverageAmount <= 0 || coverageAmount > provider.availableCollateral)
-      throw new Error('Insurer is insolvent');
+    if (coverageAmount <= 0 || coverageAmount > provider.availableCollateral) {
+      throw new ValidationError('Insurer is insolvent');
+    }
     const now = Date.now();
     const coverage: PurchasedCoverage = {
       id: randomUUID(),
@@ -107,10 +137,27 @@ class InsuranceService {
     return coverage;
   }
 
-  submitClaim(coverageId: string, trigger: Trigger, evidence: string, amount: number) {
+  submitClaim(
+    coverageId: string,
+    trigger: Trigger,
+    evidence: string,
+    amount: number,
+    claimantAddress?: string
+  ) {
     const coverage = this.coverages.get(coverageId);
-    if (!coverage) throw new Error('Coverage not found');
-    const policy = this.policies.get(coverage.policyId)!;
+    if (!coverage) throw new NotFoundError('Coverage not found');
+    if (claimantAddress && coverage.lender !== claimantAddress) {
+      throw new UnauthorizedError('Claimant does not own this coverage');
+    }
+    if (!evidence || typeof evidence !== 'string' || evidence.trim() === '') {
+      throw new ValidationError('Valid evidence is required to submit a claim');
+    }
+    if (amount <= 0) {
+      throw new ValidationError('Claim amount must be positive');
+    }
+    const policy = this.policies.get(coverage.policyId);
+    if (!policy) throw new NotFoundError('Policy not found');
+
     const eligible = Date.now() <= coverage.expiresAt && policy.coveredTriggers.includes(trigger);
     const claim: InsuranceClaim = {
       id: randomUUID(),
@@ -126,9 +173,16 @@ class InsuranceService {
     return claim;
   }
 
-  disputeClaim(claimId: string) {
+  disputeClaim(claimId: string, callerAddress?: string) {
     const claim = this.claims.get(claimId);
-    if (!claim || claim.status !== 'denied') throw new Error('Only denied claims can be disputed');
+    if (!claim) throw new NotFoundError('Claim not found');
+    if (callerAddress) {
+      const coverage = this.coverages.get(claim.coverageId);
+      if (!coverage || coverage.lender !== callerAddress) {
+        throw new UnauthorizedError('Caller does not own this claim');
+      }
+    }
+    if (claim.status !== 'denied') throw new ConflictError('Only denied claims can be disputed');
     claim.status = 'disputed';
     claim.resolvedAt = undefined;
     return claim;
@@ -157,7 +211,7 @@ class InsuranceService {
     coverageAmount: number;
   } {
     const policy = this.policies.get(policyId);
-    if (!policy) throw new Error('Policy not found');
+    if (!policy) throw new NotFoundError('Policy not found');
 
     const basePremiumBps = policy.premiumBps;
     let riskMultiplier = 1.0;

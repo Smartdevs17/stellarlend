@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol, Vec};
 
 #[derive(Clone)]
 #[contracttype]
@@ -27,6 +27,9 @@ pub struct PoolFactory;
 #[contractimpl]
 impl PoolFactory {
     pub fn initialize(env: Env, admin: Address) {
+        if env.storage().instance().has(&Symbol::new(&env, "admin")) {
+            panic!("Already initialized");
+        }
         admin.require_auth();
 
         env.storage()
@@ -162,39 +165,134 @@ impl PoolFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::{Address as _, Env};
+    use soroban_sdk::{testutils::Address as _, Address, Env};
 
     #[test]
     fn test_initialize() {
         let env = Env::default();
-        let contract = PoolFactoryClient::new(&env, &env.register_contract(None, PoolFactory));
-        let admin = Address::random(&env);
+        env.mock_all_auths();
+        let contract_id = env.register(PoolFactory, ());
+        let contract = PoolFactoryClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
 
         contract.initialize(&admin);
 
-        let stored_admin: Address = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "admin"))
-            .unwrap();
+        let stored_admin: Address = env.as_contract(&contract_id, || {
+            env.storage()
+                .instance()
+                .get(&Symbol::new(&env, "admin"))
+                .unwrap()
+        });
 
         assert_eq!(stored_admin, admin);
     }
 
     #[test]
+    #[should_panic(expected = "Already initialized")]
+    fn test_initialize_already_initialized() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(PoolFactory, ());
+        let contract = PoolFactoryClient::new(&env, &contract_id);
+        let admin1 = Address::generate(&env);
+        let admin2 = Address::generate(&env);
+
+        contract.initialize(&admin1);
+        contract.initialize(&admin2);
+    }
+
+    #[test]
     fn test_create_pool() {
         let env = Env::default();
-        let contract = PoolFactoryClient::new(&env, &env.register_contract(None, PoolFactory));
-        let admin = Address::random(&env);
-        let asset = Address::random(&env);
-        let oracle = Address::random(&env);
-        let interest_model = Address::random(&env);
+        env.mock_all_auths();
+        let contract_id = env.register(PoolFactory, ());
+        let contract = PoolFactoryClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let interest_model = Address::generate(&env);
 
         contract.initialize(&admin);
 
-        let _pool = contract.create_pool(&asset, &oracle, &5000, &7500, &interest_model);
+        let pool_addr = contract.create_pool(&asset, &oracle, &5000, &7500, &interest_model);
 
         let count = contract.get_pool_count();
         assert_eq!(count, 1);
+
+        let pools = contract.get_pools();
+        assert_eq!(pools.len(), 1);
+
+        let pool = contract.get_pool_by_index(&0).unwrap();
+        assert_eq!(pool.address, pool_addr);
+        assert_eq!(pool.config.ltv_bps, 5000);
+        assert_eq!(pool.config.liquidation_threshold_bps, 7500);
+    }
+
+    #[test]
+    fn test_update_pool_config() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(PoolFactory, ());
+        let contract = PoolFactoryClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let interest_model = Address::generate(&env);
+
+        contract.initialize(&admin);
+
+        contract.create_pool(&asset, &oracle, &5000, &7500, &interest_model);
+
+        let new_config = PoolConfig {
+            asset: asset.clone(),
+            oracle: oracle.clone(),
+            ltv_bps: 6000,
+            liquidation_threshold_bps: 8000,
+            interest_model: interest_model.clone(),
+        };
+
+        contract.update_pool_config(&0, &new_config);
+
+        let pool = contract.get_pool_by_index(&0).unwrap();
+        assert_eq!(pool.config.ltv_bps, 6000);
+        assert_eq!(pool.config.liquidation_threshold_bps, 8000);
+    }
+
+    #[test]
+    fn test_get_pool_by_index_out_of_bounds() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(PoolFactory, ());
+        let contract = PoolFactoryClient::new(&env, &contract_id);
+
+        assert!(contract.get_pool_by_index(&0).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid LTV or liquidation threshold")]
+    fn test_create_pool_invalid_ltv() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(PoolFactory, ());
+        let contract = PoolFactoryClient::new(&env, &contract_id);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let interest_model = Address::generate(&env);
+
+        contract.create_pool(&asset, &oracle, &10001, &7500, &interest_model);
+    }
+
+    #[test]
+    #[should_panic(expected = "LTV must be less than or equal to liquidation threshold")]
+    fn test_create_pool_ltv_greater_than_threshold() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(PoolFactory, ());
+        let contract = PoolFactoryClient::new(&env, &contract_id);
+        let asset = Address::generate(&env);
+        let oracle = Address::generate(&env);
+        let interest_model = Address::generate(&env);
+
+        contract.create_pool(&asset, &oracle, &8000, &7000, &interest_model);
     }
 }

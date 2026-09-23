@@ -78,6 +78,10 @@ impl CopyLendingContract {
     pub fn follow(env: Env, follower: Address, leader: Address, amount: i128) -> FollowRelation {
         follower.require_auth();
 
+        if follower == leader {
+            panic!("cannot follow self");
+        }
+
         let min_investment: i128 = 1_000_000;
         if amount < min_investment {
             panic!("amount below minimum investment");
@@ -93,12 +97,14 @@ impl CopyLendingContract {
         }
 
         let follow_key = get_follow_key(&env, &follower, &leader);
-        if env
+        if let Some(existing) = env
             .storage()
             .instance()
-            .has(&CopyLendingDataKey::Follow(follow_key.clone()))
+            .get::<_, FollowRelation>(&CopyLendingDataKey::Follow(follow_key.clone()))
         {
-            panic!("already following this leader");
+            if existing.active {
+                panic!("already following this leader");
+            }
         }
 
         let ledger_seq = env.ledger().sequence();
@@ -140,6 +146,10 @@ impl CopyLendingContract {
             .instance()
             .get(&CopyLendingDataKey::Follow(follow_key.clone()))?;
 
+        if !relation.active {
+            return None;
+        }
+
         relation.active = false;
         env.storage()
             .instance()
@@ -149,7 +159,7 @@ impl CopyLendingContract {
             .storage()
             .instance()
             .get(&CopyLendingDataKey::FollowerCount(leader.clone()))
-            .unwrap_or(1);
+            .unwrap_or(0);
         if count > 0 {
             env.storage().instance().set(
                 &CopyLendingDataKey::FollowerCount(leader.clone()),
@@ -203,5 +213,123 @@ impl CopyLendingContract {
             .instance()
             .get(&CopyLendingDataKey::FollowerCount(leader))
             .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+
+    #[test]
+    fn test_follow_and_unfollow_lifecycle() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CopyLendingContract, ());
+        let client = CopyLendingContractClient::new(&env, &contract_id);
+
+        let leader = Address::generate(&env);
+        let follower = Address::generate(&env);
+
+        assert_eq!(client.get_follower_count(&leader), 0);
+
+        let rel = client.follow(&follower, &leader, &2_000_000i128);
+        assert!(rel.active);
+        assert_eq!(rel.invested_amount, 2_000_000i128);
+        assert_eq!(client.get_follower_count(&leader), 1);
+
+        // Unfollow
+        let un = client.unfollow(&follower, &leader).unwrap();
+        assert!(!un.active);
+        assert_eq!(client.get_follower_count(&leader), 0);
+
+        // Calling unfollow again does not underflow or double decrement
+        let again = client.unfollow(&follower, &leader);
+        assert!(again.is_none());
+        assert_eq!(client.get_follower_count(&leader), 0);
+
+        // Re-follow succeeds
+        let refollow_rel = client.follow(&follower, &leader, &3_000_000i128);
+        assert!(refollow_rel.active);
+        assert_eq!(client.get_follower_count(&leader), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "already following this leader")]
+    fn test_already_following_active_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CopyLendingContract, ());
+        let client = CopyLendingContractClient::new(&env, &contract_id);
+
+        let leader = Address::generate(&env);
+        let follower = Address::generate(&env);
+
+        client.follow(&follower, &leader, &2_000_000i128);
+        client.follow(&follower, &leader, &2_000_000i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot follow self")]
+    fn test_cannot_follow_self() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CopyLendingContract, ());
+        let client = CopyLendingContractClient::new(&env, &contract_id);
+
+        let leader = Address::generate(&env);
+        client.follow(&leader, &leader, &2_000_000i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "leader has opted out of copying")]
+    fn test_opt_out_prevents_follow() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CopyLendingContract, ());
+        let client = CopyLendingContractClient::new(&env, &contract_id);
+
+        let leader = Address::generate(&env);
+        let follower = Address::generate(&env);
+
+        client.set_opt_out(&leader, &true);
+        assert!(client.is_opted_out(&leader));
+
+        client.follow(&follower, &leader, &2_000_000i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "amount below minimum investment")]
+    fn test_minimum_investment_enforced() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CopyLendingContract, ());
+        let client = CopyLendingContractClient::new(&env, &contract_id);
+
+        let leader = Address::generate(&env);
+        let follower = Address::generate(&env);
+
+        client.follow(&follower, &leader, &500_000i128);
+    }
+
+    #[test]
+    fn test_leader_stats_and_strategy() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(CopyLendingContract, ());
+        let client = CopyLendingContractClient::new(&env, &contract_id);
+
+        let leader = Address::generate(&env);
+
+        let stats = LeaderStats {
+            total_followers: 10,
+            total_follower_value: 50_000_000,
+            total_returns: 120_000,
+            apy: 1500,
+            risk_adjusted_returns: 1200,
+            volatility: 300,
+        };
+        client.update_leader_stats(&leader, &stats);
+        assert_eq!(client.get_leader_stats(&leader), Some(stats));
     }
 }

@@ -130,6 +130,29 @@ jobs:
           EOF
           fi
 
+      # Issue #684: per-function + per-operation-type budgets, regressions vs
+      # benchmarks/gas-baseline.json, recommendations and trends. Appends the
+      # Markdown report to the job summary and fails on any budget overrun.
+      - name: Setup Node.js for gas report
+        if: always()
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Generate gas optimization report
+        if: always()
+        working-directory: api
+        run: |
+          npm ci --ignore-scripts
+          npx ts-node --transpile-only src/scripts/generate-gas-report.ts \
+            --stellar-lend-dir ../stellar-lend \
+            --results ../stellar-lend/benchmark-results.json \
+            --out-json ../stellar-lend/gas-report.json \
+            --out-md ../stellar-lend/gas-report.md \
+            --fail-on-over-budget
+
       - name: Upload benchmark results
         if: always()
         uses: actions/upload-artifact@v4
@@ -139,6 +162,8 @@ jobs:
             stellar-lend/benchmark-results.json
             stellar-lend/benchmark-output.log
             stellar-lend/benchmark-comparison.log
+            stellar-lend/gas-report.json
+            stellar-lend/gas-report.md
           retention-days: 90
 
       - name: Upload build log

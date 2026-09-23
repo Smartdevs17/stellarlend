@@ -83,6 +83,7 @@ pub enum DisputeDataKey {
     Dispute(u64),
     Juror(Address),
     JurorList,
+    Admin,
 }
 
 #[contract]
@@ -90,6 +91,14 @@ pub struct DisputeResolutionContract;
 
 #[contractimpl]
 impl DisputeResolutionContract {
+    pub fn initialize(env: Env, admin: Address) {
+        if env.storage().instance().has(&DisputeDataKey::Admin) {
+            panic!("already initialized");
+        }
+        admin.require_auth();
+        env.storage().instance().set(&DisputeDataKey::Admin, &admin);
+    }
+
     pub fn register_juror(env: Env, address: Address) {
         address.require_auth();
         if env
@@ -119,6 +128,10 @@ impl DisputeResolutionContract {
         _evidence_data: BytesN<64>,
     ) -> u64 {
         disputer.require_auth();
+
+        if disputer == liquidator {
+            panic!("cannot dispute against self");
+        }
 
         if collateral_amount <= 0 {
             panic!("invalid collateral amount");
@@ -188,12 +201,22 @@ impl DisputeResolutionContract {
     }
 
     pub fn select_jurors(env: Env, dispute_id: u64, selected: Vec<Address>) {
-        // Only callable by the contract admin or automated system
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DisputeDataKey::Admin)
+            .unwrap_or_else(|| panic!("admin not configured"));
+        admin.require_auth();
+
         let mut dispute: Dispute = env
             .storage()
             .instance()
             .get(&DisputeDataKey::Dispute(dispute_id))
             .unwrap_or_else(|| panic!("dispute not found"));
+
+        if dispute.status != DisputeStatus::Evidence && dispute.status != DisputeStatus::Filing {
+            panic!("invalid dispute state for juror selection");
+        }
 
         if !dispute.jurors.is_empty() {
             panic!("jurors already selected");
@@ -205,7 +228,11 @@ impl DisputeResolutionContract {
                 .storage()
                 .instance()
                 .get(&DisputeDataKey::Juror(address.clone()));
-            if reg.is_some() && address != dispute.disputer {
+            if reg.is_some()
+                && address != dispute.disputer
+                && address != dispute.liquidator
+                && !jurors.iter().any(|j: Juror| j.address == address)
+            {
                 jurors.push_back(Juror {
                     address: address.clone(),
                     selected_at: env.ledger().sequence().into(),
@@ -285,25 +312,35 @@ impl DisputeResolutionContract {
         votes.push_back(vote_record);
         dispute.votes = votes;
 
-        // Check if can resolve (>66% majority)
+        // Check if can resolve (supermajority of total jurors or all selected jurors voted)
         let total_votes = dispute.votes.len();
-        if total_votes >= 3 {
-            let valid_count = dispute
-                .votes
-                .iter()
-                .filter(|v| v.vote == VoteChoice::Valid)
-                .count() as u32;
-            let invalid_count = total_votes - valid_count;
+        let total_jurors = dispute.jurors.len();
 
-            if valid_count as f64 / total_votes as f64 > 0.66 {
+        let valid_count = dispute
+            .votes
+            .iter()
+            .filter(|v| v.vote == VoteChoice::Valid)
+            .count() as u32;
+        let invalid_count = total_votes - valid_count;
+
+        // Early supermajority of total jurors: count * 3 > total_jurors * 2
+        if valid_count * 3 > total_jurors * 2 {
+            dispute.resolution = 1;
+            dispute.status = DisputeStatus::Resolved;
+            dispute.resolved_at = Some(env.ledger().sequence().into());
+        } else if invalid_count * 3 > total_jurors * 2 {
+            dispute.resolution = 2;
+            dispute.status = DisputeStatus::Resolved;
+            dispute.resolved_at = Some(env.ledger().sequence().into());
+        } else if total_votes == total_jurors {
+            // All selected jurors have voted: resolve by simple majority to avoid deadlock
+            if valid_count > invalid_count {
                 dispute.resolution = 1;
-                dispute.status = DisputeStatus::Resolved;
-                dispute.resolved_at = Some(env.ledger().sequence().into());
-            } else if invalid_count as f64 / total_votes as f64 > 0.66 {
+            } else {
                 dispute.resolution = 2;
-                dispute.status = DisputeStatus::Resolved;
-                dispute.resolved_at = Some(env.ledger().sequence().into());
             }
+            dispute.status = DisputeStatus::Resolved;
+            dispute.resolved_at = Some(env.ledger().sequence().into());
         }
 
         env.storage()
@@ -318,6 +355,10 @@ impl DisputeResolutionContract {
             .instance()
             .get(&DisputeDataKey::Dispute(dispute_id))
             .unwrap_or_else(|| panic!("dispute not found"));
+
+        if appellant != dispute.disputer && appellant != dispute.liquidator {
+            panic!("only disputer or liquidator can appeal");
+        }
 
         if dispute.status != DisputeStatus::Resolved {
             panic!("dispute is not resolved");
@@ -375,4 +416,11 @@ impl DisputeResolutionContract {
             .instance()
             .get(&DisputeDataKey::Juror(address))
     }
+
+    pub fn get_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DisputeDataKey::Admin)
+    }
 }
+
+#[cfg(test)]
+mod test;

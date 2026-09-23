@@ -1,11 +1,14 @@
 name: Formal Verification Specs
 
-# Issue #384 – Formal verification CI gate for critical contract invariants.
+# Issues #384 / #687 – Formal verification CI gate for critical contract
+# invariants + Certora structure checks (HF/IA specs).
 #
 # Invariants verified:
 #   INV-1: total deposits = total debt + reserves
 #   INV-2: health factor consistency during operations
 #   INV-3: interest accrual monotonicity
+#   HF-001…HF-007: health factor bounds (Certora)
+#   IA-001…IA-008: interest accrual invariants (Certora)
 #
 # This workflow is a required CI gate: PRs touching contract code cannot
 # merge if any spec lemma fails.
@@ -15,15 +18,19 @@ on:
     branches: ["main", "dev", "feat/**"]
     paths:
       - "stellar-lend/contracts/**/*.rs"
+      - "stellar-lend/contracts/lending/certora/**"
       - "stellar-lend/Cargo.toml"
       - "stellar-lend/Cargo.lock"
+      - "scripts/verification-report.sh"
       - ".github/workflows/formal-verification.yml"
   pull_request:
     branches: ["main", "dev"]
     paths:
       - "stellar-lend/contracts/**/*.rs"
+      - "stellar-lend/contracts/lending/certora/**"
       - "stellar-lend/Cargo.toml"
       - "stellar-lend/Cargo.lock"
+      - "scripts/verification-report.sh"
       - ".github/workflows/formal-verification.yml"
   # Allow manual dispatch to run the full suite (including slow Kani checks)
   workflow_dispatch:
@@ -42,6 +49,26 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 0: Certora structure check (Issue #687) — fast, no prover required
+  # ─────────────────────────────────────────────────────────────────────────────
+  certora-structure:
+    name: Certora Spec Structure Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run verification report structure checks
+        run: bash scripts/verification-report.sh
+
+      - name: Upload verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-report-${{ github.sha }}
+          path: verification-report.md
+          retention-days: 14
+
   # ─────────────────────────────────────────────────────────────────────────────
   # Job 1: cargo check – fast sanity gate on every push
   # ─────────────────────────────────────────────────────────────────────────────
@@ -248,16 +275,18 @@ jobs:
   formal-verification-gate:
     name: Formal Verification Gate
     runs-on: ubuntu-latest
-    needs: [spec-lemmas, spec-isolation, spec-lint]
+    needs: [certora-structure, spec-lemmas, spec-isolation, spec-lint]
     if: always()
     steps:
       - name: Evaluate gate
         run: |
+          echo "certora-structure: ${{ needs.certora-structure.result }}"
           echo "spec-lemmas:    ${{ needs.spec-lemmas.result }}"
           echo "spec-isolation: ${{ needs.spec-isolation.result }}"
           echo "spec-lint:      ${{ needs.spec-lint.result }}"
 
-          if [[ "${{ needs.spec-lemmas.result }}"    != "success" ]] || \
+          if [[ "${{ needs.certora-structure.result }}" != "success" ]] || \
+             [[ "${{ needs.spec-lemmas.result }}"    != "success" ]] || \
              [[ "${{ needs.spec-isolation.result }}" != "success" ]] || \
              [[ "${{ needs.spec-lint.result }}"      != "success" ]]; then
             echo "::error::Formal verification gate FAILED. PR cannot be merged."

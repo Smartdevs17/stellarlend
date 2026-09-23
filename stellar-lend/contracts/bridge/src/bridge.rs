@@ -1190,6 +1190,7 @@ impl BridgeContract {
         Self::require_admin(&env, &caller)?;
         let mut state = Self::load_channel_state(&env, &channel_id);
         state.emergency_closed = false;
+        state.anomaly_count = 0;
         state.reason = Self::empty_string(&env);
         Self::save_channel_state(&env, &channel_id, &state);
 

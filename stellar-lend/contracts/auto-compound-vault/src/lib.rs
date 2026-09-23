@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token::StellarAssetClient,
-    Address, Env,
+    contract, contracterror, contractevent, contractimpl, contracttype, token::Client as TokenClient,
+    token::StellarAssetClient, Address, Env,
 };
 
 #[contracterror]
@@ -248,6 +248,9 @@ impl AutoCompoundVault {
             return Err(VaultError::SlippageExceeded);
         }
 
+        let underlying_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        underlying_client.transfer(&user, &env.current_contract_address(), &amount);
+
         let new_total_assets = total_assets
             .checked_add(amount)
             .ok_or(VaultError::Overflow)?;
@@ -271,6 +274,9 @@ impl AutoCompoundVault {
         env.storage()
             .instance()
             .set(&DataKey::TotalShares, &new_total_shares);
+
+        let asset_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        asset_client.transfer(&user, &env.current_contract_address(), &amount);
 
         let share_client = StellarAssetClient::new(&env, &Self::get_share_token(&env));
         share_client.mint(&user, &shares);
@@ -358,6 +364,13 @@ impl AutoCompoundVault {
             return Err(VaultError::InsufficientBalance);
         }
 
+        let underlying_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        let vault_address = env.current_contract_address();
+        if underlying_client.balance(&vault_address) < assets {
+            return Err(VaultError::InsufficientBalance);
+        }
+        underlying_client.transfer(&vault_address, &user, &assets);
+
         let new_total_assets = total_assets
             .checked_sub(assets)
             .ok_or(VaultError::Overflow)?;
@@ -384,6 +397,9 @@ impl AutoCompoundVault {
 
         let share_client = StellarAssetClient::new(&env, &Self::get_share_token(&env));
         share_client.burn(&user, &shares);
+
+        let asset_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        asset_client.transfer(&env.current_contract_address(), &user, &assets);
 
         WithdrawEvent {
             user,
@@ -423,13 +439,29 @@ impl AutoCompoundVault {
             .get(&DataKey::TotalAssets)
             .unwrap_or(0);
 
-        let rewards_claimed = total_assets
-            .checked_mul(100)
-            .ok_or(VaultError::Overflow)?
-            .checked_div(10_000)
-            .ok_or(VaultError::Overflow)?;
+        if Self::get_reward_asset(&env) != Self::get_underlying_asset(&env) {
+            return Err(VaultError::NoRewardsToHarvest);
+        }
 
-        if rewards_claimed < min_rewards {
+        let accrued_perf_fees: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::AccruedPerformanceFees)
+            .unwrap_or(0);
+        let recognized_assets = total_assets
+            .checked_add(accrued_perf_fees)
+            .ok_or(VaultError::Overflow)?;
+        let underlying_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        let vault_balance = underlying_client.balance(&env.current_contract_address());
+        if vault_balance < recognized_assets {
+            return Err(VaultError::InsufficientBalance);
+        }
+
+        let rewards_claimed = vault_balance
+            .checked_sub(recognized_assets)
+            .ok_or(VaultError::InsufficientBalance)?;
+
+        if rewards_claimed <= 0 || rewards_claimed < min_rewards {
             return Err(VaultError::NoRewardsToHarvest);
         }
 
@@ -447,11 +479,6 @@ impl AutoCompoundVault {
             .checked_add(rewards_reinvested)
             .ok_or(VaultError::Overflow)?;
 
-        let accrued_perf_fees: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::AccruedPerformanceFees)
-            .unwrap_or(0);
         let new_accrued = accrued_perf_fees
             .checked_add(performance_fee)
             .ok_or(VaultError::Overflow)?;
@@ -612,6 +639,17 @@ impl AutoCompoundVault {
 
     fn get_share_token(env: &Env) -> Address {
         env.storage().instance().get(&DataKey::ShareToken).unwrap()
+    }
+
+    fn get_underlying_asset(env: &Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::UnderlyingAsset)
+            .unwrap()
+    }
+
+    fn get_reward_asset(env: &Env) -> Address {
+        env.storage().instance().get(&DataKey::RewardAsset).unwrap()
     }
 
     fn get_share_balance(env: &Env, user: &Address) -> i128 {
