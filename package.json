@@ -26,7 +26,8 @@
     "gas:baseline": "bash scripts/gas-report.sh baseline",
     "gas:report": "bash scripts/gas-report.sh report",
     "gas:compare": "bash scripts/gas-report.sh compare",
-    "gas:check": "bash scripts/gas-report.sh check"
+    "gas:check": "bash scripts/gas-report.sh check",
+    "gas:generate": "cd api && ts-node --transpile-only src/scripts/generate-gas-report.ts --stellar-lend-dir ../stellar-lend"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.3.0",

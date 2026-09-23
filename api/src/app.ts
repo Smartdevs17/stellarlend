@@ -22,6 +22,7 @@ import verificationRoutes from './routes/verification.routes';
 import configRoutes from './routes/config.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import gasUsageAnalyticsRoutes from './routes/gasUsageAnalytics.routes';
+import gasReportRoutes from './routes/gasReport.routes';
 import poolPerformanceRoutes from './routes/poolPerformance.routes';
 import flashLoanRoutes from './routes/flashLoan.routes';
 import governanceSimulationRoutes from './routes/governanceSimulation.routes';
@@ -236,6 +237,7 @@ app.use('/api/zk', legacySecurityCompat, zkProofRoutes);
 app.use('/api/verification', legacySecurityCompat, verificationRoutes);
 app.use('/api/config', legacySystemCompat, configRoutes);
 app.use('/api/analytics', legacySystemCompat, analyticsRoutes);
+app.use('/api/analytics/gas/contract', legacySystemCompat, gasReportRoutes);
 app.use('/api/analytics/gas', legacySystemCompat, gasUsageAnalyticsRoutes);
 app.use('/api/pool-performance', legacySystemCompat, poolPerformanceRoutes);
 app.use('/api/flash-loan', legacyLendingCompat, flashLoanRoutes);
@@ -288,7 +290,7 @@ void redisCacheService.warmup(async () => {
   const { StellarService } = await import('./services/stellar.service.js');
   const svc = new StellarService();
   await svc.getProtocolStats();
-  
+
   // Initialize invariant monitor
   invariantMonitorService.registerCheck(new SupplyCheck());
   invariantMonitorService.registerCheck(new HealthCheck());
