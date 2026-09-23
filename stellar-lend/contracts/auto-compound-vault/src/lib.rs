@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token::StellarAssetClient,
-    Address, Env,
+    contract, contracterror, contractevent, contractimpl, contracttype, token::Client as TokenClient,
+    token::StellarAssetClient, Address, Env,
 };
 
 #[contracterror]
@@ -272,6 +272,9 @@ impl AutoCompoundVault {
             .instance()
             .set(&DataKey::TotalShares, &new_total_shares);
 
+        let asset_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        asset_client.transfer(&user, &env.current_contract_address(), &amount);
+
         let share_client = StellarAssetClient::new(&env, &Self::get_share_token(&env));
         share_client.mint(&user, &shares);
 
@@ -384,6 +387,9 @@ impl AutoCompoundVault {
 
         let share_client = StellarAssetClient::new(&env, &Self::get_share_token(&env));
         share_client.burn(&user, &shares);
+
+        let asset_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        asset_client.transfer(&env.current_contract_address(), &user, &assets);
 
         WithdrawEvent {
             user,

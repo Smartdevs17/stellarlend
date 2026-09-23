@@ -252,7 +252,26 @@ impl StablecoinContract {
             return Err(StablecoinError::InvalidAmount);
         }
 
+        let total_collateral: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalCollateral)
+            .unwrap_or(0);
+        let max_supply = total_collateral
+            .checked_mul(rr)
+            .ok_or(StablecoinError::Overflow)?
+            / BPS;
+
         let stable = stablecoin_token(&env)?;
+        let stable_client = TokenClient::new(&env, &stable);
+        let current_supply = stable_client.total_supply();
+        let next_supply = current_supply
+            .checked_add(mint_amount)
+            .ok_or(StablecoinError::Overflow)?;
+        if next_supply > max_supply {
+            return Err(StablecoinError::InsufficientCollateral);
+        }
+
         StellarAssetClient::new(&env, &stable).mint(&user, &mint_amount);
 
         env.events().publish(
@@ -313,5 +332,56 @@ impl StablecoinContract {
             .instance()
             .get(&DataKey::TotalCollateral)
             .unwrap_or(0))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{FractionalReserveConfig, StablecoinContract, StablecoinContractClient, StablecoinError};
+    use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, Address, Env};
+
+    fn setup() -> (
+        Env,
+        Address,
+        Address,
+        Address,
+        StablecoinContractClient<'static>,
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let user = Address::generate(&env);
+        let contract_id = env.register(StablecoinContract, ());
+        let stablecoin = env.register_stellar_asset_contract(contract_id.clone());
+        let collateral = env.register_stellar_asset_contract(admin.clone());
+        let client = StablecoinContractClient::new(&env, &contract_id);
+
+        client.initialize(
+            &admin,
+            &stablecoin,
+            &collateral,
+            &FractionalReserveConfig {
+                reserve_ratio_bps: 2_000,
+            },
+        );
+
+        (env, admin, user, collateral, client)
+    }
+
+    #[test]
+    fn minting_is_capped_by_actual_reserve() {
+        let (env, _admin, user, collateral, client) = setup();
+        let collateral_client = StellarAssetClient::new(&env, &collateral);
+        collateral_client.mint(&user, &10);
+        client.deposit_collateral(&user, &10);
+
+        let oversized = client.try_mint_from_collateral(&user, &1_000_000);
+        assert_eq!(oversized, Err(Ok(StablecoinError::InsufficientCollateral)));
+
+        let minted = client.mint_from_collateral(&user, &10);
+        assert_eq!(minted, 2);
+
+        let repeated = client.try_mint_from_collateral(&user, &10);
+        assert_eq!(repeated, Err(Ok(StablecoinError::InsufficientCollateral)));
     }
 }

@@ -60,3 +60,23 @@ export const authenticateApiKey = async (
   req.user = { address: result.record?.createdBy ?? 'api-key-user' };
   next();
 };
+
+/**
+ * Require authentication via either Bearer JWT token or X-API-Key header.
+ */
+export const authenticateAdmin = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authenticateToken(req, res, next);
+  }
+  const apiKey = req.headers['x-api-key'];
+  if (apiKey) {
+    return authenticateApiKey(req, res, next);
+  }
+  throw new UnauthorizedError('Authentication required: provide Bearer token or X-API-Key header');
+};
+

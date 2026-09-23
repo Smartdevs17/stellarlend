@@ -496,6 +496,45 @@ fn emergency_closed_channel_blocks_new_messages() {
 }
 
 #[test]
+fn reopening_channel_resets_anomaly_count() {
+    let (env, client, admin) = setup();
+    default_bridge(&client, &env, &admin);
+    let validators = register_default_validators(&env, &client, &admin);
+    let relayer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    for nonce in 1..=3 {
+        let message_id = submit_default_message(&env, &client, &relayer, &recipient, nonce);
+        client.attest_cross_chain_message(
+            &validators.get(0).unwrap(),
+            &message_id,
+            &false,
+        );
+    }
+
+    let closed = client.get_channel_state(&s(&env, "eth-channel"));
+    assert!(closed.emergency_closed);
+    assert_eq!(closed.anomaly_count, 3);
+
+    client.reopen_channel(&admin, &s(&env, "eth-channel"));
+
+    let reopened = client.get_channel_state(&s(&env, "eth-channel"));
+    assert!(!reopened.emergency_closed);
+    assert_eq!(reopened.anomaly_count, 0);
+
+    let message_id = submit_default_message(&env, &client, &relayer, &recipient, 4);
+    client.attest_cross_chain_message(
+        &validators.get(0).unwrap(),
+        &message_id,
+        &false,
+    );
+
+    let after_anomaly = client.get_channel_state(&s(&env, "eth-channel"));
+    assert!(!after_anomaly.emergency_closed);
+    assert_eq!(after_anomaly.anomaly_count, 1);
+}
+
+#[test]
 fn out_of_order_message_nonce_is_rejected_and_monitored() {
     let (env, client, admin) = setup();
     default_bridge(&client, &env, &admin);
@@ -646,7 +685,7 @@ fn bridge_acceptance_pause_emits_event() {
     client.set_bridge_acceptance_paused(&admin, &true);
 
     let events = env.events().all();
-    assert!(!events.is_empty());
+    assert!(!events.events().is_empty());
 }
 
 #[test]

@@ -1,0 +1,53 @@
+{
+  "issue": 687,
+  "generated": "2026-09-23",
+  "specs": [
+    {
+      "file": "core_lending_invariants.spec",
+      "rule_ids": [
+        "INV-001", "INV-002", "INV-003", "INV-004", "INV-005",
+        "INV-006", "INV-007", "INV-008", "INV-009", "INV-010",
+        "INV-011", "INV-012", "INV-013", "INV-014"
+      ],
+      "min_rules": 14
+    },
+    {
+      "file": "health_factor_bounds.spec",
+      "rule_ids": [
+        "HF-001", "HF-002", "HF-003", "HF-004", "HF-005", "HF-006", "HF-007"
+      ],
+      "min_rules": 7
+    },
+    {
+      "file": "interest_accrual.spec",
+      "rule_ids": [
+        "IA-001", "IA-002", "IA-003", "IA-004",
+        "IA-005", "IA-006", "IA-007", "IA-008"
+      ],
+      "min_rules": 8
+    },
+    {
+      "file": "interest_rate_model.spec",
+      "rule_ids": [
+        "IRM-001", "IRM-002", "IRM-003", "IRM-004",
+        "IRM-005", "IRM-006", "IRM-007", "IRM-008"
+      ],
+      "min_rules": 8
+    },
+    {
+      "file": "oracle_integration.spec",
+      "rule_ids": [
+        "ORA-001", "ORA-002", "ORA-003", "ORA-004", "ORA-005",
+        "ORA-006", "ORA-007", "ORA-008", "ORA-009", "ORA-010"
+      ],
+      "min_rules": 10
+    }
+  ],
+  "config_must_verify": [
+    "core_lending_invariants.spec",
+    "health_factor_bounds.spec",
+    "interest_accrual.spec",
+    "interest_rate_model.spec",
+    "oracle_integration.spec"
+  ]
+}

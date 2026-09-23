@@ -21,6 +21,7 @@ import {
 } from '../middleware/rate-limit';
 import logger from '../utils/logger';
 import { auditLogService } from '../services/auditLog.service';
+import { authenticateAdmin } from '../middleware/auth';
 
 const router: Router = Router();
 
@@ -146,7 +147,7 @@ router.get('/adaptive-state', (_req: Request, res: Response, next: NextFunction)
  *       400:
  *         description: Invalid congestion value
  */
-router.post('/report-congestion', (req: Request, res: Response, next: NextFunction) => {
+router.post('/report-congestion', authenticateAdmin, (req: Request, res: Response, next: NextFunction) => {
   try {
     const { congestionBps, reportedBy, ttlMs } = req.body as {
       congestionBps?: unknown;
@@ -203,7 +204,7 @@ router.post('/report-congestion', (req: Request, res: Response, next: NextFuncti
  *       200:
  *         description: Congestion state reset
  */
-router.post('/reset-congestion', (req: Request, res: Response, next: NextFunction) => {
+router.post('/reset-congestion', authenticateAdmin, (req: Request, res: Response, next: NextFunction) => {
   try {
     resetAdaptiveCongestion();
     const newState = getAdaptiveState();
@@ -240,7 +241,7 @@ router.post('/reset-congestion', (req: Request, res: Response, next: NextFunctio
  *       200:
  *         description: Counters reset successfully
  */
-router.post('/reset', (req: Request, res: Response, next: NextFunction) => {
+router.post('/reset', authenticateAdmin, (req: Request, res: Response, next: NextFunction) => {
   try {
     resetSensitiveRateLimits();
 

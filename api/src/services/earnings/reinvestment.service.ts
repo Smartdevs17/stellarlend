@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { StrKey } from '@stellar/stellar-sdk';
 import logger from '../../utils/logger';
-import { ConflictError, NotFoundError, ValidationError } from '../../utils/errors';
+import { ConflictError, NotFoundError, UnauthorizedError, ValidationError } from '../../utils/errors';
 import {
   CreateReinvestmentPlanRequest,
   RecordSweepRequest,
@@ -78,7 +78,7 @@ function requireOwnedPlan(planId: string, userAddress: string): ReinvestmentPlan
   const plan = plans.get(planId);
   if (!plan) throw new NotFoundError(`Reinvestment plan ${planId} not found`);
   if (plan.userAddress !== userAddress) {
-    throw new ValidationError('userAddress does not own this reinvestment plan');
+    throw new UnauthorizedError('userAddress does not own this reinvestment plan');
   }
   return plan;
 }
@@ -179,11 +179,20 @@ export const reinvestmentService = {
    * API consumers get a consistent error before/without submitting a doomed transaction,
    * and records the resulting reinvestment event(s) for history/analytics.
    */
-  recordSweep(planId: string, input: RecordSweepRequest): ReinvestmentEvent[] {
+  recordSweep(planId: string, input: RecordSweepRequest, callerAddress?: string): ReinvestmentEvent[] {
     const plan = plans.get(planId);
     if (!plan) throw new NotFoundError(`Reinvestment plan ${planId} not found`);
+    if (callerAddress && plan.userAddress !== callerAddress) {
+      throw new UnauthorizedError('callerAddress does not own this reinvestment plan');
+    }
     if (plan.paused) throw new ConflictError('Reinvestment plan is paused');
     if (input.poolPaused) throw new ConflictError('Target pool is currently paused');
+
+    if (input.txHash !== undefined) {
+      if (typeof input.txHash !== 'string' || !/^[0-9a-fA-F]{64}$/.test(input.txHash)) {
+        throw new ValidationError('txHash must be a valid 64-character hex transaction hash');
+      }
+    }
 
     assertPositiveAmountString(input.earnedAmount, 'earnedAmount');
     assertPositiveAmountString(input.estimatedGasCost, 'estimatedGasCost');

@@ -1,0 +1,21 @@
+{
+  "description": "Reference wall-clock seconds per suite (debug build, cargo test, after compilation) recorded with scripts/testing/run-property-suite.sh. fuzz_invariants scales linearly with PROPTEST_CASES. Re-record after intentional changes to suite size.",
+  "proptest_cases": 64,
+  "suites": [
+    {
+      "suite": "fuzz_invariants",
+      "seconds": 93.5,
+      "proptest_cases": 64
+    },
+    {
+      "suite": "user_journeys",
+      "seconds": 0.5,
+      "proptest_cases": 64
+    },
+    {
+      "suite": "event_topics",
+      "seconds": 0.4,
+      "proptest_cases": 64
+    }
+  ]
+}

@@ -141,18 +141,34 @@ class DisputeResolutionService {
   }
 
   private canResolve(dispute: Dispute): boolean {
+    const totalJurors = dispute.jurors.length || REQUIRED_JURY_SIZE;
     const votedCount = dispute.jurors.filter(j => j.voted).length;
-    return votedCount >= REQUIRED_JURY_SIZE || dispute.votes.length >= Math.ceil(REQUIRED_JURY_SIZE * MAJORITY_THRESHOLD);
+    if (votedCount >= totalJurors) {
+      return true;
+    }
+
+    const requiredValidVotes = Math.ceil(totalJurors * MAJORITY_THRESHOLD);
+    const validVotes = dispute.votes.filter(v => v.vote === 'valid').length;
+    const uncastVotes = totalJurors - dispute.votes.length;
+    const maxPossibleValidVotes = validVotes + uncastVotes;
+
+    // Mathematically locked: either 'valid' is guaranteed or cannot possibly reach threshold
+    const cannotReachThreshold = maxPossibleValidVotes < requiredValidVotes;
+    const alreadyReachedThreshold = validVotes >= requiredValidVotes;
+
+    return alreadyReachedThreshold || cannotReachThreshold;
   }
 
   private resolve(disputeId: string): void {
     const dispute = this.disputes.get(disputeId);
     if (!dispute) return;
 
+    const totalJurors = dispute.jurors.length || REQUIRED_JURY_SIZE;
     const validVotes = dispute.votes.filter(v => v.vote === 'valid').length;
     const totalVotes = dispute.votes.length;
-    const ratio = totalVotes > 0 ? validVotes / totalVotes : 0;
 
+    // Evaluated against authoritative jury size to guarantee genuine supermajority
+    const ratio = totalJurors > 0 ? validVotes / totalJurors : 0;
     const resolution: DisputeResolution = ratio >= MAJORITY_THRESHOLD ? 'valid' : 'invalid';
 
     this.disputes.set(disputeId, {
@@ -162,7 +178,7 @@ class DisputeResolutionService {
       resolvedAt: new Date().toISOString(),
     });
 
-    logger.info('Dispute resolved', { disputeId, resolution, validVotes, totalVotes });
+    logger.info('Dispute resolved', { disputeId, resolution, validVotes, totalVotes, totalJurors, ratio });
   }
 
   appeal(disputeId: string, appellantAddress: string, stake: string): Dispute | null {

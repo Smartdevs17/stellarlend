@@ -4,8 +4,8 @@ extern crate std;
 
 use super::helpers::{allow_all, client, mk_asset, register_push_feed, report, setup};
 use crate::types::{AggregatedPrice, FeedMode, FeedPriority, VERSION};
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::Address;
+use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
+use soroban_sdk::{Address, IntoVal};
 
 #[test]
 fn test_initialize() {
@@ -13,6 +13,32 @@ fn test_initialize() {
     assert_eq!(client(&te).version(), VERSION);
     assert!(!client(&te).is_frozen());
     assert!(!client(&te).is_asset_frozen(&mk_asset(&te.env, "XLM")));
+}
+
+#[test]
+fn test_initialize_requires_authority_auth() {
+    let env = soroban_sdk::Env::default();
+    let governance = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let contract_id = env.register(crate::OracleHubContract, ());
+    let oracle = crate::OracleHubContractClient::new(&env, &contract_id);
+
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "initialize",
+            args: (&governance, &admin).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        oracle.initialize(&governance, &admin);
+    }));
+    assert!(result.is_err());
+    assert_eq!(oracle.version(), 0);
 }
 
 #[test]

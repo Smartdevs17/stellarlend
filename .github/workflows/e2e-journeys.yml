@@ -1,0 +1,124 @@
+name: E2E User Journeys
+
+# Issue #693 — complete user journey testing:
+#   * API journeys (tests/e2e): full deposit → borrow → repay → withdraw flows,
+#     multi-user, failure recovery, timing analysis, recommendations, benchmarks
+#   * Contract journeys (stellar-lend/contracts/lending/tests/user_journeys.rs):
+#     the same flow against the real contract with per-step Soroban gas metering
+#     checked against benchmarks/baseline.json budgets
+# Journey reports are uploaded as artifacts and summarized on the run page.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - "tests/e2e/**"
+      - "stellar-lend/contracts/lending/**"
+      - "stellar-lend/benchmarks/**"
+      - "api/src/services/gasReport/**"
+      - ".github/workflows/e2e-journeys.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api-journeys:
+    name: API journeys (tests/e2e)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tests/e2e
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: tests/e2e/package-lock.json
+
+      - run: npm ci
+
+      - name: Run E2E suite
+        env:
+          JOURNEY_REPORT_DIR: ${{ github.workspace }}/tests/e2e/reports
+          JOURNEY_BENCH_RUNS: "100"
+        run: npx jest --runInBand --forceExit --ci
+
+      - name: Journey summary
+        if: always()
+        run: |
+          [ -f reports/api-journeys.json ] || exit 0
+          node - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          const r = require('./reports/api-journeys.json');
+          const b = require('fs').existsSync('./reports/api-journey-benchmark.json')
+            ? require('./reports/api-journey-benchmark.json').benchmark : null;
+          console.log('## API user journeys\n');
+          console.log(`Journeys: **${r.timing.journeys}** · p50 ${r.timing.journeyP50Ms} ms · p95 ${r.timing.journeyP95Ms} ms\n`);
+          if (b) console.log(`Benchmark: ${b.runs} journeys, ${b.journeysPerSecond}/s, p95 ${b.timing.journeyP95Ms} ms (budget ${b.p95BudgetMs} ms), ${b.gasPerJourney.toLocaleString()} CPU instructions per journey\n`);
+          console.log('| Journey | Steps | Failed attempts | Gas (CPU insns) | Latency ms |');
+          console.log('| --- | ---: | ---: | ---: | ---: |');
+          for (const j of r.journeys) console.log(`| ${j.name} | ${j.steps.length} | ${j.failedAttempts} | ${j.totalGas.toLocaleString()} | ${j.totalLatencyMs} |`);
+          const recs = [...new Set(r.journeys.flatMap(j => j.recommendations))];
+          if (recs.length) console.log('\n### Recommendations\n\n' + recs.map(x => `- ${x}`).join('\n'));
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: api-journey-reports-${{ github.sha }}
+          path: tests/e2e/reports/
+          retention-days: 30
+
+  contract-journeys:
+    name: Contract journeys + gas report
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            stellar-lend/target
+          key: ${{ runner.os }}-cargo-journeys-${{ hashFiles('stellar-lend/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-journeys-
+            ${{ runner.os }}-cargo-
+
+      - name: Contract journeys (gas-metered) and event layout
+        working-directory: stellar-lend
+        run: cargo test -p stellarlend-lending --test user_journeys --test event_topics
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - name: Gas report including journeys
+        working-directory: api
+        run: |
+          npm ci --ignore-scripts
+          npx ts-node --transpile-only src/scripts/generate-gas-report.ts \
+            --stellar-lend-dir ../stellar-lend \
+            --out-json ../gas-report.json --out-md ../gas-report.md
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contract-journey-reports-${{ github.sha }}
+          path: |
+            stellar-lend/contracts/lending/target/journey-reports/
+            gas-report.json
+            gas-report.md
+          retention-days: 30
