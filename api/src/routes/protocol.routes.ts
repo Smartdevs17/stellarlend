@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as lendingController from '../controllers/lending.controller';
 import { protocolHealthController } from '../controllers/protocolHealth.controller';
+import { authenticateToken } from '../middleware/auth';
 import { requireRole } from '../middleware/rbac';
 
 const router: Router = Router();
@@ -28,12 +29,12 @@ const router: Router = Router();
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.get('/stats', lendingController.protocolStats);
-router.get('/pause-status', requireRole('operator'), lendingController.getPauseStatus);
-router.post('/pause', requireRole('admin'), lendingController.setManualPause);
-router.post('/resume', requireRole('admin'), lendingController.resumeProtocol);
-router.get('/roles', requireRole('operator'), lendingController.listRoleAssignments);
-router.post('/roles/assign', requireRole('admin'), lendingController.assignAccessRole);
-router.post('/roles/revoke', requireRole('admin'), lendingController.revokeAccessRole);
+router.get('/pause-status', authenticateToken, requireRole('operator'), lendingController.getPauseStatus);
+router.post('/pause', authenticateToken, requireRole('admin'), lendingController.setManualPause);
+router.post('/resume', authenticateToken, requireRole('admin'), lendingController.resumeProtocol);
+router.get('/roles', authenticateToken, requireRole('operator'), lendingController.listRoleAssignments);
+router.post('/roles/assign', authenticateToken, requireRole('admin'), lendingController.assignAccessRole);
+router.post('/roles/revoke', authenticateToken, requireRole('admin'), lendingController.revokeAccessRole);
 
 /**
  * @openapi
@@ -55,7 +56,7 @@ router.post('/roles/revoke', requireRole('admin'), lendingController.revokeAcces
  *       - { in: query, name: limit,   schema: { type: integer, default: 100 } }
  *       - { in: query, name: offset,  schema: { type: integer, default: 0 } }
  */
-router.get('/audit-logs', requireRole('operator'), lendingController.getAuditLogs);
+router.get('/audit-logs', authenticateToken, requireRole('operator'), lendingController.getAuditLogs);
 
 /**
  * @openapi
@@ -66,7 +67,7 @@ router.get('/audit-logs', requireRole('operator'), lendingController.getAuditLog
  *     tags:
  *       - Protocol
  */
-router.get('/audit-logs/export', requireRole('operator'), lendingController.exportAuditLogs);
+router.get('/audit-logs/export', authenticateToken, requireRole('operator'), lendingController.exportAuditLogs);
 
 /**
  * @openapi
@@ -81,6 +82,7 @@ router.get('/audit-logs/export', requireRole('operator'), lendingController.expo
  */
 router.get(
   '/audit-logs/verify',
+  authenticateToken,
   requireRole('operator'),
   lendingController.verifyAuditLogIntegrity
 );
@@ -127,6 +129,7 @@ router.get('/health-score/history', (req, res) => protocolHealthController.getHi
 router.get('/health-score/weights', (req, res) => protocolHealthController.getWeights(req, res));
 router.put(
   '/health-score/weights',
+  authenticateToken,
   requireRole('admin'),
   (req, res) => protocolHealthController.updateWeights(req, res)
 );
@@ -142,6 +145,7 @@ router.put(
 router.get('/health-score/alerts', (req, res) => protocolHealthController.getAlerts(req, res));
 router.put(
   '/health-score/alert-threshold',
+  authenticateToken,
   requireRole('admin'),
   (req, res) => protocolHealthController.updateAlertThreshold(req, res)
 );

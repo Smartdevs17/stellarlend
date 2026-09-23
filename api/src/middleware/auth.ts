@@ -7,6 +7,7 @@ import { apiKeyService } from '../services/apiKey.service';
 export interface AuthRequest extends Request {
   user?: {
     address: string;
+    role?: string;
   };
 }
 
@@ -19,7 +20,10 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
   }
 
   try {
-    const decoded = jwt.verify(token, config.auth.jwtSecret) as { address: string };
+    const decoded = jwt.verify(token, config.auth.jwtSecret) as {
+      address: string;
+      role?: string;
+    };
     req.user = decoded;
     next();
   } catch (error) {
@@ -27,8 +31,8 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
   }
 };
 
-export const generateToken = (address: string): string => {
-  return jwt.sign({ address }, config.auth.jwtSecret, {
+export const generateToken = (address: string, role?: string): string => {
+  return jwt.sign({ address, role }, config.auth.jwtSecret, {
     expiresIn: config.auth.jwtExpiresIn,
   } as jwt.SignOptions);
 };

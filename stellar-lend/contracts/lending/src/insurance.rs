@@ -312,12 +312,11 @@ pub fn initialize(env: &Env, admin: &Address) -> Result<(), InsuranceError> {
     Ok(())
 }
 
-/// Contribute protocol fees to the insurance pool.
+/// Contribute protocol fees to the insurance pool (admin only).
 /// Updates pool balance and allocates emergency fund share.
 pub fn fund_pool(env: &Env, amount: i128) -> Result<(), InsuranceError> {
-    if get_admin(env).is_none() {
-        return Err(InsuranceError::NotInitialized);
-    }
+    let admin = get_admin(env).ok_or(InsuranceError::NotInitialized)?;
+    admin.require_auth();
     if amount <= 0 {
         return Err(InsuranceError::InvalidAmount);
     }

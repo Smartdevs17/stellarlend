@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { UnauthorizedError, ValidationError } from '../utils/errors';
 import logger from '../utils/logger';
+import type { AuthRequest } from './auth';
 
 export type Role = 'admin' | 'operator' | 'user' | 'viewer';
 
@@ -79,14 +80,16 @@ const pendingRevocations = new Map<string, PendingRevocation>();
 const currentRoles = new Map<string, Role>();
 
 function resolveRole(req: Request): Role {
-  const role = (req.headers['x-user-role'] || 'viewer').toString().toLowerCase();
+  const role = (req as AuthRequest).user?.role?.toLowerCase();
   if (role === 'admin' || role === 'operator' || role === 'user' || role === 'viewer') {
-    return role as Role;
+    return role;
   }
-  throw new ValidationError('x-user-role must be one of: admin, operator, user, viewer');
+  throw new UnauthorizedError('Authentication required');
 }
 
 function resolveActor(req: Request): string {
+  const userAddress = (req as AuthRequest).user?.address;
+  if (userAddress) return userAddress;
   const actor = (req.headers['x-user-address'] || '').toString().trim();
   if (!actor) throw new UnauthorizedError('x-user-address header is required');
   return actor;
@@ -96,7 +99,7 @@ export function requireRole(minimum: Role) {
   return (req: Request, _res: Response, next: NextFunction) => {
     const callerRole = resolveRole(req);
     if (ROLE_WEIGHT[callerRole] < ROLE_WEIGHT[minimum]) {
-      const actor = (req.headers['x-user-address'] || 'unknown').toString();
+      const actor = (req as AuthRequest).user?.address ?? 'unknown';
       logger.warn('Unauthorized role access attempt', {
         actor,
         callerRole,
@@ -116,7 +119,7 @@ export function requirePermission(resource: Resource, action: Action) {
     const callerRole = resolveRole(req);
     const allowed = PERMISSION_MATRIX[callerRole][resource] ?? [];
     if (!allowed.includes(action)) {
-      const actor = (req.headers['x-user-address'] || 'unknown').toString();
+      const actor = (req as AuthRequest).user?.address ?? 'unknown';
       logger.warn('Unauthorized permission access attempt', {
         actor,
         callerRole,

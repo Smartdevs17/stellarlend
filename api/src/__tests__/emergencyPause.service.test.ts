@@ -28,4 +28,15 @@ describe('EmergencyPauseService', () => {
     expect(drained).toHaveLength(1);
     expect(emergencyPauseService.isPaused().paused).toBe(false);
   });
+
+  it('rejects invalid limit updates (Issue #1090)', () => {
+    expect(() => emergencyPauseService.updateLimits({ maxPerTransaction: -1 })).toThrow();
+    expect(() => emergencyPauseService.updateLimits({ maxDailyPerUser: NaN })).toThrow();
+    expect(() => emergencyPauseService.updateLimits({ maxDailyPoolDrain: Infinity })).toThrow();
+
+    const updated = emergencyPauseService.updateLimits({ maxPerTransaction: 1000 });
+    expect(updated.maxPerTransaction).toBe(1000);
+    // Restore defaults for other tests
+    emergencyPauseService.updateLimits({ maxPerTransaction: 500_000 });
+  });
 });
