@@ -1,11 +1,9 @@
-import { StellarService } from './stellar.service';
-import { redisCacheService } from './redisCache.service';
-import logger from '../utils/logger';
-
-const EVENTS_CACHE_TTL_S = 60;
+import { getEventIndexer } from './eventIndex';
+import { CURRENT_SCHEMA_VERSION } from './eventIndex/schema';
+import type { EventPage, EventQuery } from './eventIndex/types';
 
 // --- Structured event schema exports (kept in sync with on-chain contract) ---
-export const EVENT_SCHEMA_VERSION = 1;
+export const EVENT_SCHEMA_VERSION = CURRENT_SCHEMA_VERSION;
 
 export const EVENT_MODULES = Object.freeze([
   'lending',
@@ -38,15 +36,7 @@ export const EVENT_ACTIONS = Object.freeze([
   'other',
 ]);
 
-export interface IndexedEvent {
-  id: string;
-  type: string;
-  contract: string;
-  topic?: string[];
-  data: Record<string, any>;
-  timestamp: number;
-  ledger: number;
-}
+export type { IndexedEvent } from './eventIndex/types';
 
 export interface EventStats {
   totalEvents: number;
@@ -54,62 +44,49 @@ export interface EventStats {
   lastUpdated: number;
 }
 
-const stellarService = new StellarService();
+/**
+ * Event names as published on-chain: typed events use their snake_case struct
+ * name minus `_event` (e.g. `WithdrawalEvent` → `withdrawal`), and structured
+ * envelopes use the `proto_evt` topic prefix. The lending contract's names
+ * are pinned by `stellar-lend/contracts/lending/tests/event_topics.rs`.
+ */
+const KNOWN_EVENT_TYPES = [
+  'deposit',
+  'vault_deposit',
+  'borrow_collateral_deposit',
+  'withdrawal',
+  'withdraw',
+  'borrow',
+  'repay',
+  'liquidation',
+  'flash_loan_initiated',
+  'flash_loan_repaid',
+  'admin_action',
+  'price_updated',
+  'risk_params_updated',
+  'pause_state_changed',
+  'position_updated',
+  'analytics_updated',
+  'user_activity_tracked',
+  'proto_evt',
+];
 
-export async function getIndexedEvents(filters: {
-  type?: string;
-  address?: string;
-  from?: number;
-  to?: number;
-  limit: number;
-}): Promise<IndexedEvent[]> {
-  const cacheKey = redisCacheService.buildKey(
-    'events',
-    `query:${filters.type ?? 'all'}:${filters.address ?? 'all'}:${filters.from ?? 0}:${filters.to ?? 0}:${filters.limit}`
-  );
-  const cached = await redisCacheService.get<IndexedEvent[]>(cacheKey);
-  if (cached) return cached;
-
-  try {
-    const events = await (stellarService as any).readIndexedEvents(filters);
-    const result = Array.isArray(events) ? events : [];
-    await redisCacheService.set(cacheKey, result, EVENTS_CACHE_TTL_S);
-    return result;
-  } catch (error) {
-    logger.warn('Failed to fetch indexed events from contract', { error, filters });
-    return [];
-  }
+/** Query the event index (hot store, optionally including archived segments). */
+export async function getIndexedEvents(query: EventQuery): Promise<EventPage> {
+  return getEventIndexer().query(query);
 }
 
+/** Known event types plus any other type the indexer has seen. */
 export function getEventTypes(): string[] {
-  return [
-    'deposit',
-    'withdraw',
-    'borrow',
-    'repay',
-    'liquidation',
-    'flash_loan',
-    'admin_action',
-    'price_updated',
-    'risk_params_updated',
-    'pause_state_changed',
-    'position_updated',
-    'analytics_updated',
-    'user_activity_tracked',
-  ];
+  const seen = getEventIndexer().store.types();
+  return [...KNOWN_EVENT_TYPES, ...seen.filter((t) => !KNOWN_EVENT_TYPES.includes(t))];
 }
 
 export function getEventStats(): EventStats {
+  const { totalEvents, byType } = getEventIndexer().analytics();
   const eventTypeCounts: Record<string, number> = {};
-  for (const type of getEventTypes()) {
-    eventTypeCounts[type] = 0;
-  }
-
-  return {
-    totalEvents: 0,
-    eventTypeCounts,
-    lastUpdated: Date.now(),
-  };
+  for (const type of getEventTypes()) eventTypeCounts[type] = byType[type] ?? 0;
+  return { totalEvents, eventTypeCounts, lastUpdated: Date.now() };
 }
 
 /**
@@ -124,8 +101,7 @@ export function getEventSchemaCatalog() {
     action: null,
     envelope: true,
     topicPrefix: 'proto_evt',
-    description:
-      'Versioned, self-describing structured envelope emitted alongside typed events',
+    description: 'Versioned, self-describing structured envelope emitted alongside typed events',
     fields: [
       { name: 'module', type: 'EventModule', topic: true },
       { name: 'action', type: 'EventAction', topic: true },

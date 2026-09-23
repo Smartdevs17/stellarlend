@@ -11,6 +11,7 @@ import {
 } from '@stellar/stellar-sdk';
 import { ValidationError } from '../utils/errors';
 import { Server as SorobanServer } from '@stellar/stellar-sdk/rpc';
+import type { rpc } from '@stellar/stellar-sdk';
 import axios from 'axios';
 import type { AxiosResponse } from 'axios';
 import { config } from '../config';
@@ -29,6 +30,7 @@ import {
 import { BoundedTtlCache } from '../utils/boundedTtlCache';
 import { redisCacheService } from './redisCache.service';
 import { requestCoalescingService } from './requestCoalescing.service';
+import type { RawContractEvent } from './eventIndex/types';
 
 const CONTRACT_METHODS: Record<LendingOperation, string> = {
   deposit: 'deposit_collateral',
@@ -435,36 +437,45 @@ export class StellarService {
     return this.simulateContractCall(methodName, ...params);
   }
 
+  /** Latest ledger known to Soroban RPC. */
+  public async getLatestLedger(): Promise<number> {
+    const res = await this.sorobanServer.getLatestLedger();
+    return res.sequence;
+  }
+
   /**
-   * Fetch and normalize indexed events from the contract. Returns an array
-   * of lightweight event records suitable for indexing and caching.
+   * Fetch one page of the lending contract's events from Soroban RPC
+   * (`getEvents`), with topics and values decoded to native JS values. Used
+   * by the event indexer (`services/eventIndex`) as its event source.
    */
-  public async readIndexedEvents(filters: any): Promise<any[]> {
-    try {
-      const raw = await this.simulateContractCall('get_indexed_events', filters);
-      const arr = Array.isArray(raw) ? raw : [];
-      return arr.map((r: any, i: number) => {
-        const timestamp = Number(r.timestamp ?? r.created_at ?? Date.now());
-        const ledger = Number(r.ledger ?? r.ledger_index ?? 0);
-        const topic = Array.isArray(r.topic) ? r.topic : r.topics ?? [];
-        const id = r.id ?? `evt_${timestamp}_${i}`;
-        const contract = r.contract ?? this.contractId;
-        const type = r.type ?? r.name ?? (topic[0] ?? 'unknown');
-        const data = r.data ?? r.payload ?? r;
-        return {
-          id,
-          type,
-          contract,
-          topic,
-          data,
-          timestamp,
-          ledger,
-        };
-      });
-    } catch (error) {
-      logger.warn('Failed to read indexed events from contract', { error, filters });
-      return [];
+  public async fetchContractEvents(request: {
+    startLedger?: number;
+    cursor?: string;
+    limit: number;
+  }): Promise<{ events: RawContractEvent[]; cursor: string; latestLedger: number }> {
+    if (!this.contractId) {
+      throw new InternalServerError('CONTRACT_ID is not configured; cannot index events');
     }
+    const filters: rpc.Api.EventFilter[] = [{ type: 'contract', contractIds: [this.contractId] }];
+    const page = await this.sorobanServer.getEvents(
+      request.cursor
+        ? { filters, cursor: request.cursor, limit: request.limit }
+        : { filters, startLedger: request.startLedger ?? 1, limit: request.limit }
+    );
+    return {
+      cursor: page.cursor,
+      latestLedger: page.latestLedger,
+      events: page.events.map((e) => ({
+        id: e.id,
+        ledger: e.ledger,
+        ledgerClosedAt: e.ledgerClosedAt,
+        contractId: e.contractId?.contractId() ?? this.contractId,
+        txHash: e.txHash,
+        inSuccessfulContractCall: e.inSuccessfulContractCall,
+        topic: e.topic.map((t) => scValToNative(t)),
+        value: scValToNative(e.value),
+      })),
+    };
   }
 
   private async simulateContractCall(methodName: string, ...params: any[]): Promise<any> {
