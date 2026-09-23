@@ -1,6 +1,10 @@
 #![no_std]
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, Vec};
 
+// New modules for Issue #696
+pub mod performance;
+pub mod traits;
+
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub enum StrategyType {

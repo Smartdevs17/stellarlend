@@ -48,6 +48,9 @@ pub mod test_utils;
 pub mod tests;
 pub mod types;
 pub mod withdraw;
+// Read/write segregation modules (Issue #699)
+pub mod views;
+pub mod operations;
 
 use crate::deposit::Position;
 use crate::errors::LendingError;
