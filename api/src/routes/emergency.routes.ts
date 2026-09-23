@@ -1,8 +1,35 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { emergencyPauseService } from '../services/emergencyPause.service';
+import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { requireRole } from '../middleware/rbac';
 import logger from '../utils/logger';
 
 const router: Router = Router();
+
+/**
+ * The authenticated caller may only act on their own address.
+ * Returns the caller address or sends 401/403 and returns null.
+ */
+function requireSelfAddress(req: Request, res: Response): string | null {
+  const caller = (req as AuthRequest).user?.address;
+  if (!caller) {
+    res.status(401).json({ success: false, error: 'Authentication required' });
+    return null;
+  }
+  const { userAddress } = req.body ?? {};
+  if (!userAddress) {
+    res.status(400).json({ success: false, error: 'userAddress and amount required' });
+    return null;
+  }
+  if (caller !== userAddress) {
+    res.status(403).json({
+      success: false,
+      error: 'Cannot withdraw on behalf of another address',
+    });
+    return null;
+  }
+  return caller;
+}
 
 const emergencyController = {
   async getStatus(_req: Request, res: Response, next: NextFunction) {
@@ -48,15 +75,19 @@ const emergencyController = {
 
   async executeEmergencyWithdrawal(req: Request, res: Response, next: NextFunction) {
     try {
-      const { userAddress, assetAddress, amount, txHash } = req.body;
-      if (!userAddress || amount === undefined) {
+      const caller = requireSelfAddress(req, res);
+      if (!caller) return;
+      const { userAddress, assetAddress, amount } = req.body;
+      if (amount === undefined) {
         return res.status(400).json({ success: false, error: 'userAddress and amount required' });
       }
+      // NOTE: the client-supplied txHash is intentionally ignored. The service
+      // generates a server-side transaction reference so callers cannot forge
+      // the audit trail.
       const execution = emergencyPauseService.executeEmergencyWithdrawal({
         userAddress,
         assetAddress,
         amount: Number(amount),
-        txHash,
       });
       res.json({ success: true, data: execution });
     } catch (error) {
@@ -124,8 +155,10 @@ const emergencyController = {
 
   async queueWithdrawal(req: Request, res: Response, next: NextFunction) {
     try {
+      const caller = requireSelfAddress(req, res);
+      if (!caller) return;
       const { userAddress, assetAddress, amount } = req.body;
-      if (!userAddress || !amount) {
+      if (!amount) {
         return res.status(400).json({ success: false, error: 'userAddress and amount required' });
       }
       emergencyPauseService.queueWithdrawal({ userAddress, assetAddress, amount });
@@ -194,21 +227,21 @@ const emergencyController = {
 };
 
 router.get('/status', emergencyController.getStatus);
-router.post('/pause', emergencyController.pause);
-router.post('/resume', emergencyController.resume);
-router.post('/withdraw', emergencyController.executeEmergencyWithdrawal);
-router.post('/emergency-withdraw', emergencyController.executeEmergencyWithdrawal);
+router.post('/pause', authenticateToken, requireRole('admin'), emergencyController.pause);
+router.post('/resume', authenticateToken, requireRole('admin'), emergencyController.resume);
+router.post('/withdraw', authenticateToken, emergencyController.executeEmergencyWithdrawal);
+router.post('/emergency-withdraw', authenticateToken, emergencyController.executeEmergencyWithdrawal);
 router.get('/fee-preview', emergencyController.previewFee);
 router.get('/limits', emergencyController.getLimits);
-router.put('/limits', emergencyController.updateLimits);
+router.put('/limits', authenticateToken, requireRole('admin'), emergencyController.updateLimits);
 router.get('/analytics', emergencyController.getAnalytics);
 router.get('/report', emergencyController.getReport);
 router.get('/withdrawals', emergencyController.getWithdrawals);
-router.post('/queue-withdrawal', emergencyController.queueWithdrawal);
-router.post('/drain-queue', emergencyController.drainQueue);
+router.post('/queue-withdrawal', authenticateToken, emergencyController.queueWithdrawal);
+router.post('/drain-queue', authenticateToken, requireRole('admin'), emergencyController.drainQueue);
 router.get('/queue', emergencyController.getQueue);
-router.post('/trigger-failure', emergencyController.triggerFailure);
-router.post('/trigger-success', emergencyController.triggerSuccess);
+router.post('/trigger-failure', authenticateToken, requireRole('admin'), emergencyController.triggerFailure);
+router.post('/trigger-success', authenticateToken, requireRole('admin'), emergencyController.triggerSuccess);
 router.get('/notifications', emergencyController.getNotifications);
 router.get('/history', emergencyController.getHistory);
 

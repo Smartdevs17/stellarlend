@@ -1,11 +1,23 @@
 import { Router } from 'express';
 import { complianceController } from '../../../controllers/compliance.controller';
+import { authenticateToken } from '../../../middleware/auth';
+import { requireRole } from '../../../middleware/rbac';
 
 const router = Router();
 
 // ─── Sanctions ──────────────────────────────────────────────────────────────
-router.post('/sanctions', (req, res) => complianceController.addSanction(req, res));
-router.delete('/sanctions', (req, res) => complianceController.removeSanction(req, res));
+router.post(
+  '/sanctions',
+  authenticateToken,
+  requireRole('admin'),
+  (req, res) => complianceController.addSanction(req, res)
+);
+router.delete(
+  '/sanctions',
+  authenticateToken,
+  requireRole('admin'),
+  (req, res) => complianceController.removeSanction(req, res)
+);
 router.get('/sanctions/check', (req, res) => complianceController.checkSanctioned(req, res));
 
 // ─── KYC ────────────────────────────────────────────────────────────────────

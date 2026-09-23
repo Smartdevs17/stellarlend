@@ -325,12 +325,16 @@ impl LendingContract {
         deposit_cap: i128,
         min_deposit_amount: i128,
     ) -> Result<(), DepositError> {
+        let admin = get_borrow_admin(&env).ok_or(DepositError::Unauthorized)?;
+        admin.require_auth();
         initialize_deposit_logic(&env, deposit_cap, min_deposit_amount)
     }
 
     /// Set deposit pause state (admin only)
     /// Deprecated: use set_pause instead
     pub fn set_deposit_paused(env: Env, paused: bool) -> Result<(), DepositError> {
+        let admin = get_borrow_admin(&env).ok_or(DepositError::Unauthorized)?;
+        admin.require_auth();
         env.storage()
             .persistent()
             .set(&pause::PauseDataKey::State(PauseType::Deposit), &paused);
@@ -393,6 +397,8 @@ impl LendingContract {
 
     /// Set emergency withdrawal limit per tx (admin only)
     pub fn set_emergency_withdraw_limit(env: Env, max_amount: i128) -> Result<(), WithdrawError> {
+        let admin = get_borrow_admin(&env).ok_or(WithdrawError::Unauthorized)?;
+        admin.require_auth();
         set_emergency_withdraw_limit_logic(&env, max_amount)
     }
 
@@ -418,11 +424,15 @@ impl LendingContract {
         env: Env,
         min_withdraw_amount: i128,
     ) -> Result<(), WithdrawError> {
+        let admin = get_borrow_admin(&env).ok_or(WithdrawError::Unauthorized)?;
+        admin.require_auth();
         initialize_withdraw_logic(&env, min_withdraw_amount)
     }
 
     /// Set withdraw pause state (admin only)
     pub fn set_withdraw_paused(env: Env, paused: bool) -> Result<(), WithdrawError> {
+        let admin = get_borrow_admin(&env).ok_or(WithdrawError::Unauthorized)?;
+        admin.require_auth();
         set_withdraw_paused_logic(&env, paused)
     }
 
@@ -443,6 +453,8 @@ impl LendingContract {
         debt_ceiling: i128,
         min_borrow_amount: i128,
     ) -> Result<(), BorrowError> {
+        let admin = get_borrow_admin(&env).ok_or(BorrowError::Unauthorized)?;
+        admin.require_auth();
         initialize_borrow_logic(&env, debt_ceiling, min_borrow_amount)
     }
 
@@ -455,7 +467,7 @@ impl LendingContract {
         insurance_initialize(&env, &admin)
     }
 
-    /// Contribute protocol fees to the insurance pool.
+    /// Contribute protocol fees to the insurance pool (admin only).
     pub fn insurance_fund_pool(env: Env, amount: i128) -> Result<(), InsuranceError> {
         insurance_fund_pool(&env, amount)
     }
