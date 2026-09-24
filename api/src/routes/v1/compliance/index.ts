@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import { complianceController } from '../../../controllers/compliance.controller';
+import { authenticateToken } from '../../../middleware/auth';
+import { requireRole } from '../../../middleware/rbac';
 
 const router = Router();
+
+router.use(authenticateToken);
+router.use(requireRole('admin'));
 
 // ─── Sanctions ──────────────────────────────────────────────────────────────
 router.post('/sanctions', (req, res) => complianceController.addSanction(req, res));
