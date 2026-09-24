@@ -8,6 +8,15 @@ use soroban_sdk::{
     vec, Address, Env, String,
 };
 
+/// Dummy target contract used by `test_execute_success`.
+#[contract]
+pub struct DummyTarget;
+
+#[contractimpl]
+impl DummyTarget {
+    pub fn test(_env: Env) {}
+}
+
 #[test]
 fn test_initialize() {
     let env = Env::default();
@@ -106,13 +115,6 @@ fn test_execute_success() {
     // when calling a dummy address, although it would in a real environment
     // without a contract registered there. But Soroban host might error if
     // address has no contract. Let's register a dummy one.)
-
-    #[contract]
-    pub struct DummyTarget;
-    #[contractimpl]
-    impl DummyTarget {
-        pub fn test(env: Env) {}
-    }
     let target_id = env.register_contract(None, DummyTarget);
 
     let tx = Transaction {
@@ -147,15 +149,9 @@ fn test_recovery_flow() {
     let guardian = Address::generate(&env);
     let guardians = vec![&env, guardian.clone()];
 
-    // Propose setting guardians
-    let tx = Transaction {
-        contract: contract_id.clone(),
-        function: Symbol::new(&env, "set_guardians"),
-        args: (guardians.clone(), 1u32).into_val(&env),
-    };
-    let batch = vec![&env, tx];
-    let proposal_id = client.propose(&admin1, &String::from_str(&env, "Set guardians"), &batch);
-    client.execute(&admin1, &proposal_id);
+    // Designate guardians through the wallet's own guardian flow.
+    client.propose_guardians(&admin1, &guardians, &1);
+    client.accept_guardian(&guardian);
 
     // Start recovery
     let new_admin = Address::generate(&env);
@@ -240,4 +236,111 @@ fn test_attacker_cannot_unilaterally_initialize() {
     client.initialize(&intended_admins, &1);
     assert_eq!(client.get_threshold(), 1);
     assert_eq!(client.get_admins().get(0).unwrap(), intended_admin);
+}
+
+// ---------------------------------------------------------------------------
+// Guardian rotation binds approvals to the exact rotation payload
+// ---------------------------------------------------------------------------
+
+fn setup_two_guardians(env: &Env) -> (InstitutionalWalletClient<'_>, Address, Address, Address) {
+    env.mock_all_auths();
+
+    let admin1 = Address::generate(env);
+    let admins = vec![env, admin1.clone()];
+
+    let contract_id = env.register_contract(None, InstitutionalWallet);
+    let client = InstitutionalWalletClient::new(env, &contract_id);
+    client.initialize(&admins, &1);
+
+    let g1 = Address::generate(env);
+    let g2 = Address::generate(env);
+    let guardians = vec![env, g1.clone(), g2.clone()];
+
+    client.propose_guardians(&admin1, &guardians, &2);
+    client.accept_guardian(&g1);
+    client.accept_guardian(&g2);
+
+    assert_eq!(client.get_guardian_threshold(), 2);
+    assert_eq!(client.get_guardians().len(), 2);
+
+    (client, g1, g2, admin1)
+}
+
+/// A guardian's approval for rotation payload A must never count toward a
+/// different rotation payload B submitted by a second guardian.
+#[test]
+fn test_rotation_approval_is_bound_to_payload() {
+    let env = Env::default();
+    let (client, g1, g2, _admin) = setup_two_guardians(&env);
+
+    let benign = vec![&env, Address::generate(&env), Address::generate(&env)];
+    let attacker_set = vec![&env, Address::generate(&env)];
+
+    // G1 approves the benign rotation (1 of 2 approvals).
+    client.rotate_guardians(&g1, &benign, &2);
+
+    // G2 tries to substitute a completely different payload.
+    let result = client.try_rotate_guardians(&g2, &attacker_set, &1);
+    assert!(
+        result.is_err(),
+        "G1's approval must not authorize a different rotation payload"
+    );
+
+    // The active guardian set and threshold are unchanged.
+    let active = client.get_guardians();
+    assert_eq!(active.len(), 2);
+    assert!(active.contains(&g1));
+    assert!(active.contains(&g2));
+    assert_eq!(client.get_guardian_threshold(), 2);
+
+    // The pending proposal still references the benign payload only.
+    let proposal = client.get_rotation_proposal().unwrap();
+    assert_eq!(proposal.new_guardians, benign);
+    assert_eq!(proposal.new_threshold, 2);
+    assert_eq!(proposal.approvals.len(), 1);
+    assert_eq!(proposal.approvals.get(0).unwrap(), g1);
+}
+
+/// A rotation only activates after the same payload is approved and every new
+/// guardian accepts the invite.
+#[test]
+fn test_rotation_activates_only_after_all_accept() {
+    let env = Env::default();
+    let (client, g1, g2, _admin) = setup_two_guardians(&env);
+
+    let n1 = Address::generate(&env);
+    let n2 = Address::generate(&env);
+    let new_set = vec![&env, n1.clone(), n2.clone()];
+
+    // Both existing guardians approve the same payload.
+    client.rotate_guardians(&g1, &new_set, &2);
+    client.rotate_guardians(&g2, &new_set, &2);
+
+    // Approval threshold met: the rotation is staged as pending invites.
+    // The old guardian set must NOT be swapped immediately.
+    let active = client.get_guardians();
+    assert_eq!(active.len(), 2);
+    assert!(active.contains(&g1));
+    assert!(active.contains(&g2));
+    assert_eq!(client.get_guardian_threshold(), 2);
+    let pending = client.get_pending_guardian_invites();
+    assert_eq!(pending, new_set);
+
+    // Accepting only one new guardian does not activate the rotation.
+    client.accept_guardian(&n1);
+    let active = client.get_guardians();
+    assert_eq!(active.len(), 3);
+    assert!(active.contains(&g1));
+    assert!(active.contains(&n1));
+
+    // Once every new guardian accepts, the active set is replaced.
+    client.accept_guardian(&n2);
+    let active = client.get_guardians();
+    assert_eq!(active.len(), 2);
+    assert!(active.contains(&n1));
+    assert!(active.contains(&n2));
+    assert!(!active.contains(&g1));
+    assert!(!active.contains(&g2));
+    assert_eq!(client.get_guardian_threshold(), 2);
+    assert!(client.get_pending_guardian_invites().is_empty());
 }

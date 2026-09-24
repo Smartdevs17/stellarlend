@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Symbol, Vec};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Vec};
 
 mod storage;
 mod types;
@@ -9,11 +9,12 @@ mod types;
 mod test;
 
 use crate::storage::{
-    add_audit_entry, get_admins, get_approvals, get_config, get_next_proposal_id, get_proposal,
-    increment_proposal_id, set_admins, set_approvals, set_config, set_proposal,
+    add_audit_entry, get_admins, get_approvals, get_config, get_proposal, increment_proposal_id,
+    set_admins, set_approvals, set_config, set_proposal,
 };
 use crate::types::{
-    AuditEntry, MultisigConfig, Proposal, ProposalStatus, Transaction, WalletError,
+    AuditEntry, MultisigConfig, Proposal, ProposalStatus, RotationProposal, Transaction,
+    WalletError,
 };
 
 /// Emergency recovery timeout: 90 days without any admin activity.
@@ -221,7 +222,7 @@ impl InstitutionalWallet {
         }
 
         let config = get_config(&env)?;
-        if new_admins.len() < config.threshold as usize {
+        if new_admins.len() < config.threshold {
             return Err(WalletError::InvalidThreshold);
         }
 
@@ -288,8 +289,35 @@ impl InstitutionalWallet {
         }
 
         acceptances.push_back(guardian.clone());
-        crate::storage::set_guardians(&env, &acceptances);
         crate::storage::set_guardian_acceptance(&env, guardian.clone(), true);
+
+        // If this acceptance belongs to a staged rotation, the replacement
+        // guardians only become active once every one of them has accepted the
+        // invite. This prevents a rotation from installing unverified members.
+        if let Some(new_threshold) = crate::storage::get_pending_guardian_threshold(&env) {
+            let all_target_accepted = pending.iter().all(|g| acceptances.contains(g));
+            if all_target_accepted {
+                crate::storage::set_guardians(&env, &pending);
+                crate::storage::set_guardian_threshold(&env, new_threshold);
+                crate::storage::set_pending_guardian_threshold(&env, None);
+                crate::storage::set_pending_guardian_invites(&env, &Vec::new(&env));
+                crate::storage::set_last_activity(&env, env.ledger().timestamp());
+
+                add_audit_entry(
+                    &env,
+                    0,
+                    AuditEntry {
+                        actor: guardian,
+                        action: symbol_short!("activate"),
+                        timestamp: env.ledger().timestamp(),
+                    },
+                );
+                return Ok(());
+            }
+        }
+
+        crate::storage::set_guardians(&env, &acceptances);
+        crate::storage::set_last_activity(&env, env.ledger().timestamp());
 
         add_audit_entry(
             &env,
@@ -304,6 +332,12 @@ impl InstitutionalWallet {
     }
 
     /// Rotate guardians with existing guardian consent.
+    ///
+    /// Approvals are bound to the exact rotation payload (`new_guardians` +
+    /// `new_threshold`) so a guardian's approval for one rotation can never be
+    /// re-used to authorize a different payload. Once the guardian threshold is
+    /// met, the replacement set is staged as pending invites and only becomes
+    /// active after every replacement guardian accepts.
     pub fn rotate_guardians(
         env: Env,
         caller: Address,
@@ -321,35 +355,51 @@ impl InstitutionalWallet {
             return Err(WalletError::InvalidThreshold);
         }
 
-        // Collect guardian approvals for rotation
-        let mut approvals: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&types::DataKey::GuardianApprovals)
-            .unwrap_or_else(|| Vec::new(&env));
-        if approvals.contains(caller.clone()) {
-            return Err(WalletError::AlreadyVoted);
+        // A staged rotation must complete (or be cancelled) before another one
+        // can be proposed; otherwise pending acceptances could be hijacked.
+        if crate::storage::get_pending_guardian_threshold(&env).is_some() {
+            return Err(WalletError::GuardianRotationFailed);
         }
 
-        let threshold = crate::storage::get_guardian_threshold(&env);
-        approvals.push_back(caller.clone());
-        env.storage()
-            .instance()
-            .set(&types::DataKey::GuardianApprovals, &approvals);
+        let now = env.ledger().timestamp();
 
-        if approvals.len() < threshold as usize {
+        // Load (or create) the pending rotation proposal. Approvals are stored
+        // together with the exact payload they consent to.
+        let mut proposal =
+            crate::storage::get_rotation_proposal(&env).unwrap_or(RotationProposal {
+                new_guardians: Vec::new(&env),
+                new_threshold: 0,
+                approvals: Vec::new(&env),
+                created_at: now,
+            });
+
+        if proposal.approvals.is_empty() {
+            proposal.new_guardians = new_guardians.clone();
+            proposal.new_threshold = new_threshold;
+            proposal.created_at = now;
+        } else if proposal.new_guardians != new_guardians || proposal.new_threshold != new_threshold
+        {
+            // Payload substitution attempt: existing approvals never apply to a
+            // different guardian set or threshold.
+            return Err(WalletError::GuardianRotationFailed);
+        }
+
+        if proposal.approvals.contains(caller.clone()) {
+            return Err(WalletError::AlreadyVoted);
+        }
+        proposal.approvals.push_back(caller.clone());
+
+        let threshold = crate::storage::get_guardian_threshold(&env);
+        if proposal.approvals.len() < threshold {
+            crate::storage::set_rotation_proposal(&env, Some(proposal));
             return Ok(()); // Need more approvals
         }
 
-        // Threshold met — execute rotation
-        crate::storage::set_guardians(&env, &new_guardians);
-        crate::storage::set_guardian_threshold(&env, new_threshold);
+        // Threshold met — stage the new guardian set as pending invites. The
+        // replacement guardians become active only once they all accept.
         crate::storage::set_pending_guardian_invites(&env, &new_guardians);
-
-        // Reset approvals
-        env.storage()
-            .instance()
-            .remove(&types::DataKey::GuardianApprovals);
+        crate::storage::set_pending_guardian_threshold(&env, Some(new_threshold));
+        crate::storage::set_rotation_proposal(&env, None);
 
         add_audit_entry(
             &env,
@@ -357,7 +407,7 @@ impl InstitutionalWallet {
             AuditEntry {
                 actor: caller,
                 action: symbol_short!("rotate"),
-                timestamp: env.ledger().timestamp(),
+                timestamp: now,
             },
         );
         Ok(())
@@ -373,9 +423,7 @@ impl InstitutionalWallet {
         guardian.require_auth();
 
         // Check emergency timeout — if 90 days without activity, any guardian can trigger
-        let last_activity = crate::storage::get_last_activity(&env);
         let now = env.ledger().timestamp();
-        let emergency_active = last_activity + EMERGENCY_RECOVERY_TIMEOUT < now;
 
         let guardians = crate::storage::get_guardians(&env);
         let is_guardian = guardians.contains(guardian.clone());
@@ -402,12 +450,11 @@ impl InstitutionalWallet {
 
         crate::storage::set_recovery_request(&env, Some(request));
 
-        // Reset guardian approvals for this recovery
+        // Reset guardian approvals for this recovery. Recovery approvals are
+        // tracked separately from rotation approvals.
         let mut approvals = Vec::new(&env);
         approvals.push_back(guardian.clone());
-        env.storage()
-            .instance()
-            .set(&types::DataKey::GuardianApprovals, &approvals);
+        crate::storage::set_recovery_approvals(&env, &approvals);
 
         add_audit_entry(
             &env,
@@ -429,7 +476,6 @@ impl InstitutionalWallet {
         if !guardians.contains(guardian.clone()) {
             return Err(WalletError::Unauthorized);
         }
-
         let request =
             crate::storage::get_recovery_request(&env).ok_or(WalletError::RecoveryNotActive)?;
         let now = env.ledger().timestamp();
@@ -440,19 +486,13 @@ impl InstitutionalWallet {
             return Err(WalletError::RecoveryNotActive);
         }
 
-        let mut approvals: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&types::DataKey::GuardianApprovals)
-            .unwrap_or_else(|| Vec::new(&env));
+        let mut approvals: Vec<Address> = crate::storage::get_recovery_approvals(&env);
         if approvals.contains(guardian.clone()) {
             return Err(WalletError::AlreadyVoted);
         }
 
         approvals.push_back(guardian.clone());
-        env.storage()
-            .instance()
-            .set(&types::DataKey::GuardianApprovals, &approvals);
+        crate::storage::set_recovery_approvals(&env, &approvals);
 
         add_audit_entry(
             &env,
@@ -475,26 +515,19 @@ impl InstitutionalWallet {
             return Err(WalletError::Unauthorized);
         }
 
-        let request =
-            crate::storage::get_recovery_request(&env).ok_or(WalletError::RecoveryNotActive)?;
+        crate::storage::get_recovery_request(&env).ok_or(WalletError::RecoveryNotActive)?;
         let now = env.ledger().timestamp();
 
         // Can only cancel during the challenge period (before threshold is met)
         let threshold = crate::storage::get_guardian_threshold(&env);
-        let approvals: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&types::DataKey::GuardianApprovals)
-            .unwrap_or_else(|| Vec::new(&env));
+        let approvals: Vec<Address> = crate::storage::get_recovery_approvals(&env);
 
-        if approvals.len() >= threshold as usize {
+        if approvals.len() >= threshold {
             return Err(WalletError::ExecutionFailed); // Too late, recovery already approved
         }
 
         crate::storage::set_recovery_request(&env, None);
-        env.storage()
-            .instance()
-            .remove(&types::DataKey::GuardianApprovals);
+        crate::storage::clear_recovery_approvals(&env);
 
         add_audit_entry(
             &env,
@@ -527,11 +560,7 @@ impl InstitutionalWallet {
 
         // Get guardian approvals
         let threshold = crate::storage::get_guardian_threshold(&env);
-        let approvals: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&types::DataKey::GuardianApprovals)
-            .unwrap_or_else(|| Vec::new(&env));
+        let approvals: Vec<Address> = crate::storage::get_recovery_approvals(&env);
 
         if !emergency_active {
             // Normal mode: enforce recovery delay (24h) and guardian threshold
@@ -539,7 +568,7 @@ impl InstitutionalWallet {
                 return Err(WalletError::ExecutionFailed);
             }
 
-            if approvals.len() < threshold as usize {
+            if approvals.len() < threshold {
                 return Err(WalletError::InsufficientApprovals);
             }
         }
@@ -552,9 +581,7 @@ impl InstitutionalWallet {
         set_config(&env, &config);
 
         crate::storage::set_recovery_request(&env, None);
-        env.storage()
-            .instance()
-            .remove(&types::DataKey::GuardianApprovals);
+        crate::storage::clear_recovery_approvals(&env);
         crate::storage::set_last_activity(&env, now);
 
         add_audit_entry(
@@ -607,11 +634,12 @@ impl InstitutionalWallet {
         crate::storage::get_recovery_request(&env)
     }
 
+    pub fn get_rotation_proposal(env: Env) -> Option<RotationProposal> {
+        crate::storage::get_rotation_proposal(&env)
+    }
+
     pub fn get_guardian_approvals(env: Env) -> Vec<Address> {
-        env.storage()
-            .instance()
-            .get(&types::DataKey::GuardianApprovals)
-            .unwrap_or_else(|| Vec::new(&env))
+        crate::storage::get_recovery_approvals(&env)
     }
 
     pub fn get_last_activity(env: Env) -> u64 {

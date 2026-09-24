@@ -1,8 +1,8 @@
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, BytesN, Env, IntoVal, Val, Vec};
-
-use auction_types::{
-    Auction, AuctionConfig, AuctionError, AuctionState, BidCommitment, BidReveal, BidResult,
+use soroban_sdk::{
+    contract, contractimpl, contracttype, token, xdr::ToXdr, Address, Bytes, BytesN, Env, Vec,
 };
+
+use auction_types::{Auction, AuctionConfig, AuctionState, BidCommitment, BidResult};
 
 const BPS_DIVISOR: i128 = 10000;
 
@@ -23,7 +23,7 @@ fn compute_current_price(config: &AuctionConfig, auction: &Auction, current_time
     }
 
     let elapsed = current_time - auction.start_time;
-    let total_duration = auction.auction_duration;
+    let total_duration = auction.config.auction_duration;
 
     if total_duration == 0 {
         return auction.floor_price;
@@ -39,21 +39,58 @@ fn compute_current_price(config: &AuctionConfig, auction: &Auction, current_time
         auction_types::PriceDecayFunction::Exponential => {
             let remaining_ratio = (BPS_DIVISOR - elapsed_bps) as u128;
             let price_range = (auction.starting_price - auction.floor_price) as u128;
-            let decayed = (price_range * remaining_ratio * remaining_ratio / (BPS_DIVISOR as u128)
+            let decayed = (price_range * remaining_ratio * remaining_ratio
+                / (BPS_DIVISOR as u128)
                 / (BPS_DIVISOR as u128)) as i128;
             auction.floor_price + decayed
         }
     }
 }
 
-fn hash_bid(bidder: &Address, auction_id: u64, collateral_amount: i128, max_price: i128, nonce: &BytesN<32>, env: &Env) -> BytesN<32> {
+fn hash_bid(
+    bidder: &Address,
+    auction_id: u64,
+    collateral_amount: i128,
+    max_price: i128,
+    nonce: &BytesN<32>,
+    env: &Env,
+) -> BytesN<32> {
     let mut data = Bytes::new(env);
-    data.append(&bidder.to_xdr(env).into());
-    data.append(&(auction_id as u64).into_val(env));
-    data.append(&(collateral_amount as i64).into_val(env));
-    data.append(&(max_price as i64).into_val(env));
-    data.append(&nonce.to_xdr(env).into());
-    env.crypto().sha256(&data)
+    data.append(&bidder.to_xdr(env));
+    data.append(&auction_id.to_xdr(env));
+    data.append(&collateral_amount.to_xdr(env));
+    data.append(&max_price.to_xdr(env));
+    data.append(&nonce.to_xdr(env));
+    env.crypto().sha256(&data).into()
+}
+
+/// Atomically settle a bid's asset movements before any auction accounting is
+/// committed:
+///   1. collect the exact `debt_repaid` of `debt_asset` from the bidder and
+///      route the proceeds to the lending pool (debt settlement path);
+///   2. transfer the filled `collateral_asset` from the auction contract to
+///      the bidder.
+///
+/// A failed payment (zero balance, missing allowance, frozen token) panics and
+/// reverts the whole call, so auction state can never be mutated without the
+/// corresponding assets moving.
+fn settle_bid_payment(
+    env: &Env,
+    auction: &Auction,
+    bidder: &Address,
+    debt_repaid: i128,
+    collateral_filled: i128,
+) {
+    let debt_token = token::Client::new(env, &auction.debt_asset);
+    debt_token.transfer_from(
+        &env.current_contract_address(),
+        bidder,
+        &auction.pool,
+        &debt_repaid,
+    );
+
+    let collateral_token = token::Client::new(env, &auction.collateral_asset);
+    collateral_token.transfer(&env.current_contract_address(), bidder, &collateral_filled);
 }
 
 #[contract]
@@ -99,8 +136,7 @@ impl LiquidationAuctionContract {
         let now = env.ledger().timestamp();
         let starting_price =
             debt_amount * (BPS_DIVISOR + config.starting_premium_bps) / BPS_DIVISOR;
-        let floor_price =
-            debt_amount * (BPS_DIVISOR + config.floor_discount_bps) / BPS_DIVISOR;
+        let floor_price = debt_amount * (BPS_DIVISOR + config.floor_discount_bps) / BPS_DIVISOR;
 
         let auction = Auction {
             id: 0,
@@ -138,35 +174,33 @@ impl LiquidationAuctionContract {
         env.storage()
             .instance()
             .set(&DataKey::AuctionCount, &auction_id);
-        env.storage()
-            .instance()
-            .set(&DataKey::BidsReceived(auction_id), &Vec::<Address>::new(&env));
+        env.storage().instance().set(
+            &DataKey::BidsReceived(auction_id),
+            &Vec::<Address>::new(&env),
+        );
 
         env.events().publish(
             ("auction_started", &pool),
-            (auction_id, auction_with_id.collateral_amount, starting_price),
+            (
+                auction_id,
+                auction_with_id.collateral_amount,
+                starting_price,
+            ),
         );
 
         auction_id
     }
 
-    pub fn commit_bid(
-        env: Env,
-        bidder: Address,
-        auction_id: u64,
-        commitment_hash: BytesN<32>,
-    ) {
+    pub fn commit_bid(env: Env, bidder: Address, auction_id: u64, commitment_hash: BytesN<32>) {
         bidder.require_auth();
 
-        let mut auction: Auction = env
+        let auction: Auction = env
             .storage()
             .instance()
             .get(&DataKey::Auction(auction_id))
             .expect("Auction not found");
 
-        if auction.state != AuctionState::Active
-            && auction.state != AuctionState::PartiallyFilled
-        {
+        if auction.state != AuctionState::Active && auction.state != AuctionState::PartiallyFilled {
             panic!("Auction not in active state");
         }
 
@@ -201,10 +235,8 @@ impl LiquidationAuctionContract {
                 .set(&DataKey::BidsReceived(auction_id), &bids);
         }
 
-        env.events().publish(
-            ("bid_committed", &auction.user),
-            (auction_id, &bidder),
-        );
+        env.events()
+            .publish(("bid_committed", &auction.user), (auction_id, &bidder));
     }
 
     pub fn reveal_bid(
@@ -223,9 +255,7 @@ impl LiquidationAuctionContract {
             .get(&DataKey::Auction(auction_id))
             .expect("Auction not found");
 
-        if auction.state != AuctionState::Active
-            && auction.state != AuctionState::PartiallyFilled
-        {
+        if auction.state != AuctionState::Active && auction.state != AuctionState::PartiallyFilled {
             panic!("Auction not in active state");
         }
 
@@ -237,7 +267,14 @@ impl LiquidationAuctionContract {
             panic!("Not in reveal phase");
         }
 
-        let expected_hash = hash_bid(&bidder, auction_id, collateral_amount, max_price, &nonce, &env);
+        let expected_hash = hash_bid(
+            &bidder,
+            auction_id,
+            collateral_amount,
+            max_price,
+            &nonce,
+            &env,
+        );
 
         let commitment: BidCommitment = env
             .storage()
@@ -271,6 +308,8 @@ impl LiquidationAuctionContract {
 
         let debt_repaid = fill_amount * current_price / BPS_DIVISOR;
 
+        settle_bid_payment(&env, &auction, &bidder, debt_repaid, fill_amount);
+
         auction.filled_amount += fill_amount;
         auction.remaining_collateral -= fill_amount;
         auction.current_price = current_price;
@@ -285,7 +324,9 @@ impl LiquidationAuctionContract {
             .instance()
             .set(&DataKey::Auction(auction_id), &auction);
 
-        env.storage().persistent().remove(&(DataKey::Commitments(auction_id), bidder.clone()));
+        env.storage()
+            .persistent()
+            .remove(&(DataKey::Commitments(auction_id), bidder.clone()));
 
         let result = BidResult {
             auction_id,
@@ -295,7 +336,8 @@ impl LiquidationAuctionContract {
             debt_repaid,
         };
 
-        env.events().publish(("bid_revealed", &auction.user), &result);
+        env.events()
+            .publish(("bid_revealed", &auction.user), &result);
     }
 
     pub fn place_bid(
@@ -312,9 +354,7 @@ impl LiquidationAuctionContract {
             .get(&DataKey::Auction(auction_id))
             .expect("Auction not found");
 
-        if auction.state != AuctionState::Active
-            && auction.state != AuctionState::PartiallyFilled
-        {
+        if auction.state != AuctionState::Active && auction.state != AuctionState::PartiallyFilled {
             panic!("Auction not in active state");
         }
 
@@ -345,6 +385,8 @@ impl LiquidationAuctionContract {
 
         let debt_repaid = fill_amount * current_price / BPS_DIVISOR;
 
+        settle_bid_payment(&env, &auction, &bidder, debt_repaid, fill_amount);
+
         auction.filled_amount += fill_amount;
         auction.remaining_collateral -= fill_amount;
         auction.current_price = current_price;
@@ -367,8 +409,7 @@ impl LiquidationAuctionContract {
             debt_repaid,
         };
 
-        env.events()
-            .publish(("bid_placed", &auction.user), &result);
+        env.events().publish(("bid_placed", &auction.user), &result);
 
         result
     }
@@ -401,8 +442,10 @@ impl LiquidationAuctionContract {
             .instance()
             .set(&DataKey::Auction(auction_id), &auction);
 
-        env.events()
-            .publish(("auction_settled", &auction.user), (auction_id, auction.remaining_collateral));
+        env.events().publish(
+            ("auction_settled", &auction.user),
+            (auction_id, auction.remaining_collateral),
+        );
 
         auction
     }
@@ -417,9 +460,7 @@ impl LiquidationAuctionContract {
             .get(&DataKey::Auction(auction_id))
             .expect("Auction not found");
 
-        if auction.state != AuctionState::Active
-            && auction.state != AuctionState::PartiallyFilled
-        {
+        if auction.state != AuctionState::Active && auction.state != AuctionState::PartiallyFilled {
             panic!("Auction cannot be cancelled in current state");
         }
 
@@ -450,9 +491,7 @@ impl LiquidationAuctionContract {
             .expect("Auction not found");
 
         let now = env.ledger().timestamp();
-        if auction.state == AuctionState::Active
-            || auction.state == AuctionState::PartiallyFilled
-        {
+        if auction.state == AuctionState::Active || auction.state == AuctionState::PartiallyFilled {
             auction.current_price = compute_current_price(&auction.config, &auction, now);
         }
 
@@ -466,9 +505,7 @@ impl LiquidationAuctionContract {
             .get(&DataKey::Auction(auction_id))
             .expect("Auction not found");
 
-        if auction.state == AuctionState::Active
-            || auction.state == AuctionState::PartiallyFilled
-        {
+        if auction.state == AuctionState::Active || auction.state == AuctionState::PartiallyFilled {
             let now = env.ledger().timestamp();
             compute_current_price(&auction.config, &auction, now)
         } else {
@@ -489,6 +526,7 @@ impl LiquidationAuctionContract {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soroban_sdk::testutils::{Address as _, Ledger};
 
     #[test]
     fn test_initialize() {
@@ -583,5 +621,253 @@ mod tests {
 
         let price_end = compute_current_price(&config, &auction, 3600);
         assert_eq!(price_end, auction.floor_price);
+    }
+
+    fn test_config() -> AuctionConfig {
+        AuctionConfig {
+            starting_premium_bps: 1000,
+            floor_discount_bps: 500,
+            auction_duration: 3600,
+            price_decay_function: auction_types::PriceDecayFunction::Linear,
+            min_bid_size: 100,
+            commit_phase_duration: 600,
+            reveal_phase_duration: 600,
+        }
+    }
+
+    struct AuctionTestSetup {
+        env: Env,
+        contract: Address,
+        pool: Address,
+        bidder: Address,
+        collateral_asset: Address,
+        debt_asset: Address,
+        collateral_amount: i128,
+        debt_amount: i128,
+    }
+
+    impl AuctionTestSetup {
+        fn new() -> Self {
+            let env = Env::default();
+            env.mock_all_auths();
+
+            let admin = Address::generate(&env);
+            let gov = Address::generate(&env);
+            let pool = Address::generate(&env);
+            let bidder = Address::generate(&env);
+            let collateral_token_admin = Address::generate(&env);
+            let debt_token_admin = Address::generate(&env);
+
+            let collateral_asset = env
+                .register_stellar_asset_contract_v2(collateral_token_admin)
+                .address();
+            let debt_asset = env
+                .register_stellar_asset_contract_v2(debt_token_admin)
+                .address();
+            let contract = env.register_contract(None, LiquidationAuctionContract);
+
+            LiquidationAuctionContractClient::new(&env, &contract).initialize(&admin, &gov);
+
+            AuctionTestSetup {
+                env,
+                contract,
+                pool,
+                bidder,
+                collateral_asset,
+                debt_asset,
+                collateral_amount: 1000,
+                debt_amount: 1000,
+            }
+        }
+
+        fn client(&self) -> LiquidationAuctionContractClient<'_> {
+            LiquidationAuctionContractClient::new(&self.env, &self.contract)
+        }
+
+        fn fund_collateral(&self, amount: i128) {
+            token::StellarAssetClient::new(&self.env, &self.collateral_asset)
+                .mint(&self.contract, &amount);
+        }
+
+        fn fund_bidder_debt(&self, amount: i128) {
+            token::StellarAssetClient::new(&self.env, &self.debt_asset).mint(&self.bidder, &amount);
+        }
+
+        fn approve_bidder_debt(&self, amount: i128) {
+            token::Client::new(&self.env, &self.debt_asset).approve(
+                &self.bidder,
+                &self.contract,
+                &amount,
+                &9999,
+            );
+        }
+
+        fn start(&self) -> u64 {
+            self.client().start_auction(
+                &self.pool,
+                &self.pool,
+                &self.collateral_asset,
+                &self.debt_asset,
+                &self.collateral_amount,
+                &self.debt_amount,
+                &test_config(),
+            )
+        }
+
+        fn stored_auction(&self, auction_id: u64) -> Auction {
+            self.env.as_contract(&self.contract, || {
+                self.env
+                    .storage()
+                    .instance()
+                    .get(&DataKey::Auction(auction_id))
+                    .unwrap()
+            })
+        }
+    }
+
+    fn expected_debt_repaid(env: &Env, auction: &Auction, collateral: i128) -> i128 {
+        let now = env.ledger().timestamp();
+        let current_price = compute_current_price(&auction.config, auction, now);
+        collateral * current_price / BPS_DIVISOR
+    }
+
+    #[test]
+    fn test_place_bid_settles_tokens() {
+        let setup = AuctionTestSetup::new();
+        setup.fund_collateral(1_000_000);
+        setup.fund_bidder_debt(1_000_000);
+        setup.approve_bidder_debt(1_000_000);
+
+        let debt_token = token::Client::new(&setup.env, &setup.debt_asset);
+        let collateral_token = token::Client::new(&setup.env, &setup.collateral_asset);
+
+        let auction_id = setup.start();
+        let debt_repaid = expected_debt_repaid(
+            &setup.env,
+            &setup.stored_auction(auction_id),
+            setup.collateral_amount,
+        );
+
+        let result = setup
+            .client()
+            .place_bid(&setup.bidder, &auction_id, &setup.collateral_amount);
+
+        assert_eq!(result.collateral_filled, setup.collateral_amount);
+        assert_eq!(result.debt_repaid, debt_repaid);
+
+        // Debt assets moved from the bidder to the lending pool.
+        assert_eq!(debt_token.balance(&setup.bidder), 1_000_000 - debt_repaid);
+        assert_eq!(debt_token.balance(&setup.pool), debt_repaid);
+
+        // Collateral moved from the auction contract to the bidder.
+        assert_eq!(
+            collateral_token.balance(&setup.bidder),
+            setup.collateral_amount
+        );
+        assert_eq!(
+            collateral_token.balance(&setup.contract),
+            1_000_000 - setup.collateral_amount
+        );
+
+        let stored = setup.stored_auction(auction_id);
+        assert_eq!(stored.remaining_collateral, 0);
+        assert_eq!(stored.state, AuctionState::FullyFilled);
+    }
+
+    #[test]
+    fn test_reveal_bid_settles_tokens() {
+        let setup = AuctionTestSetup::new();
+        setup.fund_collateral(1_000_000);
+        setup.fund_bidder_debt(1_000_000);
+        setup.approve_bidder_debt(1_000_000);
+
+        let debt_token = token::Client::new(&setup.env, &setup.debt_asset);
+        let collateral_token = token::Client::new(&setup.env, &setup.collateral_asset);
+
+        let auction_id = setup.start();
+
+        let nonce = BytesN::from_array(&setup.env, &[7u8; 32]);
+        let max_price = i128::MAX - 1;
+        setup
+            .client()
+            .commit_bid(&setup.bidder, &auction_id, &nonce);
+        setup
+            .env
+            .ledger()
+            .set_timestamp(setup.env.ledger().timestamp() + 700);
+        setup.client().reveal_bid(
+            &setup.bidder,
+            &auction_id,
+            &setup.collateral_amount,
+            &max_price,
+            &nonce,
+        );
+
+        let debt_repaid = expected_debt_repaid(
+            &setup.env,
+            &setup.stored_auction(auction_id),
+            setup.collateral_amount,
+        );
+        assert_eq!(debt_token.balance(&setup.bidder), 1_000_000 - debt_repaid);
+        assert_eq!(debt_token.balance(&setup.pool), debt_repaid);
+        assert_eq!(
+            collateral_token.balance(&setup.bidder),
+            setup.collateral_amount
+        );
+        assert_eq!(
+            collateral_token.balance(&setup.contract),
+            1_000_000 - setup.collateral_amount
+        );
+
+        let stored = setup.stored_auction(auction_id);
+        assert_eq!(stored.remaining_collateral, 0);
+        assert_eq!(stored.state, AuctionState::FullyFilled);
+    }
+
+    #[test]
+    fn test_place_bid_zero_balance_bidder_fails_atomically() {
+        let setup = AuctionTestSetup::new();
+        setup.approve_bidder_debt(1_000_000);
+
+        let debt_token = token::Client::new(&setup.env, &setup.debt_asset);
+        assert_eq!(debt_token.balance(&setup.bidder), 0);
+
+        let auction_id = setup.start();
+
+        let result =
+            setup
+                .client()
+                .try_place_bid(&setup.bidder, &auction_id, &setup.collateral_amount);
+        assert!(
+            result.is_err(),
+            "zero-balance bidder must not win the auction"
+        );
+
+        let stored = setup.stored_auction(auction_id);
+        assert_eq!(stored.remaining_collateral, setup.collateral_amount);
+        assert_eq!(stored.filled_amount, 0);
+        assert_eq!(stored.state, AuctionState::Active);
+    }
+
+    #[test]
+    fn test_place_bid_insufficient_allowance_fails_atomically() {
+        let setup = AuctionTestSetup::new();
+        setup.fund_bidder_debt(1_000_000);
+
+        let auction_id = setup.start();
+
+        let result =
+            setup
+                .client()
+                .try_place_bid(&setup.bidder, &auction_id, &setup.collateral_amount);
+        assert!(
+            result.is_err(),
+            "unapproved bidder must not win the auction"
+        );
+
+        let stored = setup.stored_auction(auction_id);
+        assert_eq!(stored.remaining_collateral, setup.collateral_amount);
+        assert_eq!(stored.filled_amount, 0);
+        assert_eq!(stored.state, AuctionState::Active);
     }
 }

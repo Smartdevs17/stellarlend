@@ -1,4 +1,4 @@
-use soroban_sdk::{contracterror, contracttype, Address, BytesN, String, Val, Vec};
+use soroban_sdk::{contracterror, contracttype, Address, String, Val, Vec};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -41,6 +41,18 @@ pub enum DataKey {
     LastActivity,
     GuardianApprovals,
     RecoveryCancelRequest,
+    RotationProposal,
+    RecoveryApprovals,
+    PendingGuardianThreshold,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RotationProposal {
+    pub new_guardians: Vec<Address>,
+    pub new_threshold: u32,
+    pub approvals: Vec<Address>,
+    pub created_at: u64,
 }
 
 #[contracttype]
