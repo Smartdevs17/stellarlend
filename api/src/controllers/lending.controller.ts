@@ -147,6 +147,7 @@ export const submit = async (req: Request, res: Response, next: NextFunction) =>
       await redisCacheService.delByPrefix('stellarlend:position:');
       await redisCacheService.delByPrefix('stellarlend:pool:');
       await redisCacheService.delByPrefix('stellarlend:protocol:');
+      await redisCacheService.delByPrefix('stellarlend:simulation:');
 
       return res.status(200).json(monitorResult);
     }

@@ -679,6 +679,59 @@ describe('StellarService', () => {
         )
       ).rejects.toThrow('Simulation failed: resource limit exceeded');
     });
+
+    describe('simulation cache', () => {
+      const user = 'GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
+      const simulationResult = {
+        cost: { cpuInsns: '111', memBytes: '222' },
+        minResourceFee: '333',
+      };
+
+      it('reuses the cached simulation for an identical pool operation', async () => {
+        mockSorobanServer.simulateTransaction.mockResolvedValue(simulationResult);
+
+        const first = await service.estimateGas('repay', user, undefined, '5000');
+        const second = await service.estimateGas('repay', user, undefined, '5000');
+
+        expect(second).toEqual(first);
+        expect(first).toEqual({ cpuInstructions: '111', memoryBytes: '222', minResourceFee: '333' });
+        expect(mockSorobanServer.simulateTransaction).toHaveBeenCalledTimes(1);
+      });
+
+      it('simulates separately when the operation parameters differ', async () => {
+        mockSorobanServer.simulateTransaction.mockResolvedValue(simulationResult);
+
+        await service.estimateGas('repay', user, undefined, '5000');
+        await service.estimateGas('repay', user, undefined, '6000');
+        await service.estimateGas('deposit', user, undefined, '5000');
+
+        expect(mockSorobanServer.simulateTransaction).toHaveBeenCalledTimes(3);
+      });
+
+      it('does not cache a failed simulation', async () => {
+        mockSorobanServer.simulateTransaction
+          .mockResolvedValueOnce({ error: 'resource limit exceeded' })
+          .mockResolvedValueOnce(simulationResult);
+
+        await expect(service.estimateGas('repay', user, undefined, '5000')).rejects.toThrow(
+          'Simulation failed: resource limit exceeded'
+        );
+        const result = await service.estimateGas('repay', user, undefined, '5000');
+
+        expect(result.minResourceFee).toBe('333');
+        expect(mockSorobanServer.simulateTransaction).toHaveBeenCalledTimes(2);
+      });
+
+      it('re-simulates once the simulation cache is invalidated', async () => {
+        mockSorobanServer.simulateTransaction.mockResolvedValue(simulationResult);
+
+        await service.estimateGas('repay', user, undefined, '5000');
+        await redisCacheService.delByPrefix('stellarlend:simulation:');
+        await service.estimateGas('repay', user, undefined, '5000');
+
+        expect(mockSorobanServer.simulateTransaction).toHaveBeenCalledTimes(2);
+      });
+    });
   });
 
   describe('transaction history service paths', () => {

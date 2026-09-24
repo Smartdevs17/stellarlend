@@ -51,6 +51,7 @@ export interface CacheConfig {
   protocolStatsTtlMs: number;
   positionTtlMs: number;
   poolTtlMs: number;
+  simulationTtlMs: number;
 }
 
 export interface WsConfig {
@@ -78,6 +79,12 @@ export interface CorsConfig {
   allowedOrigins: string[];
 }
 
+export interface PushConfig {
+  vapidPublicKey: string;
+  vapidPrivateKey: string;
+  vapidSubject: string;
+}
+
 export interface AppConfig {
   server: ServerConfig;
   stellar: StellarConfig;
@@ -93,6 +100,7 @@ export interface AppConfig {
   analytics: AnalyticsConfig;
   subscriptions: SubscriptionConfig;
   cors: CorsConfig;
+  push: PushConfig;
 }
 
 export interface ConfigAuditEntry {

@@ -135,6 +135,7 @@ function buildConfig(): AppConfig {
       ),
       positionTtlMs: parseInt(process.env.POSITION_CACHE_TTL_MS || '15000', 10),
       poolTtlMs: parseInt(process.env.POOL_CACHE_TTL_MS || '30000', 10),
+      simulationTtlMs: parseInt(process.env.SIMULATION_CACHE_TTL_MS || '10000', 10),
       ...(envOverrides.cache || {}),
     },
     ws: {
@@ -182,6 +183,12 @@ function buildConfig(): AppConfig {
     cors: {
       allowedOrigins: parseCorsOrigins(),
       ...(envOverrides.cors || {}),
+    },
+    push: {
+      vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
+      vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || '',
+      vapidSubject: process.env.VAPID_SUBJECT || '',
+      ...(envOverrides.push || {}),
     },
   };
 

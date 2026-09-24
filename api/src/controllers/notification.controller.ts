@@ -1,5 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { notificationEngine } from '../services/notification-engine';
+import {
+  parsePushSubscription,
+  pushChannel,
+} from '../services/notification-engine/channels/push.channel';
 import logger from '../utils/logger';
 
 export const subscribe = async (req: Request, res: Response, next: NextFunction) => {
@@ -14,9 +18,32 @@ export const subscribe = async (req: Request, res: Response, next: NextFunction)
     if (!channel || !recipient || !alertTypes) {
       return res.status(400).json({ success: false, error: 'Missing required fields: channel, recipient, alertTypes' });
     }
+    if (channel === 'push') {
+      const subscription = parsePushSubscription(recipient);
+      if (!subscription) {
+        return res.status(400).json({
+          success: false,
+          error: 'recipient must be a JSON-encoded browser PushSubscription for the push channel',
+        });
+      }
+      pushChannel.addSubscription(userAddress, subscription);
+    }
     const prefs = notificationEngine.subscribe(userAddress, channel as any, recipient, alertTypes as any);
     logger.info('Notification subscription', { userAddress, channel });
     return res.status(201).json({ success: true, data: prefs });
+  } catch (error) {
+    next(error);
+    return;
+  }
+};
+
+export const getPushPublicKey = async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const publicKey = pushChannel.getPublicKey();
+    if (!publicKey) {
+      return res.status(503).json({ success: false, error: 'Push notifications are not configured' });
+    }
+    return res.status(200).json({ success: true, data: { publicKey } });
   } catch (error) {
     next(error);
     return;

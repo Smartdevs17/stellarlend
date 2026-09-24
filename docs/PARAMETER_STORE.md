@@ -139,6 +139,11 @@ All routes under `/api/parameters`.
 | `POST` | `/proposals/:id/votes` | Cast a vote |
 | `GET` | `/proposals/:id/votes` | Votes and tally |
 
+`frontend/src/components/GovernanceVoting.tsx` is the voting interface for
+these endpoints. It lists pending proposals and their voting deadline, and
+shows the tally against the quorum and approval threshold. The connected
+wallet (`voterAddress`) can vote for or against while the window is open.
+
 ### Simulation, validation, configuration
 
 | Method | Path | Purpose |

@@ -9,6 +9,7 @@ import { SubscriptionService } from './services/subscription.service';
 import { startRiskEngineScheduler } from './services/risk-engine';
 import { startPoolSnapshotCron } from './jobs/poolSnapshot.job';
 import { startEventIndexerFromEnv } from './services/eventIndex';
+import { startLiquidationWarnings } from './services/notification-engine/liquidationWarnings';
 
 const PORT = config.server.port;
 
@@ -29,6 +30,9 @@ startPoolSnapshotCron();
 
 // Contract event indexer (#685) — polls Soroban RPC when EVENT_INDEXER_ENABLED=true
 startEventIndexerFromEnv();
+
+// Liquidation warnings for at-risk positions, delivered to subscribed channels (incl. Web Push)
+startLiquidationWarnings();
 
 server.listen(PORT, () => {
   logger.info(`StellarLend API server running on port ${PORT}`);

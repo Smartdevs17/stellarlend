@@ -384,6 +384,20 @@ export class StellarService {
       amount,
     });
     return requestCoalescingService.execute(coalescingKey, async () => {
+      // Repeated simulations of the same pool operation within the TTL reuse
+      // the cached result instead of another Soroban RPC round trip. Entries
+      // are dropped after a submitted transaction (see lending.controller).
+      const simulationCacheKey = redisCacheService.buildKey(
+        'simulation',
+        `${userAddress}:${operation}:${assetAddress ?? 'native'}:${amount}`
+      );
+      const cached = await redisCacheService.get<{
+        cpuInstructions: string;
+        memoryBytes: string;
+        minResourceFee: string;
+      }>(simulationCacheKey);
+      if (cached) return cached;
+
       try {
         const account = await this.getAccount(userAddress);
         const contract = new Contract(this.contractId);
@@ -408,11 +422,17 @@ export class StellarService {
           throw new InternalServerError(`Simulation failed: ${simulation.error}`);
         }
 
-        return {
+        const estimate = {
           cpuInstructions: simulation.cost?.cpuInsns || '0',
           memoryBytes: simulation.cost?.memBytes || '0',
           minResourceFee: simulation.minResourceFee || '0',
         };
+        await redisCacheService.set(
+          simulationCacheKey,
+          estimate,
+          Math.max(1, Math.floor(config.cache.simulationTtlMs / 1000))
+        );
+        return estimate;
       } catch (error: any) {
         logger.error(`Failed to estimate gas for ${operation}:`, error);
         throw new InternalServerError(error.message || `Failed to estimate gas for ${operation}`);
