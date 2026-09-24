@@ -10,6 +10,7 @@ import v1Routes from './routes/v1';
 // Legacy route imports for backward compatibility
 import lendingRoutes from './routes/lending.routes';
 import healthRoutes from './routes/health.routes';
+import healthScoreRoutes from './routes/health';
 import protocolRoutes from './routes/protocol.routes';
 import subscriptionRoutes from './routes/subscription.routes';
 import portfolioRoutes from './routes/portfolio.routes';
@@ -71,6 +72,7 @@ import bridgeRoutes from './routes/bridge.routes';
 import complianceRoutes from './routes/v1/compliance';
 import interestRoutes from './routes/interest';
 import eventsRoutes from './routes/events';
+import parametersRoutes from './routes/parameters';
 
 import compression from 'compression';
 import { errorHandler } from './middleware/errorHandler';
@@ -226,6 +228,7 @@ const legacySecurityCompat = legacyCompatibilityMiddleware('/api/v1/security');
 
 app.use('/api/developer', legacySystemCompat, developerRoutes);
 app.use('/api/health', legacySystemCompat, healthRoutes);
+app.use('/api/health', legacySystemCompat, healthScoreRoutes);
 app.use('/api/protocol', legacyProtocolCompat, protocolRoutes);
 app.use(
   '/api/lending',
@@ -291,6 +294,7 @@ app.use('/api/debt-token', debtTokenRoutes);
 app.use('/api/bridge', bridgeRoutes);
 app.use('/api/interest', interestRoutes);
 app.use('/api/events', eventsRoutes);
+app.use('/api/parameters', legacyGovernanceCompat, parametersRoutes);
 
 app.use(errorHandler);
 

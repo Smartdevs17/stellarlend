@@ -1,8 +1,13 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol, Vec};
 
 pub mod hello_world_bridge;
+pub mod simulation;
+pub mod voting;
+
+pub use simulation::{ImpactSeverity, ParameterImpact, PoolSnapshot, RelatedParameters};
+pub use voting::{ParameterVote, VoteTally, VotingConfig};
 
 pub const BPS_DIVISOR: i128 = 10_000;
 pub const RISK_TIMELOCK_SECONDS: u64 = 48 * 3600;
@@ -70,6 +75,30 @@ pub struct ParameterChange {
     pub timestamp: u64,
     pub effective_at: u64,
     pub changed_by: Address,
+    /// Monotonic version of this parameter for this pool, starting at 1.
+    ///
+    /// Every accepted change mints a new version, and the value at each version
+    /// stays readable through
+    /// [`ParameterStoreContract::get_parameter_at_version`], so an audit can
+    /// reconstruct exactly what the pool was configured with at any point.
+    pub version: u32,
+}
+
+/// Payload published on every parameter change, for off-chain subscribers.
+///
+/// Emitted under the `param_changed` topic alongside the parameter type, so an
+/// indexer can filter by parameter without decoding every event body.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct ParameterChangeNotification {
+    pub pool: Address,
+    pub parameter: ParameterType,
+    pub old_value: i128,
+    pub new_value: i128,
+    pub version: u32,
+    pub effective_at: u64,
+    /// `true` when the change came through the emergency override path.
+    pub is_emergency: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -287,33 +316,23 @@ impl ParameterStoreContract {
             "Proposal already decided"
         );
 
+        // When governance has installed voting rules, the vote decides; until
+        // then the governance address accepts directly, as it always has.
+        if let Some(config) = voting_config(&env) {
+            assert!(
+                !voting::is_voting_open(&env, proposal.created_at, &config),
+                "Voting still open"
+            );
+            let tally = build_tally(&env, proposal_id);
+            assert!(tally.has_passed(&config), "Proposal did not pass the vote");
+        }
+
         proposal.accepted = true;
         env.storage()
             .instance()
             .set(&DataKey::Proposal(proposal_id), &proposal);
 
-        let key = DataKey::Parameter(proposal.parameter.clone(), proposal.pool.clone());
-        let old_value: i128 = env.storage().instance().get(&key).unwrap_or(0);
-
-        let change = ParameterChange {
-            parameter: proposal.parameter.clone(),
-            old_value,
-            new_value: proposal.proposed_value,
-            timestamp: current_timestamp,
-            effective_at: proposal.effective_at,
-            changed_by: proposal.proposer.clone(),
-        };
-
-        env.storage().instance().set(&key, &proposal.proposed_value);
-
-        let history_key = DataKey::ChangeHistory(proposal.parameter.clone(), proposal.pool.clone());
-        let mut history: Vec<ParameterChange> = env
-            .storage()
-            .instance()
-            .get(&history_key)
-            .unwrap_or_else(|| Vec::new(&env));
-        history.push_back(change);
-        env.storage().instance().set(&history_key, &history);
+        commit_change(&env, &proposal, current_timestamp, false);
 
         env.events()
             .publish(("accept_proposal", &proposal.parameter), &proposal_id);
@@ -346,31 +365,10 @@ impl ParameterStoreContract {
             .instance()
             .set(&DataKey::Proposal(proposal_id), &proposal);
 
-        let key = DataKey::Parameter(proposal.parameter.clone(), proposal.pool.clone());
-        let old_value: i128 = env.storage().instance().get(&key).unwrap_or(0);
-
-        let change = ParameterChange {
-            parameter: proposal.parameter.clone(),
-            old_value,
-            new_value: proposal.proposed_value,
-            timestamp: current_timestamp,
-            effective_at: proposal.effective_at,
-            changed_by: proposal.proposer.clone(),
-        };
-
-        env.storage().instance().set(&key, &proposal.proposed_value);
+        commit_change(&env, &proposal, current_timestamp, true);
         env.storage()
             .instance()
             .set(&DataKey::EmergencyOverrideActive, &true);
-
-        let history_key = DataKey::ChangeHistory(proposal.parameter.clone(), proposal.pool.clone());
-        let mut history: Vec<ParameterChange> = env
-            .storage()
-            .instance()
-            .get(&history_key)
-            .unwrap_or_else(|| Vec::new(&env));
-        history.push_back(change);
-        env.storage().instance().set(&history_key, &history);
 
         env.events().publish(("emergency_override",), &proposal_id);
     }
@@ -438,6 +436,327 @@ impl ParameterStoreContract {
             .get(&DataKey::EmergencyOverrideActive)
             .unwrap_or(false)
     }
+
+    // ---------------------------------------------------------------- versioning
+
+    /// Current version of a parameter for a pool. 0 means never set.
+    pub fn get_parameter_version(env: Env, parameter: ParameterType, pool: Address) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::ParameterVersion(parameter, pool))
+            .unwrap_or(0)
+    }
+
+    /// The value a parameter held at a given version.
+    ///
+    /// Panics for a version that was never minted, rather than returning a
+    /// default that a caller could mistake for a real historical value.
+    pub fn get_parameter_at_version(
+        env: Env,
+        parameter: ParameterType,
+        pool: Address,
+        version: u32,
+    ) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::VersionedValue(parameter, pool, version))
+            .expect("Version not found")
+    }
+
+    // ------------------------------------------------------------------- voting
+
+    /// Installs or replaces the voting rules.
+    ///
+    /// Until this is called, proposals are accepted directly by governance.
+    pub fn set_voting_config(env: Env, config: VotingConfig) {
+        let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
+        governance.require_auth();
+        assert!(config.is_valid(), "Invalid voting config");
+        env.storage().instance().set(&DataKey::VotingConfig, &config);
+        env.events().publish(("voting_config",), &config);
+    }
+
+    /// Reads the installed voting rules, if any.
+    pub fn get_voting_config(env: Env) -> Option<VotingConfig> {
+        env.storage().instance().get(&DataKey::VotingConfig)
+    }
+
+    /// Sets an address's voting weight, keeping the registered total in step.
+    ///
+    /// Setting a weight to 0 removes the voter from future quorum maths;
+    /// votes they already cast stand, since a tally reflects the weight held
+    /// when the vote was cast.
+    pub fn set_voting_power(env: Env, voter: Address, weight: i128) {
+        let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
+        governance.require_auth();
+        assert!(weight >= 0, "Voting weight cannot be negative");
+
+        let previous: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::VotingPower(voter.clone()))
+            .unwrap_or(0);
+        let total: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalVotingPower)
+            .unwrap_or(0);
+
+        env.storage()
+            .instance()
+            .set(&DataKey::VotingPower(voter.clone()), &weight);
+        env.storage().instance().set(
+            &DataKey::TotalVotingPower,
+            &(total - previous + weight),
+        );
+        env.events().publish(("voting_power", &voter), &weight);
+    }
+
+    /// Voting weight registered for an address.
+    pub fn get_voting_power(env: Env, voter: Address) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::VotingPower(voter))
+            .unwrap_or(0)
+    }
+
+    /// Total registered voting power, the denominator for quorum.
+    pub fn get_total_voting_power(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::TotalVotingPower)
+            .unwrap_or(0)
+    }
+
+    /// Casts a vote on a proposal.
+    ///
+    /// Requires the voter's own authorization — governance registers weight but
+    /// cannot vote on a holder's behalf. One vote per address per proposal;
+    /// changing a vote is not supported, so a voter cannot wait out the window
+    /// and flip the result at the last moment.
+    pub fn cast_vote(env: Env, proposal_id: u64, voter: Address, support: bool) {
+        voter.require_auth();
+
+        let config = voting_config(&env).expect("Voting is not enabled");
+        let proposal: ParameterProposal = env
+            .storage()
+            .instance()
+            .get(&DataKey::Proposal(proposal_id))
+            .expect("Proposal not found");
+        assert!(
+            !proposal.accepted && !proposal.rejected,
+            "Proposal already decided"
+        );
+        assert!(
+            voting::is_voting_open(&env, proposal.created_at, &config),
+            "Voting closed"
+        );
+
+        let weight: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::VotingPower(voter.clone()))
+            .unwrap_or(0);
+        assert!(weight > 0, "No voting power");
+
+        let mut votes = stored_votes(&env, proposal_id);
+        assert!(!voting::has_voted(&votes, &voter), "Already voted");
+
+        votes.push_back(ParameterVote {
+            proposal_id,
+            voter: voter.clone(),
+            support,
+            weight,
+            voted_at: env.ledger().timestamp(),
+        });
+        env.storage()
+            .instance()
+            .set(&DataKey::Votes(proposal_id), &votes);
+
+        env.events()
+            .publish(("cast_vote", proposal_id), (voter, support, weight));
+    }
+
+    /// Current tally for a proposal.
+    pub fn get_vote_tally(env: Env, proposal_id: u64) -> VoteTally {
+        build_tally(&env, proposal_id)
+    }
+
+    /// Every vote cast on a proposal.
+    pub fn get_votes(env: Env, proposal_id: u64) -> Vec<ParameterVote> {
+        stored_votes(&env, proposal_id)
+    }
+
+    /// Whether a proposal has cleared quorum and the approval threshold.
+    ///
+    /// Returns `true` when voting is not enabled, matching the acceptance path.
+    pub fn has_proposal_passed(env: Env, proposal_id: u64) -> bool {
+        match voting_config(&env) {
+            None => true,
+            Some(config) => build_tally(&env, proposal_id).has_passed(&config),
+        }
+    }
+
+    // --------------------------------------------------------------- simulation
+
+    /// Projects the effect of a proposed value against a snapshot of pool state.
+    ///
+    /// Read-only and pure in its inputs: the same snapshot always produces the
+    /// same projection, so the API and a voter see identical numbers.
+    pub fn simulate_change(
+        env: Env,
+        pool: Address,
+        parameter: ParameterType,
+        proposed_value: i128,
+        snapshot: PoolSnapshot,
+    ) -> ParameterImpact {
+        let current = read_parameter(&env, &parameter, &pool);
+        let related = related_parameters(&env, &pool);
+        simulation::simulate(
+            &env,
+            &parameter,
+            current,
+            proposed_value,
+            &snapshot,
+            &related,
+        )
+    }
+
+    /// Projects the effect of an existing proposal.
+    pub fn simulate_proposal(env: Env, proposal_id: u64, snapshot: PoolSnapshot) -> ParameterImpact {
+        let proposal: ParameterProposal = env
+            .storage()
+            .instance()
+            .get(&DataKey::Proposal(proposal_id))
+            .expect("Proposal not found");
+        let current = read_parameter(&env, &proposal.parameter, &proposal.pool);
+        let related = related_parameters(&env, &proposal.pool);
+        simulation::simulate(
+            &env,
+            &proposal.parameter,
+            current,
+            proposal.proposed_value,
+            &snapshot,
+            &related,
+        )
+    }
+
+    /// Validates a value against the parameter's own range **and** against the
+    /// other parameters already set for the pool.
+    ///
+    /// Range validation alone cannot catch an LTV of 80% against a liquidation
+    /// threshold of 75%: both are individually legal, together they let a
+    /// borrower open a position that is instantly liquidatable.
+    pub fn validate_value(env: Env, pool: Address, parameter: ParameterType, value: i128) -> bool {
+        if !parameter.validate_range(value) {
+            return false;
+        }
+        let related = related_parameters(&env, &pool);
+        match parameter {
+            ParameterType::LTV => {
+                related.liquidation_threshold == 0 || value < related.liquidation_threshold
+            }
+            ParameterType::LiquidationThreshold => related.ltv == 0 || value > related.ltv,
+            ParameterType::OptimalUtilization => value > 0 && value < BPS_DIVISOR,
+            _ => true,
+        }
+    }
+}
+
+/// Writes an accepted proposal's value through: current value, new version,
+/// audit trail, and the change notification.
+///
+/// Shared by the ordinary and emergency acceptance paths so the two can never
+/// record a change differently.
+fn commit_change(env: &Env, proposal: &ParameterProposal, timestamp: u64, is_emergency: bool) {
+    let key = DataKey::Parameter(proposal.parameter.clone(), proposal.pool.clone());
+    let old_value: i128 = env.storage().instance().get(&key).unwrap_or(0);
+
+    let version_key = DataKey::ParameterVersion(proposal.parameter.clone(), proposal.pool.clone());
+    let version: u32 = env.storage().instance().get(&version_key).unwrap_or(0) + 1;
+
+    env.storage().instance().set(&key, &proposal.proposed_value);
+    env.storage().instance().set(&version_key, &version);
+    env.storage().instance().set(
+        &DataKey::VersionedValue(proposal.parameter.clone(), proposal.pool.clone(), version),
+        &proposal.proposed_value,
+    );
+
+    let change = ParameterChange {
+        parameter: proposal.parameter.clone(),
+        old_value,
+        new_value: proposal.proposed_value,
+        timestamp,
+        effective_at: proposal.effective_at,
+        changed_by: proposal.proposer.clone(),
+        version,
+    };
+
+    let history_key = DataKey::ChangeHistory(proposal.parameter.clone(), proposal.pool.clone());
+    let mut history: Vec<ParameterChange> = env
+        .storage()
+        .instance()
+        .get(&history_key)
+        .unwrap_or_else(|| Vec::new(env));
+    history.push_back(change);
+    env.storage().instance().set(&history_key, &history);
+
+    let notification = ParameterChangeNotification {
+        pool: proposal.pool.clone(),
+        parameter: proposal.parameter.clone(),
+        old_value,
+        new_value: proposal.proposed_value,
+        version,
+        effective_at: proposal.effective_at,
+        is_emergency,
+    };
+    env.events().publish(
+        (Symbol::new(env, "param_changed"), proposal.parameter.clone()),
+        notification,
+    );
+}
+
+fn voting_config(env: &Env) -> Option<VotingConfig> {
+    env.storage().instance().get(&DataKey::VotingConfig)
+}
+
+fn stored_votes(env: &Env, proposal_id: u64) -> Vec<ParameterVote> {
+    env.storage()
+        .instance()
+        .get(&DataKey::Votes(proposal_id))
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+fn build_tally(env: &Env, proposal_id: u64) -> VoteTally {
+    let votes = stored_votes(env, proposal_id);
+    let total: i128 = env
+        .storage()
+        .instance()
+        .get(&DataKey::TotalVotingPower)
+        .unwrap_or(0);
+    voting::tally_votes(proposal_id, &votes, total)
+}
+
+/// Reads a parameter without requiring the pool to be registered, for the
+/// read-only paths (simulation, validation) that must not panic on a pool that
+/// has not been set up yet.
+fn read_parameter(env: &Env, parameter: &ParameterType, pool: &Address) -> i128 {
+    env.storage()
+        .instance()
+        .get(&DataKey::Parameter(parameter.clone(), pool.clone()))
+        .unwrap_or(0)
+}
+
+/// Gathers the parameter values that cross-checks and rate projections need.
+fn related_parameters(env: &Env, pool: &Address) -> RelatedParameters {
+    RelatedParameters {
+        ltv: read_parameter(env, &ParameterType::LTV, pool),
+        liquidation_threshold: read_parameter(env, &ParameterType::LiquidationThreshold, pool),
+        base_interest_rate: read_parameter(env, &ParameterType::BaseInterestRate, pool),
+        slope1: read_parameter(env, &ParameterType::Slope1, pool),
+        slope2: read_parameter(env, &ParameterType::Slope2, pool),
+        optimal_utilization: read_parameter(env, &ParameterType::OptimalUtilization, pool),
+    }
 }
 
 #[derive(Clone)]
@@ -453,6 +772,18 @@ enum DataKey {
     Parameter(ParameterType, Address),
     ChangeHistory(ParameterType, Address),
     EmergencyOverrideActive,
+    /// Current version number of a parameter for a pool.
+    ParameterVersion(ParameterType, Address),
+    /// Value a parameter held at a specific version.
+    VersionedValue(ParameterType, Address, u32),
+    /// Voting rules, absent until governance installs them.
+    VotingConfig,
+    /// Voting weight registered for an address.
+    VotingPower(Address),
+    /// Sum of all registered voting power.
+    TotalVotingPower,
+    /// Votes cast on a proposal.
+    Votes(u64),
 }
 
 #[cfg(test)]
