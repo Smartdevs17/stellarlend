@@ -15,7 +15,10 @@ fn setup() -> (Env, DcaModuleClient<'static>, Address, Address, Address) {
 
     let admin = Address::generate(&env);
     let owner = Address::generate(&env);
-    let asset = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let asset = env.register_stellar_asset_contract_v2(token_admin).address();
+    let token = soroban_sdk::token::StellarAssetClient::new(&env, &asset);
+    token.mint(&owner, &1_000_000);
 
     client.initialize(&admin);
 
@@ -451,3 +454,50 @@ fn test_query_nonexistent_plan() {
     let (_env, client, _admin, _owner, _asset) = setup();
     assert_eq!(client.get_plan(&999), None);
 }
+
+#[test]
+fn test_real_token_custody_and_refund() {
+    let (env, client, _admin, owner, asset) = setup();
+    let token = soroban_sdk::token::Client::new(&env, &asset);
+
+    let initial_owner_balance = token.balance(&owner);
+
+    let plan_id = client.create_plan(
+        &owner,
+        &asset,
+        &100,
+        &DcaFrequency::Daily,
+        &DcaDirection::Buy,
+        &5,
+        &500,
+    );
+
+    // Verify tokens were transferred from owner to contract custody
+    assert_eq!(token.balance(&owner), initial_owner_balance - 500);
+    assert_eq!(token.balance(&client.address), 500);
+
+    // Cancelling returns the remaining tokens to owner
+    let refund = client.cancel(&owner, &plan_id);
+    assert_eq!(refund, 500);
+    assert_eq!(token.balance(&client.address), 0);
+    assert_eq!(token.balance(&owner), initial_owner_balance);
+}
+
+#[test]
+#[should_panic]
+fn test_unfunded_owner_cannot_create_plan() {
+    let (env, client, _admin, _owner, asset) = setup();
+    let poor_owner = Address::generate(&env);
+
+    // Should panic due to insufficient token balance
+    client.create_plan(
+        &poor_owner,
+        &asset,
+        &100,
+        &DcaFrequency::Daily,
+        &DcaDirection::Buy,
+        &5,
+        &500,
+    );
+}
+

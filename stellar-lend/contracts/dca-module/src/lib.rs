@@ -176,6 +176,9 @@ impl DcaModule {
             return Err(DcaError::MaxPlansReached);
         }
 
+        let token = soroban_sdk::token::Client::new(&env, &asset);
+        token.transfer(&owner, &env.current_contract_address(), &funded_amount);
+
         let current_ledger = env.ledger().sequence() as u64;
         let interval = Self::frequency_to_ledgers(&frequency);
         let plan_id = Self::next_id(&env);
@@ -365,6 +368,11 @@ impl DcaModule {
             .ok_or(DcaError::InsufficientFunds)?;
         plan.status = DcaPlanStatus::Cancelled;
         env.storage().persistent().set(&plan_id, &plan);
+
+        if refund > 0 {
+            let token = soroban_sdk::token::Client::new(&env, &plan.asset);
+            token.transfer(&env.current_contract_address(), &owner, &refund);
+        }
 
         DcaCancelledEvent {
             plan_id,
