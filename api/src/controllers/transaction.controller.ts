@@ -5,6 +5,7 @@ import type {
   ApproveStepRequest,
   RejectStepRequest,
 } from '../types/transaction';
+import type { AuthRequest } from '../middleware/auth';
 
 export const createTransaction = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -20,7 +21,9 @@ export const createTransaction = async (req: Request, res: Response, next: NextF
 export const prepareStep = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { txId, stepId } = req.params;
-    const tx = await transactionBuilderService.prepareStep(txId!, stepId!);
+    const authReq = req as AuthRequest;
+    const authenticatedAddress = authReq.user?.address;
+    const tx = await transactionBuilderService.prepareStep(txId!, stepId!, authenticatedAddress);
     return res.status(200).json({ success: true, transaction: tx });
   } catch (err) {
     next(err);
@@ -31,7 +34,9 @@ export const prepareStep = async (req: Request, res: Response, next: NextFunctio
 export const approveStep = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const body = req.body as ApproveStepRequest;
-    const tx = await transactionBuilderService.approveStep(body);
+    const authReq = req as AuthRequest;
+    const authenticatedAddress = authReq.user?.address;
+    const tx = await transactionBuilderService.approveStep(body, authenticatedAddress);
     return res.status(200).json({ success: true, transaction: tx });
   } catch (err) {
     next(err);
@@ -42,7 +47,9 @@ export const approveStep = async (req: Request, res: Response, next: NextFunctio
 export const rejectStep = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const body = req.body as RejectStepRequest;
-    const tx = transactionBuilderService.rejectStep(body);
+    const authReq = req as AuthRequest;
+    const authenticatedAddress = authReq.user?.address;
+    const tx = transactionBuilderService.rejectStep(body, authenticatedAddress);
     return res.status(200).json({ success: true, transaction: tx });
   } catch (err) {
     next(err);
@@ -53,7 +60,9 @@ export const rejectStep = async (req: Request, res: Response, next: NextFunction
 export const getTransaction = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { txId } = req.params;
-    const tx = transactionBuilderService.getTransaction(txId!);
+    const authReq = req as AuthRequest;
+    const authenticatedAddress = authReq.user?.address;
+    const tx = transactionBuilderService.getTransaction(txId!, authenticatedAddress);
     return res.status(200).json({ success: true, transaction: tx });
   } catch (err) {
     next(err);
@@ -64,7 +73,9 @@ export const getTransaction = async (req: Request, res: Response, next: NextFunc
 export const listUserTransactions = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { userAddress } = req.params;
-    const transactions = transactionBuilderService.listForUser(userAddress!);
+    const authReq = req as AuthRequest;
+    const authenticatedAddress = authReq.user?.address;
+    const transactions = transactionBuilderService.listForUser(userAddress!, authenticatedAddress);
     return res.status(200).json({ success: true, transactions, total: transactions.length });
   } catch (err) {
     next(err);

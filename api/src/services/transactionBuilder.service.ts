@@ -68,8 +68,9 @@ export class TransactionBuilderService {
     return tx;
   }
 
-  async prepareStep(txId: string, stepId: string): Promise<MultiStepTransaction> {
+  async prepareStep(txId: string, stepId: string, authenticatedAddress?: string): Promise<MultiStepTransaction> {
     const tx = this.assertActive(txId);
+    this.validateOwnership(tx, authenticatedAddress);
     const step = this.findStep(tx, stepId);
 
     if (step.index !== tx.currentStepIndex) {
@@ -97,8 +98,9 @@ export class TransactionBuilderService {
     return tx;
   }
 
-  async approveStep(req: ApproveStepRequest): Promise<MultiStepTransaction> {
+  async approveStep(req: ApproveStepRequest, authenticatedAddress?: string): Promise<MultiStepTransaction> {
     const tx = this.assertActive(req.txId);
+    this.validateOwnership(tx, authenticatedAddress);
     const step = this.findStep(tx, req.stepId);
 
     if (step.status !== 'approved') {
@@ -141,8 +143,9 @@ export class TransactionBuilderService {
     return tx;
   }
 
-  rejectStep(req: RejectStepRequest): MultiStepTransaction {
+  rejectStep(req: RejectStepRequest, authenticatedAddress?: string): MultiStepTransaction {
     const tx = this.assertActive(req.txId);
+    this.validateOwnership(tx, authenticatedAddress);
     const step = this.findStep(tx, req.stepId);
 
     step.status = 'rejected';
@@ -156,18 +159,22 @@ export class TransactionBuilderService {
     return tx;
   }
 
-  getTransaction(txId: string): MultiStepTransaction {
+  getTransaction(txId: string, authenticatedAddress?: string): MultiStepTransaction {
     const tx = transactions.get(txId);
     if (!tx) {
       throw Object.assign(new Error('Transaction not found'), { status: 404 });
     }
+    this.validateOwnership(tx, authenticatedAddress);
     if (isExpired(tx) && tx.status !== 'completed' && tx.status !== 'failed') {
       this.markExpired(tx);
     }
     return tx;
   }
 
-  listForUser(userAddress: string): MultiStepTransaction[] {
+  listForUser(userAddress: string, authenticatedAddress?: string): MultiStepTransaction[] {
+    if (authenticatedAddress && userAddress.toLowerCase() !== authenticatedAddress.toLowerCase()) {
+      throw Object.assign(new Error('Unauthorized: cannot list transactions for another user'), { status: 403 });
+    }
     const result: MultiStepTransaction[] = [];
     for (const tx of transactions.values()) {
       if (tx.userAddress !== userAddress) continue;
@@ -193,6 +200,12 @@ export class TransactionBuilderService {
     }
     if (count > 0) logger.info('Cleaned up expired transactions', { count });
     return count;
+  }
+
+  private validateOwnership(tx: MultiStepTransaction, authenticatedAddress?: string): void {
+    if (authenticatedAddress && tx.userAddress.toLowerCase() !== authenticatedAddress.toLowerCase()) {
+      throw Object.assign(new Error('Unauthorized: transaction belongs to another user'), { status: 403 });
+    }
   }
 
   private assertActive(txId: string): MultiStepTransaction {
