@@ -3,6 +3,8 @@ import { errorHandler } from '../middleware/errorHandler';
 import {
   ValidationError,
   UnauthorizedError,
+  ForbiddenError,
+  ExpiredError,
   NotFoundError,
   ConflictError,
   InternalServerError,
@@ -47,6 +49,30 @@ describe('Error Handler Middleware', () => {
     expect(mockResponse.json).toHaveBeenCalledWith(expect.objectContaining({
       success: false,
       error: expect.objectContaining({ code: 'UNAUTHORIZED', message: 'Unauthorized' }),
+    }));
+  });
+
+  it('should handle ForbiddenError with correct status code and error code', () => {
+    const error = new ForbiddenError('Forbidden access');
+
+    errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
+
+    expect(mockResponse.status).toHaveBeenCalledWith(403);
+    expect(mockResponse.json).toHaveBeenCalledWith(expect.objectContaining({
+      success: false,
+      error: expect.objectContaining({ code: 'FORBIDDEN', message: 'Forbidden access' }),
+    }));
+  });
+
+  it('should handle ExpiredError with correct status code and error code', () => {
+    const error = new ExpiredError('Resource has expired');
+
+    errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
+
+    expect(mockResponse.status).toHaveBeenCalledWith(410);
+    expect(mockResponse.json).toHaveBeenCalledWith(expect.objectContaining({
+      success: false,
+      error: expect.objectContaining({ code: 'EXPIRED', message: 'Resource has expired' }),
     }));
   });
 

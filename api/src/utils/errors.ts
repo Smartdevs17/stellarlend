@@ -5,8 +5,10 @@ export enum ErrorCode {
   NETWORK_ERROR = 'NETWORK_ERROR',
   RATE_LIMITED = 'RATE_LIMITED',
   UNAUTHORIZED = 'UNAUTHORIZED',
+  FORBIDDEN = 'FORBIDDEN',
   NOT_FOUND = 'NOT_FOUND',
   CONFLICT = 'CONFLICT',
+  EXPIRED = 'EXPIRED',
   INTERNAL_SERVER_ERROR = 'INTERNAL_SERVER_ERROR',
 }
 
@@ -47,6 +49,20 @@ export class UnauthorizedError extends ApiError {
   constructor(message = 'Unauthorized') {
     super(401, message, ErrorCode.UNAUTHORIZED);
     Object.setPrototypeOf(this, UnauthorizedError.prototype);
+  }
+}
+
+export class ForbiddenError extends ApiError {
+  constructor(message = 'Forbidden') {
+    super(403, message, ErrorCode.FORBIDDEN);
+    Object.setPrototypeOf(this, ForbiddenError.prototype);
+  }
+}
+
+export class ExpiredError extends ApiError {
+  constructor(message = 'Resource has expired') {
+    super(410, message, ErrorCode.EXPIRED);
+    Object.setPrototypeOf(this, ExpiredError.prototype);
   }
 }
 
