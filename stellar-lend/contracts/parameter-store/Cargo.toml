@@ -6,6 +6,7 @@ description = "Governance-managed on-chain parameter store for pool configuratio
 
 [dependencies]
 soroban-sdk = { workspace = true }
+stellarlend-math = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }

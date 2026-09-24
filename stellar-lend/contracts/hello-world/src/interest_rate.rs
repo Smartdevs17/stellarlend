@@ -23,6 +23,14 @@
 
 #![allow(unused)]
 use soroban_sdk::{contracterror, contracttype, Address, Env, IntoVal, Vec};
+use stellarlend_math::checked::checked_mul_div as math_mul_div;
+use stellarlend_math::rates::{
+    apply_rate_bounds as math_apply_rate_bounds, exponential_rate as math_exponential_rate,
+    jump_rate as math_jump_rate, kink_rate as math_kink_rate, linear_rate as math_linear_rate,
+    simple_interest as math_simple_interest, supply_rate_from_spread as math_supply_rate,
+    utilization_bps as math_utilization_bps, RateCurve, RateModelKind,
+};
+use stellarlend_math::MathError;
 
 use crate::deposit::{DepositDataKey, ProtocolAnalytics};
 use crate::storage::set_temp_lending_index;
@@ -143,116 +151,71 @@ fn get_default_config() -> InterestRateConfig {
     }
 }
 
-fn checked_mul_div(lhs: i128, rhs: i128, divisor: i128) -> Result<i128, InterestRateError> {
-    if divisor == 0 {
-        return Err(InterestRateError::DivisionByZero);
+/// Maps a [`MathError`] from the shared math library onto this module's error type.
+///
+/// The library reports arithmetic failures in its own vocabulary; callers of
+/// this module only ever see `InterestRateError`.
+fn map_math_error(err: MathError) -> InterestRateError {
+    match err {
+        MathError::DivisionByZero => InterestRateError::DivisionByZero,
+        _ => InterestRateError::Overflow,
     }
-    lhs.checked_mul(rhs)
-        .ok_or(InterestRateError::Overflow)?
-        .checked_div(divisor)
-        .ok_or(InterestRateError::DivisionByZero)
+}
+
+/// Converts this module's stored configuration into the shared curve type.
+fn to_rate_curve(config: &InterestRateConfig) -> RateCurve {
+    RateCurve {
+        kind: match config.model {
+            InterestRateModelKind::Linear => RateModelKind::Linear,
+            InterestRateModelKind::Kink => RateModelKind::Kink,
+            InterestRateModelKind::Jump => RateModelKind::Jump,
+            InterestRateModelKind::Exponential => RateModelKind::Exponential,
+        },
+        base_rate_bps: config.base_rate_bps,
+        kink_utilization_bps: config.kink_utilization_bps,
+        multiplier_bps: config.multiplier_bps,
+        jump_multiplier_bps: config.jump_multiplier_bps,
+    }
+}
+
+fn checked_mul_div(lhs: i128, rhs: i128, divisor: i128) -> Result<i128, InterestRateError> {
+    math_mul_div(lhs, rhs, divisor).map_err(map_math_error)
 }
 
 fn linear_rate(utilization: i128, config: &InterestRateConfig) -> Result<i128, InterestRateError> {
-    let increase = checked_mul_div(utilization, config.multiplier_bps, BASIS_POINTS_SCALE)?;
-    config
-        .base_rate_bps
-        .checked_add(increase)
-        .ok_or(InterestRateError::Overflow)
+    math_linear_rate(utilization, &to_rate_curve(config)).map_err(map_math_error)
 }
 
 fn kink_rate(utilization: i128, config: &InterestRateConfig) -> Result<i128, InterestRateError> {
-    if utilization <= config.kink_utilization_bps {
-        if config.kink_utilization_bps == 0 {
-            return Ok(config.base_rate_bps);
-        }
-        let increase = checked_mul_div(
-            utilization,
-            config.multiplier_bps,
-            config.kink_utilization_bps,
-        )?;
-        return config
-            .base_rate_bps
-            .checked_add(increase)
-            .ok_or(InterestRateError::Overflow);
-    }
-
-    let rate_at_kink = config
-        .base_rate_bps
-        .checked_add(config.multiplier_bps)
-        .ok_or(InterestRateError::Overflow)?;
-    let utilization_above_kink = utilization
-        .checked_sub(config.kink_utilization_bps)
-        .ok_or(InterestRateError::Overflow)?;
-    let max_utilization_above_kink = BASIS_POINTS_SCALE
-        .checked_sub(config.kink_utilization_bps)
-        .ok_or(InterestRateError::Overflow)?;
-    let additional_rate = checked_mul_div(
-        utilization_above_kink,
-        config.jump_multiplier_bps,
-        max_utilization_above_kink,
-    )?;
-
-    rate_at_kink
-        .checked_add(additional_rate)
-        .ok_or(InterestRateError::Overflow)
+    math_kink_rate(utilization, &to_rate_curve(config)).map_err(map_math_error)
 }
 
 fn jump_rate(utilization: i128, config: &InterestRateConfig) -> Result<i128, InterestRateError> {
-    let mut rate = linear_rate(utilization, config)?;
-    if utilization > config.kink_utilization_bps {
-        let utilization_above_kink = utilization
-            .checked_sub(config.kink_utilization_bps)
-            .ok_or(InterestRateError::Overflow)?;
-        let max_utilization_above_kink = BASIS_POINTS_SCALE
-            .checked_sub(config.kink_utilization_bps)
-            .ok_or(InterestRateError::Overflow)?;
-        let jump = checked_mul_div(
-            utilization_above_kink,
-            config.jump_multiplier_bps,
-            max_utilization_above_kink,
-        )?;
-        rate = rate.checked_add(jump).ok_or(InterestRateError::Overflow)?;
-    }
-    Ok(rate)
+    math_jump_rate(utilization, &to_rate_curve(config)).map_err(map_math_error)
 }
 
 fn exponential_rate(
     utilization: i128,
     config: &InterestRateConfig,
 ) -> Result<i128, InterestRateError> {
-    let utilization_squared = checked_mul_div(utilization, utilization, BASIS_POINTS_SCALE)?;
-    let utilization_cubed = checked_mul_div(utilization_squared, utilization, BASIS_POINTS_SCALE)?;
-    let quadratic = checked_mul_div(
-        utilization_squared,
-        config.multiplier_bps,
-        BASIS_POINTS_SCALE,
-    )?;
-    let cubic = checked_mul_div(
-        utilization_cubed,
-        config.jump_multiplier_bps,
-        BASIS_POINTS_SCALE,
-    )?;
-
-    config
-        .base_rate_bps
-        .checked_add(quadratic)
-        .ok_or(InterestRateError::Overflow)?
-        .checked_add(cubic)
-        .ok_or(InterestRateError::Overflow)
+    math_exponential_rate(utilization, &to_rate_curve(config)).map_err(map_math_error)
 }
 
+/// Evaluates `model` at `utilization`, delegating to the shared rate curves in
+/// [`stellarlend_math::rates`].
 pub fn calculate_model_borrow_rate(
     model: InterestRateModelKind,
     utilization: i128,
     config: &InterestRateConfig,
 ) -> Result<i128, InterestRateError> {
-    match model {
-        InterestRateModelKind::Linear => linear_rate(utilization, config),
-        InterestRateModelKind::Kink => kink_rate(utilization, config),
-        InterestRateModelKind::Jump => jump_rate(utilization, config),
-        InterestRateModelKind::Exponential => exponential_rate(utilization, config),
-    }
+    let mut curve = to_rate_curve(config);
+    curve.kind = match model {
+        InterestRateModelKind::Linear => RateModelKind::Linear,
+        InterestRateModelKind::Kink => RateModelKind::Kink,
+        InterestRateModelKind::Jump => RateModelKind::Jump,
+        InterestRateModelKind::Exponential => RateModelKind::Exponential,
+    };
+    curve.borrow_rate(utilization).map_err(map_math_error)
 }
 
 /// Get interest rate configuration
@@ -302,15 +265,10 @@ pub fn calculate_utilization(env: &Env) -> Result<i128, InterestRateError> {
     }
 
     // Calculate utilization: (borrows * 10000) / deposits
-    let utilization = analytics
-        .total_borrows
-        .checked_mul(BASIS_POINTS_SCALE)
-        .ok_or(InterestRateError::Overflow)?
-        .checked_div(analytics.total_deposits)
-        .ok_or(InterestRateError::DivisionByZero)?;
-
-    // Cap at 100%
-    Ok(utilization.min(BASIS_POINTS_SCALE))
+    // Delegates to the shared math library, which caps at 100% and treats an
+    // empty pool as 0% utilization.
+    math_utilization_bps(analytics.total_borrows, analytics.total_deposits)
+        .map_err(map_math_error)
 }
 
 /// Calculate borrow interest rate based on utilization
@@ -322,15 +280,16 @@ pub fn calculate_borrow_rate(env: &Env) -> Result<i128, InterestRateError> {
     let config = get_interest_rate_config(env).ok_or(InterestRateError::InvalidParameter)?;
     let utilization = calculate_utilization(env)?;
 
-    let mut rate = calculate_model_borrow_rate(config.model, utilization, &config)?;
+    let modelled = calculate_model_borrow_rate(config.model, utilization, &config)?;
 
-    // Apply emergency adjustment
-    rate = rate
-        .checked_add(config.emergency_adjustment_bps)
-        .ok_or(InterestRateError::Overflow)?;
-
-    // Apply rate limits
-    rate = rate.max(config.rate_floor_bps).min(config.rate_ceiling_bps);
+    // Apply the emergency adjustment, then the floor/ceiling.
+    let rate = math_apply_rate_bounds(
+        modelled,
+        config.emergency_adjustment_bps,
+        config.rate_floor_bps,
+        config.rate_ceiling_bps,
+    )
+    .map_err(map_math_error)?;
 
     let contract = env.current_contract_address();
     crate::rate_guard::record_rate_change(env, rate, &contract, 0)
@@ -345,13 +304,8 @@ pub fn calculate_supply_rate(env: &Env) -> Result<i128, InterestRateError> {
     let config = get_interest_rate_config(env).ok_or(InterestRateError::InvalidParameter)?;
     let borrow_rate = calculate_borrow_rate(env)?;
 
-    // Supply rate = borrow rate - spread
-    let supply_rate = borrow_rate
-        .checked_sub(config.spread_bps)
-        .ok_or(InterestRateError::Overflow)?;
-
-    // Ensure supply rate doesn't go below floor
-    Ok(supply_rate.max(config.rate_floor_bps))
+    // Supply rate = borrow rate - spread, floored at the configured minimum.
+    math_supply_rate(borrow_rate, config.spread_bps, config.rate_floor_bps).map_err(map_math_error)
 }
 
 /// Calculate accrued interest using dynamic rate
@@ -383,23 +337,9 @@ pub fn calculate_accrued_interest(
         .checked_sub(last_accrual_time)
         .ok_or(InterestRateError::Overflow)?;
 
-    // Calculate interest: principal * (rate / 10000) * (time_elapsed / seconds_per_year)
-    // To avoid precision loss: principal * rate * time_elapsed / (10000 * seconds_per_year)
-    let denominator = BASIS_POINTS_SCALE
-        .checked_mul(SECONDS_PER_YEAR as i128)
-        .ok_or(InterestRateError::Overflow)?;
-
-    let numerator = principal
-        .checked_mul(rate_bps)
-        .ok_or(InterestRateError::Overflow)?
-        .checked_mul(time_elapsed as i128)
-        .ok_or(InterestRateError::Overflow)?;
-
-    let interest = numerator
-        .checked_div(denominator)
-        .ok_or(InterestRateError::DivisionByZero)?;
-
-    Ok(interest)
+    // principal * rate * elapsed / (10000 * seconds_per_year), computed by the
+    // shared math library so interest accrual matches every other module.
+    math_simple_interest(principal, rate_bps, time_elapsed as i128).map_err(map_math_error)
 }
 
 /// Update interest rate configuration parameters

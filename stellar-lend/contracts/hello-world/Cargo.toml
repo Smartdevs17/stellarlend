@@ -18,6 +18,7 @@ stellarlend-amm = { path = "../amm" }
 stellarlend-oracle-client = { path = "../../packages/oracle-client" }
 stellarlend-shared-deadline = { path = "../shared-deadline" }
 stellarlend-security = { path = "../security" }
+stellarlend-math = { workspace = true }
 calldata-encoding = { path = "../lib/calldata-encoding" }
 migration-hub = { package = "stellarlend-migration-hub", path = "../migration-hub" }
 

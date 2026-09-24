@@ -26,6 +26,14 @@ use crate::events::{
     BatchLiquidationEvent, LiquidationEvent, LiquidationFeeCollectedEvent,
 };
 use soroban_sdk::{contracterror, contracttype, Address, Env, IntoVal, Map, Symbol, Val, Vec};
+use stellarlend_math::checked::apply_bps;
+use stellarlend_math::liquidation::{
+    collateral_value_in_debt as math_collateral_value_in_debt,
+    debt_value_in_collateral as math_debt_value_in_collateral,
+    dynamic_penalty_bps as math_dynamic_penalty_bps, is_profitable as math_is_profitable,
+    priority_score as math_priority_score, seize_amount as math_seize_amount,
+};
+use stellarlend_math::MathError;
 
 use crate::deposit::{
     add_activity_log, emit_analytics_updated_event, emit_position_updated_event,
@@ -41,11 +49,25 @@ use crate::risk_params::{
     get_liquidation_incentive_amount, get_max_liquidatable_amount, get_risk_params,
 };
 
-/// Maximum liquidation penalty cap in basis points (20%)
-const MAX_PENALTY_BPS: i128 = 2_000;
+/// Maximum liquidation penalty cap in basis points (20%).
+///
+/// Re-exported from the shared math library so the cap enforced here and the cap
+/// enforced inside [`stellarlend_math::liquidation`] can never diverge.
+pub use stellarlend_math::liquidation::MAX_PENALTY_BPS;
+
+/// Maps a [`MathError`] from the shared math library onto this module's errors.
+fn map_math_error(err: MathError) -> LiquidationError {
+    match err {
+        MathError::DivisionByZero => LiquidationError::PriceNotAvailable,
+        _ => LiquidationError::Overflow,
+    }
+}
 
 /// Maximum number of positions that can be liquidated in a single batch
 pub const MAX_BATCH_SIZE: u32 = 10;
+
+/// Divisor that normalizes a repayment amount into the batch priority score.
+const PRIORITY_DEBT_SCALE: i128 = 1_000_000;
 
 /// Input item for a batch liquidation call
 #[contracttype]
@@ -90,42 +112,13 @@ pub fn calculate_dynamic_penalty(
     total_debt: i128,
 ) -> Result<i128, LiquidationError> {
     let params = get_risk_params(env).ok_or(LiquidationError::Overflow)?;
-    let base_incentive = params.liquidation_incentive; // e.g. 1000 bps = 10%
-    let threshold = params.liquidation_threshold; // e.g. 10500 bps = 105%
-
-    if total_debt == 0 {
-        return Ok(base_incentive);
-    }
-
-    // health_factor_bps = collateral_value * 10000 / total_debt
-    let health_factor_bps = collateral_value
-        .checked_mul(10_000)
-        .ok_or(LiquidationError::Overflow)?
-        .checked_div(total_debt)
-        .ok_or(LiquidationError::Overflow)?;
-
-    // If health factor >= threshold, position is not liquidatable; return base
-    if health_factor_bps >= threshold {
-        return Ok(base_incentive);
-    }
-
-    // severity = (threshold - health_factor_bps) / threshold  (0..1 scaled by 10000)
-    // penalty = base_incentive + severity * (MAX_PENALTY_BPS - base_incentive)
-    let severity_numerator = threshold - health_factor_bps;
-    let penalty_range = MAX_PENALTY_BPS - base_incentive;
-
-    let extra = severity_numerator
-        .checked_mul(penalty_range)
-        .ok_or(LiquidationError::Overflow)?
-        .checked_div(threshold)
-        .ok_or(LiquidationError::Overflow)?;
-
-    let penalty = base_incentive
-        .checked_add(extra)
-        .ok_or(LiquidationError::Overflow)?;
-
-    // Cap at MAX_PENALTY_BPS
-    Ok(penalty.min(MAX_PENALTY_BPS))
+    math_dynamic_penalty_bps(
+        collateral_value,
+        total_debt,
+        params.liquidation_incentive,
+        params.liquidation_threshold,
+    )
+    .map_err(map_math_error)
 }
 
 /// Minimum net profit (in bps of the debt repaid) below which a liquidation is
@@ -148,10 +141,7 @@ fn abort_if_unprofitable(
         return Err(LiquidationError::InvalidAmount);
     }
     let net = collateral_seized.saturating_sub(protocol_fee);
-    let profit_floor = debt_repayed
-        .saturating_mul(MIN_LIQUIDATOR_PROFIT_BPS)
-        .saturating_div(10_000);
-    if net < debt_repayed.saturating_add(profit_floor) {
+    if !math_is_profitable(debt_repayed, net, MIN_LIQUIDATOR_PROFIT_BPS).map_err(map_math_error)? {
         return Err(LiquidationError::UnprofitableLiquidation);
     }
     Ok(())
@@ -290,16 +280,8 @@ fn calculate_collateral_value(
     collateral_price: i128,
     debt_price: i128,
 ) -> Result<i128, LiquidationError> {
-    if debt_price == 0 {
-        return Err(LiquidationError::PriceNotAvailable);
-    }
-
-    // Calculate: collateral_amount * collateral_price / debt_price
-    collateral_amount
-        .checked_mul(collateral_price)
-        .ok_or(LiquidationError::Overflow)?
-        .checked_div(debt_price)
-        .ok_or(LiquidationError::Overflow)
+    math_collateral_value_in_debt(collateral_amount, collateral_price, debt_price)
+        .map_err(map_math_error)
 }
 
 /// Calculate debt value
@@ -494,11 +476,8 @@ pub fn liquidate(
 
     // Calculate liquidation incentive
     let incentive_bps = calculate_dynamic_penalty(env, collateral_value_for_check, total_debt)?;
-    let incentive_amount = actual_debt_liquidated
-        .checked_mul(incentive_bps)
-        .ok_or(LiquidationError::Overflow)?
-        .checked_div(10_000)
-        .ok_or(LiquidationError::Overflow)?;
+    let incentive_amount =
+        apply_bps(actual_debt_liquidated, incentive_bps).map_err(map_math_error)?;
 
     // Calculate collateral to seize
     // Liquidator repays debt_liquidated amount of debt asset
@@ -531,19 +510,12 @@ pub fn liquidate(
                 }
             }
         };
-        actual_debt_liquidated
-            .checked_mul(d)
-            .ok_or(LiquidationError::Overflow)?
-            .checked_div(c)
-            .ok_or(LiquidationError::Overflow)?
+        math_debt_value_in_collateral(actual_debt_liquidated, d, c).map_err(map_math_error)?
     };
 
     // Apply incentive: collateral_seized = collateral_value_liquidated * (1 + incentive_bps / 10000)
-    let collateral_seized = collateral_value_liquidated
-        .checked_mul(10000 + incentive_bps)
-        .ok_or(LiquidationError::Overflow)?
-        .checked_div(10000)
-        .ok_or(LiquidationError::Overflow)?;
+    let collateral_seized =
+        math_seize_amount(collateral_value_liquidated, incentive_bps).map_err(map_math_error)?;
 
     // Ensure we don't seize more than available collateral
     let actual_collateral_seized = if collateral_seized > collateral_balance {
@@ -554,11 +526,8 @@ pub fn liquidate(
 
     // Calculate protocol fee on the liquidation bonus (retained in ProtocolReserve)
     let fee_config = crate::treasury::get_fee_config(env);
-    let protocol_liquidation_fee = incentive_amount
-        .checked_mul(fee_config.liquidation_fee_bps)
-        .ok_or(LiquidationError::Overflow)?
-        .checked_div(10000)
-        .ok_or(LiquidationError::Overflow)?;
+    let protocol_liquidation_fee =
+        apply_bps(incentive_amount, fee_config.liquidation_fee_bps).map_err(map_math_error)?;
 
     // Liquidator receives seized collateral minus the protocol fee
     let liquidator_collateral = actual_collateral_seized
@@ -934,20 +903,14 @@ pub fn calculate_priority_score(
         .get::<DepositDataKey, i128>(&collateral_key)
         .unwrap_or(0);
 
-    // Score = (collateral / debt) * 10000 — higher means more collateral to seize
-    // Also factor in the debt amount (larger liquidations are more profitable)
-    let collateral_ratio = collateral
-        .saturating_mul(10_000)
-        .checked_div(total_debt)
-        .unwrap_or(0);
-
-    // Combine ratio and absolute amount for priority
-    // Normalize debt amount to a reasonable scale (divide by 1e6)
-    let debt_scale = request.debt_amount.checked_div(1_000_000).unwrap_or(0) as u64;
-
-    let score = (collateral_ratio as u64).saturating_add(debt_scale);
-
-    Ok(score)
+    // Collateral-to-debt ratio in bps, plus the repayment size normalized by 1e6
+    // so a single large position does not swamp the ratio term.
+    Ok(math_priority_score(
+        collateral,
+        total_debt,
+        request.debt_amount,
+        PRIORITY_DEBT_SCALE,
+    ))
 }
 
 /// Liquidate multiple undercollateralized positions in a single atomic transaction.

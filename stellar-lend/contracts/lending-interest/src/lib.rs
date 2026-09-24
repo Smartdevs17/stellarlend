@@ -1,7 +1,25 @@
 #![no_std]
 
 use soroban_sdk::{contracttype, Env};
+use stellarlend_math::rates::{
+    dual_slope_rate, supply_rate_from_reserve_factor, RateCurve, RateModelKind,
+};
+use stellarlend_math::MathError as SharedMathError;
 use stellarlend_safe_math::{bps_mul, safe_add, safe_div, safe_mul, MathError, WAD};
+
+/// Translates the shared math library's error into this crate's `MathError`.
+///
+/// The two enums carry the same variants; this keeps the shared library's type
+/// from leaking into the public signatures callers already depend on.
+fn map_shared_error(err: SharedMathError) -> MathError {
+    match err {
+        SharedMathError::Overflow => MathError::Overflow,
+        SharedMathError::Underflow => MathError::Underflow,
+        SharedMathError::DivisionByZero => MathError::DivisionByZero,
+        SharedMathError::NegativeSqrt => MathError::NegativeSqrt,
+        SharedMathError::ExponentTooLarge => MathError::ExponentTooLarge,
+    }
+}
 
 /// Fixed-point scale used by the cumulative interest index.
 pub const INTEREST_INDEX_SCALE: i128 = WAD;
@@ -45,22 +63,23 @@ pub struct InterestRateModel {
 }
 
 impl InterestRateModel {
+    /// Expresses this model as the shared library's dual-slope curve.
+    fn as_curve(&self) -> RateCurve {
+        RateCurve {
+            kind: RateModelKind::DualSlope,
+            base_rate_bps: self.base_rate,
+            kink_utilization_bps: self.optimal_utilization,
+            multiplier_bps: self.slope1,
+            jump_multiplier_bps: self.slope2,
+        }
+    }
+
     /// Variable-slope borrow rate in basis points.
     ///
     /// Below kink:  `base_rate + utilization × slope1 / 10 000`
     /// Above kink:  `base_rate + kink × slope1 / 10 000 + excess × slope2 / 10 000`
     pub fn calculate_borrow_rate(&self, utilization: i128) -> Result<i128, MathError> {
-        if utilization <= self.optimal_utilization {
-            let inc = safe_mul(utilization, self.slope1).and_then(|v| safe_div(v, 10_000))?;
-            safe_add(self.base_rate, inc)
-        } else {
-            let excess = safe_add(utilization, -self.optimal_utilization)?;
-            let kink_component = safe_mul(self.optimal_utilization, self.slope1)
-                .and_then(|v| safe_div(v, 10_000))?;
-            let excess_component =
-                safe_mul(excess, self.slope2).and_then(|v| safe_div(v, 10_000))?;
-            safe_add(self.base_rate, kink_component).and_then(|v| safe_add(v, excess_component))
-        }
+        dual_slope_rate(utilization, &self.as_curve()).map_err(map_shared_error)
     }
 
     /// Supply rate: `borrow_rate × (10 000 − reserve_factor) / 10 000 × utilization / 10 000`
@@ -70,9 +89,8 @@ impl InterestRateModel {
         utilization: i128,
         reserve_factor: i128,
     ) -> Result<i128, MathError> {
-        let net_factor = safe_add(10_000, -reserve_factor)?;
-        let rate_to_pool = safe_mul(borrow_rate, net_factor).and_then(|v| safe_div(v, 10_000))?;
-        safe_mul(rate_to_pool, utilization).and_then(|v| safe_div(v, 10_000))
+        supply_rate_from_reserve_factor(borrow_rate, utilization, reserve_factor)
+            .map_err(map_shared_error)
     }
 }
 

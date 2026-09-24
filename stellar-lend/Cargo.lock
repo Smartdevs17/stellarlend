@@ -1379,6 +1379,7 @@ dependencies = [
  "stellarlend-amm",
  "stellarlend-errors",
  "stellarlend-lending",
+ "stellarlend-math",
  "stellarlend-migration-hub",
  "stellarlend-oracle-client",
  "stellarlend-security",
@@ -1837,6 +1838,7 @@ version = "0.1.0"
 dependencies = [
  "lending-types",
  "soroban-sdk 27.0.6",
+ "stellarlend-math",
  "stellarlend-safe-math",
 ]
 
@@ -2139,6 +2141,7 @@ name = "parameter-store"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk 27.0.6",
+ "stellarlend-math",
 ]
 
 [[package]]
