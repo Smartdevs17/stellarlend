@@ -65,6 +65,7 @@ impl LiquidationAuctionContract {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("Already initialized");
         }
+        admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage()
             .instance()
@@ -492,12 +493,23 @@ mod tests {
     #[test]
     fn test_initialize() {
         let env = Env::default();
+        env.mock_all_auths();
         let admin = Address::generate(&env);
         let gov = Address::generate(&env);
 
         LiquidationAuctionContract::initialize(env.clone(), admin.clone(), gov);
         let stored: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         assert_eq!(stored, admin);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_initialize_requires_auth() {
+        let env = Env::default();
+        let admin = Address::generate(&env);
+        let gov = Address::generate(&env);
+
+        LiquidationAuctionContract::initialize(env.clone(), admin, gov);
     }
 
     #[test]
