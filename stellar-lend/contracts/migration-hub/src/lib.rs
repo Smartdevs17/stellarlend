@@ -170,17 +170,9 @@ impl MigrationHub {
             return Err(result.err().unwrap());
         }
 
-        // 3. Deposit into StellarLend
-        // The Hub is now the temporary holder of the funds.
-        // Note: The deposit step is simulated (see the commented-out `deposit`
-        // call below): the hub successfully pulled the funds and the user can
-        // now deposit directly. In a real migration tool this would be atomic.
-        // A `LendingClient` no longer exists in `stellarlend_common`, and the
-        // prior `approve` used the pre-soroban-sdk-27 two-arg signature, so the
-        // dead calls were removed rather than updated.
-
-        // Simplified: The hub successfully pulled the funds. The user can now deposit.
-        // In a real migration tool, this would be atomic.
+        // 3. Deposit into destination lending contract (atomic push)
+        let token = soroban_sdk::token::Client::new(&env, &asset);
+        token.transfer(&env.current_contract_address(), &config.lending_contract, &amount);
 
         record.status = MigrationStatus::Completed;
         Self::save_migration(&env, id, &record);
@@ -244,7 +236,40 @@ impl MigrationHub {
             return Ok(false);
         }
 
+        let token = soroban_sdk::token::Client::new(&env, &record.asset);
+        let dest_balance = token.balance(&record.destination_pool);
+        if dest_balance < record.amount {
+            return Ok(false);
+        }
+
         Ok(true)
+    }
+
+    /// Allows a user to refund/rescue their tokens if a migration failed or is non-completed.
+    pub fn refund_migration(env: Env, user: Address, migration_id: u64) -> Result<(), MigrationError> {
+        user.require_auth();
+        let mut record = Self::get_migration(env.clone(), migration_id)
+            .ok_or(MigrationError::MigrationFailed)?;
+
+        if record.user != user {
+            return Err(MigrationError::Unauthorized);
+        }
+
+        if record.status == MigrationStatus::Completed || record.status == MigrationStatus::Refunded {
+            return Err(MigrationError::RollbackFailed);
+        }
+
+        let token = soroban_sdk::token::Client::new(&env, &record.asset);
+        let hub_balance = token.balance(&env.current_contract_address());
+        if hub_balance < record.amount {
+            return Err(MigrationError::InsufficientFunds);
+        }
+
+        token.transfer(&env.current_contract_address(), &user, &record.amount);
+
+        record.status = MigrationStatus::Refunded;
+        Self::save_migration(&env, migration_id, &record);
+        Ok(())
     }
 
     /// Migrate a percentage of funds from source to destination pool.
