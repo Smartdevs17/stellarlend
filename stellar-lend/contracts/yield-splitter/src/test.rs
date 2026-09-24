@@ -170,3 +170,56 @@ fn test_negative_early_redemption_penalty_is_rejected() {
     let result = client.try_merge_before_maturity(&owner, &position_id, &-1);
     assert_eq!(result, Err(Ok(YieldSplitterError::InvalidPenalty)));
 }
+
+#[test]
+fn test_multi_user_solvency_and_no_principal_drain() {
+    let (env, _admin, client, contract_id, _owner, underlying, principal_token, yield_token) =
+        setup_with_tokens();
+    let token = StellarAssetClient::new(&env, &underlying);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    token.mint(&alice, &100);
+    token.mint(&bob, &100);
+
+    let one_year = 86400 * 365;
+    let maturity = env.ledger().timestamp() + one_year;
+
+    // Alice and Bob split 100 units each
+    let pos_alice = client.split_position(
+        &alice,
+        &underlying,
+        &principal_token,
+        &yield_token,
+        &100,
+        &maturity,
+    );
+    let pos_bob = client.split_position(
+        &bob,
+        &underlying,
+        &principal_token,
+        &yield_token,
+        &100,
+        &maturity,
+    );
+
+    // Contract holds exactly 200 units
+    assert_eq!(token.balance(&contract_id), 200);
+
+    // Fast-forward past maturity
+    env.ledger().set_timestamp(maturity + 10);
+
+    // Alice redeems her position
+    let alice_returned = client.merge_tokens(&alice, &pos_alice);
+    assert_eq!(alice_returned, 100);
+    assert_eq!(token.balance(&alice), 100);
+    assert_eq!(token.balance(&contract_id), 100);
+
+    // Bob can also successfully redeem his full 100 principal without InsufficientBalance
+    let bob_returned = client.merge_tokens(&bob, &pos_bob);
+    assert_eq!(bob_returned, 100);
+    assert_eq!(token.balance(&bob), 100);
+    assert_eq!(token.balance(&contract_id), 0);
+}
+

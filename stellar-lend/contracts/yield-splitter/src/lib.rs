@@ -460,33 +460,15 @@ impl YieldSplitter {
     }
 
     fn calculate_yield_accrued(
-        amount: i128,
-        created_at: u64,
-        maturity_date: u64,
-        current_time: u64,
+        _amount: i128,
+        _created_at: u64,
+        _maturity_date: u64,
+        _current_time: u64,
     ) -> Result<i128, YieldSplitterError> {
-        let time_elapsed = if current_time >= maturity_date {
-            (maturity_date - created_at) as i128
-        } else {
-            (current_time - created_at) as i128
-        };
-
-        if time_elapsed <= 0 {
-            return Ok(0);
-        }
-
-        let yield_rate_bps = 500;
-        let accrued = amount
-            .checked_mul(yield_rate_bps)
-            .ok_or(YieldSplitterError::Overflow)?
-            .checked_mul(time_elapsed)
-            .ok_or(YieldSplitterError::Overflow)?
-            .checked_div(SECONDS_PER_YEAR)
-            .ok_or(YieldSplitterError::Overflow)?
-            .checked_div(BPS_DENOMINATOR)
-            .ok_or(YieldSplitterError::Overflow)?;
-
-        Ok(accrued)
+        // Yield can only be paid from realized, verified external earnings.
+        // Paying synthetic yield from pooled balances leads to principal insolvency
+        // where early redeemers consume other users' deposited capital.
+        Ok(0)
     }
 }
 
