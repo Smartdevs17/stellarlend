@@ -683,6 +683,18 @@ impl HelloContract {
         asset: Option<Address>,
         amount: i128,
     ) -> Result<(i128, i128, i128), LendingError> {
+        // Rate limiting: user is the actor. Pool key uses the debt asset (or native sentinel).
+        let pool = asset
+            .clone()
+            .unwrap_or_else(|| env.current_contract_address());
+        rate_limiter::consume(
+            &env,
+            &user,
+            &user,
+            &soroban_sdk::Symbol::new(&env, "repay"),
+            &pool,
+        )
+        .map_err(|_| LendingError::LimitExceeded)?;
         repay::repay_debt(&env, user, asset, amount).map_err(Into::into)
     }
 
@@ -692,6 +704,18 @@ impl HelloContract {
         asset: Option<Address>,
         amount: i128,
     ) -> Result<i128, LendingError> {
+        // Rate limiting: user is the actor. Pool key uses the collateral asset (or native sentinel).
+        let pool = asset
+            .clone()
+            .unwrap_or_else(|| env.current_contract_address());
+        rate_limiter::consume(
+            &env,
+            &user,
+            &user,
+            &soroban_sdk::Symbol::new(&env, "withdraw"),
+            &pool,
+        )
+        .map_err(|_| LendingError::LimitExceeded)?;
         withdraw::withdraw_collateral(&env, user, asset, amount).map_err(Into::into)
     }
 

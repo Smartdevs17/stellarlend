@@ -11,6 +11,7 @@ use soroban_sdk::{
 #[test]
 fn test_initialize() {
     let env = Env::default();
+    env.mock_all_auths();
     let admin1 = Address::generate(&env);
     let admin2 = Address::generate(&env);
     let admins = vec![&env, admin1.clone(), admin2.clone()];
@@ -27,6 +28,7 @@ fn test_initialize() {
 #[test]
 fn test_propose_and_approve() {
     let env = Env::default();
+    env.mock_all_auths();
     let admin1 = Address::generate(&env);
     let admin2 = Address::generate(&env);
     let admins = vec![&env, admin1.clone(), admin2.clone()];
@@ -61,6 +63,7 @@ fn test_propose_and_approve() {
 #[should_panic(expected = "HostError: Error(Contract, #9)")]
 fn test_execute_insufficient_approvals() {
     let env = Env::default();
+    env.mock_all_auths();
     let admin1 = Address::generate(&env);
     let admin2 = Address::generate(&env);
     let admins = vec![&env, admin1.clone(), admin2.clone()];
@@ -174,4 +177,67 @@ fn test_recovery_flow() {
     client.execute_recovery(&guardian);
 
     assert_eq!(client.get_admins().get(0).unwrap(), new_admin);
+}
+
+// ---------------------------------------------------------------------------
+// Initialization authorization (front-running / first-call takeover protection)
+// ---------------------------------------------------------------------------
+
+/// Initialization requires authorization from every supplied admin.
+/// Calling it without any mocked/real auth must fail instead of silently
+/// installing the caller's signer set.
+#[test]
+fn test_initialize_requires_admin_authorization() {
+    let env = Env::default();
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let admins = vec![&env, admin1.clone(), admin2.clone()];
+
+    let contract_id = env.register_contract(None, InstitutionalWallet);
+    let client = InstitutionalWalletClient::new(&env, &contract_id);
+
+    // No env.mock_all_auths() here: the admins never authorized their own
+    // inclusion, so initialization must fail.
+    let result = client.try_initialize(&admins, &2);
+    assert!(
+        result.is_err(),
+        "initialize must require authorization from every supplied admin"
+    );
+
+    assert_eq!(client.get_threshold(), 0);
+    assert_eq!(client.get_admins().len(), 0);
+}
+
+/// An unrelated account cannot seize a fresh wallet by racing the first
+/// initialization, even when it supplies and authenticates its own address as
+/// the sole admin.
+#[test]
+fn test_attacker_cannot_unilaterally_initialize() {
+    let env = Env::default();
+
+    let attacker = Address::generate(&env);
+    let intended_admin = Address::generate(&env);
+    let attacker_admins = vec![&env, attacker.clone()];
+
+    let contract_id = env.register_contract(None, InstitutionalWallet);
+    let client = InstitutionalWalletClient::new(&env, &contract_id);
+
+    // The attacker authorizes only themselves; the intended owner never
+    // authorized this configuration, so initialization must fail.
+    let result = client.try_initialize(&attacker_admins, &1);
+    assert!(
+        result.is_err(),
+        "attacker must not be able to unilaterally initialize the wallet"
+    );
+
+    assert_eq!(client.get_threshold(), 0);
+    assert_eq!(client.get_admins().len(), 0);
+
+    // With authorization from the intended owner the wallet initializes normally.
+    env.mock_all_auths();
+    let intended_admins = vec![&env, intended_admin.clone()];
+    client.initialize(&intended_admins, &1);
+    assert_eq!(client.get_threshold(), 1);
+    assert_eq!(client.get_admins().get(0).unwrap(), intended_admin);
 }

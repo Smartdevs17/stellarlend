@@ -402,7 +402,7 @@ pub fn get_congestion_state(env: &Env) -> CongestionState {
 fn default_config(env: &Env, op: &Symbol) -> RateLimitConfig {
     // Conservative defaults: set low but non-zero limits to make abuse harder,
     // while allowing typical UX. Admin can tune per operation/pool.
-    // Borrow and liquidate are the primary targets.
+    // Borrow, liquidate, withdraw, and repay are the primary targets.
     let name = op.to_string();
     if name == "borrow" {
         RateLimitConfig {
@@ -417,6 +417,13 @@ fn default_config(env: &Env, op: &Symbol) -> RateLimitConfig {
             max_calls_per_window: 10,
             burst_calls: 5,
             grace_burst_calls: 20,
+        }
+    } else if name == "withdraw" || name == "repay" {
+        RateLimitConfig {
+            window_seconds: 60,
+            max_calls_per_window: 30,
+            burst_calls: 10,
+            grace_burst_calls: 0,
         }
     } else {
         RateLimitConfig {

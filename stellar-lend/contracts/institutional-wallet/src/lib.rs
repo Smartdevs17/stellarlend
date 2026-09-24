@@ -38,6 +38,17 @@ impl InstitutionalWallet {
             return Err(WalletError::InvalidThreshold);
         }
 
+        // Every supplied admin must authenticate their own inclusion as a
+        // signer. This prevents an unrelated account from seizing governance by
+        // installing a signer set that the intended owner(s) never authorized.
+        //
+        // Note: deployments must still initialize atomically (e.g. via a factory
+        // bootstrap contract) so that an attacker cannot front-run a fresh wallet
+        // instance between deployment and initialization.
+        for admin in admins.iter() {
+            admin.require_auth();
+        }
+
         let config = MultisigConfig { threshold };
         set_config(&env, &config);
         set_admins(&env, &admins);

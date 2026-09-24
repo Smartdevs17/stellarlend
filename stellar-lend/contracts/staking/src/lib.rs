@@ -26,6 +26,10 @@ pub struct Staking;
 #[contractimpl]
 impl Staking {
     pub fn initialize(env: Env, admin: Address, pool_token: Address, reward_token: Address) {
+        if env.storage().instance().has(&Symbol::new(&env, "admin")) {
+            panic!("staking contract already initialized");
+        }
+
         admin.require_auth();
 
         env.storage()
@@ -220,4 +224,89 @@ impl Staking {
 mod tests {
     use super::*;
     use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{Address, Env};
+
+    fn fresh_client(env: &Env, contract_id: &Address) -> StakingClient {
+        StakingClient::new(env, contract_id)
+    }
+
+    #[test]
+    fn initialize_works_on_fresh_contract() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let pool_token = Address::generate(&env);
+        let reward_token = Address::generate(&env);
+
+        let contract_id = env.register_contract(None, Staking);
+        let client = fresh_client(&env, &contract_id);
+
+        client.initialize(&admin, &pool_token, &reward_token);
+
+        assert_eq!(client.get_total_staked(), 0);
+        assert_eq!(client.get_stake(&admin), None);
+    }
+
+    /// A second call to `initialize` on an already-initialized contract must panic.
+    #[test]
+    fn second_initialize_panics_already_initialized() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let pool_token = Address::generate(&env);
+        let reward_token = Address::generate(&env);
+
+        let contract_id = env.register_contract(None, Staking);
+        let client = fresh_client(&env, &contract_id);
+
+        client.initialize(&admin, &pool_token, &reward_token);
+
+        let result = client.try_initialize(&admin, &pool_token, &reward_token);
+        assert!(
+            result.is_err(),
+            "second initialize call must fail with an error"
+        );
+
+        assert_eq!(client.get_total_staked(), 0);
+    }
+
+    /// Regression test for the reinitialization takeover: an attacker must not be
+    /// able to re-initialize a live staking contract with their own admin and reset
+    /// the aggregate accounting (`total_staked`).
+    #[test]
+    fn attacker_cannot_reinitialize_live_staking_contract() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let pool_token = Address::generate(&env);
+        let reward_token = Address::generate(&env);
+        let attacker = Address::generate(&env);
+        let attacker_pool = Address::generate(&env);
+        let attacker_reward = Address::generate(&env);
+        let user = Address::generate(&env);
+
+        let contract_id = env.register_contract(None, Staking);
+        let client = fresh_client(&env, &contract_id);
+
+        client.initialize(&admin, &pool_token, &reward_token);
+        client.stake(&user, &2_000_000i128);
+
+        assert_eq!(client.get_total_staked(), 2_000_000i128);
+        assert!(client.get_stake(&user).is_some());
+
+        // Reinitialization with an attacker-controlled admin/tokens must fail.
+        let result = client.try_initialize(&attacker, &attacker_pool, &attacker_reward);
+        assert!(result.is_err(), "reinitialization by an attacker must fail");
+
+        // Aggregate accounting and existing stake records must be preserved.
+        assert_eq!(client.get_total_staked(), 2_000_000i128);
+        assert!(client.get_stake(&user).is_some());
+
+        // The contract is still governed by the original admin.
+        client.set_reward_rate(&123i128);
+        assert_eq!(client.get_total_staked(), 2_000_000i128);
+    }
 }
