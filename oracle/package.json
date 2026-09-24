@@ -11,6 +11,8 @@
     "test": "vitest --run",
     "test:coverage": "vitest --run --coverage",
     "test:watch": "vitest",
+    "test:stress": "vitest --run --config vitest.stress.config.ts",
+    "test:stress:report": "vitest --run --config vitest.stress.config.ts --reporter=default",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",

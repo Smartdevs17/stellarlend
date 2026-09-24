@@ -1,0 +1,164 @@
+name: Oracle Stress Tests
+
+# Issue #691 – Oracle-contract integration stress test suite.
+#
+# Covers the three layers the oracle spans, each as its own job so a failure
+# points straight at the layer that broke:
+#   - oracle/tests/stress/**                      → off-chain aggregator
+#   - tests/e2e/oracle-stress.e2e.test.ts         → oracle → contract → API
+#   - hello-world/src/tests/oracle_stress_test.rs → on-chain guards
+#
+# The service job publishes the generated stress report (JSON + markdown) as a
+# build artifact and echoes the markdown into the job summary, so a reviewer can
+# read the scenario results without downloading anything.
+
+on:
+  push:
+    branches: ["main", "dev", "feat/**"]
+    paths:
+      - "oracle/**"
+      - "tests/e2e/oracle-stress.e2e.test.ts"
+      - "stellar-lend/contracts/hello-world/src/oracle.rs"
+      - "stellar-lend/contracts/hello-world/src/tests/oracle_stress_test.rs"
+      - ".github/workflows/oracle-stress-tests.yml"
+  pull_request:
+    branches: ["main", "dev"]
+    paths:
+      - "oracle/**"
+      - "tests/e2e/oracle-stress.e2e.test.ts"
+      - "stellar-lend/contracts/hello-world/src/oracle.rs"
+      - "stellar-lend/contracts/hello-world/src/tests/oracle_stress_test.rs"
+      - ".github/workflows/oracle-stress-tests.yml"
+  schedule:
+    # Nightly, so slow degradations are caught even without an oracle change.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: oracle-stress-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 1: Off-chain oracle service stress suite + stress reporting
+  # ───────────────────────────────────────────────────────────────────────────
+  oracle-service-stress:
+    name: Oracle Service Stress (44 scenarios)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Run oracle stress suite
+        working-directory: oracle
+        run: npm run test:stress
+
+      - name: Publish stress report to job summary
+        if: always()
+        run: |
+          report=oracle/stress-report/oracle-stress-report.md
+          if [ -f "$report" ]; then
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No oracle stress report was generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload stress report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-stress-report-${{ github.sha }}
+          path: |
+            oracle/stress-report/oracle-stress-report.json
+            oracle/stress-report/oracle-stress-report.md
+          retention-days: 14
+
+      - name: Fail if any scenario regressed
+        if: always()
+        run: |
+          report=oracle/stress-report/oracle-stress-report.json
+          if [ ! -f "$report" ]; then
+            echo "::error::Stress report missing — the suite did not complete."
+            exit 1
+          fi
+          failed=$(node -e "process.stdout.write(String(require('./$report').failed))")
+          if [ "$failed" != "0" ]; then
+            echo "::error::$failed oracle stress scenario(s) failed."
+            exit 1
+          fi
+          echo "All oracle stress scenarios passed."
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 2: Oracle → contract → API integration stress
+  # ───────────────────────────────────────────────────────────────────────────
+  oracle-integration-stress:
+    name: Oracle Integration Stress (E2E)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install e2e dependencies
+        working-directory: tests/e2e
+        run: npm ci
+
+      - name: Run oracle integration stress suite
+        working-directory: tests/e2e
+        run: >-
+          npx jest --runInBand --forceExit
+          --json --outputFile=oracle-stress-report.json
+          oracle-stress.e2e.test.ts
+
+      - name: Upload integration stress report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-integration-stress-report-${{ github.sha }}
+          path: tests/e2e/oracle-stress-report.json
+          retention-days: 14
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 3: On-chain oracle guard stress
+  #
+  # `continue-on-error` is set because the `hello-world` crate does not
+  # currently build: it references ~35 functions that no longer exist across
+  # circuit_breaker, reentrancy, borrow, deposit, liquidate, repay, withdraw,
+  # analytics, health, risk_management, recovery, interest_rate,
+  # multi_collateral, risk_params and monitor. That breakage predates this
+  # suite and is unrelated to the oracle. The job is wired up now so the
+  # scenarios start gating as soon as the crate compiles again; until then it
+  # reports without blocking. Remove `continue-on-error` at that point.
+  # ───────────────────────────────────────────────────────────────────────────
+  oracle-contract-stress:
+    name: Oracle Contract Stress (on-chain guards)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: stellar-lend
+
+      - name: Run on-chain oracle stress tests
+        working-directory: stellar-lend
+        run: cargo test -p hello-world oracle_stress -- --nocapture

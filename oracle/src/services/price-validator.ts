@@ -338,6 +338,17 @@ export class PriceValidator {
   getCacheState(): Record<string, number> {
     return Object.fromEntries(this.cachedPrices);
   }
+
+  /**
+   * Maximum tolerated deviation, in percent.
+   *
+   * Exposed so the aggregator can apply the same threshold when screening a
+   * round of quotes against their consensus, before any of them is allowed to
+   * become this validator's drift reference.
+   */
+  get maxDeviationPercent(): number {
+    return this.config.maxDeviationPercent;
+  }
 }
 
 /**
