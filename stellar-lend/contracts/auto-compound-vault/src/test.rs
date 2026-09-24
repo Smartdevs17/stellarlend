@@ -236,3 +236,50 @@ fn test_invalid_config_fees() {
     let result = client.try_set_config(&admin, &bad_config);
     assert_eq!(result, Err(Ok(VaultError::PerformanceFeeExceedsMax)));
 }
+
+#[test]
+fn test_no_double_transfer_and_harvest_drain_prevention() {
+    let (env, contract_id, _share_token, underlying, client) = setup_with_real_tokens();
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let underlying_client = token::StellarAssetClient::new(&env, &underlying);
+
+    underlying_client.mint(&alice, &100);
+    underlying_client.mint(&bob, &100);
+
+    // Alice deposits 100
+    let alice_shares = client.deposit(&alice, &100, &100);
+    assert_eq!(alice_shares, 100);
+    assert_eq!(token::Client::new(&env, &underlying).balance(&alice), 0);
+    assert_eq!(token::Client::new(&env, &underlying).balance(&contract_id), 100);
+
+    // Bob deposits 100
+    let bob_shares = client.deposit(&bob, &100, &100);
+    assert_eq!(bob_shares, 100);
+    assert_eq!(token::Client::new(&env, &underlying).balance(&bob), 0);
+    assert_eq!(token::Client::new(&env, &underlying).balance(&contract_id), 200);
+
+    // Total assets must equal 200, matching real vault balance
+    let snapshot = client.get_vault_snapshot();
+    assert_eq!(snapshot.total_assets, 200);
+    assert_eq!(snapshot.total_shares, 200);
+
+    // Harvest should report NoRewardsToHarvest because vault balance matches recognized assets
+    let caller = Address::generate(&env);
+    let harvest_res = client.try_harvest(&caller, &0);
+    assert_eq!(harvest_res, Err(Ok(VaultError::NoRewardsToHarvest)));
+
+    // Alice withdraws all 100 shares
+    let alice_assets = client.withdraw(&alice, &100, &100);
+    assert_eq!(alice_assets, 100);
+    assert_eq!(token::Client::new(&env, &underlying).balance(&alice), 100);
+    // Vault balance must still retain Bob's 100 tokens
+    assert_eq!(token::Client::new(&env, &underlying).balance(&contract_id), 100);
+
+    // Bob can withdraw his remaining 100 tokens
+    let bob_assets = client.withdraw(&bob, &100, &100);
+    assert_eq!(bob_assets, 100);
+    assert_eq!(token::Client::new(&env, &underlying).balance(&bob), 100);
+    assert_eq!(token::Client::new(&env, &underlying).balance(&contract_id), 0);
+}
+
