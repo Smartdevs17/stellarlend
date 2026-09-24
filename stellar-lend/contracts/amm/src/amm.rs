@@ -1112,6 +1112,8 @@ pub fn initialize_amm_settings(
         return Err(AmmError::AlreadyInitialized);
     }
 
+    admin.require_auth();
+
     // Set admin
     env.storage().persistent().set(&admin_key, &admin);
 
@@ -1173,6 +1175,8 @@ pub fn update_amm_settings(
 
 /// Check if caller is admin
 fn require_admin(env: &Env, caller: &Address) -> Result<(), AmmError> {
+    caller.require_auth();
+
     let admin_key = AmmDataKey::Admin;
     let admin = env
         .storage()
