@@ -33,6 +33,7 @@ pub enum MigrationStatus {
     Pending,
     Completed,
     Failed,
+    Refunded,
 }
 
 #[contracttype]
