@@ -58,7 +58,7 @@ export function RateChart({
 
   return (
     <div className={`rate-chart ${className}`} style={{ background: colors.surface, borderRadius: 12, padding: 16, border: `1px solid ${colors.border}` }} data-testid="rate-chart">
-      <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 8 }}>
         {showSupply && <span style={{ fontSize: 12, color: colors.success }}>● Supply APY</span>}
         {showBorrow && <span style={{ fontSize: 12, color: colors.danger }}>● Borrow APY</span>}
       </div>

@@ -52,3 +52,12 @@ export const DarkMode: Story = {
 export const Loading: Story = {
   args: { pool, isLoading: true },
 };
+
+export const Mobile: Story = {
+  args: {
+    pool,
+    onSupply: (selected) => alert(`Supply ${selected.symbol}`),
+    onBorrow: (selected) => alert(`Borrow ${selected.symbol}`),
+  },
+  parameters: { layout: 'padded', viewport: { defaultViewport: 'mobile1' } },
+};

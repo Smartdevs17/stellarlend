@@ -47,3 +47,14 @@ export const WithActions: Story = {
     onWithdraw: (p) => alert(`Withdraw ${p.asset}`),
   },
 };
+
+export const Mobile: Story = {
+  args: {
+    position: samplePosition,
+    onSupply: (p) => alert(`Supply ${p.asset}`),
+    onBorrow: (p) => alert(`Borrow ${p.asset}`),
+    onRepay: (p) => alert(`Repay ${p.asset}`),
+    onWithdraw: (p) => alert(`Withdraw ${p.asset}`),
+  },
+  parameters: { layout: 'padded', viewport: { defaultViewport: 'mobile1' } },
+};

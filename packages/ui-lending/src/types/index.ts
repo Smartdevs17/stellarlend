@@ -71,3 +71,19 @@ export interface LiquidationRisk {
   safetyBuffer: number;
   riskLevel: 'low' | 'medium' | 'high' | 'critical';
 }
+
+export type TransactionTrackingState = 'idle' | 'pending' | 'success' | 'failed' | 'timeout';
+
+export interface TransactionStatusResult {
+  status: 'pending' | 'success' | 'failed';
+  ledger?: number;
+  error?: string;
+}
+
+export interface TransactionTracking {
+  hash: string | null;
+  state: TransactionTrackingState;
+  ledger?: number;
+  error?: string;
+  startedAt: number | null;
+}
