@@ -212,8 +212,14 @@ pub enum GovernanceDataKey {
     ProposalApprovals(u64),
     // Votes
     Vote(u64, Address),
-    VotePowerSnapshot(u64, Address),
     VoteLock(Address),
+    // Lock-to-vote power: tokens locked per account, and checkpointed voting
+    // power per account and for the total locked supply.
+    LockedBalance(Address),
+    VoteCheckpointCount(Address),
+    VoteCheckpoint(Address, u32),
+    TotalLockedCheckpointCount,
+    TotalLockedCheckpoint(u32),
     // Delegation
     DelegationRecord(Address),
     // Recovery

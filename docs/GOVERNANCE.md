@@ -5,39 +5,58 @@ StellarLend’s on-chain governance (`hello-world` contract, `gov_*` entrypoints
 ## Proposal State Machine
 
 ```
-                 create_proposal
-                       │
-                       ▼
-                   ┌────────┐   first vote    ┌────────┐
-                   │ Pending│ ───────────────▶│ Active │
-                   └────────┘                 └────────┘
-                       │                          │
-                       │ cancel (proposer/admin)  │ queue_proposal (after voting ends)
-                       ▼                          ▼
-                  ┌───────────┐   success   ┌─────────┐
-                  │ Cancelled │             │ Queued  │
-                  └───────────┘             └─────────┘
-                                                │
-                          execute (delay elapsed)│ execute (delay elapsed)
-                           ┌────────────────────┼────────────────────┐
-                           ▼                    ▼                    ▼
-                      ┌──────────┐         ┌──────────┐        ┌──────────┐
-                      │ Executed │         │ Defeated │        │ Expired  │
-                      └──────────┘         └──────────┘        └──────────┘
+ create ──► Active ──(end_time)──► Succeeded ──queue──► Queued ──(eta)──► Executed
+              │                        │                  │
+              │                        └─(grace)─► Expired└─(eta + grace)─► Expired
+              └──(end_time, fails)──► Defeated
+ Pending / Active / Queued ──cancel (proposer, admin, guardian)──► Cancelled
 ```
 
-Statuses (mirrors `types::ProposalStatus`):
+Only transitions made by a successful call are written to storage. States that
+follow from time alone (voting closed, grace period lapsed) are derived on read
+by `gov_get_proposal_state`, because a call that fails cannot persist anything.
+Clients should read state from `gov_get_proposal_state`, not from the stored
+`Proposal.status`.
 
-| Status | Entered by | Terminal? |
-|--------|-----------|-----------|
-| `Pending` | `create_proposal` | No |
-| `Active` | first `vote` when `now >= start_time` | No |
-| `Queued` | `queue_proposal` when quorum + threshold met | No |
-| `Executed` | `execute_proposal` after execution delay, within timelock window | Yes |
-| `Defeated` | `queue_proposal` when quorum or threshold fails | Yes |
-| `Expired` | `queue_proposal` past voting+timelock, or `execute_proposal` past timelock window | Yes |
-| `Cancelled` | `cancel_proposal` by proposer or admin (only from non-queued/executed states) | Yes |
-| `Succeeded` | intermediate outcome flag (set internally on successful vote tally) | No |
+| Status | Meaning |
+|--------|---------|
+| `Pending` | Stored at creation; reported as `Active` once `now >= start_time` |
+| `Active` | Voting open: `start_time <= now < end_time` |
+| `Succeeded` | Voting closed, quorum and threshold met, not yet queued (derived) |
+| `Defeated` | Voting closed without quorum or threshold (derived, stored by `queue`) |
+| `Queued` | In the timelock; executable from `execution_time` (eta) |
+| `Executed` | Applied by `execute_proposal` (terminal) |
+| `Expired` | Not queued within the grace period after `end_time`, or not executed within the grace period after eta (derived, terminal) |
+| `Cancelled` | Cancelled before execution (terminal) |
+
+## Voting Power (lock-to-vote)
+
+Soroban tokens expose neither historical balances nor a total supply, so
+governance cannot snapshot holders by reading the vote token. Instead:
+
+- Holders lock vote tokens with `gov_lock_tokens` and withdraw them with
+  `gov_unlock_tokens`. Locked tokens are held by the contract.
+- Every change to an account's voting power, or to the total locked supply,
+  writes a timestamped checkpoint.
+- A proposal counts power held **strictly before** the timestamp it was created
+  at. Tokens borrowed, bought, locked or delegated in the proposal's own ledger
+  or later carry no weight on it. This is what stops flash-loan voting and
+  vote-then-transfer double voting.
+- After voting, a voter's locked tokens and delegation stay fixed until the
+  voting period of every proposal they voted on has ended (`gov_is_vote_locked`).
+
+### Delegation
+
+`gov_delegate_vote(delegator, delegatee)` moves the voting power of the
+delegator's locked tokens, including tokens locked later, to the delegatee.
+`gov_revoke_delegation` returns it. Calling `gov_delegate_vote` again
+re-delegates.
+
+Delegation is single-hop. Power received by delegation cannot be delegated
+onward. A delegatee can still delegate its *own* locked tokens, so chains and
+cycles cannot form and no depth limit is needed. Delegation counts on a proposal
+only if it predates the proposal's creation, like any other change to voting
+power.
 
 ## Configuration (`gov_initialize`)
 
@@ -45,42 +64,55 @@ Statuses (mirrors `types::ProposalStatus`):
 gov_initialize(
     admin: Address,
     vote_token: Address,
-    voting_period: Option<u64>,        // seconds; proposal active window
-    execution_delay: Option<u64>,      // seconds; queued → executable delay
-    quorum_bps: Option<u32>,           // basis points of total votes required
-    proposal_threshold: Option<i128>,  // min token balance to create proposal
-    timelock_duration: Option<u64>,    // seconds; executable window after delay
-    default_voting_threshold: Option<i128>, // bps of for-votes required
+    voting_period: Option<u64>,        // seconds; 1 hour ..= 30 days
+    execution_delay: Option<u64>,      // seconds; timelock between queue and eta, <= 30 days
+    quorum_bps: Option<u32>,           // share of locked supply that must vote; 1 ..= 10_000
+    proposal_threshold: Option<i128>,  // min voting power to create a proposal
+    timelock_duration: Option<u64>,    // seconds; grace period to queue / execute, 1 ..= 30 days
+    default_voting_threshold: Option<i128>, // bps of votes cast that must be `For`; 1 ..= 10_000
 )
 ```
 
-Defaults fall back to contract-level constants (`DEFAULT_TIMELOCK_DURATION`, etc.) when `None`.
+Defaults fall back to contract-level constants (`DEFAULT_TIMELOCK_DURATION`,
+etc.) when `None`. Out-of-bounds values are rejected.
+
+After initialization, the rules change only through governance itself: an
+`UpdateGovernanceConfig(GovernanceParams)` proposal passes a vote and the
+timelock like any other. Its bounds are re-checked at execution. A proposal keeps
+the voting period, quorum and threshold it was created under.
 
 ## Key Invariants Enforced On-Chain
 
-1. **Proposal threshold**: `balance(proposer) >= proposal_threshold` (unless threshold is 0).
-2. **Vote power**: snapshot-based (`VotePowerSnapshot`) with optional delegation; zero-power voters are rejected (`NoVotingPower`).
-3. **One vote per address**: double-vote reverts with `AlreadyVoted`.
-4. **Quorum**: `total_votes >= (total_votes * quorum_bps) / 10_000` (evaluated at queue time).
-5. **Voting threshold**: `for_votes >= (total_voting_power * voting_threshold) / 10_000`.
-6. **Execution delay**: `execute` rejects if `now < execution_time` (`ExecutionTooEarly`).
-7. **Timelock window**: `execute` expires the proposal if `now > execution_time + timelock_duration`.
-8. **Cancel authorization**: only `proposer` or `admin`; cannot cancel `Queued` or `Executed`.
+1. **Proposal threshold**: the proposer's voting power before the current ledger is at least `proposal_threshold`.
+2. **Vote power**: checkpointed power strictly before `created_at`. Voters with zero power are rejected (`NoVotingPower`).
+3. **One vote per address**: a second vote reverts with `AlreadyVoted`.
+4. **Voting window**: votes are accepted only while `start_time <= now < end_time` (`NotInVotingPeriod`).
+5. **Quorum**: `for + against + abstain >= quorum_votes`, where `quorum_votes = ceil(total_locked_before_creation * quorum_bps / 10_000)` is fixed at creation.
+6. **Threshold**: `for >= (for + against + abstain) * voting_threshold / 10_000` and `for > against`, so a tie never passes. A proposer may raise `voting_threshold` above the default, never lower it.
+7. **Execution delay**: `execute` rejects while `now < eta` (`ExecutionTooEarly`), where `eta = queue time + execution_delay`.
+8. **Grace period**: a proposal must be queued within `timelock_duration` of `end_time`, and executed within `timelock_duration` of eta, or it expires.
+9. **Veto window**: the proposer, admin, or any guardian can cancel a proposal until it executes, including while it is queued.
+10. **Emergency proposals** skip voting and the delay. Each needs approvals (`gov_approve_proposal`) from the multisig threshold of current multisig admins, and a multisig admin must execute it.
 
 ## Entrypoints (all under `#[contractimpl]`)
 
 | Entrypoint | Purpose |
 |-----------|---------|
 | `gov_initialize` | One-time config + vote token setup |
+| `gov_lock_tokens` / `gov_unlock_tokens` | Lock vote tokens for voting power / withdraw them |
+| `gov_delegate_vote` / `gov_revoke_delegation` | Delegate locked-token power / take it back |
+| `gov_get_votes` / `gov_get_past_votes` | Current voting power / power strictly before a timestamp |
+| `gov_get_locked_balance` / `gov_get_total_locked` / `gov_get_delegation` | Lock and delegation views |
 | `gov_create_proposal` | Open a proposal (threshold-gated) |
-| `gov_vote` | Cast `For`/`Against`/`Abstain` with snapshotted power |
+| `gov_vote` | Cast `For`/`Against`/`Abstain` with checkpointed power |
+| `gov_get_vote_power_snapshot` | The power a voter can use on a proposal |
 | `gov_queue_proposal` | Tally after voting ends → `Queued` or `Defeated` |
-| `gov_execute_proposal` | Apply queued proposal after delay, within timelock |
-| `gov_cancel_proposal` | Cancel by proposer/admin |
-| `gov_get_proposal` | Read proposal state |
-| `gov_get_governance_config` | Read current config |
-| `gov_add_guardian` | Register a social-recovery guardian |
-| `gov_approve_proposal` | Multisig/guardian approval path |
+| `gov_execute_proposal` | Apply a queued proposal after the delay, within the grace period |
+| `gov_cancel_proposal` | Cancel / veto by proposer, admin or guardian |
+| `gov_get_proposal` / `gov_get_proposal_state` | Stored proposal / current lifecycle state |
+| `gov_get_config` | Read current config |
+| `gov_create_emergency_proposal` / `gov_approve_proposal` | Multisig emergency path |
+| `gov_add_guardian` | Register a guardian (can veto proposals) |
 
 ## E2E Coverage
 
@@ -128,5 +160,5 @@ cargo run --bin run_benchmarks -- --output governance-bench.json
 
 ## Related Specs
 
-- Rust lifecycle tests: `stellar-lend/contracts/hello-world/src/tests/governance_test.rs`
-- State machine source: `stellar-lend/contracts/hello-world/src/governance/{proposal,voting,execution}.rs`
+- Rust lifecycle tests: `stellar-lend/contracts/hello-world/src/tests/governance_{test,lifecycle_test,attack_prevention_test}.rs`
+- State machine source: `stellar-lend/contracts/hello-world/src/governance/{proposal,voting,power,execution}.rs`

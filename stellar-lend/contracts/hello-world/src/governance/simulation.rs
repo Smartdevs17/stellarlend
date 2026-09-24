@@ -10,22 +10,10 @@ use crate::types::{
 
 use super::get_admin;
 
-fn compute_simulation(
-    env: &Env,
-    proposal: &Proposal,
-    config: &GovernanceConfig,
-) -> ProposalSimulationResult {
+fn compute_simulation(env: &Env, proposal: &Proposal) -> ProposalSimulationResult {
     let now = env.ledger().timestamp();
-
-    let total_votes = proposal.for_votes + proposal.against_votes + proposal.abstain_votes;
-    let quorum_required = (total_votes * config.quorum_bps as i128) / BASIS_POINTS_SCALE;
-    let quorum_reached = total_votes >= quorum_required;
-
-    let threshold_votes =
-        (proposal.total_voting_power * proposal.voting_threshold) / BASIS_POINTS_SCALE;
-    let threshold_met = proposal.for_votes >= threshold_votes;
-
-    let would_succeed = quorum_reached && threshold_met;
+    let tally = super::proposal::tally(proposal);
+    let would_succeed = tally.succeeded;
     let note = if would_succeed {
         String::from_str(env, "simulation: would succeed with current votes")
     } else {
@@ -36,10 +24,10 @@ fn compute_simulation(
         proposal_id: proposal.id,
         now,
         would_succeed,
-        quorum_required,
-        quorum_reached,
-        threshold_votes,
-        threshold_met,
+        quorum_required: proposal.quorum_votes,
+        quorum_reached: tally.quorum_reached,
+        threshold_votes: tally.threshold_votes,
+        threshold_met: tally.threshold_met,
         for_votes: proposal.for_votes,
         against_votes: proposal.against_votes,
         abstain_votes: proposal.abstain_votes,
@@ -52,11 +40,9 @@ pub fn simulate_proposal(
     env: &Env,
     proposal_id: u64,
 ) -> Result<ProposalSimulationResult, GovernanceError> {
-    let config: GovernanceConfig = env
-        .storage()
-        .instance()
-        .get(&GovernanceDataKey::Config)
-        .ok_or(GovernanceError::NotInitialized)?;
+    if !env.storage().instance().has(&GovernanceDataKey::Config) {
+        return Err(GovernanceError::NotInitialized);
+    }
 
     let proposal: Proposal = env
         .storage()
@@ -64,7 +50,7 @@ pub fn simulate_proposal(
         .get(&GovernanceDataKey::Proposal(proposal_id))
         .ok_or(GovernanceError::ProposalNotFound)?;
 
-    let result = compute_simulation(env, &proposal, &config);
+    let result = compute_simulation(env, &proposal);
     env.storage().persistent().set(
         &GovernanceDataKey::ProposalSimulationCache(proposal_id),
         &result,
@@ -108,6 +94,7 @@ fn estimate_execution_gas(proposal_type: &ProposalType) -> u64 {
         ProposalType::PauseSwitch(_, _) => 28_000,
         ProposalType::EmergencyPause(_) => 24_000,
         ProposalType::GenericAction(_) => 90_000,
+        ProposalType::UpdateGovernanceConfig(_) => 30_000,
     }
 }
 
@@ -126,14 +113,10 @@ pub fn simulate_proposal_dry_run(
         .get(&GovernanceDataKey::Proposal(proposal_id))
         .ok_or(GovernanceError::ProposalNotFound)?;
 
-    let vote_sim = {
-        let config: GovernanceConfig = env
-            .storage()
-            .instance()
-            .get(&GovernanceDataKey::Config)
-            .ok_or(GovernanceError::NotInitialized)?;
-        compute_simulation(env, &proposal, &config)
-    };
+    if !env.storage().instance().has(&GovernanceDataKey::Config) {
+        return Err(GovernanceError::NotInitialized);
+    }
+    let vote_sim = compute_simulation(env, &proposal);
 
     let (mcr, lt, cf, li, tvl, borrow_apy, _supply_apy, paused) = current_protocol_snapshot(env);
 
@@ -173,7 +156,7 @@ pub fn simulate_proposal_dry_run(
         ProposalType::PauseSwitch(_, p) => {
             proposed_paused = *p;
         }
-        ProposalType::GenericAction(_) => {}
+        ProposalType::GenericAction(_) | ProposalType::UpdateGovernanceConfig(_) => {}
     }
 
     let mut tvl_delta: i128 = 0;

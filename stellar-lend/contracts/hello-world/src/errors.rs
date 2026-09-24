@@ -75,6 +75,11 @@ pub enum GovernanceError {
     InvalidActionTypeDelay = 148,
     EmergencyOverrideAlreadyApproved = 149,
     InsufficientEmergencyApprovals = 150,
+    NotDelegated = 151,
+    InvalidVotingThreshold = 152,
+    InvalidAmount = 153,
+    InsufficientLockedBalance = 154,
+    InvalidExecutionDelay = 155,
 }
 
 /// Unified public contract error type for the lending interface.
@@ -246,6 +251,10 @@ impl From<GovernanceError> for LendingError {
             GovernanceError::NotInitialized => LendingError::NotInitialized,
             GovernanceError::InvalidQuorum => LendingError::InvalidParameter,
             GovernanceError::InvalidVotingPeriod => LendingError::InvalidParameter,
+            GovernanceError::InvalidVotingThreshold => LendingError::InvalidParameter,
+            GovernanceError::InvalidExecutionDelay => LendingError::InvalidParameter,
+            GovernanceError::InvalidAmount => LendingError::InvalidAmount,
+            GovernanceError::InsufficientLockedBalance => LendingError::InsufficientBalance,
             _ => LendingError::GovernanceError,
         }
     }

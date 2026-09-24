@@ -1,17 +1,19 @@
-use soroban_sdk::{token::TokenClient, Address, Env, Vec};
+use soroban_sdk::{Address, Env};
 
 use crate::errors::GovernanceError;
-use crate::events::{
-    VoteCastEvent, VoteDelegatedEvent, VoteDelegationRevokedEvent, VoteLockedEvent,
-    VotePowerSnapshotTakenEvent, to_shared_vote_type,
-};
+use crate::events::{to_shared_vote_type, VoteCastEvent, VoteLockedEvent};
 use crate::storage::GovernanceDataKey;
-use crate::types::{
-    DelegationRecord, GovernanceConfig, Proposal, VoteInfo, VoteLock, VotePowerSnapshot, VoteType,
-    BASIS_POINTS_SCALE, DELEGATION_DEADLINE, MAX_DELEGATION_DEPTH,
-};
+use crate::types::{Proposal, ProposalStatus, VoteInfo, VoteLock, VotePowerSnapshot, VoteType};
+
+use super::analytics::{detect_suspicious_voting, update_analytics_vote_cast};
+use super::power::{get_locked_balance, get_past_total_locked, get_past_votes};
 
 /// Cast a vote on a proposal.
+///
+/// Voting is open from `start_time` until (not including) `end_time`. The
+/// voter's weight is their voting power strictly before the proposal was
+/// created, so power acquired afterwards (including by flash loan or late
+/// delegation) cannot be used.
 pub fn vote(
     env: &Env,
     voter: Address,
@@ -20,26 +22,20 @@ pub fn vote(
 ) -> Result<(), GovernanceError> {
     voter.require_auth();
 
-    let config: GovernanceConfig = env
-        .storage()
-        .instance()
-        .get(&GovernanceDataKey::Config)
-        .ok_or(GovernanceError::NotInitialized)?;
-
     let mut proposal: Proposal = env
         .storage()
         .persistent()
         .get(&GovernanceDataKey::Proposal(proposal_id))
         .ok_or(GovernanceError::ProposalNotFound)?;
 
-    let now = env.ledger().timestamp();
-
-    if proposal.status == ProposalStatus::Pending && now >= proposal.start_time {
-        proposal.status = ProposalStatus::Active;
+    match proposal.status {
+        ProposalStatus::Pending | ProposalStatus::Active => {}
+        _ => return Err(GovernanceError::ProposalNotActive),
     }
 
-    if proposal.status != ProposalStatus::Active {
-        return Err(GovernanceError::ProposalNotActive);
+    let now = env.ledger().timestamp();
+    if now < proposal.start_time || now >= proposal.end_time {
+        return Err(GovernanceError::NotInVotingPeriod);
     }
 
     let vote_key = GovernanceDataKey::Vote(proposal_id, voter.clone());
@@ -47,11 +43,8 @@ pub fn vote(
         return Err(GovernanceError::AlreadyVoted);
     }
 
-    // Flash loan protection: use snapshot-based voting power with delegation.
-    let voting_power =
-        get_vote_power_with_delegation(env, proposal_id, &voter, &config.vote_token)?;
-
-    if voting_power == 0 {
+    let voting_power = get_past_votes(env, &voter, proposal.created_at);
+    if voting_power <= 0 {
         return Err(GovernanceError::NoVotingPower);
     }
 
@@ -61,6 +54,7 @@ pub fn vote(
         VoteType::Abstain => proposal.abstain_votes += voting_power,
     }
     proposal.total_voting_power += voting_power;
+    proposal.status = ProposalStatus::Active;
 
     env.storage()
         .persistent()
@@ -76,6 +70,16 @@ pub fn vote(
         },
     );
 
+    lock_votes(env, &voter, &proposal);
+    update_analytics_vote_cast(env);
+    detect_suspicious_voting(
+        env,
+        proposal_id,
+        &voter,
+        voting_power,
+        get_past_total_locked(env, proposal.created_at),
+    );
+
     VoteCastEvent {
         proposal_id,
         voter,
@@ -89,271 +93,71 @@ pub fn vote(
 }
 
 // ========================================================================
-// Flash Loan Attack Protection
-// ========================================================================
-
-/// Take a vote power snapshot for a voter at proposal creation time.
-pub fn take_vote_power_snapshot(
-    env: &Env,
-    proposal_id: u64,
-    voter: &Address,
-    vote_token: &Address,
-) {
-    let token_client = TokenClient::new(env, vote_token);
-    let balance = token_client.balance(voter);
-    let now = env.ledger().timestamp();
-
-    let snapshot = VotePowerSnapshot {
-        proposal_id,
-        voter: voter.clone(),
-        balance,
-        snapshot_time: now,
-    };
-
-    env.storage().persistent().set(
-        &GovernanceDataKey::VotePowerSnapshot(proposal_id, voter.clone()),
-        &snapshot,
-    );
-
-    VotePowerSnapshotTakenEvent {
-        proposal_id,
-        voter: voter.clone(),
-        balance,
-        snapshot_time: now,
-    }
-    .publish(env);
-}
-
-/// Get the snapshotted vote power for a voter on a proposal.
-/// Falls back to the live balance when no snapshot exists.
-fn get_snapshotted_vote_power(
-    env: &Env,
-    proposal_id: u64,
-    voter: &Address,
-    vote_token: &Address,
-) -> i128 {
-    let snapshot_key = GovernanceDataKey::VotePowerSnapshot(proposal_id, voter.clone());
-    if let Some(snapshot) = env
-        .storage()
-        .persistent()
-        .get::<GovernanceDataKey, VotePowerSnapshot>(&snapshot_key)
-    {
-        snapshot.balance
-    } else {
-        TokenClient::new(env, vote_token).balance(voter)
-    }
-}
-
-/// Resolve effective voting power for a voter, accounting for delegation.
-fn get_vote_power_with_delegation(
-    env: &Env,
-    proposal_id: u64,
-    voter: &Address,
-    vote_token: &Address,
-) -> Result<i128, GovernanceError> {
-    let proposal: Proposal = env
-        .storage()
-        .persistent()
-        .get(&GovernanceDataKey::Proposal(proposal_id))
-        .ok_or(GovernanceError::ProposalNotFound)?;
-
-    let own_power = get_snapshotted_vote_power(env, proposal_id, voter, vote_token);
-    let delegated_extra = get_delegated_power_for_voter(env, proposal_id, voter, &proposal);
-
-    Ok(own_power + delegated_extra)
-}
-
-/// Sum up delegated voting power that was validly delegated to `delegatee`.
-fn get_delegated_power_for_voter(
-    env: &Env,
-    proposal_id: u64,
-    delegatee: &Address,
-    proposal: &Proposal,
-) -> i128 {
-    let reverse_key = GovernanceDataKey::DelegationRecord(delegatee.clone());
-    let delegators: Vec<Address> = env
-        .storage()
-        .persistent()
-        .get(&reverse_key)
-        .unwrap_or_else(|| Vec::new(env));
-
-    let deadline = proposal.created_at.saturating_sub(DELEGATION_DEADLINE);
-    let mut total: i128 = 0;
-
-    for delegator in delegators.iter() {
-        let del_key = GovernanceDataKey::DelegationRecord(delegator.clone());
-        if let Some(record) = env
-            .storage()
-            .persistent()
-            .get::<GovernanceDataKey, DelegationRecord>(&del_key)
-        {
-            if record.delegatee == *delegatee && record.delegated_at <= deadline {
-                let snap_key = GovernanceDataKey::VotePowerSnapshot(proposal_id, delegator.clone());
-                if let Some(snap) = env
-                    .storage()
-                    .persistent()
-                    .get::<GovernanceDataKey, VotePowerSnapshot>(&snap_key)
-                {
-                    total += snap.balance;
-                }
-            }
-        }
-    }
-
-    total
-}
-
-// ========================================================================
-// Vote Delegation
-// ========================================================================
-
-/// Delegate vote power from `delegator` to `delegatee`.
-pub fn delegate_vote(
-    env: &Env,
-    delegator: Address,
-    delegatee: Address,
-) -> Result<(), GovernanceError> {
-    delegator.require_auth();
-
-    if delegator == delegatee {
-        return Err(GovernanceError::SelfDelegation);
-    }
-
-    if is_vote_locked(env, &delegator) {
-        return Err(GovernanceError::VotesLocked);
-    }
-
-    let del_key = GovernanceDataKey::DelegationRecord(delegator.clone());
-    if env.storage().persistent().has(&del_key) {
-        return Err(GovernanceError::AlreadyDelegated);
-    }
-
-    let depth = get_delegation_depth(env, &delegatee);
-    if depth >= MAX_DELEGATION_DEPTH {
-        return Err(GovernanceError::DelegationDepthExceeded);
-    }
-
-    let now = env.ledger().timestamp();
-
-    let record = DelegationRecord {
-        delegator: delegator.clone(),
-        delegatee: delegatee.clone(),
-        delegated_at: now,
-        depth: depth + 1,
-    };
-
-    env.storage().persistent().set(&del_key, &record);
-
-    let reverse_key = GovernanceDataKey::DelegationRecord(delegatee.clone());
-    let mut delegators: Vec<Address> = env
-        .storage()
-        .persistent()
-        .get(&reverse_key)
-        .unwrap_or_else(|| Vec::new(env));
-    delegators.push_back(delegator.clone());
-    env.storage().persistent().set(&reverse_key, &delegators);
-
-    VoteDelegatedEvent {
-        delegator,
-        delegatee,
-        delegated_at: now,
-    }
-    .publish(env);
-
-    Ok(())
-}
-
-/// Revoke an existing vote delegation.
-pub fn revoke_delegation(env: &Env, delegator: Address) -> Result<(), GovernanceError> {
-    delegator.require_auth();
-
-    let del_key = GovernanceDataKey::DelegationRecord(delegator.clone());
-    let record: DelegationRecord = env
-        .storage()
-        .persistent()
-        .get(&del_key)
-        .ok_or(GovernanceError::NotInitialized)?;
-
-    let reverse_key = GovernanceDataKey::DelegationRecord(record.delegatee.clone());
-    let delegators: Vec<Address> = env
-        .storage()
-        .persistent()
-        .get(&reverse_key)
-        .unwrap_or_else(|| Vec::new(env));
-
-    let mut new_delegators = Vec::new(env);
-    for d in delegators.iter() {
-        if d != delegator {
-            new_delegators.push_back(d);
-        }
-    }
-    env.storage()
-        .persistent()
-        .set(&reverse_key, &new_delegators);
-
-    env.storage().persistent().remove(&del_key);
-
-    VoteDelegationRevokedEvent {
-        delegator,
-        timestamp: env.ledger().timestamp(),
-    }
-    .publish(env);
-
-    Ok(())
-}
-
-/// Compute the delegation chain depth for an address.
-fn get_delegation_depth(env: &Env, addr: &Address) -> u32 {
-    let del_key = GovernanceDataKey::DelegationRecord(addr.clone());
-    if let Some(record) = env
-        .storage()
-        .persistent()
-        .get::<GovernanceDataKey, DelegationRecord>(&del_key)
-    {
-        record.depth
-    } else {
-        0
-    }
-}
-
-// ========================================================================
 // Vote Lock
 // ========================================================================
 
+/// Keep the voter's locked tokens (and delegation) in place until the voting
+/// period of every proposal they voted on has ended, so a vote cannot be
+/// followed by an immediate exit.
+fn lock_votes(env: &Env, voter: &Address, proposal: &Proposal) {
+    let lock_key = GovernanceDataKey::VoteLock(voter.clone());
+    let existing: Option<VoteLock> = env.storage().persistent().get(&lock_key);
+
+    let (locked_until, proposal_id) = match existing {
+        Some(lock) if lock.locked_until > proposal.end_time => {
+            (lock.locked_until, lock.proposal_id)
+        }
+        _ => (proposal.end_time, proposal.id),
+    };
+
+    let lock = VoteLock {
+        voter: voter.clone(),
+        locked_until,
+        locked_amount: get_locked_balance(env, voter),
+        proposal_id,
+    };
+    env.storage().persistent().set(&lock_key, &lock);
+
+    VoteLockedEvent {
+        voter: voter.clone(),
+        proposal_id,
+        locked_amount: lock.locked_amount,
+        locked_until,
+        timestamp: env.ledger().timestamp(),
+    }
+    .publish(env);
+}
+
 /// Query whether an address currently has its tokens locked due to an active vote.
 pub fn is_vote_locked(env: &Env, voter: &Address) -> bool {
-    let lock_key = GovernanceDataKey::VoteLock(voter.clone());
-    if let Some(lock) = env
-        .storage()
-        .persistent()
-        .get::<GovernanceDataKey, VoteLock>(&lock_key)
-    {
-        env.ledger().timestamp() < lock.locked_until
-    } else {
-        false
-    }
+    get_vote_lock(env, voter)
+        .map(|lock| env.ledger().timestamp() < lock.locked_until)
+        .unwrap_or(false)
 }
 
 /// Query the vote lock record for an address.
 pub fn get_vote_lock(env: &Env, voter: &Address) -> Option<VoteLock> {
-    let lock_key = GovernanceDataKey::VoteLock(voter.clone());
-    env.storage().persistent().get(&lock_key)
+    env.storage()
+        .persistent()
+        .get(&GovernanceDataKey::VoteLock(voter.clone()))
 }
 
-/// Query the vote power snapshot for a voter on a specific proposal.
+/// The voting power `voter` can use on a proposal: their power strictly
+/// before the proposal's creation time.
 pub fn get_vote_power_snapshot(
     env: &Env,
     proposal_id: u64,
     voter: &Address,
 ) -> Option<VotePowerSnapshot> {
-    let snap_key = GovernanceDataKey::VotePowerSnapshot(proposal_id, voter.clone());
-    env.storage().persistent().get(&snap_key)
-}
+    let proposal: Proposal = env
+        .storage()
+        .persistent()
+        .get(&GovernanceDataKey::Proposal(proposal_id))?;
 
-/// Query the delegation record for a delegator.
-pub fn get_delegation(env: &Env, delegator: &Address) -> Option<DelegationRecord> {
-    let del_key = GovernanceDataKey::DelegationRecord(delegator.clone());
-    env.storage().persistent().get(&del_key)
+    Some(VotePowerSnapshot {
+        proposal_id,
+        voter: voter.clone(),
+        balance: get_past_votes(env, voter, proposal.created_at),
+        snapshot_time: proposal.created_at,
+    })
 }
-
-use crate::types::ProposalStatus;

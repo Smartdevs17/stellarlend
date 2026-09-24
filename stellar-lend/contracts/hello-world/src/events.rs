@@ -72,6 +72,42 @@ pub fn to_shared_emergency_trigger(trigger: EmergencyTrigger) -> shared_events::
 }
 
 // ============================================================================
+// Governance Voting Power Events
+// ============================================================================
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct GovTokensLockedEvent {
+    #[topic]
+    pub owner: Address,
+    pub amount: i128,
+    pub locked_balance: i128,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct GovTokensUnlockedEvent {
+    #[topic]
+    pub owner: Address,
+    pub amount: i128,
+    pub locked_balance: i128,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct GovernanceConfigUpdatedEvent {
+    pub voting_period: u64,
+    pub execution_delay: u64,
+    pub quorum_bps: u32,
+    pub proposal_threshold: i128,
+    pub timelock_duration: u64,
+    pub default_voting_threshold: i128,
+    pub timestamp: u64,
+}
+
+// ============================================================================
 // Core Lending Events (Existing)
 // ============================================================================
 

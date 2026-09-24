@@ -226,6 +226,48 @@ impl HelloContract {
         governance::delegate_vote(&env, delegator, delegatee).map_err(Into::into)
     }
 
+    pub fn gov_revoke_delegation(env: Env, delegator: Address) -> Result<(), LendingError> {
+        governance::revoke_delegation(&env, delegator).map_err(Into::into)
+    }
+
+    pub fn gov_get_delegation(env: Env, delegator: Address) -> Option<types::DelegationRecord> {
+        governance::get_delegation(&env, &delegator)
+    }
+
+    /// Lock vote tokens to gain voting power. Returns the new locked balance.
+    pub fn gov_lock_tokens(env: Env, owner: Address, amount: i128) -> Result<i128, LendingError> {
+        governance::lock_tokens(&env, owner, amount).map_err(Into::into)
+    }
+
+    /// Withdraw locked vote tokens. Returns the new locked balance.
+    pub fn gov_unlock_tokens(env: Env, owner: Address, amount: i128) -> Result<i128, LendingError> {
+        governance::unlock_tokens(&env, owner, amount).map_err(Into::into)
+    }
+
+    pub fn gov_get_locked_balance(env: Env, owner: Address) -> i128 {
+        governance::get_locked_balance(&env, &owner)
+    }
+
+    /// Current voting power, including power delegated to `account`.
+    pub fn gov_get_votes(env: Env, account: Address) -> i128 {
+        governance::get_votes(&env, &account)
+    }
+
+    /// Voting power of `account` strictly before `timestamp`.
+    pub fn gov_get_past_votes(env: Env, account: Address, timestamp: u64) -> i128 {
+        governance::get_past_votes(&env, &account, timestamp)
+    }
+
+    pub fn gov_get_total_locked(env: Env) -> i128 {
+        governance::get_total_locked(&env)
+    }
+
+    /// Lifecycle state of a proposal, including time-based transitions
+    /// (voting closed, grace period lapsed) not yet written to storage.
+    pub fn gov_get_proposal_state(env: Env, proposal_id: u64) -> Option<types::ProposalStatus> {
+        governance::get_proposal_state(&env, proposal_id)
+    }
+
     pub fn gov_get_analytics(env: Env) -> types::GovernanceAnalytics {
         governance::get_governance_analytics(&env)
     }
@@ -2508,8 +2550,12 @@ mod treasury_test;
 // #[cfg(test)]
 // #[path = "tests/timelock_test.rs"]
 // mod timelock_test;
-// Disabled until the full governance attack-prevention surface is implemented.
-// mod governance_attack_prevention_test;
+#[cfg(test)]
+#[path = "tests/governance_attack_prevention_test.rs"]
+mod governance_attack_prevention_test;
+#[cfg(test)]
+#[path = "tests/governance_lifecycle_test.rs"]
+mod governance_lifecycle_test;
 
 // -------------------------------------------------------------------------
 // Credit Scoring System (Issue #189)

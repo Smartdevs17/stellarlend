@@ -46,6 +46,9 @@ pub fn execute_proposal_type(
             crate::risk_management::set_emergency_pause(env, admin, *paused)
                 .map_err(|_| GovernanceError::ExecutionFailed)?;
         }
+        ProposalType::UpdateGovernanceConfig(params) => {
+            super::update_config(env, params)?;
+        }
         ProposalType::GenericAction(_) => {
             return Err(GovernanceError::InvalidProposalType);
         }

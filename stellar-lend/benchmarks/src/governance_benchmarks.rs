@@ -38,6 +38,9 @@ fn run_all(config: &RunConfig) -> Vec<BenchmarkResult> {
 
 // ─── Setup helpers ────────────────────────────────────────────────────────────
 
+/// Shortest voting period governance accepts (`MIN_VOTING_PERIOD`).
+const VOTING_PERIOD: u64 = 3_600;
+
 fn setup_governance(env: &Env) -> (HelloContractClient<'static>, Address, Address) {
     let contract_id = env.register(HelloContract, ());
     let client = HelloContractClient::new(env, &contract_id);
@@ -55,13 +58,18 @@ fn setup_governance(env: &Env) -> (HelloContractClient<'static>, Address, Addres
     let _ = client.try_gov_initialize(
         &admin,
         &token_id,
-        &Some(100u64),
+        &Some(VOTING_PERIOD),
         &Some(50u64),
         &Some(4000u32),
         &Some(100i128),
         &Some(200u64),
         &Some(5000i128),
     );
+
+    // Voting power comes from tokens locked before a proposal is created.
+    let _ = client.try_gov_lock_tokens(&proposer, &1_000_000);
+    let _ = client.try_gov_lock_tokens(&voter, &1_000_000);
+    env.ledger().with_mut(|l| l.timestamp += 1);
 
     (client, admin, proposer)
 }
@@ -93,7 +101,7 @@ fn bench_gov_initialize(config: &RunConfig) -> BenchmarkResult {
         let _ = client.try_gov_initialize(
             &admin,
             &token_id,
-            &Some(100u64),
+            &Some(VOTING_PERIOD),
             &Some(50u64),
             &Some(4000u32),
             &Some(100i128),
@@ -176,7 +184,7 @@ fn bench_queue_proposal(config: &RunConfig) -> BenchmarkResult {
     let proposal_id = try_create(&client, &env, &proposer);
 
     // Advance past voting period so queue is reachable.
-    env.ledger().with_mut(|l| l.timestamp += 200);
+    env.ledger().with_mut(|l| l.timestamp += VOTING_PERIOD);
 
     let (insns, mem) = measure_instructions(&env, || {
         let _ = client.try_gov_queue_proposal(&admin, &proposal_id);
@@ -202,7 +210,7 @@ fn bench_execute_proposal(config: &RunConfig) -> BenchmarkResult {
     let (client, admin, proposer) = setup_governance(&env);
     let proposal_id = try_create(&client, &env, &proposer);
 
-    env.ledger().with_mut(|l| l.timestamp += 200);
+    env.ledger().with_mut(|l| l.timestamp += VOTING_PERIOD);
     let _ = client.try_gov_queue_proposal(&admin, &proposal_id);
     // Advance past execution delay.
     env.ledger().with_mut(|l| l.timestamp += 100);

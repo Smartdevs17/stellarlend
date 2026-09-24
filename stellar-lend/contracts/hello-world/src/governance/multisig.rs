@@ -75,6 +75,13 @@ pub fn set_multisig_config(
     if admins.is_empty() || threshold == 0 || threshold > admins.len() {
         return Err(GovernanceError::InvalidMultisigConfig);
     }
+    // A duplicated admin inflates `admins.len()` without adding an approver,
+    // which can make the threshold unreachable.
+    for (i, admin) in admins.iter().enumerate() {
+        if admins.iter().skip(i + 1).any(|other| other == admin) {
+            return Err(GovernanceError::InvalidMultisigConfig);
+        }
+    }
 
     let config = MultisigConfig { admins, threshold };
     env.storage()

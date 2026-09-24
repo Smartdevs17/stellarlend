@@ -8,7 +8,8 @@
 
 use soroban_sdk::token::StellarAssetClient;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
+    testutils::{Address as _, Events as _, Ledger as _},
+    xdr::{ContractEventBody, ScVal},
     Address, Env, String, Vec,
 };
 
@@ -60,8 +61,33 @@ fn setup_governance<'a>(
     client
 }
 
+/// Whether any emitted event's first topic is the symbol `name`.
+fn has_event(env: &Env, name: &str) -> bool {
+    env.events().all().events().iter().any(|e| {
+        let ContractEventBody::V0(body) = &e.body;
+        matches!(body.topics.first(), Some(ScVal::Symbol(s)) if s.0.as_slice() == name.as_bytes())
+    })
+}
+
+/// Mint vote tokens to each account and lock them in governance, then advance
+/// the ledger one second. Voting power only counts on proposals created after
+/// the ledger it was locked in, so this makes the locks usable right away.
+fn fund_voters(
+    env: &Env,
+    client: &HelloContractClient,
+    token: &Address,
+    voters: &[(&Address, i128)],
+) {
+    for (voter, amount) in voters {
+        mint_tokens(env, token, voter, *amount);
+        client.gov_lock_tokens(voter, amount);
+    }
+    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
+}
+
 fn create_test_env() -> (Env, Address, Address, Address, Address, Address) {
     let env = Env::default();
+    env.mock_all_auths();
     let admin = Address::generate(&env);
     let proposer = Address::generate(&env);
     let voter1 = Address::generate(&env);
@@ -78,8 +104,8 @@ fn create_test_env() -> (Env, Address, Address, Address, Address, Address) {
 fn test_phase1_proposal_creation_basic() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -98,8 +124,8 @@ fn test_phase1_proposal_creation_basic() {
 fn test_phase1_proposal_parameters_validation() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -122,8 +148,8 @@ fn test_phase1_proposal_parameters_validation() {
 fn test_phase1_proposal_id_increment() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
 
     let id1 = client.gov_create_proposal(
         &proposer,
@@ -146,11 +172,18 @@ fn test_phase1_proposal_id_increment() {
 fn test_phase1_proposal_state_transitions() {
     let (env, admin, proposer, voter1, voter2, voter3) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 5000);
-    mint_tokens(&env, &token, &voter1, 5000);
-    mint_tokens(&env, &token, &voter2, 5000);
-    mint_tokens(&env, &token, &voter3, 5000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(
+        &env,
+        &client,
+        &token,
+        &[
+            (&proposer, 5000),
+            (&voter1, 5000),
+            (&voter2, 5000),
+            (&voter3, 5000),
+        ],
+    );
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -164,12 +197,13 @@ fn test_phase1_proposal_state_transitions() {
 
     env.ledger().set_timestamp(proposal.start_time + 1);
     client.gov_vote(&voter1, &proposal_id, &VoteType::For);
+    client.gov_vote(&voter2, &proposal_id, &VoteType::For);
 
     let proposal = client.gov_get_proposal(&proposal_id).unwrap();
     assert!(matches!(proposal.status, ProposalStatus::Active));
 
     env.ledger().set_timestamp(proposal.end_time + 1);
-    let outcome = client.gov_queue_proposal(&admin, &proposal_id).unwrap();
+    let outcome = client.gov_queue_proposal(&admin, &proposal_id);
     assert!(outcome.succeeded);
 
     let proposal = client.gov_get_proposal(&proposal_id).unwrap();
@@ -180,8 +214,8 @@ fn test_phase1_proposal_state_transitions() {
 fn test_phase1_proposal_retrieval() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -191,7 +225,7 @@ fn test_phase1_proposal_retrieval() {
     );
 
     let proposal = client.gov_get_proposal(&proposal_id).unwrap();
-    assert_eq!(proposal.description.to_buffer(), "Retrieve me".as_bytes());
+    assert_eq!(proposal.description, String::from_str(&env, "Retrieve me"));
 
     let missing = client.gov_get_proposal(&999);
     assert!(missing.is_none());
@@ -201,7 +235,6 @@ fn test_phase1_proposal_retrieval() {
 fn test_phase1_proposal_with_custom_voting_period() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
 
     let contract_id = env.register_contract(None, HelloContract);
     let client = HelloContractClient::new(&env, &contract_id);
@@ -217,6 +250,7 @@ fn test_phase1_proposal_with_custom_voting_period() {
         &Some(604800),
         &Some(5000),
     );
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -233,8 +267,6 @@ fn test_phase1_proposal_with_custom_voting_period() {
 fn test_phase1_proposal_with_custom_timelock() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 5000);
-    mint_tokens(&env, &token, &voter1, 5000);
 
     let contract_id = env.register_contract(None, HelloContract);
     let client = HelloContractClient::new(&env, &contract_id);
@@ -250,6 +282,7 @@ fn test_phase1_proposal_with_custom_timelock() {
         &Some(1209600), // 14 days timelock
         &Some(5000),
     );
+    fund_voters(&env, &client, &token, &[(&proposer, 5000), (&voter1, 5000)]);
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -263,7 +296,7 @@ fn test_phase1_proposal_with_custom_timelock() {
 
     let proposal = client.gov_get_proposal(&proposal_id).unwrap();
     env.ledger().set_timestamp(proposal.end_time + 1);
-    client.gov_queue_proposal(&admin, &proposal_id).unwrap();
+    client.gov_queue_proposal(&admin, &proposal_id);
 
     let proposal = client.gov_get_proposal(&proposal_id).unwrap();
     let exec_time = proposal.execution_time.unwrap();
@@ -280,8 +313,8 @@ fn test_phase1_proposal_with_custom_timelock() {
 fn test_phase1_proposal_with_custom_threshold() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -298,8 +331,8 @@ fn test_phase1_proposal_with_custom_threshold() {
 fn test_phase1_proposal_description_storage() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
 
     let desc = String::from_str(&env, "Unique description for storage test");
     let proposal_id =
@@ -313,8 +346,8 @@ fn test_phase1_proposal_description_storage() {
 fn test_phase1_proposer_address_tracking() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -331,8 +364,8 @@ fn test_phase1_proposer_address_tracking() {
 fn test_phase1_proposal_timestamp_recording() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
 
     env.ledger().set_timestamp(1000);
     let proposal_id = client.gov_create_proposal(
@@ -351,8 +384,8 @@ fn test_phase1_proposal_timestamp_recording() {
 fn test_phase1_proposal_type_handling() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
 
     let id = client.gov_create_proposal(
         &proposer,
@@ -387,9 +420,8 @@ fn test_phase1_proposal_type_handling() {
 fn test_phase2_vote_for_casting() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 500);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000), (&voter1, 500)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -410,9 +442,8 @@ fn test_phase2_vote_for_casting() {
 fn test_phase2_vote_against_casting() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 300);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000), (&voter1, 300)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -433,9 +464,8 @@ fn test_phase2_vote_against_casting() {
 fn test_phase2_vote_abstain_casting() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 200);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000), (&voter1, 200)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -455,10 +485,13 @@ fn test_phase2_vote_abstain_casting() {
 fn test_phase2_vote_count_incrementing() {
     let (env, admin, proposer, voter1, voter2, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 200);
-    mint_tokens(&env, &token, &voter2, 300);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(
+        &env,
+        &client,
+        &token,
+        &[(&proposer, 1000), (&voter1, 200), (&voter2, 300)],
+    );
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -479,9 +512,8 @@ fn test_phase2_vote_count_incrementing() {
 fn test_phase2_vote_duplicate_prevention() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 500);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000), (&voter1, 500)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -501,9 +533,8 @@ fn test_phase2_vote_duplicate_prevention() {
 fn test_phase2_vote_after_voting_window() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 500);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000), (&voter1, 500)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -523,11 +554,18 @@ fn test_phase2_vote_after_voting_window() {
 fn test_phase2_multi_voter_sequential_voting() {
     let (env, admin, proposer, voter1, voter2, voter3) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 100);
-    mint_tokens(&env, &token, &voter2, 200);
-    mint_tokens(&env, &token, &voter3, 300);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(
+        &env,
+        &client,
+        &token,
+        &[
+            (&proposer, 1000),
+            (&voter1, 100),
+            (&voter2, 200),
+            (&voter3, 300),
+        ],
+    );
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -550,9 +588,8 @@ fn test_phase2_multi_voter_sequential_voting() {
 fn test_phase2_vote_power_tracking() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 750);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000), (&voter1, 750)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -572,9 +609,8 @@ fn test_phase2_vote_power_tracking() {
 fn test_phase2_vote_threshold_met() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 600);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000), (&voter1, 600)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -586,7 +622,7 @@ fn test_phase2_vote_threshold_met() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 1);
     client.gov_vote(&voter1, &pid, &VoteType::For);
 
-    let sim = client.gov_simulate_proposal(&pid).unwrap();
+    let sim = client.gov_simulate_proposal(&pid);
     assert!(sim.threshold_met);
 }
 
@@ -594,9 +630,8 @@ fn test_phase2_vote_threshold_met() {
 fn test_phase2_vote_threshold_not_met() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 200);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000), (&voter1, 200)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -605,10 +640,12 @@ fn test_phase2_vote_threshold_not_met() {
         &Some(5000),
     );
 
+    // 200 for vs 1,000 against: `for` is well under half of the votes cast.
     env.ledger().set_timestamp(env.ledger().timestamp() + 1);
     client.gov_vote(&voter1, &pid, &VoteType::For);
+    client.gov_vote(&proposer, &pid, &VoteType::Against);
 
-    let sim = client.gov_simulate_proposal(&pid).unwrap();
+    let sim = client.gov_simulate_proposal(&pid);
     assert!(!sim.threshold_met);
 }
 
@@ -616,11 +653,18 @@ fn test_phase2_vote_threshold_not_met() {
 fn test_phase2_vote_type_diversity() {
     let (env, admin, proposer, voter1, voter2, voter3) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 100);
-    mint_tokens(&env, &token, &voter2, 200);
-    mint_tokens(&env, &token, &voter3, 300);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(
+        &env,
+        &client,
+        &token,
+        &[
+            (&proposer, 1000),
+            (&voter1, 100),
+            (&voter2, 200),
+            (&voter3, 300),
+        ],
+    );
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -644,10 +688,13 @@ fn test_phase2_vote_type_diversity() {
 fn test_phase2_voter_list_tracking() {
     let (env, admin, proposer, voter1, voter2, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 100);
-    mint_tokens(&env, &token, &voter2, 200);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(
+        &env,
+        &client,
+        &token,
+        &[(&proposer, 1000), (&voter1, 100), (&voter2, 200)],
+    );
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -674,9 +721,8 @@ fn test_phase2_voter_list_tracking() {
 fn test_phase3_execution_timelock_enforcement() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 5000);
-    mint_tokens(&env, &token, &voter1, 5000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 5000), (&voter1, 5000)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -690,7 +736,7 @@ fn test_phase3_execution_timelock_enforcement() {
 
     let p = client.gov_get_proposal(&pid).unwrap();
     env.ledger().set_timestamp(p.end_time + 1);
-    client.gov_queue_proposal(&admin, &pid).unwrap();
+    client.gov_queue_proposal(&admin, &pid);
 
     let p = client.gov_get_proposal(&pid).unwrap();
     let exec_time = p.execution_time.unwrap();
@@ -707,9 +753,8 @@ fn test_phase3_execution_timelock_enforcement() {
 fn test_phase3_state_transition_active_to_passed() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 5000);
-    mint_tokens(&env, &token, &voter1, 5000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 5000), (&voter1, 5000)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -725,7 +770,7 @@ fn test_phase3_state_transition_active_to_passed() {
     assert!(matches!(p.status, ProposalStatus::Active));
 
     env.ledger().set_timestamp(p.end_time + 1);
-    let outcome = client.gov_queue_proposal(&admin, &pid).unwrap();
+    let outcome = client.gov_queue_proposal(&admin, &pid);
     assert!(outcome.succeeded);
 }
 
@@ -733,11 +778,18 @@ fn test_phase3_state_transition_active_to_passed() {
 fn test_phase3_state_transition_active_to_failed() {
     let (env, admin, proposer, voter1, voter2, voter3) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 5000);
-    mint_tokens(&env, &token, &voter2, 5000);
-    mint_tokens(&env, &token, &voter3, 5000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(
+        &env,
+        &client,
+        &token,
+        &[
+            (&proposer, 1000),
+            (&voter1, 5000),
+            (&voter2, 5000),
+            (&voter3, 5000),
+        ],
+    );
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -753,7 +805,7 @@ fn test_phase3_state_transition_active_to_failed() {
 
     let p = client.gov_get_proposal(&pid).unwrap();
     env.ledger().set_timestamp(p.end_time + 1);
-    let outcome = client.gov_queue_proposal(&admin, &pid).unwrap();
+    let outcome = client.gov_queue_proposal(&admin, &pid);
     assert!(!outcome.succeeded);
 
     let p = client.gov_get_proposal(&pid).unwrap();
@@ -764,9 +816,8 @@ fn test_phase3_state_transition_active_to_failed() {
 fn test_phase3_state_transition_passed_to_executed() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 5000);
-    mint_tokens(&env, &token, &voter1, 5000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 5000), (&voter1, 5000)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -780,11 +831,11 @@ fn test_phase3_state_transition_passed_to_executed() {
 
     let p = client.gov_get_proposal(&pid).unwrap();
     env.ledger().set_timestamp(p.end_time + 1);
-    client.gov_queue_proposal(&admin, &pid).unwrap();
+    client.gov_queue_proposal(&admin, &pid);
 
     let p = client.gov_get_proposal(&pid).unwrap();
     env.ledger().set_timestamp(p.execution_time.unwrap());
-    client.gov_execute_proposal(&admin, &pid).unwrap();
+    client.gov_execute_proposal(&admin, &pid);
 
     let p = client.gov_get_proposal(&pid).unwrap();
     assert!(matches!(p.status, ProposalStatus::Executed));
@@ -794,9 +845,8 @@ fn test_phase3_state_transition_passed_to_executed() {
 fn test_phase3_proposal_expiration() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 5000);
-    mint_tokens(&env, &token, &voter1, 5000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 5000), (&voter1, 5000)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -810,7 +860,7 @@ fn test_phase3_proposal_expiration() {
 
     let p = client.gov_get_proposal(&pid).unwrap();
     env.ledger().set_timestamp(p.end_time + 1);
-    client.gov_queue_proposal(&admin, &pid).unwrap();
+    client.gov_queue_proposal(&admin, &pid);
 
     let p = client.gov_get_proposal(&pid).unwrap();
     let exec_time = p.execution_time.unwrap();
@@ -826,9 +876,8 @@ fn test_phase3_proposal_expiration() {
 fn test_phase3_cannot_execute_expired() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 5000);
-    mint_tokens(&env, &token, &voter1, 5000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 5000), (&voter1, 5000)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -842,7 +891,7 @@ fn test_phase3_cannot_execute_expired() {
 
     let p = client.gov_get_proposal(&pid).unwrap();
     env.ledger().set_timestamp(p.end_time + 1);
-    client.gov_queue_proposal(&admin, &pid).unwrap();
+    client.gov_queue_proposal(&admin, &pid);
 
     let p = client.gov_get_proposal(&pid).unwrap();
     let exec_time = p.execution_time.unwrap();
@@ -858,8 +907,8 @@ fn test_phase3_cannot_execute_expired() {
 fn test_phase3_ledger_timestamp_consistency() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 5000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 5000)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -1001,9 +1050,8 @@ fn test_phase4_multisig_threshold_decrease() {
 fn test_phase4_multisig_approval_threshold_met() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 5000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000), (&voter1, 5000)]);
 
     let admin2 = Address::generate(&env);
     let mut admins = Vec::new(&env);
@@ -1034,8 +1082,8 @@ fn test_phase4_multisig_approval_threshold_met() {
 fn test_phase4_multisig_duplicate_approval_prevention() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -1088,8 +1136,8 @@ fn test_phase4_multisig_admin_list_tracking() {
 fn test_phase5_error_unauthorized() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -1109,16 +1157,15 @@ fn test_phase5_error_proposal_not_found() {
     let token = create_test_token(&env, &admin);
     let client = setup_governance(&env, &admin, &token);
 
-    let result = client.try_gov_get_proposal(&999);
-    assert!(result.is_none());
+    assert!(client.gov_get_proposal(&999).is_none());
 }
 
 #[test]
 fn test_phase5_error_invalid_proposal() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -1151,9 +1198,8 @@ fn test_phase5_error_invalid_arguments() {
 fn test_phase5_error_vote_already_cast() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 500);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000), (&voter1, 500)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -1172,11 +1218,18 @@ fn test_phase5_error_vote_already_cast() {
 fn test_phase5_error_insufficient_votes() {
     let (env, admin, proposer, voter1, voter2, voter3) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 100);
-    mint_tokens(&env, &token, &voter2, 100);
-    mint_tokens(&env, &token, &voter3, 100);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(
+        &env,
+        &client,
+        &token,
+        &[
+            (&proposer, 1000),
+            (&voter1, 100),
+            (&voter2, 100),
+            (&voter3, 100),
+        ],
+    );
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -1191,7 +1244,7 @@ fn test_phase5_error_insufficient_votes() {
     let p = client.gov_get_proposal(&pid).unwrap();
     env.ledger().set_timestamp(p.end_time + 1);
 
-    let sim = client.gov_simulate_proposal(&pid).unwrap();
+    let sim = client.gov_simulate_proposal(&pid);
     assert!(!sim.would_succeed);
 }
 
@@ -1199,8 +1252,8 @@ fn test_phase5_error_insufficient_votes() {
 fn test_phase5_error_state_consistency() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -1222,8 +1275,8 @@ fn test_phase5_error_state_consistency() {
 fn test_phase6_event_proposal_created() {
     let (env, admin, proposer, _, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
 
     let _pid = client.gov_create_proposal(
         &proposer,
@@ -1232,23 +1285,15 @@ fn test_phase6_event_proposal_created() {
         &None,
     );
 
-    let events = env.events().all();
-    let found = events.iter().any(|e| {
-        e.topics
-            .get(0)
-            .map(|t| t.to_buffer() == "proposal_created".as_bytes())
-            .unwrap_or(false)
-    });
-    assert!(found);
+    assert!(has_event(&env, "proposal_created_event"));
 }
 
 #[test]
 fn test_phase6_event_vote_cast() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
-    mint_tokens(&env, &token, &voter1, 500);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000), (&voter1, 500)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -1260,23 +1305,15 @@ fn test_phase6_event_vote_cast() {
     env.ledger().set_timestamp(env.ledger().timestamp() + 1);
     client.gov_vote(&voter1, &pid, &VoteType::For);
 
-    let events = env.events().all();
-    let found = events.iter().any(|e| {
-        e.topics
-            .get(0)
-            .map(|t| t.to_buffer() == "vote_cast".as_bytes())
-            .unwrap_or(false)
-    });
-    assert!(found);
+    assert!(has_event(&env, "vote_cast_event"));
 }
 
 #[test]
 fn test_phase6_event_proposal_executed() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 5000);
-    mint_tokens(&env, &token, &voter1, 5000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 5000), (&voter1, 5000)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -1290,20 +1327,13 @@ fn test_phase6_event_proposal_executed() {
 
     let p = client.gov_get_proposal(&pid).unwrap();
     env.ledger().set_timestamp(p.end_time + 1);
-    client.gov_queue_proposal(&admin, &pid).unwrap();
+    client.gov_queue_proposal(&admin, &pid);
 
     let p = client.gov_get_proposal(&pid).unwrap();
     env.ledger().set_timestamp(p.execution_time.unwrap());
-    client.gov_execute_proposal(&admin, &pid).unwrap();
+    client.gov_execute_proposal(&admin, &pid);
 
-    let events = env.events().all();
-    let found = events.iter().any(|e| {
-        e.topics
-            .get(0)
-            .map(|t| t.to_buffer() == "proposal_executed".as_bytes())
-            .unwrap_or(false)
-    });
-    assert!(found);
+    assert!(has_event(&env, "proposal_executed_event"));
 }
 
 // ============================================================================
@@ -1314,11 +1344,18 @@ fn test_phase6_event_proposal_executed() {
 fn test_phase7_full_proposal_lifecycle() {
     let (env, admin, proposer, voter1, voter2, voter3) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 5000);
-    mint_tokens(&env, &token, &voter1, 5000);
-    mint_tokens(&env, &token, &voter2, 3000);
-    mint_tokens(&env, &token, &voter3, 2000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(
+        &env,
+        &client,
+        &token,
+        &[
+            (&proposer, 5000),
+            (&voter1, 5000),
+            (&voter2, 3000),
+            (&voter3, 2000),
+        ],
+    );
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -1334,14 +1371,14 @@ fn test_phase7_full_proposal_lifecycle() {
 
     let p = client.gov_get_proposal(&pid).unwrap();
     env.ledger().set_timestamp(p.end_time + 1);
-    let outcome = client.gov_queue_proposal(&admin, &pid).unwrap();
+    let outcome = client.gov_queue_proposal(&admin, &pid);
     assert!(outcome.succeeded);
 
     let p = client.gov_get_proposal(&pid).unwrap();
     assert!(matches!(p.status, ProposalStatus::Queued));
 
     env.ledger().set_timestamp(p.execution_time.unwrap());
-    client.gov_execute_proposal(&admin, &pid).unwrap();
+    client.gov_execute_proposal(&admin, &pid);
 
     let p = client.gov_get_proposal(&pid).unwrap();
     assert!(matches!(p.status, ProposalStatus::Executed));
@@ -1351,9 +1388,8 @@ fn test_phase7_full_proposal_lifecycle() {
 fn test_phase7_multiple_proposals_concurrent() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 5000);
-    mint_tokens(&env, &token, &voter1, 5000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 5000), (&voter1, 5000)]);
 
     let pid1 = client.gov_create_proposal(
         &proposer,
@@ -1382,14 +1418,14 @@ fn test_phase7_multiple_proposals_concurrent() {
     let p1 = client.gov_get_proposal(&pid1).unwrap();
     env.ledger().set_timestamp(p1.end_time + 1);
 
-    client.gov_queue_proposal(&admin, &pid1).unwrap();
-    client.gov_queue_proposal(&admin, &pid2).unwrap();
-    client.gov_queue_proposal(&admin, &pid3).unwrap();
+    client.gov_queue_proposal(&admin, &pid1);
+    client.gov_queue_proposal(&admin, &pid2);
+    client.gov_queue_proposal(&admin, &pid3);
 
     let p1 = client.gov_get_proposal(&pid1).unwrap();
     assert!(matches!(p1.status, ProposalStatus::Queued));
     let p2 = client.gov_get_proposal(&pid2).unwrap();
-    assert!(matches!(p2.status, ProposalStatus::Queued));
+    assert!(matches!(p2.status, ProposalStatus::Defeated));
     let p3 = client.gov_get_proposal(&pid3).unwrap();
     assert!(matches!(p3.status, ProposalStatus::Queued));
 }
@@ -1398,13 +1434,12 @@ fn test_phase7_multiple_proposals_concurrent() {
 fn test_phase7_governance_parameter_updates() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 5000);
-    mint_tokens(&env, &token, &voter1, 5000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 5000), (&voter1, 5000)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
-        &ProposalType::MinCollateralRatio(20000),
+        &ProposalType::MinCollateralRatio(12000),
         &String::from_str(&env, "Param update"),
         &None,
     );
@@ -1414,27 +1449,30 @@ fn test_phase7_governance_parameter_updates() {
 
     let p = client.gov_get_proposal(&pid).unwrap();
     env.ledger().set_timestamp(p.end_time + 1);
-    client.gov_queue_proposal(&admin, &pid).unwrap();
+    client.gov_queue_proposal(&admin, &pid);
 
     let p = client.gov_get_proposal(&pid).unwrap();
     env.ledger().set_timestamp(p.execution_time.unwrap());
-    client.gov_execute_proposal(&admin, &pid).unwrap();
+    client.gov_execute_proposal(&admin, &pid);
 
     let p = client.gov_get_proposal(&pid).unwrap();
     assert!(matches!(p.status, ProposalStatus::Executed));
     assert!(matches!(
         p.proposal_type,
-        ProposalType::MinCollateralRatio(20000)
+        ProposalType::MinCollateralRatio(12000)
     ));
+    let params = env.as_contract(&client.address, || {
+        crate::risk_params::get_risk_params(&env).unwrap()
+    });
+    assert_eq!(params.min_collateral_ratio, 12000);
 }
 
 #[test]
 fn test_phase7_emergency_pause_execution() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 5000);
-    mint_tokens(&env, &token, &voter1, 5000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 5000), (&voter1, 5000)]);
 
     let pid = client.gov_create_proposal(
         &proposer,
@@ -1448,11 +1486,11 @@ fn test_phase7_emergency_pause_execution() {
 
     let p = client.gov_get_proposal(&pid).unwrap();
     env.ledger().set_timestamp(p.end_time + 1);
-    client.gov_queue_proposal(&admin, &pid).unwrap();
+    client.gov_queue_proposal(&admin, &pid);
 
     let p = client.gov_get_proposal(&pid).unwrap();
     env.ledger().set_timestamp(p.execution_time.unwrap());
-    client.gov_execute_proposal(&admin, &pid).unwrap();
+    client.gov_execute_proposal(&admin, &pid);
 
     let p = client.gov_get_proposal(&pid).unwrap();
     assert!(matches!(p.status, ProposalStatus::Executed));
@@ -1500,11 +1538,18 @@ fn test_phase7_admin_management_workflow() {
 fn test_phase7_vote_reversal_scenario() {
     let (env, admin, proposer, voter1, voter2, voter3) = create_test_env();
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 5000);
-    mint_tokens(&env, &token, &voter1, 5000);
-    mint_tokens(&env, &token, &voter2, 5000);
-    mint_tokens(&env, &token, &voter3, 5000);
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(
+        &env,
+        &client,
+        &token,
+        &[
+            (&proposer, 5000),
+            (&voter1, 5000),
+            (&voter2, 5000),
+            (&voter3, 5000),
+        ],
+    );
 
     let pid1 = client.gov_create_proposal(
         &proposer,
@@ -1530,8 +1575,8 @@ fn test_phase7_vote_reversal_scenario() {
     let p1 = client.gov_get_proposal(&pid1).unwrap();
     env.ledger().set_timestamp(p1.end_time + 1);
 
-    let out1 = client.gov_queue_proposal(&admin, &pid1).unwrap();
-    let out2 = client.gov_queue_proposal(&admin, &pid2).unwrap();
+    let out1 = client.gov_queue_proposal(&admin, &pid1);
+    let out2 = client.gov_queue_proposal(&admin, &pid2);
 
     assert!(out1.succeeded);
     assert!(out2.succeeded);
@@ -1542,28 +1587,40 @@ fn test_phase7_vote_reversal_scenario() {
     assert!(matches!(p2.status, ProposalStatus::Queued));
 }
 
+fn setup_short_voting_window<'a>(
+    env: &'a Env,
+    admin: &'a Address,
+    token: &'a Address,
+) -> HelloContractClient<'a> {
+    let contract_id = env.register_contract(None, HelloContract);
+    let client = HelloContractClient::new(env, &contract_id);
+
+    client.initialize(admin);
+    client.gov_initialize(
+        admin,
+        token,
+        &Some(3600), // minimum voting period
+        &Some(1),
+        &Some(400),
+        &Some(100),
+        &Some(7 * 24 * 3600),
+        &Some(5000),
+    );
+    client
+}
+
 #[test]
 fn test_vote_rejected_after_voting_period_expires() {
     let (env, admin, proposer, voter1, _, _) = create_test_env();
     env.mock_all_auths();
 
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1_000);
-    mint_tokens(&env, &token, &voter1, 1_000);
-
-    let contract_id = env.register_contract(None, HelloContract);
-    let client = HelloContractClient::new(&env, &contract_id);
-
-    client.initialize(&admin);
-    client.gov_initialize(
-        &admin,
+    let client = setup_short_voting_window(&env, &admin, &token);
+    fund_voters(
+        &env,
+        &client,
         &token,
-        &Some(1),
-        &Some(1),
-        &Some(400),
-        &Some(100),
-        &Some(7 * 24 * 3600),
-        &Some(5000),
+        &[(&proposer, 1_000), (&voter1, 1_000)],
     );
 
     let proposal_id = client.gov_create_proposal(
@@ -1572,14 +1629,18 @@ fn test_vote_rejected_after_voting_period_expires() {
         &String::from_str(&env, "Short voting window"),
         &None,
     );
+    let proposal = client.gov_get_proposal(&proposal_id).unwrap();
 
-    env.ledger().with_mut(|li| li.timestamp = 2);
+    env.ledger().set_timestamp(proposal.end_time + 1);
 
     let result = client.try_gov_vote(&voter1, &proposal_id, &VoteType::For);
     assert!(result.is_err());
 
-    let proposal = client.gov_get_proposal(&proposal_id).unwrap();
-    assert_eq!(proposal.status, ProposalStatus::Expired);
+    // Nobody voted, so once the window closes the proposal is defeated.
+    assert_eq!(
+        client.gov_get_proposal_state(&proposal_id),
+        Some(ProposalStatus::Defeated)
+    );
 }
 
 #[test]
@@ -1588,22 +1649,12 @@ fn test_vote_rejected_at_voting_period_boundary() {
     env.mock_all_auths();
 
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1_000);
-    mint_tokens(&env, &token, &voter1, 1_000);
-
-    let contract_id = env.register_contract(None, HelloContract);
-    let client = HelloContractClient::new(&env, &contract_id);
-
-    client.initialize(&admin);
-    client.gov_initialize(
-        &admin,
+    let client = setup_short_voting_window(&env, &admin, &token);
+    fund_voters(
+        &env,
+        &client,
         &token,
-        &Some(1),
-        &Some(1),
-        &Some(400),
-        &Some(100),
-        &Some(7 * 24 * 3600),
-        &Some(5000),
+        &[(&proposer, 1_000), (&voter1, 1_000)],
     );
 
     let proposal_id = client.gov_create_proposal(
@@ -1612,14 +1663,16 @@ fn test_vote_rejected_at_voting_period_boundary() {
         &String::from_str(&env, "Boundary voting window"),
         &None,
     );
+    let proposal = client.gov_get_proposal(&proposal_id).unwrap();
 
-    env.ledger().with_mut(|li| li.timestamp = 1);
-
+    // The window is [start_time, end_time): one second before the end is the
+    // last moment a vote is accepted.
+    env.ledger().set_timestamp(proposal.end_time);
     let result = client.try_gov_vote(&voter1, &proposal_id, &VoteType::For);
     assert!(result.is_err());
 
-    let proposal = client.gov_get_proposal(&proposal_id).unwrap();
-    assert_eq!(proposal.status, ProposalStatus::Expired);
+    env.ledger().set_timestamp(proposal.end_time - 1);
+    client.gov_vote(&voter1, &proposal_id, &VoteType::For);
 }
 
 #[test]
@@ -1628,9 +1681,9 @@ fn test_simulate_proposal_dry_run_emergency_pause_impact() {
     env.mock_all_auths();
 
     let token = create_test_token(&env, &admin);
-    mint_tokens(&env, &token, &proposer, 1000);
 
     let client = setup_governance(&env, &admin, &token);
+    fund_voters(&env, &client, &token, &[(&proposer, 1000)]);
     let proposal_id = client.gov_create_proposal(
         &proposer,
         &ProposalType::EmergencyPause(true),

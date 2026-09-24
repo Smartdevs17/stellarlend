@@ -523,6 +523,7 @@ fn action_type_id(proposal_type: &ProposalType) -> u32 {
         ProposalType::EmergencyPause(_) => 3,
         ProposalType::GenericAction(_) => 4,
         ProposalType::InterestRateConfig(_) => 5,
+        ProposalType::UpdateGovernanceConfig(_) => 6,
     }
 }
 

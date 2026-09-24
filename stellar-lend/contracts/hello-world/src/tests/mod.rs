@@ -47,8 +47,8 @@ pub mod recovery_test;
 // pub mod timelock_test;
 pub mod governance_test;
 pub mod input_length_test;
-// Disabled until the full governance attack-prevention surface is implemented.
-// pub mod governance_attack_prevention_test;
+pub mod governance_attack_prevention_test;
+pub mod governance_lifecycle_test;
 
 // New test modules for implemented features
 pub mod amm_compound_test;
