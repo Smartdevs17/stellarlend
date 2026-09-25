@@ -295,6 +295,7 @@ impl BridgeContract {
         if env.storage().instance().has(&ADMIN_KEY) {
             return Err(ContractError::AlreadyInitialised);
         }
+        admin.require_auth();
         env.storage().instance().set(&ADMIN_KEY, &admin);
         env.storage()
             .instance()
