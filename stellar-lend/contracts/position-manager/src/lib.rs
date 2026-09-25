@@ -150,12 +150,18 @@ impl PositionManager {
             .get(&DataKey::Position(position_id))
             .ok_or(PositionError::PositionNotFound)?;
 
+        position.owner.require_auth();
+
         if !position.active {
             return Err(PositionError::PositionNotActive);
         }
 
         if leverage_bps < 10_000 || leverage_bps > 50_000 {
             return Err(PositionError::InvalidLeverage);
+        }
+
+        if collateral_amount <= 0 || borrowed_amount < 0 {
+            return Err(PositionError::InvalidAmount);
         }
 
         position.collateral_amount = collateral_amount;
@@ -210,3 +216,7 @@ impl PositionManager {
         env.storage().instance().get(&DataKey::Admin)
     }
 }
+
+#[cfg(test)]
+mod test;
+
