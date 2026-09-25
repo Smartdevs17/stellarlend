@@ -1,0 +1,71 @@
+name: Contract State Snapshot Tests (#1064)
+
+# Snapshot testing for contract state: record golden snapshots of the
+# protocol's structured state (positions / pools / governance) and fail CI
+# when the current state diverges from a stored snapshot.
+#
+#   - Runs the snapshot-test unit suite.
+#   - Verifies the committed golden snapshots (`snapshots/*.snap.json`) still
+#     match the fixture state they were recorded from.
+#   - Confirms a deliberate state mutation is caught (negative test).
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "scripts/snapshot-test/**"
+      - "snapshots/**"
+      - ".github/workflows/snapshot-tests.yml"
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "scripts/snapshot-test/**"
+      - "snapshots/**"
+      - ".github/workflows/snapshot-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  snapshot-tests:
+    name: Snapshot tests (#1064)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22 (type-stripping)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run snapshot-test unit suite
+        run: node --experimental-strip-types --test scripts/snapshot-test/snapshot.test.ts
+
+      - name: Verify golden snapshots match their fixture
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/snapshot-test/index.ts \
+            --state scripts/snapshot-test/fixtures/lending-state.json \
+            --snapshot snapshots/lending.snap.json
+
+      - name: Negative test — a state divergence must fail the check
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp)
+          node --experimental-strip-types -e "
+            const fs = require('fs');
+            const st = JSON.parse(fs.readFileSync('scripts/snapshot-test/fixtures/lending-state.json', 'utf8'));
+            st.positions[0].debt = '999999999';
+            fs.writeFileSync('$TMP', JSON.stringify(st));
+          "
+          if node --experimental-strip-types scripts/snapshot-test/index.ts \
+            --state "$TMP" --snapshot snapshots/lending.snap.json >/dev/null 2>&1; then
+            echo "::error::Snapshot check passed for a mutated state — expected failure."
+            exit 1
+          fi
+          echo "Negative test passed (mutation correctly rejected)."

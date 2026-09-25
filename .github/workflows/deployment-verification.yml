@@ -1,0 +1,77 @@
+name: Contract Deployment Verification (#1066)
+
+# Issue #1066 — automated verification of deployment manifests. Runs on every
+# PR / push that touches deployment records or the verifier itself:
+#   * unit tests for the address/hash/liveness checks,
+#   * structural verification of every committed `environments/**/deployment.json`
+#     (falls back to the fixture if none are committed yet),
+#   * bytecode authenticity check when this repo has WASM builds available
+#     (the check is skipped gracefully when the target dir is absent).
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "environments/**"
+      - "scripts/deploy-verify/**"
+      - "scripts/verify-deployment.sh"
+      - ".github/workflows/deployment-verification.yml"
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "environments/**"
+      - "scripts/deploy-verify/**"
+      - "scripts/verify-deployment.sh"
+      - ".github/workflows/deployment-verification.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deployment-verification:
+    name: Deployment verification (#1066)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22 (type-stripping)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run deploy-verify unit suite
+        run: node --experimental-strip-types --test scripts/deploy-verify/verify.test.ts
+
+      - name: Verify fixture manifest
+        run: |
+          node --experimental-strip-types scripts/deploy-verify/index.ts \
+            --manifest scripts/deploy-verify/fixtures/deployment.example.json
+
+      - name: Verify committed deployment manifests
+        run: |
+          set -euo pipefail
+          MANIFESTS=$(find environments -name 'deployment.json' -type f 2>/dev/null || true)
+          if [ -z "$MANIFESTS" ]; then
+            echo "No committed deployment manifests found — skipping (structural verification covered by the fixture)."
+            exit 0
+          fi
+          WASM_DIR="$GITHUB_WORKSPACE/stellar-lend/target/wasm32-unknown-unknown/release"
+          if [ ! -d "$WASM_DIR" ]; then
+            echo "No local WASM builds in this CI run — structural verification only."
+            WASM_DIR=""
+          fi
+          for m in $MANIFESTS; do
+            echo "==> Verifying $m"
+            if [ -n "$WASM_DIR" ]; then
+              node --experimental-strip-types scripts/deploy-verify/index.ts \
+                --manifest "$m" --wasm-dir "$WASM_DIR"
+            else
+              node --experimental-strip-types scripts/deploy-verify/index.ts \
+                --manifest "$m"
+            fi
+          done

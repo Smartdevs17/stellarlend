@@ -1,0 +1,67 @@
+name: Differential Testing (#1067)
+
+# Issue #1067 — differential testing between implementations. The runner is a
+# reusable oracle: identical scenarios fed through two independent
+# implementations must agree within tolerance. The bundled interest math pair
+# (continuous vs daily-discrete compounding) is the reference gate; CI also
+# runs the unit suite covering tolerance / allowlist / path reporting.
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "scripts/differential-test/**"
+      - ".github/workflows/differential-tests.yml"
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "scripts/differential-test/**"
+      - ".github/workflows/differential-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  differential-tests:
+    name: Differential tests (#1067)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22 (type-stripping)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run differential-test unit suite
+        run: node --experimental-strip-types --test scripts/differential-test/differential.test.ts
+
+      - name: Reference gate — continuous vs daily-discrete interest math
+        run: |
+          node --experimental-strip-types scripts/differential-test/index.ts \
+            --scenarios scripts/differential-test/scenarios/interest-scenarios.json \
+            --impl-a scripts/differential-test/implementations/interest-v1.ts \
+            --impl-b scripts/differential-test/implementations/interest-v2.ts \
+            --tolerance 0.0005
+
+      - name: Negative gate — a deliberately divergent implementation must fail
+        run: |
+          set -euo pipefail
+          BAD=$(mktemp --suffix=.ts)
+          cat > "$BAD" <<'EOF'
+          export const name = "buggy";
+          export async function run(s) { return { total: s.inputs.principal + 999999 }; }
+          EOF
+          if node --experimental-strip-types scripts/differential-test/index.ts \
+            --scenarios scripts/differential-test/scenarios/interest-scenarios.json \
+            --impl-a scripts/differential-test/implementations/interest-v1.ts \
+            --impl-b "$BAD" >/dev/null 2>&1; then
+            echo "::error::Differential gate passed for a buggy implementation — expected divergence."
+            exit 1
+          fi
+          echo "Negative gate passed (buggy implementation correctly rejected)."
