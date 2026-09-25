@@ -71,6 +71,17 @@ fn init_twice_panics() {
     client.init(&Address::generate(&env));
 }
 
+#[test]
+#[should_panic]
+fn init_unauthorized_panics() {
+    let env = Env::default();
+    // No mock_all_auths: must fail without admin signature
+    let id = env.register(BridgeContract, ());
+    let client = BridgeContractClient::new(&env, &id);
+    let admin = Address::generate(&env);
+    client.init(&admin);
+}
+
 // ── register_bridge ───────────────────────────────────────────────────────────
 
 #[test]
