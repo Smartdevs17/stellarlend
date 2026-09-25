@@ -7,28 +7,34 @@
 
 #![allow(unused_imports)]
 
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{testutils::Address as _, Address, Env};
+
+use crate::borrow::{get_admin, get_interest_index};
 use crate::invariants::{
-    InvariantViolation, ExemptionFlags, assert_all_for_user,
-    check_inv_001_solvency, check_inv_002_collateral_non_negative,
+    assert_all_for_user, check_inv_001_solvency, check_inv_002_collateral_non_negative,
     check_inv_003_debt_non_negative, check_inv_004_liquidation_eligible,
     check_inv_005_no_value_creation_on_borrow, check_inv_006_admin_stability,
     check_inv_007_pause_immutability, check_inv_008_health_factor_consistency,
     check_inv_009_collateral_covers_debt, check_inv_010_total_assets_monotonic,
     check_inv_011_no_mint_on_borrow, check_inv_012_interest_monotonicity,
-    check_inv_013_reserve_monotonicity, check_inv_014_access_control,
+    check_inv_013_reserve_monotonic, check_inv_014_access_control, ExemptionFlags,
+    InvariantViolation,
 };
+use crate::pause::{is_paused, PauseType};
 use crate::state_machine::{
-    StateMachineExplorer, StateAction, StateTransition, 
-    ConfidenceMetrics, reproduce_violation,
+    reproduce_violation, ConfidenceMetrics, StateAction, StateMachineExplorer, StateTransition,
 };
-use crate::data_store::{get_total_assets, get_protocol_reserves};
-use crate::borrow::{get_interest_index, get_admin};
 use crate::views::{
-    get_collateral_balance, get_collateral_value, get_debt_balance, 
-    get_debt_value, get_health_factor, get_user_position,
+    get_collateral_balance, get_collateral_value, get_debt_balance, get_debt_value,
+    get_health_factor, get_user_position,
 };
-use crate::pause::is_paused;
+use crate::views::{get_protocol_reserves, get_total_assets};
+use alloc::{
+    collections::BTreeSet,
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 
 // ─────────────────────────────────────────────
 // Test suite configuration
@@ -62,17 +68,17 @@ impl Default for InvariantTestConfig {
 #[derive(Debug, Clone)]
 pub struct InvariantTestResult {
     pub total_executions: u64,
-    pub violations_found: std::vec::Vec<InvariantViolation>,
+    pub violations_found: Vec<InvariantViolation>,
     pub confidence_score: f64,
     pub coverage_metrics: CoverageMetrics,
-    pub reproduction_steps: std::vec::Vec<StateTransition>,
+    pub reproduction_steps: Vec<StateTransition>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct CoverageMetrics {
     pub users_tested: u64,
     pub assets_tested: u64,
-    pub action_types_covered: std::vec::Vec<String>,
+    pub action_types_covered: Vec<String>,
     pub state_space_explored: f64,
 }
 
@@ -80,7 +86,7 @@ pub struct CoverageMetrics {
 pub struct InvariantTestReport {
     pub config: InvariantTestConfig,
     pub result: InvariantTestResult,
-    pub test_duration_ms: u64,
+    pub test_duration_secs: u64,
     pub summary: TestSummary,
 }
 
@@ -88,7 +94,7 @@ pub struct InvariantTestReport {
 pub struct TestSummary {
     pub status: TestStatus,
     pub message: String,
-    pub recommendations: std::vec::Vec<String>,
+    pub recommendations: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -106,8 +112,8 @@ pub enum TestStatus {
 pub struct InvariantTestSuite {
     env: Env,
     config: InvariantTestConfig,
-    users: std::vec::Vec<Address>,
-    assets: std::vec::Vec<Address>,
+    users: Vec<Address>,
+    assets: Vec<Address>,
 }
 
 impl InvariantTestSuite {
@@ -115,8 +121,8 @@ impl InvariantTestSuite {
         Self {
             env,
             config,
-            users: std::vec::Vec::new(),
-            assets: std::vec::Vec::new(),
+            users: Vec::new(),
+            assets: Vec::new(),
         }
     }
 
@@ -130,14 +136,18 @@ impl InvariantTestSuite {
 
     /// Run the complete invariant test suite
     pub fn run(&mut self) -> InvariantTestReport {
-        let start_time = std::time::Instant::now();
-        
+        // Soroban contracts compile to wasm, where `std::time::Instant` does not
+        // exist. The test ledger timestamp is the only clock available, and it
+        // advances in whole seconds, so the report field is seconds rather than
+        // the milliseconds this harness originally claimed.
+        let start_time = self.env.ledger().timestamp();
+
         let mut result = InvariantTestResult {
             total_executions: 0,
-            violations_found: std::vec::Vec::new(),
+            violations_found: Vec::new(),
             confidence_score: 0.0,
             coverage_metrics: CoverageMetrics::default(),
-            reproduction_steps: std::vec::Vec::new(),
+            reproduction_steps: Vec::new(),
         };
 
         // Phase 1: Basic invariant checks
@@ -149,69 +159,106 @@ impl InvariantTestSuite {
         if self.config.enable_exhaustive_testing {
             let exploration_result = self.run_state_exploration();
             result.total_executions += exploration_result.total_executions;
-            result.violations_found.extend(exploration_result.violations_found);
+            result
+                .violations_found
+                .extend(exploration_result.violations_found);
             result.coverage_metrics = exploration_result.coverage_metrics;
         }
 
         // Phase 3: Edge case testing
         let edge_case_result = self.run_edge_case_tests();
         result.total_executions += edge_case_result.total_executions;
-        result.violations_found.extend(edge_case_result.violations_found);
+        result
+            .violations_found
+            .extend(edge_case_result.violations_found);
+
+        // Coverage reflects what the suite actually exercised. The per-user
+        // invariant pass runs unconditionally, so these counts must not depend
+        // on `enable_exhaustive_testing` — previously they were only populated
+        // inside `run_state_exploration`, which is skipped by default, so every
+        // report claimed zero users/assets tested.
+        result.coverage_metrics.users_tested = self.users.len() as u64;
+        result.coverage_metrics.assets_tested = self.assets.len() as u64;
 
         // Calculate confidence score
         result.confidence_score = self.calculate_confidence_score(&result);
 
-        let test_duration = start_time.elapsed().as_millis() as u64;
+        let test_duration = self.env.ledger().timestamp().saturating_sub(start_time);
         let summary = self.generate_summary(&result);
 
         InvariantTestReport {
             config: self.config.clone(),
             result,
-            test_duration_ms: test_duration,
+            test_duration_secs: test_duration,
             summary,
         }
     }
 
-    fn run_basic_invariant_checks(&self) -> Result<(), std::vec::Vec<InvariantViolation>> {
-        let mut all_violations = std::vec::Vec::new();
+    /// Run `f` inside a contract storage context.
+    ///
+    /// Every invariant in this suite reads contract storage, and Soroban
+    /// rejects `env.storage()` outside a contract. The suite is driven
+    /// directly from `#[test]` functions with no contract registered, so each
+    /// entry point has to establish that context itself. Without this the
+    /// harness panicked before asserting anything.
+    fn in_contract<R>(&self, f: impl FnOnce() -> R) -> R {
+        let contract_id = self.env.register(crate::LendingContract, ());
+        self.env.as_contract(&contract_id, f)
+    }
 
-        // Check invariants for all users
-        for user in &self.users {
-            let violations = assert_all_for_user(&self.env, user);
-            all_violations.extend(violations);
-        }
+    fn run_basic_invariant_checks(&self) -> Result<(), Vec<InvariantViolation>> {
+        self.in_contract(|| {
+            let mut all_violations = Vec::new();
 
-        // Check protocol-level invariants
-        let current_assets = get_total_assets(&self.env);
-        let current_reserves = get_protocol_reserves(&self.env);
-        let current_index = get_interest_index(&self.env);
-        let current_admin = get_admin(&self.env).unwrap_or_else(|| Address::generate(&self.env));
+            // Check invariants for all users
+            for user in &self.users {
+                let violations = assert_all_for_user(&self.env, user);
+                all_violations.extend(violations);
+            }
 
-        // INV-010: Total assets monotonic (baseline check)
-        if let Err(v) = check_inv_010_total_assets_monotonic(&self.env, current_assets) {
-            all_violations.push(v);
-        }
+            // Check protocol-level invariants
+            let current_assets = get_total_assets(&self.env);
+            let current_reserves = get_protocol_reserves(&self.env);
+            let current_index = get_interest_index(&self.env);
 
-        // INV-012: Interest index monotonic
-        if let Err(v) = check_inv_012_interest_monotonicity(&self.env, current_index, &self.config.known_exemptions) {
-            all_violations.push(v);
-        }
+            // INV-010: Total assets monotonic (baseline check)
+            if let Err(v) = check_inv_010_total_assets_monotonic(&self.env, current_assets) {
+                all_violations.push(v);
+            }
 
-        // INV-013: Reserve monotonic
-        if let Err(v) = check_inv_013_reserve_monotonic(&self.env, current_reserves) {
-            all_violations.push(v);
-        }
+            // INV-012: Interest index monotonic
+            if let Err(v) = check_inv_012_interest_monotonicity(
+                &self.env,
+                current_index,
+                &self.config.known_exemptions,
+            ) {
+                all_violations.push(v);
+            }
 
-        // INV-014: Access control
-        if let Err(v) = check_inv_014_access_control(&self.env, &current_admin) {
-            all_violations.push(v);
-        }
+            // INV-013: Reserve monotonic
+            if let Err(v) = check_inv_013_reserve_monotonic(&self.env, current_reserves) {
+                all_violations.push(v);
+            }
 
-        if all_violations.is_empty() {
-            Ok(())
-        } else {
-            Err(all_violations)
-        }
+            // INV-014: Access control.
+            //
+            // Only meaningful once an admin exists. The original code did
+            // `get_admin(&env).unwrap_or_else(|| Address::generate(&env))`, which
+            // fabricated a random address for an uninitialised protocol and then
+            // compared it against the real (absent) admin — so INV-014 reported a
+            // violation on every fresh deployment.
+            if let Some(current_admin) = get_admin(&self.env) {
+                if let Err(v) = check_inv_014_access_control(&self.env, &current_admin) {
+                    all_violations.push(v);
+                }
+            }
+
+            if all_violations.is_empty() {
+                Ok(())
+            } else {
+                Err(all_violations)
+            }
+        })
     }
 
     fn run_state_exploration(&mut self) -> InvariantTestResult {
@@ -231,7 +278,7 @@ impl InvariantTestSuite {
 
         // Run exploration
         let transitions = explorer.explore();
-        let mut violations = std::vec::Vec::new();
+        let mut violations = Vec::new();
 
         // Collect all violations
         for transition in &transitions {
@@ -256,33 +303,35 @@ impl InvariantTestSuite {
     }
 
     fn run_edge_case_tests(&self) -> InvariantTestResult {
-        let mut violations = std::vec::Vec::new();
-        let mut execution_count = 0;
+        self.in_contract(|| {
+            let mut violations = Vec::new();
+            let mut execution_count = 0;
 
-        // Test edge cases for each invariant
-        violations.extend(self.test_edge_case_solvency());
-        execution_count += 1;
+            // Test edge cases for each invariant
+            violations.extend(self.test_edge_case_solvency());
+            execution_count += 1;
 
-        violations.extend(self.test_edge_case_negative_balances());
-        execution_count += 1;
+            violations.extend(self.test_edge_case_negative_balances());
+            execution_count += 1;
 
-        violations.extend(self.test_edge_case_pause_immutability());
-        execution_count += 1;
+            violations.extend(self.test_edge_case_pause_immutability());
+            execution_count += 1;
 
-        violations.extend(self.test_edge_case_admin_stability());
-        execution_count += 1;
+            violations.extend(self.test_edge_case_admin_stability());
+            execution_count += 1;
 
-        InvariantTestResult {
-            total_executions: execution_count,
-            violations_found: violations,
-            confidence_score: 0.0,
-            coverage_metrics: CoverageMetrics::default(),
-            reproduction_steps: std::vec::Vec::new(),
-        }
+            InvariantTestResult {
+                total_executions: execution_count,
+                violations_found: violations,
+                confidence_score: 0.0,
+                coverage_metrics: CoverageMetrics::default(),
+                reproduction_steps: Vec::new(),
+            }
+        })
     }
 
-    fn test_edge_case_solvency(&self) -> std::vec::Vec<InvariantViolation> {
-        let mut violations = std::vec::Vec::new();
+    fn test_edge_case_solvency(&self) -> Vec<InvariantViolation> {
+        let mut violations = Vec::new();
 
         // Test users with zero debt
         for user in &self.users {
@@ -302,8 +351,8 @@ impl InvariantTestSuite {
         violations
     }
 
-    fn test_edge_case_negative_balances(&self) -> std::vec::Vec<InvariantViolation> {
-        let mut violations = std::vec::Vec::new();
+    fn test_edge_case_negative_balances(&self) -> Vec<InvariantViolation> {
+        let mut violations = Vec::new();
 
         // Test for negative balances (should never happen)
         for user in &self.users {
@@ -330,22 +379,25 @@ impl InvariantTestSuite {
         violations
     }
 
-    fn test_edge_case_pause_immutability(&self) -> std::vec::Vec<InvariantViolation> {
-        let mut violations = std::vec::Vec::new();
+    fn test_edge_case_pause_immutability(&self) -> Vec<InvariantViolation> {
+        let mut violations = Vec::new();
 
-        if is_paused(&self.env) {
+        // `is_paused` is per-operation; this edge case is about the global switch.
+        if is_paused(&self.env, PauseType::All) {
             // When paused, user balances should not change
             // This is a simplified check - in reality would need to track changes over time
             for user in &self.users {
                 let position = get_user_position(&self.env, user);
-                
+
                 // Just validate the position is consistent
                 if position.collateral_balance < 0 || position.debt_balance < 0 {
                     violations.push(InvariantViolation {
                         invariant_id: "INV-007-EDGE-1",
                         message: "Invalid position while paused",
-                        detail: format!("user: {:?}, collateral: {}, debt: {}", 
-                                       user, position.collateral_balance, position.debt_balance),
+                        detail: format!(
+                            "user: {:?}, collateral: {}, debt: {}",
+                            user, position.collateral_balance, position.debt_balance
+                        ),
                     });
                 }
             }
@@ -354,28 +406,32 @@ impl InvariantTestSuite {
         violations
     }
 
-    fn test_edge_case_admin_stability(&self) -> std::vec::Vec<InvariantViolation> {
-        let mut violations = std::vec::Vec::new();
+    fn test_edge_case_admin_stability(&self) -> Vec<InvariantViolation> {
+        let mut violations = Vec::new();
 
-        // Test that admin address is consistent
-        if let Some(admin) = get_admin(&self.env) {
-            // In a real test, would check that admin hasn't changed unexpectedly
-            // For now, just validate admin exists
-            if admin == Address::default() {
-                violations.push(InvariantViolation {
-                    invariant_id: "INV-006-EDGE-1",
-                    message: "Admin address is default (unset)",
-                    detail: "Admin should be properly configured".to_string(),
-                });
-            }
+        // Access-control consistency.
+        //
+        // The original body compared `admin` against `Address::default()`. A
+        // Soroban `Address` has no `Default` (and no `to_bytes` in SDK 27), so
+        // that branch could never compile, let alone fire.
+        //
+        // "No admin" is the correct state for a fresh, uninitialised
+        // deployment, so it is only a violation once the protocol is actually
+        // in use — i.e. it is holding assets but has no admin to govern them.
+        if get_total_assets(&self.env) > 0 && get_admin(&self.env).is_none() {
+            violations.push(InvariantViolation {
+                invariant_id: "INV-006-EDGE-1",
+                message: "Protocol holds assets but has no admin configured",
+                detail: "Admin should be set before the protocol is funded".to_string(),
+            });
         }
 
         violations
     }
 
-    fn get_covered_action_types(&self, transitions: &[StateTransition]) -> std::vec::Vec<String> {
-        let mut action_types = std::vec::Vec::new();
-        
+    fn get_covered_action_types(&self, transitions: &[StateTransition]) -> Vec<String> {
+        let mut action_types = Vec::new();
+
         for transition in transitions {
             let action_type = match &transition.action {
                 StateAction::Deposit { .. } => "Deposit",
@@ -388,12 +444,12 @@ impl InvariantTestSuite {
                 StateAction::SetOraclePrice { .. } => "SetOraclePrice",
                 StateAction::AdvanceTime { .. } => "AdvanceTime",
             };
-            
+
             if !action_types.contains(&action_type.to_string()) {
                 action_types.push(action_type.to_string());
             }
         }
-        
+
         action_types
     }
 
@@ -402,9 +458,11 @@ impl InvariantTestSuite {
             return 0.0;
         }
 
-        // Simplified coverage calculation based on unique states
-        let mut unique_states = std::collections::HashSet::new();
-        
+        // Simplified coverage calculation based on unique states.
+        // `std::collections::HashSet` is unavailable under wasm/no_std, so use
+        // the `alloc` BTreeSet — same semantics, ordered iteration.
+        let mut unique_states = BTreeSet::new();
+
         for transition in transitions {
             // Use a hash of the state to identify unique states
             let state_hash = self.hash_state(&transition.post_state);
@@ -420,9 +478,14 @@ impl InvariantTestSuite {
     }
 
     fn calculate_confidence_score(&self, result: &InvariantTestResult) -> f64 {
-        let execution_confidence = (result.total_executions as f64 / self.config.confidence_threshold as f64).min(1.0);
+        let execution_confidence =
+            (result.total_executions as f64 / self.config.confidence_threshold as f64).min(1.0);
         let coverage_confidence = result.coverage_metrics.state_space_explored;
-        let violation_penalty = if result.violations_found.is_empty() { 0.0 } else { 1.0 };
+        let violation_penalty = if result.violations_found.is_empty() {
+            0.0
+        } else {
+            1.0
+        };
 
         (execution_confidence + coverage_confidence) / 2.0 * (1.0 - violation_penalty)
     }
@@ -455,7 +518,7 @@ impl InvariantTestSuite {
             TestStatus::Timeout => "Test timed out".to_string(),
         };
 
-        let mut recommendations = std::vec::Vec::new();
+        let mut recommendations = Vec::new();
 
         if result.confidence_score < 0.8 {
             recommendations.push("Consider increasing execution count or test depth".to_string());
@@ -517,7 +580,7 @@ impl InvariantTestSuite {
             report.result.total_executions,
             report.result.violations_found.len(),
             report.result.confidence_score * 100.0,
-            report.test_duration_ms,
+            report.test_duration_secs,
             report.result.coverage_metrics.users_tested,
             report.result.coverage_metrics.assets_tested,
             report.result.coverage_metrics.action_types_covered.len(),
@@ -528,9 +591,12 @@ impl InvariantTestSuite {
             if report.result.violations_found.is_empty() {
                 "None".to_string()
             } else {
-                report.result.violations_found.iter()
+                report
+                    .result
+                    .violations_found
+                    .iter()
                     .map(|v| format!("- [{}] {}: {}", v.invariant_id, v.message, v.detail))
-                    .collect::<std::vec::Vec<_>>()
+                    .collect::<Vec<_>>()
                     .join("\n")
             }
         )
@@ -541,9 +607,13 @@ impl InvariantTestSuite {
 // Utility functions for testing
 // ─────────────────────────────────────────────
 
-pub fn setup_test_environment(env: &Env, num_users: usize, num_assets: usize) -> (std::vec::Vec<Address>, std::vec::Vec<Address>) {
-    let mut users = std::vec::Vec::new();
-    let mut assets = std::vec::Vec::new();
+pub fn setup_test_environment(
+    env: &Env,
+    num_users: usize,
+    num_assets: usize,
+) -> (Vec<Address>, Vec<Address>) {
+    let mut users = Vec::new();
+    let mut assets = Vec::new();
 
     for _ in 0..num_users {
         users.push(Address::generate(env));
@@ -556,8 +626,8 @@ pub fn setup_test_environment(env: &Env, num_users: usize, num_assets: usize) ->
     (users, assets)
 }
 
-pub fn assert_invariants_pass(env: &Env, users: &[Address]) -> Result<(), std::vec::Vec<InvariantViolation>> {
-    let mut all_violations = std::vec::Vec::new();
+pub fn assert_invariants_pass(env: &Env, users: &[Address]) -> Result<(), Vec<InvariantViolation>> {
+    let mut all_violations = Vec::new();
 
     for user in users {
         let violations = assert_all_for_user(env, user);
@@ -581,7 +651,7 @@ mod tests {
         let env = Env::default();
         let config = InvariantTestConfig::default();
         let suite = InvariantTestSuite::new(env, config);
-        
+
         assert_eq!(suite.config.max_depth, 4);
         assert_eq!(suite.config.confidence_threshold, 10000);
     }
@@ -591,7 +661,7 @@ mod tests {
         let env = Env::default();
         let config = InvariantTestConfig::default();
         let suite = InvariantTestSuite::new(env, config);
-        
+
         // Should pass with no users
         let result = suite.run_basic_invariant_checks();
         assert!(result.is_ok());
@@ -602,7 +672,7 @@ mod tests {
         let env = Env::default();
         let config = InvariantTestConfig::default();
         let suite = InvariantTestSuite::new(env, config);
-        
+
         let result = suite.run_edge_case_tests();
         assert_eq!(result.total_executions, 4);
     }
@@ -612,10 +682,10 @@ mod tests {
         let env = Env::default();
         let config = InvariantTestConfig::default();
         let mut suite = InvariantTestSuite::new(env, config);
-        
+
         let report = suite.run();
         let ci_report = suite.generate_ci_report(&report);
-        
+
         assert!(ci_report.contains("Invariant Testing Report"));
         assert!(ci_report.contains("## Results"));
     }
@@ -624,7 +694,7 @@ mod tests {
     fn test_setup_test_environment() {
         let env = Env::default();
         let (users, assets) = setup_test_environment(&env, 3, 2);
-        
+
         assert_eq!(users.len(), 3);
         assert_eq!(assets.len(), 2);
     }

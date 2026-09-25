@@ -19,7 +19,7 @@ pub enum ReentrancyError {
     DelegateCallReentrancy = 4,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[contracttype]
 pub enum GuardState {
     NotEntered = 0,
@@ -101,9 +101,14 @@ impl<'a> ReentrancyGuard<'a> {
         caller: &Address,
         is_read_only: bool,
     ) -> Result<Self, ReentrancyError> {
-        stellarlend_security::ReentrancyGuard::new_with_caller(env, key.to_shared(), caller, is_read_only)
-            .map(|inner| Self { inner })
-            .map_err(map_err)
+        stellarlend_security::ReentrancyGuard::new_with_caller(
+            env,
+            key.to_shared(),
+            caller,
+            is_read_only,
+        )
+        .map(|inner| Self { inner })
+        .map_err(map_err)
     }
 
     pub fn new_constructor(env: &'a Env) -> Result<Self, ReentrancyError> {

@@ -21,6 +21,8 @@
 
 #[cfg(any(test, feature = "spec"))]
 mod oracle_verification {
+
+    use alloc::vec;
     /// Specification: Price validation invariant
     /// A price must be positive and within configured bounds
     #[cfg(test)]
@@ -161,6 +163,7 @@ mod oracle_verification {
     /// Aggregated price is median of non-outlier sources
     #[cfg(test)]
     mod aggregation_safety {
+        use alloc::vec;
         #[test]
         fn spec_median_aggregation() {
             // CLAIM: If multiple sources available, use median (excludes outliers)

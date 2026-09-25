@@ -6,13 +6,16 @@
 
 #![allow(unused_imports)]
 
-extern crate alloc;
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 
-use alloc::vec::Vec;
-
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 use crate::borrow::get_admin as get_borrow_admin;
+use crate::borrow::get_interest_index;
 use crate::pause::{is_paused, PauseType};
 use crate::views::{
     get_collateral_balance as view_collateral_balance,
@@ -20,8 +23,7 @@ use crate::views::{
     get_debt_value as view_debt_value, get_health_factor as view_health_factor,
     get_user_position as view_user_position,
 };
-use crate::pause::is_paused;
-use crate::borrow::get_admin as get_borrow_admin;
+use crate::views::{get_protocol_reserves, get_total_assets};
 
 // ─────────────────────────────────────────────
 // Violation — carries reproduction info
@@ -39,7 +41,7 @@ pub struct InvariantViolation {
 // Each exemption is documented with the invariant it covers.
 // ─────────────────────────────────────────────
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ExemptionFlags {
     /// INV-005: admin is resetting interest rate — index may temporarily dip
     pub rate_reset_in_progress: bool,
@@ -163,7 +165,7 @@ pub fn check_inv_006_admin_stability(
         return Err(InvariantViolation {
             invariant_id: "INV-006",
             message: "Access control: admin changed without explicit set_admin action",
-            detail: format!("before: {}, after: {}", admin_before, admin_after),
+            detail: format!("before: {:?}, after: {:?}", admin_before, admin_after),
         });
     }
     Ok(())
@@ -348,11 +350,13 @@ pub fn check_inv_014_access_control(
     admin_before: &Address,
 ) -> Result<(), InvariantViolation> {
     let admin_after = get_borrow_admin(env);
-    if admin_after != *admin_before {
+    // `borrow::get_admin` returns `Option<Address>`; an admin that was cleared
+    // (None) counts as a change just as much as a different address.
+    if admin_after != Some(admin_before.clone()) {
         return Err(InvariantViolation {
             invariant_id: "INV-014",
             message: "Admin address changed without explicit set_admin",
-            detail: format!("before: {}, after: {}", admin_before, admin_after),
+            detail: format!("before: {:?}, after: {:?}", admin_before, admin_after),
         });
     }
     Ok(())
@@ -362,11 +366,8 @@ pub fn check_inv_014_access_control(
 // Aggregate — run all stateless invariants (protocol-level).
 // Returns all violations found (does not stop on first).
 // ─────────────────────────────────────────────
-pub fn assert_all_stateless(
-    env: &Env,
-    exemptions: &ExemptionFlags,
-) -> std::vec::Vec<InvariantViolation> {
-    let mut violations = std::vec::Vec::new();
+pub fn assert_all_stateless(env: &Env, exemptions: &ExemptionFlags) -> Vec<InvariantViolation> {
+    let mut violations = Vec::new();
 
     // Note: These require snapshot data from before actions
     // Call individually with snapshots in test harness
@@ -379,28 +380,38 @@ pub fn assert_all_stateless(
 // Returns all violations found (does not stop on first).
 // ─────────────────────────────────────────────
 pub fn assert_all_for_user(env: &Env, user: &Address) -> Vec<InvariantViolation> {
-    let mut violations = Vec::new();
+    // The per-user checks read contract storage (`get_user_collateral`,
+    // `get_user_debt`, health factor, …), and Soroban refuses `storage()`
+    // access outside a contract context. These harnesses are called straight
+    // from `#[test]` functions with no contract registered, so without this
+    // wrapper every check panicked with "this function is not accessible
+    // outside of a contract" before it could assert anything.
+    let contract_id = env.register(crate::LendingContract, ());
 
-    if let Err(v) = check_inv_001_solvency(env, user) {
-        violations.push(v);
-    }
-    if let Err(v) = check_inv_002_collateral_non_negative(env, user) {
-        violations.push(v);
-    }
-    if let Err(v) = check_inv_003_debt_non_negative(env, user) {
-        violations.push(v);
-    }
-    if let Err(v) = check_inv_004_liquidation_eligible(env, user) {
-        violations.push(v);
-    }
-    if let Err(v) = check_inv_008_health_factor_consistency(env, user) {
-        violations.push(v);
-    }
-    if let Err(v) = check_inv_009_collateral_covers_debt(env, user) {
-        violations.push(v);
-    }
+    env.as_contract(&contract_id, || {
+        let mut violations = Vec::new();
 
-    violations
+        if let Err(v) = check_inv_001_solvency(env, user) {
+            violations.push(v);
+        }
+        if let Err(v) = check_inv_002_collateral_non_negative(env, user) {
+            violations.push(v);
+        }
+        if let Err(v) = check_inv_003_debt_non_negative(env, user) {
+            violations.push(v);
+        }
+        if let Err(v) = check_inv_004_liquidation_eligible(env, user) {
+            violations.push(v);
+        }
+        if let Err(v) = check_inv_008_health_factor_consistency(env, user) {
+            violations.push(v);
+        }
+        if let Err(v) = check_inv_009_collateral_covers_debt(env, user) {
+            violations.push(v);
+        }
+
+        violations
+    })
 }
 
 // ─────────────────────────────────────────────

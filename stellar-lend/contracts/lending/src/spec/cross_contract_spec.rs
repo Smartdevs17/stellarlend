@@ -27,6 +27,8 @@
 
 #[cfg(any(test, feature = "spec"))]
 mod cross_contract_verification {
+
+    use alloc::vec;
     /// Specification: Reentrancy guard invariant
     /// Preventing state modification during external calls
     #[cfg(test)]
@@ -52,8 +54,10 @@ mod cross_contract_verification {
             let external_call_active = true;
             let balance_during = balance_before;
 
-            assert_eq!(balance_during, balance_before,
-                "Balance must not change during external call");
+            assert_eq!(
+                balance_during, balance_before,
+                "Balance must not change during external call"
+            );
         }
 
         #[test]
@@ -62,8 +66,7 @@ mod cross_contract_verification {
             if guard {
                 guard = false;
             }
-            assert!(!guard,
-                "Guard must be reset even if call panics");
+            assert!(!guard, "Guard must be reset even if call panics");
         }
     }
 
@@ -92,8 +95,10 @@ mod cross_contract_verification {
             let debt_before: i128 = 500;
             let health_factor_before = (collateral_before * 10000) / debt_before;
 
-            assert!(health_factor_before >= 10000,
-                "Health factor must be above liquidation threshold before callback");
+            assert!(
+                health_factor_before >= 10000,
+                "Health factor must be above liquidation threshold before callback"
+            );
         }
 
         #[test]
@@ -101,8 +106,10 @@ mod cross_contract_verification {
             let balance_before: i128 = 1000;
             let balance_after_callback = balance_before;
 
-            assert_eq!(balance_after_callback, balance_before,
-                "State must be restored on callback failure");
+            assert_eq!(
+                balance_after_callback, balance_before,
+                "State must be restored on callback failure"
+            );
         }
     }
 
@@ -110,6 +117,7 @@ mod cross_contract_verification {
     /// Total supply equals sum of individual balances
     #[cfg(test)]
     mod state_consistency {
+        use alloc::vec;
         #[test]
         fn spec_total_supply_equals_sum() {
             let balances = vec![100i128, 200i128, 300i128];
@@ -133,8 +141,10 @@ mod cross_contract_verification {
             let protocol_balance: i128 = 1500;
             let total = user_balance + protocol_balance;
 
-            assert_eq!(total, 2000i128,
-                "Total balance must be preserved across contract boundaries");
+            assert_eq!(
+                total, 2000i128,
+                "Total balance must be preserved across contract boundaries"
+            );
         }
 
         #[test]
@@ -148,8 +158,11 @@ mod cross_contract_verification {
 
             assert_eq!(from_after, 800i128);
             assert_eq!(to_after, 700i128);
-            assert_eq!(from_after + to_after, from_balance + to_balance,
-                "Total balance must be conserved");
+            assert_eq!(
+                from_after + to_after,
+                from_balance + to_balance,
+                "Total balance must be conserved"
+            );
         }
     }
 
@@ -177,8 +190,10 @@ mod cross_contract_verification {
             let debt: i128 = 500;
             let withdraw_amount: i128 = 300;
 
-            assert!(debt >= withdraw_amount,
-                "Cannot withdraw more than collateral while in debt");
+            assert!(
+                debt >= withdraw_amount,
+                "Cannot withdraw more than collateral while in debt"
+            );
         }
 
         #[test]
@@ -189,8 +204,10 @@ mod cross_contract_verification {
 
             let is_liquidatable = health_factor < 10000 && collateral > 0 && debt > 0;
 
-            assert!(is_liquidatable,
-                "Liquidation should only proceed when health factor is below threshold");
+            assert!(
+                is_liquidatable,
+                "Liquidation should only proceed when health factor is below threshold"
+            );
         }
     }
 
@@ -236,8 +253,10 @@ mod cross_contract_verification {
                 reentrancy_guard = true;
             }
 
-            assert!(reentrancy_guard,
-                "Reentrancy guard must be active during flash loan");
+            assert!(
+                reentrancy_guard,
+                "Reentrancy guard must be active during flash loan"
+            );
         }
     }
 
@@ -267,8 +286,10 @@ mod cross_contract_verification {
             let migrated_amount: i128 = 500;
             let user_balance_after = user_balance_before - migrated_amount;
 
-            assert_eq!(user_balance_after, 500i128,
-                "User balance must decrease by exact migrated amount");
+            assert_eq!(
+                user_balance_after, 500i128,
+                "User balance must decrease by exact migrated amount"
+            );
         }
 
         #[test]
@@ -277,9 +298,10 @@ mod cross_contract_verification {
             let local_state_preserved = true;
 
             assert!(external_call_failed);
-            assert!(local_state_preserved,
-                "Local state must be preserved when external call fails");
+            assert!(
+                local_state_preserved,
+                "Local state must be preserved when external call fails"
+            );
         }
     }
 }
-
