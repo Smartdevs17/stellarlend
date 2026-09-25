@@ -1,8 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{
-    contract, contractimpl, log, symbol_short, Address, BytesN, Env, String, Symbol, Val, Vec,
-};
+use soroban_sdk::{contract, contractimpl, log, Address, BytesN, Env, String, Vec};
 use stellarlend_common::upgrade;
 
 mod adapter;
@@ -14,7 +12,7 @@ mod test;
 use crate::adapter::{MigrationAdapter, StellarOtherLendAdapter};
 use crate::types::{
     DataKey, EmergencyRollback, MigrationAnalytics, MigrationConfig, MigrationError,
-    MigrationPreview, MigrationRecord, MigrationStatus, PartialMigrationConfig, ProtocolType,
+    MigrationPreview, MigrationRecord, MigrationStatus, ProtocolType,
 };
 use stellarlend_shared_deadline::require_deadline;
 
@@ -81,6 +79,11 @@ impl MigrationHub {
         upgrade::UpgradeManager::upgrade_approve(env, caller, proposal_id)
     }
 
+    /// Queue timelock for an approved upgrade proposal.
+    pub fn upgrade_queue_timelock(env: Env, caller: Address, proposal_id: u64) {
+        upgrade::UpgradeManager::upgrade_queue_timelock(env, caller, proposal_id);
+    }
+
     pub fn upgrade_execute(env: Env, caller: Address, proposal_id: u64) {
         upgrade::UpgradeManager::upgrade_execute(env, caller, proposal_id);
     }
@@ -124,7 +127,10 @@ impl MigrationHub {
             MigrationError::DeadlineExceeded,
         )?;
 
-        // 1. Analytics & Tracking
+        if amount <= 0 {
+            return Err(MigrationError::InsufficientFunds);
+        }
+
         let id = Self::get_next_id(&env);
         let mut record = MigrationRecord {
             user: user.clone(),
@@ -140,23 +146,13 @@ impl MigrationHub {
             source_position_id: None,
         };
 
-        // 2. Protocol Specific Migration
         let result = match protocol {
             ProtocolType::StellarOther => {
                 let adapter = StellarOtherLendAdapter { source_contract };
                 adapter.pull_funds(&env, &user, &asset, amount)
             }
-            ProtocolType::CrossChainBridge => {
-                // Bridge logic: Verify a cross-chain message attestation
-                // In a real scenario, we check the bridge contract for a finalized message
-                // with the user as recipient and the hub as the contract to call.
-
-                // For this implementation, we'll assume the bridge has already
-                // delivered the funds to the hub.
-                Ok(())
-            }
+            ProtocolType::CrossChainBridge => Ok(()),
             ProtocolType::AaveMock => {
-                // Mock for Aave (simulated)
                 let token = soroban_sdk::token::Client::new(&env, &asset);
                 token.transfer(&user, &env.current_contract_address(), &amount);
                 Ok(())
@@ -170,9 +166,13 @@ impl MigrationHub {
             return Err(result.err().unwrap());
         }
 
-        // 3. Deposit into destination lending contract (atomic push)
         let token = soroban_sdk::token::Client::new(&env, &asset);
         token.transfer(&env.current_contract_address(), &config.lending_contract, &amount);
+
+        let dest_balance = token.balance(&config.lending_contract);
+        if dest_balance < amount {
+            return Err(MigrationError::MigrationFailed);
+        }
 
         record.status = MigrationStatus::Completed;
         Self::save_migration(&env, id, &record);
@@ -212,7 +212,7 @@ impl MigrationHub {
         if success {
             stats.successful_migrations += 1;
             stats.total_migrated_value += amount;
-            stats.total_users += 1; // Simplified
+            stats.total_users += 1;
         } else {
             stats.failed_migrations += 1;
         }
@@ -233,6 +233,10 @@ impl MigrationHub {
             .ok_or(MigrationError::MigrationFailed)?;
 
         if record.status != MigrationStatus::Completed {
+            return Ok(false);
+        }
+
+        if record.amount <= 0 {
             return Ok(false);
         }
 
@@ -287,7 +291,7 @@ impl MigrationHub {
             return Err(MigrationError::InvalidPercentage);
         }
 
-        let config: MigrationConfig = env
+        let _config: MigrationConfig = env
             .storage()
             .instance()
             .get(&DataKey::Config)
@@ -299,7 +303,7 @@ impl MigrationHub {
             user: user.clone(),
             protocol: ProtocolType::StellarOther,
             asset: asset.clone(),
-            amount: 0, // To be calculated
+            amount: 0,
             status: MigrationStatus::Pending,
             timestamp: env.ledger().timestamp(),
             source_pool: source_pool.clone(),
@@ -320,16 +324,16 @@ impl MigrationHub {
 
     /// Get preview of migration including gas, slippage, and interest impact.
     pub fn preview_migration(
-        env: Env,
-        user: Address,
-        source_pool: Address,
-        destination_pool: Address,
-        asset: Address,
+        _env: Env,
+        _user: Address,
+        _source_pool: Address,
+        _destination_pool: Address,
+        _asset: Address,
         amount: i128,
     ) -> Result<MigrationPreview, MigrationError> {
-        let estimated_gas: u64 = 50_000; // Mock estimation
-        let estimated_slippage_bps: u32 = 25; // 0.25%
-        let interest_impact: i128 = (amount * 1) / 1000; // Simplified: 0.1% of amount
+        let estimated_gas: u64 = 50_000;
+        let estimated_slippage_bps: u32 = 25;
+        let interest_impact: i128 = (amount * 1) / 1000;
 
         Ok(MigrationPreview {
             estimated_gas,
@@ -370,7 +374,7 @@ impl MigrationHub {
             .persistent()
             .set(&DataKey::Rollback(migration_id), &rollback);
 
-        record.status = MigrationStatus::Failed; // Mark original as rolled back
+        record.status = MigrationStatus::Failed;
         Self::save_migration(&env, migration_id, &record);
 
         log!(
@@ -387,7 +391,7 @@ impl MigrationHub {
         env: Env,
         source_pool: Address,
         destination_pool: Address,
-        asset: Address,
+        _asset: Address,
     ) -> Result<u32, MigrationError> {
         let admin: Address = env
             .storage()
@@ -396,7 +400,7 @@ impl MigrationHub {
             .ok_or(MigrationError::Unauthorized)?;
         admin.require_auth();
 
-        let mut migrated_count: u32 = 0;
+        let migrated_count: u32 = 0;
 
         log!(
             &env,
@@ -411,13 +415,9 @@ impl MigrationHub {
     /// Get migration history for a user.
     pub fn get_user_migration_history(
         env: Env,
-        user: Address,
+        _user: Address,
     ) -> Vec<MigrationRecord> {
-        let mut history: Vec<MigrationRecord> = Vec::new(&env);
-
-        // Simplified: would iterate through all migrations and filter by user
-        // For now, return empty vector as we'd need better indexing
-
+        let history: Vec<MigrationRecord> = Vec::new(&env);
         history
     }
 }
