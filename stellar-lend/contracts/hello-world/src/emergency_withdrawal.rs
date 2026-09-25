@@ -124,6 +124,10 @@ pub fn emergency_withdraw(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<i128, LendingError> {
+    // Reentrancy guard — prevents re-entry during token transfer
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| LendingError::Reentrancy)?;
+
     user.require_auth();
 
     let state = get_emergency_state(env);

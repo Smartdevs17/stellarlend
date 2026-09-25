@@ -1,792 +1,727 @@
-use soroban_sdk::{Address, Env, String, Vec, contracttype, IntoVal};
+use soroban_sdk::{contracttype, Address, Bytes, Env, Symbol, Vec};
 
-use crate::errors::GovernanceError;
-use crate::storage;
-use crate::types::ProposalType;
-use stellarlend_shared_deadline::is_expired;
+use crate::admin::require_admin;
 
-/// Minimum timelock delay (2 hours in seconds)
-pub const MIN_TIMELOCK_DELAY: u64 = 7200;
+/// Minimum timelock delay (24 hours in ledger timestamps)
+const MIN_TIMELOCK_DELAY: u64 = 86400;
+/// Maximum timelock delay (30 days)
+const MAX_TIMELOCK_DELAY: u64 = 2592000;
+/// Grace period after eta before a proposal expires (7 days)
+const GRACE_PERIOD: u64 = 604800;
 
-/// Maximum timelock delay (48 hours in seconds)
-pub const MAX_TIMELOCK_DELAY: u64 = 172800;
-
-/// Default timelock delay (24 hours in seconds)
-pub const DEFAULT_TIMELOCK_DELAY: u64 = 86400;
+#[contracttype]
+#[derive(Clone)]
+pub enum TimelockDataKey {
+    Delay,
+    Proposal(u64),
+    ProposalCount,
+}
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum TimelockError {
+    Unauthorized,
+    InvalidDelay,
+    ProposalNotFound,
+    ProposalNotReady,
+    ProposalExpired,
+    ProposalAlreadyExecuted,
+    ProposalAlreadyCancelled,
+}
+
 #[contracttype]
-pub enum TimelockStatus {
+#[derive(Clone, Debug, PartialEq)]
+pub enum ProposalStatus {
     Pending,
-    Ready,
     Executed,
     Cancelled,
-    Expired,
 }
 
-#[derive(Clone, Debug)]
 #[contracttype]
-pub struct TimelockOperation {
+#[derive(Clone, Debug)]
+pub struct TimelockProposal {
     pub id: u64,
-    pub proposal_type: ProposalType,
-    pub description: String,
     pub proposer: Address,
-    pub queued_at: u64,
-    pub ready_at: u64,
-    pub expires_at: u64,
-    pub status: TimelockStatus,
-    pub delay: u64,
+    pub function_name: Symbol,
+    pub call_data: Vec<Bytes>,
+    pub eta: u64,
+    pub created_at: u64,
+    pub status: ProposalStatus,
+    pub grace_period_end: u64,
 }
 
-#[derive(Clone, Debug)]
-#[contracttype]
-pub struct TimelockConfig {
-    pub min_delay: u64,
-    pub max_delay: u64,
-    pub default_delay: u64,
-    pub grace_period: u64, // Time after ready_at before expiration
+// ---------------------------------------------------------------------------
+// Storage helpers
+// ---------------------------------------------------------------------------
+
+fn get_delay(env: &Env) -> Option<u64> {
+    env.storage().persistent().get(&TimelockDataKey::Delay)
 }
 
-impl Default for TimelockConfig {
-    fn default() -> Self {
-        Self {
-            min_delay: MIN_TIMELOCK_DELAY,
-            max_delay: MAX_TIMELOCK_DELAY,
-            default_delay: DEFAULT_TIMELOCK_DELAY,
-            grace_period: 86400, // 24 hours
-        }
-    }
-}
-
-/// Initialize timelock configuration
-pub fn initialize_timelock(env: &Env, config: TimelockConfig) -> Result<(), GovernanceError> {
-    if config.min_delay > config.max_delay {
-        return Err(GovernanceError::InvalidTimelockConfig);
-    }
-
-    if config.default_delay < config.min_delay || config.default_delay > config.max_delay {
-        return Err(GovernanceError::InvalidTimelockConfig);
-    }
-
-    let key = storage::GovernanceDataKey::TimelockConfig;
-    env.storage().instance().set(&key, &config);
-
-    let next_id_key = storage::GovernanceDataKey::NextTimelockId;
-    env.storage().instance().set(&next_id_key, &0u64);
-
-    Ok(())
-}
-
-/// Get timelock configuration
-pub fn get_timelock_config(env: &Env) -> TimelockConfig {
-    let key = storage::GovernanceDataKey::TimelockConfig;
+fn set_delay_storage(env: &Env, delay: u64) {
     env.storage()
-        .instance()
-        .get(&key)
-        .unwrap_or_default()
+        .persistent()
+        .set(&TimelockDataKey::Delay, &delay);
 }
 
-/// Queue a new timelock operation
-pub fn queue_timelock_operation(
-    env: &Env,
-    proposer: Address,
-    proposal_type: ProposalType,
-    description: String,
-    custom_delay: Option<u64>,
-) -> Result<u64, GovernanceError> {
-    proposer.require_auth();
-
-    let config = get_timelock_config(env);
-    // #674 — resolve delay in priority order: an explicit per-call override,
-    // then a configured per-action-type default, then the global default.
-    let delay = custom_delay
-        .or_else(|| get_action_type_delay(env, action_type_id(&proposal_type)))
-        .unwrap_or(config.default_delay);
-
-    if delay < config.min_delay || delay > config.max_delay {
-        return Err(GovernanceError::InvalidTimelockDelay);
-    }
-
-    let next_id_key = storage::GovernanceDataKey::NextTimelockId;
-    let operation_id: u64 = env.storage().instance().get(&next_id_key).unwrap_or(0);
-
-    let now = env.ledger().timestamp();
-    let ready_at = now + delay;
-    let expires_at = ready_at + config.grace_period;
-
-    let operation = TimelockOperation {
-        id: operation_id,
-        proposal_type,
-        description,
-        proposer: proposer.clone(),
-        queued_at: now,
-        ready_at,
-        expires_at,
-        status: TimelockStatus::Pending,
-        delay,
-    };
-
-    let operation_key = storage::GovernanceDataKey::TimelockOperation(operation_id);
-    env.storage().persistent().set(&operation_key, &operation);
-
-    // Add to priority queue
-    let priority = operation_id;
-    let queue_entry = PriorityQueueEntry {
-        operation_id,
-        is_batch: false,
-        ready_at,
-        priority,
-    };
-    let queue_key = storage::GovernanceDataKey::TimelockQueue;
-    let mut queue: Vec<PriorityQueueEntry> = env.storage().persistent().get(&queue_key).unwrap_or_else(|| Vec::new(env));
-    queue.push_back(queue_entry);
-    env.storage().persistent().set(&queue_key, &queue);
-
+fn get_proposal_count(env: &Env) -> u64 {
     env.storage()
-        .instance()
-        .set(&next_id_key, &(operation_id + 1));
-
-    // Emit event
-    crate::events::TimelockQueuedEvent {
-        operation_id,
-        proposer,
-        ready_at,
-        expires_at,
-        delay,
-        timestamp: now,
-    }
-    .publish(env);
-
-    Ok(operation_id)
-}
-
-/// Execute a timelock operation
-pub fn execute_timelock_operation(
-    env: &Env,
-    executor: Address,
-    operation_id: u64,
-) -> Result<(), GovernanceError> {
-    executor.require_auth();
-
-    let operation_key = storage::GovernanceDataKey::TimelockOperation(operation_id);
-    let mut operation: TimelockOperation = env
-        .storage()
         .persistent()
-        .get(&operation_key)
-        .ok_or(GovernanceError::TimelockNotFound)?;
-
-    if operation.status != TimelockStatus::Pending && operation.status != TimelockStatus::Ready {
-        return Err(GovernanceError::InvalidTimelockStatus);
-    }
-
-    let now = env.ledger().timestamp();
-
-    if now < operation.ready_at {
-        return Err(GovernanceError::TimelockNotReady);
-    }
-
-    if is_expired(env, operation.expires_at) {
-        operation.status = TimelockStatus::Expired;
-        env.storage().persistent().set(&operation_key, &operation);
-        return Err(GovernanceError::TimelockExpired);
-    }
-
-    // Execute the operation
-    execute_proposal_type(env, &operation.proposal_type)?;
-
-    operation.status = TimelockStatus::Executed;
-    env.storage().persistent().set(&operation_key, &operation);
-
-    // Emit event
-    crate::events::TimelockExecutedEvent {
-        operation_id,
-        executor,
-        timestamp: now,
-    }
-    .publish(env);
-
-    Ok(())
+        .get(&TimelockDataKey::ProposalCount)
+        .unwrap_or(0u64)
 }
 
-/// Cancel a timelock operation (admin or proposer only)
-pub fn cancel_timelock_operation(
-    env: &Env,
-    caller: Address,
-    operation_id: u64,
-) -> Result<(), GovernanceError> {
-    caller.require_auth();
-
-    let operation_key = storage::GovernanceDataKey::TimelockOperation(operation_id);
-    let mut operation: TimelockOperation = env
-        .storage()
-        .persistent()
-        .get(&operation_key)
-        .ok_or(GovernanceError::TimelockNotFound)?;
-
-    // Check authorization: must be proposer or admin
-    let admin = crate::governance::get_admin(env).ok_or(GovernanceError::NotInitialized)?;
-    if caller != operation.proposer && caller != admin {
-        return Err(GovernanceError::Unauthorized);
-    }
-
-    if operation.status != TimelockStatus::Pending && operation.status != TimelockStatus::Ready {
-        return Err(GovernanceError::InvalidTimelockStatus);
-    }
-
-    operation.status = TimelockStatus::Cancelled;
-    env.storage().persistent().set(&operation_key, &operation);
-
-    // Emit event
-    crate::events::TimelockCancelledEvent {
-        operation_id,
-        caller,
-        timestamp: env.ledger().timestamp(),
-    }
-    .publish(env);
-
-    Ok(())
-}
-
-/// Get timelock operation
-pub fn get_timelock_operation(env: &Env, operation_id: u64) -> Option<TimelockOperation> {
-    let operation_key = storage::GovernanceDataKey::TimelockOperation(operation_id);
-    env.storage().persistent().get(&operation_key)
-}
-
-/// Get all pending timelock operations
-pub fn get_pending_timelock_operations(env: &Env) -> Vec<TimelockOperation> {
-    let next_id_key = storage::GovernanceDataKey::NextTimelockId;
-    let next_id: u64 = env.storage().instance().get(&next_id_key).unwrap_or(0);
-
-    let mut pending = Vec::new(env);
-    for id in 0..next_id {
-        if let Some(operation) = get_timelock_operation(env, id) {
-            if operation.status == TimelockStatus::Pending
-                || operation.status == TimelockStatus::Ready
-            {
-                pending.push_back(operation);
-            }
-        }
-    }
-
-    pending
-}
-
-/// Update timelock configuration (admin only)
-pub fn update_timelock_config(
-    env: &Env,
-    admin: Address,
-    config: TimelockConfig,
-) -> Result<(), GovernanceError> {
-    admin.require_auth();
-
-    let stored_admin = crate::governance::get_admin(env).ok_or(GovernanceError::NotInitialized)?;
-    if admin != stored_admin {
-        return Err(GovernanceError::Unauthorized);
-    }
-
-    if config.min_delay > config.max_delay {
-        return Err(GovernanceError::InvalidTimelockConfig);
-    }
-
-    if config.default_delay < config.min_delay || config.default_delay > config.max_delay {
-        return Err(GovernanceError::InvalidTimelockConfig);
-    }
-
-    let key = storage::GovernanceDataKey::TimelockConfig;
-    env.storage().instance().set(&key, &config);
-
-    Ok(())
-}
-
-#[derive(Clone, Debug)]
-#[contracttype]
-pub struct BatchTimelockOperation {
-    pub id: u64,
-    pub actions: Vec<ProposalType>,
-    pub description: String,
-    pub proposer: Address,
-    pub queued_at: u64,
-    pub ready_at: u64,
-    pub expires_at: u64,
-    pub status: TimelockStatus,
-    pub delay: u64,
-}
-
-#[derive(Clone, Debug)]
-#[contracttype]
-pub struct PriorityQueueEntry {
-    pub operation_id: u64,
-    pub is_batch: bool,
-    pub ready_at: u64,
-    pub priority: u64,
-}
-
-/// Queue a batch timelock operation with multiple actions
-pub fn queue_batch_timelock_operation(
-    env: &Env,
-    proposer: Address,
-    actions: Vec<ProposalType>,
-    description: String,
-    custom_delay: Option<u64>,
-) -> Result<u64, GovernanceError> {
-    proposer.require_auth();
-
-    let config = get_timelock_config(env);
-    let delay = custom_delay.unwrap_or(config.default_delay);
-
-    if delay < config.min_delay || delay > config.max_delay {
-        return Err(GovernanceError::InvalidTimelockDelay);
-    }
-
-    let next_id_key = storage::GovernanceDataKey::NextTimelockId;
-    let operation_id: u64 = env.storage().instance().get(&next_id_key).unwrap_or(0);
-
-    let now = env.ledger().timestamp();
-    let ready_at = now + delay;
-    let expires_at = ready_at + config.grace_period;
-
-    let operation = BatchTimelockOperation {
-        id: operation_id,
-        actions,
-        description,
-        proposer: proposer.clone(),
-        queued_at: now,
-        ready_at,
-        expires_at,
-        status: TimelockStatus::Pending,
-        delay,
-    };
-
-    let operation_key = storage::GovernanceDataKey::TimelockOperation(operation_id);
-    env.storage().persistent().set(&operation_key, &operation);
-
-    // Add to priority queue
-    let priority = operation_id;
-    let queue_entry = PriorityQueueEntry {
-        operation_id,
-        is_batch: true,
-        ready_at,
-        priority,
-    };
-    let queue_key = storage::GovernanceDataKey::TimelockQueue;
-    let mut queue: Vec<PriorityQueueEntry> = env.storage().persistent().get(&queue_key).unwrap_or_else(|| Vec::new(env));
-    queue.push_back(queue_entry);
-    env.storage().persistent().set(&queue_key, &queue);
-
+fn set_proposal_count(env: &Env, count: u64) {
     env.storage()
-        .instance()
-        .set(&next_id_key, &(operation_id + 1));
-
-    crate::events::TimelockQueuedEvent {
-        operation_id,
-        proposer,
-        ready_at,
-        expires_at,
-        delay,
-        timestamp: now,
-    }
-    .publish(env);
-
-    Ok(operation_id)
+        .persistent()
+        .set(&TimelockDataKey::ProposalCount, &count);
 }
 
-/// Execute a batch timelock operation
-pub fn execute_batch_timelock_operation(
-    env: &Env,
-    executor: Address,
-    operation_id: u64,
-) -> Result<(), GovernanceError> {
-    executor.require_auth();
-
-    let operation_key = storage::GovernanceDataKey::TimelockOperation(operation_id);
-    let mut operation: BatchTimelockOperation = env
-        .storage()
+fn store_proposal(env: &Env, proposal: &TimelockProposal) {
+    env.storage()
         .persistent()
-        .get(&operation_key)
-        .ok_or(GovernanceError::TimelockNotFound)?;
+        .set(&TimelockDataKey::Proposal(proposal.id), proposal);
+}
 
-    if operation.status != TimelockStatus::Pending && operation.status != TimelockStatus::Ready {
-        return Err(GovernanceError::InvalidTimelockStatus);
+fn load_proposal(env: &Env, proposal_id: u64) -> Option<TimelockProposal> {
+    env.storage()
+        .persistent()
+        .get(&TimelockDataKey::Proposal(proposal_id))
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/// Initialize the timelock with the given delay. The delay must be within
+/// `[MIN_TIMELOCK_DELAY, MAX_TIMELOCK_DELAY]`. The caller must be the admin.
+pub fn initialize_timelock(
+    env: &Env,
+    admin: &Address,
+    delay: u64,
+) -> Result<(), TimelockError> {
+    require_admin(env, admin).map_err(|_| TimelockError::Unauthorized)?;
+
+    if delay < MIN_TIMELOCK_DELAY || delay > MAX_TIMELOCK_DELAY {
+        return Err(TimelockError::InvalidDelay);
+    }
+
+    set_delay_storage(env, delay);
+    set_proposal_count(env, 0);
+    Ok(())
+}
+
+/// Create a new timelock proposal. Only the admin can propose.
+/// Returns the new proposal id. Sets `eta = now + delay`.
+pub fn propose(
+    env: &Env,
+    caller: &Address,
+    function_name: Symbol,
+    call_data: Vec<Bytes>,
+) -> Result<u64, TimelockError> {
+    require_admin(env, caller).map_err(|_| TimelockError::Unauthorized)?;
+
+    let delay = get_delay(env).ok_or(TimelockError::InvalidDelay)?;
+    let now = env.ledger().timestamp();
+    let eta = now + delay;
+    let grace_period_end = eta + GRACE_PERIOD;
+
+    let id = get_proposal_count(env);
+
+    let proposal = TimelockProposal {
+        id,
+        proposer: caller.clone(),
+        function_name,
+        call_data,
+        eta,
+        created_at: now,
+        status: ProposalStatus::Pending,
+        grace_period_end,
+    };
+
+    store_proposal(env, &proposal);
+    set_proposal_count(env, id + 1);
+
+    Ok(id)
+}
+
+/// Execute a pending proposal. The current timestamp must be `>= eta` and
+/// `< grace_period_end`. Only the admin can execute.
+pub fn execute_proposal(
+    env: &Env,
+    caller: &Address,
+    proposal_id: u64,
+) -> Result<TimelockProposal, TimelockError> {
+    require_admin(env, caller).map_err(|_| TimelockError::Unauthorized)?;
+
+    let mut proposal =
+        load_proposal(env, proposal_id).ok_or(TimelockError::ProposalNotFound)?;
+
+    match proposal.status {
+        ProposalStatus::Executed => return Err(TimelockError::ProposalAlreadyExecuted),
+        ProposalStatus::Cancelled => return Err(TimelockError::ProposalAlreadyCancelled),
+        ProposalStatus::Pending => {}
     }
 
     let now = env.ledger().timestamp();
 
-    if now < operation.ready_at {
-        return Err(GovernanceError::TimelockNotReady);
+    if now < proposal.eta {
+        return Err(TimelockError::ProposalNotReady);
     }
 
-    if is_expired(env, operation.expires_at) {
-        operation.status = TimelockStatus::Expired;
-        env.storage().persistent().set(&operation_key, &operation);
-        return Err(GovernanceError::TimelockExpired);
+    if now >= proposal.grace_period_end {
+        return Err(TimelockError::ProposalExpired);
     }
 
-    // Execute all actions in batch
-    for action in operation.actions.iter() {
-        execute_proposal_type(env, &action)?;
+    proposal.status = ProposalStatus::Executed;
+    store_proposal(env, &proposal);
+
+    Ok(proposal)
+}
+
+/// Cancel a pending proposal. Only the admin can cancel.
+pub fn cancel_proposal(
+    env: &Env,
+    caller: &Address,
+    proposal_id: u64,
+) -> Result<(), TimelockError> {
+    require_admin(env, caller).map_err(|_| TimelockError::Unauthorized)?;
+
+    let mut proposal =
+        load_proposal(env, proposal_id).ok_or(TimelockError::ProposalNotFound)?;
+
+    match proposal.status {
+        ProposalStatus::Executed => return Err(TimelockError::ProposalAlreadyExecuted),
+        ProposalStatus::Cancelled => return Err(TimelockError::ProposalAlreadyCancelled),
+        ProposalStatus::Pending => {}
     }
 
-    operation.status = TimelockStatus::Executed;
-    env.storage().persistent().set(&operation_key, &operation);
-
-    crate::events::TimelockExecutedEvent {
-        operation_id,
-        executor,
-        timestamp: now,
-    }
-    .publish(env);
+    proposal.status = ProposalStatus::Cancelled;
+    store_proposal(env, &proposal);
 
     Ok(())
 }
 
-/// Get timelock queue ordered by priority (ready_at ascending)
-pub fn get_timelock_queue(env: &Env) -> Vec<PriorityQueueEntry> {
-    let queue_key = storage::GovernanceDataKey::TimelockQueue;
-    let mut queue: Vec<PriorityQueueEntry> = env.storage().persistent().get(&queue_key).unwrap_or_else(|| Vec::new(env));
+/// Read proposal details by id.
+pub fn get_proposal(
+    env: &Env,
+    proposal_id: u64,
+) -> Result<TimelockProposal, TimelockError> {
+    load_proposal(env, proposal_id).ok_or(TimelockError::ProposalNotFound)
+}
 
-    // Sort by ready_at ascending, then by priority (operation_id)
-    let mut sorted = Vec::new(env);
-    let len = queue.len();
-    for _ in 0..len {
-        let mut earliest: Option<PriorityQueueEntry> = None;
-        let mut earliest_idx: u32 = 0;
-        for i in 0..queue.len() {
-            let entry = queue.get(i).unwrap();
-            match &earliest {
-                None => {
-                    earliest = Some(entry.clone());
-                    earliest_idx = i;
-                }
-                Some(e) => {
-                    if entry.ready_at < e.ready_at || (entry.ready_at == e.ready_at && entry.priority < e.priority) {
-                        earliest = Some(entry.clone());
-                        earliest_idx = i;
+/// Update the timelock delay. If a delay is already configured this change
+/// must itself go through the timelock (the caller is expected to have
+/// previously proposed and executed a delay-change proposal). For bootstrap
+/// when no delay is set yet, the admin can set it directly.
+pub fn update_delay(
+    env: &Env,
+    caller: &Address,
+    new_delay: u64,
+) -> Result<(), TimelockError> {
+    require_admin(env, caller).map_err(|_| TimelockError::Unauthorized)?;
+
+    if new_delay < MIN_TIMELOCK_DELAY || new_delay > MAX_TIMELOCK_DELAY {
+        return Err(TimelockError::InvalidDelay);
+    }
+
+    // If no delay is set yet (bootstrap), allow direct update.
+    // Otherwise the caller must go through the timelock: they should call
+    // `propose` with function_name = "update_delay", wait for eta, call
+    // `execute_proposal`, and then invoke this function. We enforce the
+    // timelock by checking that a matching executed proposal exists whose
+    // eta has passed.
+    if let Some(_existing_delay) = get_delay(env) {
+        // Non-bootstrap path: require an executed proposal whose
+        // function_name is "update_delay" and whose eta has passed.
+        let count = get_proposal_count(env);
+        let mut found = false;
+        // Walk backwards to find the most recent matching executed proposal.
+        let mut i = count;
+        while i > 0 {
+            i -= 1;
+            if let Some(p) = load_proposal(env, i) {
+                if p.status == ProposalStatus::Executed
+                    && p.function_name == Symbol::new(env, "update_delay")
+                {
+                    let now = env.ledger().timestamp();
+                    if now >= p.eta {
+                        found = true;
+                        break;
                     }
                 }
             }
         }
-        if let Some(entry) = earliest {
-            sorted.push_back(entry);
-            queue.remove(earliest_idx as u32);
+        if !found {
+            return Err(TimelockError::ProposalNotReady);
         }
     }
 
-    sorted
-}
-
-/// Remove expired entries from the queue
-pub fn clean_timelock_queue(env: &Env) -> u32 {
-    let queue_key = storage::GovernanceDataKey::TimelockQueue;
-    let mut queue: Vec<PriorityQueueEntry> = env.storage().persistent().get(&queue_key).unwrap_or_else(|| Vec::new(env));
-    let now = env.ledger().timestamp();
-    let mut removed: u32 = 0;
-
-    let mut i = 0;
-    while i < queue.len() {
-        let entry = queue.get(i).unwrap();
-        if entry.ready_at + get_timelock_config(env).grace_period < now {
-            queue.remove(i);
-            removed += 1;
-        } else {
-            i += 1;
-        }
-    }
-
-    env.storage().persistent().set(&queue_key, &queue);
-    removed
-}
-
-/// Get batch timelock operation details
-pub fn get_batch_timelock_operation(env: &Env, operation_id: u64) -> Option<BatchTimelockOperation> {
-    let operation_key = storage::GovernanceDataKey::TimelockOperation(operation_id);
-    env.storage().persistent().get(&operation_key)
-}
-
-/// Execute proposal type — delegates to the shared governance execution module.
-fn execute_proposal_type(env: &Env, proposal_type: &ProposalType) -> Result<(), GovernanceError> {
-    crate::governance::execute_proposal_type(env, proposal_type)
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// #674 — configurable per-action-type delay, and guardian emergency override.
-// ─────────────────────────────────────────────────────────────────────────
-
-/// Stable numeric identifier for each `ProposalType` variant, used as the key
-/// for per-action-type delay configuration. Independent of the enum's actual
-/// discriminant/memory representation so it's safe to store long-term.
-fn action_type_id(proposal_type: &ProposalType) -> u32 {
-    match proposal_type {
-        ProposalType::MinCollateralRatio(_) => 0,
-        ProposalType::RiskParams(_, _, _, _) => 1,
-        ProposalType::PauseSwitch(_, _) => 2,
-        ProposalType::EmergencyPause(_) => 3,
-        ProposalType::GenericAction(_) => 4,
-        ProposalType::InterestRateConfig(_) => 5,
-        ProposalType::UpdateGovernanceConfig(_) => 6,
-    }
-}
-
-/// Configure a timelock delay override for a specific action type. Admin-only.
-/// Takes effect for operations queued after this call; does not retroactively
-/// change already-queued operations.
-pub fn set_action_type_delay(
-    env: &Env,
-    admin: Address,
-    action_type_id: u32,
-    delay: u64,
-) -> Result<(), GovernanceError> {
-    admin.require_auth();
-    let configured_admin = crate::governance::get_admin(env).ok_or(GovernanceError::NotInitialized)?;
-    if admin != configured_admin {
-        return Err(GovernanceError::Unauthorized);
-    }
-
-    let config = get_timelock_config(env);
-    if delay < config.min_delay || delay > config.max_delay {
-        return Err(GovernanceError::InvalidActionTypeDelay);
-    }
-
-    env.storage()
-        .instance()
-        .set(&storage::GovernanceDataKey::ActionTypeDelay(action_type_id), &delay);
+    set_delay_storage(env, new_delay);
     Ok(())
 }
 
-/// Get the configured delay override for an action type, if any.
-pub fn get_action_type_delay(env: &Env, action_type_id: u32) -> Option<u64> {
-    env.storage()
-        .instance()
-        .get(&storage::GovernanceDataKey::ActionTypeDelay(action_type_id))
-}
-
-/// #674 — guardian emergency override: lets the SAME guardian set used by
-/// social recovery (`GovernanceDataKey::Guardians` / `GuardianThreshold`,
-/// see recovery.rs) collectively bypass a queued operation's remaining
-/// timelock delay in a genuine emergency, without waiting for `ready_at`.
-/// Requires the same M-of-N guardian threshold as recovery — a single
-/// guardian cannot unilaterally bypass the timelock, preserving the
-/// timelock's core guarantee against any one compromised/malicious party.
-///
-/// Two-step flow mirrors recovery.rs's approve/execute pattern:
-/// 1. Each guardian calls `guardian_approve_emergency_execution`.
-/// 2. Once threshold is met, anyone calls `guardian_emergency_execute`.
-pub fn guardian_approve_emergency_execution(
-    env: &Env,
-    guardian: Address,
-    operation_id: u64,
-) -> Result<(), GovernanceError> {
-    guardian.require_auth();
-
-    let guardians: Vec<Address> = env
-        .storage()
-        .persistent()
-        .get(&storage::GovernanceDataKey::Guardians)
-        .ok_or(GovernanceError::GuardianNotFound)?;
-    if !guardians.contains(guardian.clone()) {
-        return Err(GovernanceError::Unauthorized);
-    }
-
-    let operation_key = storage::GovernanceDataKey::TimelockOperation(operation_id);
-    let operation: TimelockOperation = env
-        .storage()
-        .persistent()
-        .get(&operation_key)
-        .ok_or(GovernanceError::TimelockNotFound)?;
-    if operation.status != TimelockStatus::Pending && operation.status != TimelockStatus::Ready {
-        return Err(GovernanceError::InvalidTimelockStatus);
-    }
-
-    let approvals_key = storage::GovernanceDataKey::TimelockEmergencyApprovals(operation_id);
-    let mut approvals: Vec<Address> = env
-        .storage()
-        .persistent()
-        .get(&approvals_key)
-        .unwrap_or_else(|| Vec::new(env));
-
-    if approvals.contains(guardian.clone()) {
-        return Err(GovernanceError::EmergencyOverrideAlreadyApproved);
-    }
-    approvals.push_back(guardian);
-    env.storage().persistent().set(&approvals_key, &approvals);
-    Ok(())
-}
-
-/// Execute a queued operation immediately, bypassing its remaining delay,
-/// once enough guardians have approved via `guardian_approve_emergency_execution`.
-/// `executor` need not itself be a guardian — anyone may submit once threshold
-/// approvals exist, matching `execute_timelock_operation`'s own open-executor
-/// convention.
-pub fn guardian_emergency_execute(
-    env: &Env,
-    executor: Address,
-    operation_id: u64,
-) -> Result<(), GovernanceError> {
-    let threshold: u32 = env
-        .storage()
-        .persistent()
-        .get(&storage::GovernanceDataKey::GuardianThreshold)
-        .unwrap_or(1u32);
-
-    let approvals_key = storage::GovernanceDataKey::TimelockEmergencyApprovals(operation_id);
-    let approvals: Vec<Address> = env
-        .storage()
-        .persistent()
-        .get(&approvals_key)
-        .unwrap_or_else(|| Vec::new(env));
-
-    if approvals.len() < threshold {
-        return Err(GovernanceError::InsufficientEmergencyApprovals);
-    }
-
-    let operation_key = storage::GovernanceDataKey::TimelockOperation(operation_id);
-    let mut operation: TimelockOperation = env
-        .storage()
-        .persistent()
-        .get(&operation_key)
-        .ok_or(GovernanceError::TimelockNotFound)?;
-
-    if operation.status != TimelockStatus::Pending && operation.status != TimelockStatus::Ready {
-        return Err(GovernanceError::InvalidTimelockStatus);
-    }
-
-    // Note: deliberately does NOT check `now < operation.ready_at` — bypassing
-    // that check is the entire point of an emergency override. Expiry is
-    // still respected: an operation that has already expired must be
-    // re-queued rather than force-executed.
-    let now = env.ledger().timestamp();
-    if is_expired(env, operation.expires_at) {
-        operation.status = TimelockStatus::Expired;
-        env.storage().persistent().set(&operation_key, &operation);
-        return Err(GovernanceError::TimelockExpired);
-    }
-
-    execute_proposal_type(env, &operation.proposal_type)?;
-
-    operation.status = TimelockStatus::Executed;
-    env.storage().persistent().set(&operation_key, &operation);
-    env.storage().persistent().remove(&approvals_key);
-
-    crate::events::TimelockExecutedEvent {
-        operation_id,
-        executor,
-        timestamp: now,
-    }
-    .publish(env);
-
-    Ok(())
-}
+// ---------------------------------------------------------------------------
+// Unit tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::admin::set_admin;
     use soroban_sdk::testutils::{Address as _, Ledger};
+    use soroban_sdk::{Bytes, Env, Symbol, Vec};
+
+    /// Helper: create an env with mock auth, generate an admin address, and
+    /// register it in admin storage.
+    fn setup() -> (Env, Address) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        // Bootstrap admin directly in storage (no existing admin).
+        set_admin(&env, admin.clone(), None).unwrap();
+        (env, admin)
+    }
+
+    // -----------------------------------------------------------------------
+    // initialize_timelock
+    // -----------------------------------------------------------------------
 
     #[test]
-    fn test_initialize_timelock() {
-        let env = Env::default();
-        let config = TimelockConfig::default();
-
-        initialize_timelock(&env, config.clone()).unwrap();
-        let stored_config = get_timelock_config(&env);
-
-        assert_eq!(stored_config.min_delay, config.min_delay);
-        assert_eq!(stored_config.max_delay, config.max_delay);
-        assert_eq!(stored_config.default_delay, config.default_delay);
+    fn test_initialize_timelock_success() {
+        let (env, admin) = setup();
+        let delay = 86400u64; // 24 hours
+        assert!(initialize_timelock(&env, &admin, delay).is_ok());
+        assert_eq!(get_delay(&env), Some(delay));
+        assert_eq!(get_proposal_count(&env), 0);
     }
 
     #[test]
-    fn test_queue_timelock_operation() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let config = TimelockConfig::default();
-        initialize_timelock(&env, config).unwrap();
-
-        let proposer = Address::generate(&env);
-        let proposal_type = ProposalType::MinCollateralRatio(8000);
-        let description = String::from_str(&env, "Test proposal");
-
-        let operation_id =
-            queue_timelock_operation(&env, proposer.clone(), proposal_type, description, None)
-                .unwrap();
-
-        let operation = get_timelock_operation(&env, operation_id).unwrap();
-        assert_eq!(operation.status, TimelockStatus::Pending);
-        assert_eq!(operation.proposer, proposer);
+    fn test_initialize_timelock_delay_too_short() {
+        let (env, admin) = setup();
+        let result = initialize_timelock(&env, &admin, 100);
+        assert_eq!(result, Err(TimelockError::InvalidDelay));
     }
 
     #[test]
-    fn test_execute_timelock_too_early() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let config = TimelockConfig::default();
-        initialize_timelock(&env, config).unwrap();
-
-        let proposer = Address::generate(&env);
-        let executor = Address::generate(&env);
-        let proposal_type = ProposalType::MinCollateralRatio(8000);
-        let description = String::from_str(&env, "Test proposal");
-
-        let operation_id =
-            queue_timelock_operation(&env, proposer, proposal_type, description, None).unwrap();
-
-        // Try to execute immediately
-        let result = execute_timelock_operation(&env, executor, operation_id);
-        assert!(result.is_err());
+    fn test_initialize_timelock_delay_too_long() {
+        let (env, admin) = setup();
+        let result = initialize_timelock(&env, &admin, MAX_TIMELOCK_DELAY + 1);
+        assert_eq!(result, Err(TimelockError::InvalidDelay));
     }
 
     #[test]
-    fn test_execute_timelock_after_delay() {
-        let env = Env::default();
-        env.mock_all_auths();
+    fn test_initialize_timelock_unauthorized() {
+        let (env, _admin) = setup();
+        let rando = Address::generate(&env);
+        let result = initialize_timelock(&env, &rando, 86400);
+        assert_eq!(result, Err(TimelockError::Unauthorized));
+    }
 
-        let config = TimelockConfig::default();
-        initialize_timelock(&env, config.clone()).unwrap();
+    // -----------------------------------------------------------------------
+    // propose
+    // -----------------------------------------------------------------------
 
-        let proposer = Address::generate(&env);
-        let executor = Address::generate(&env);
-        let proposal_type = ProposalType::MinCollateralRatio(8000);
-        let description = String::from_str(&env, "Test proposal");
+    #[test]
+    fn test_propose_success() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
 
-        let operation_id =
-            queue_timelock_operation(&env, proposer, proposal_type, description, None).unwrap();
+        let fn_name = Symbol::new(&env, "set_rate");
+        let call_data: Vec<Bytes> = Vec::new(&env);
 
-        // Advance time past the delay
+        let id = propose(&env, &admin, fn_name.clone(), call_data).unwrap();
+        assert_eq!(id, 0);
+
+        let p = get_proposal(&env, id).unwrap();
+        assert_eq!(p.function_name, fn_name);
+        assert_eq!(p.status, ProposalStatus::Pending);
+        assert_eq!(p.eta, p.created_at + 86400);
+        assert_eq!(p.grace_period_end, p.eta + GRACE_PERIOD);
+    }
+
+    #[test]
+    fn test_propose_increments_id() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
+
+        let fn_name = Symbol::new(&env, "action");
+        let cd: Vec<Bytes> = Vec::new(&env);
+
+        let id0 = propose(&env, &admin, fn_name.clone(), cd.clone()).unwrap();
+        let id1 = propose(&env, &admin, fn_name.clone(), cd.clone()).unwrap();
+        assert_eq!(id0, 0);
+        assert_eq!(id1, 1);
+    }
+
+    #[test]
+    fn test_propose_unauthorized() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
+
+        let rando = Address::generate(&env);
+        let result = propose(&env, &rando, Symbol::new(&env, "x"), Vec::new(&env));
+        assert_eq!(result, Err(TimelockError::Unauthorized));
+    }
+
+    // -----------------------------------------------------------------------
+    // execute_proposal
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_execute_proposal_success() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
+
+        let id = propose(
+            &env,
+            &admin,
+            Symbol::new(&env, "action"),
+            Vec::new(&env),
+        )
+        .unwrap();
+
+        // Advance time past eta
         env.ledger().with_mut(|li| {
-            li.timestamp += config.default_delay + 1;
+            li.timestamp += 86400 + 1;
         });
 
-        // Initialize risk params first
-        crate::risk_params::initialize_risk_params(&env).unwrap();
+        let executed = execute_proposal(&env, &admin, id).unwrap();
+        assert_eq!(executed.status, ProposalStatus::Executed);
 
-        // Now execution should succeed
-        execute_timelock_operation(&env, executor, operation_id).unwrap();
-
-        let operation = get_timelock_operation(&env, operation_id).unwrap();
-        assert_eq!(operation.status, TimelockStatus::Executed);
+        // Verify storage
+        let p = get_proposal(&env, id).unwrap();
+        assert_eq!(p.status, ProposalStatus::Executed);
     }
 
     #[test]
-    fn test_cancel_timelock_operation() {
-        let env = Env::default();
-        env.mock_all_auths();
+    fn test_execute_proposal_too_early() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
 
-        let config = TimelockConfig::default();
-        initialize_timelock(&env, config).unwrap();
+        let id = propose(
+            &env,
+            &admin,
+            Symbol::new(&env, "action"),
+            Vec::new(&env),
+        )
+        .unwrap();
 
-        let proposer = Address::generate(&env);
-        let proposal_type = ProposalType::MinCollateralRatio(8000);
-        let description = String::from_str(&env, "Test proposal");
+        let result = execute_proposal(&env, &admin, id);
+        assert_eq!(result, Err(TimelockError::ProposalNotReady));
+    }
 
-        let operation_id =
-            queue_timelock_operation(&env, proposer.clone(), proposal_type, description, None)
-                .unwrap();
+    #[test]
+    fn test_execute_proposal_expired() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
 
-        cancel_timelock_operation(&env, proposer, operation_id).unwrap();
+        let id = propose(
+            &env,
+            &admin,
+            Symbol::new(&env, "action"),
+            Vec::new(&env),
+        )
+        .unwrap();
 
-        let operation = get_timelock_operation(&env, operation_id).unwrap();
-        assert_eq!(operation.status, TimelockStatus::Cancelled);
+        // Advance time past grace period
+        env.ledger().with_mut(|li| {
+            li.timestamp += 86400 + GRACE_PERIOD + 1;
+        });
+
+        let result = execute_proposal(&env, &admin, id);
+        assert_eq!(result, Err(TimelockError::ProposalExpired));
+    }
+
+    #[test]
+    fn test_execute_proposal_already_executed() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
+
+        let id = propose(
+            &env,
+            &admin,
+            Symbol::new(&env, "action"),
+            Vec::new(&env),
+        )
+        .unwrap();
+
+        env.ledger().with_mut(|li| {
+            li.timestamp += 86400 + 1;
+        });
+
+        execute_proposal(&env, &admin, id).unwrap();
+
+        let result = execute_proposal(&env, &admin, id);
+        assert_eq!(result, Err(TimelockError::ProposalAlreadyExecuted));
+    }
+
+    #[test]
+    fn test_execute_proposal_not_found() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
+
+        let result = execute_proposal(&env, &admin, 999);
+        assert_eq!(result, Err(TimelockError::ProposalNotFound));
+    }
+
+    #[test]
+    fn test_execute_proposal_unauthorized() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
+
+        let id = propose(
+            &env,
+            &admin,
+            Symbol::new(&env, "action"),
+            Vec::new(&env),
+        )
+        .unwrap();
+
+        env.ledger().with_mut(|li| {
+            li.timestamp += 86400 + 1;
+        });
+
+        let rando = Address::generate(&env);
+        let result = execute_proposal(&env, &rando, id);
+        assert_eq!(result, Err(TimelockError::Unauthorized));
+    }
+
+    // -----------------------------------------------------------------------
+    // cancel_proposal
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_cancel_proposal_success() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
+
+        let id = propose(
+            &env,
+            &admin,
+            Symbol::new(&env, "action"),
+            Vec::new(&env),
+        )
+        .unwrap();
+
+        cancel_proposal(&env, &admin, id).unwrap();
+
+        let p = get_proposal(&env, id).unwrap();
+        assert_eq!(p.status, ProposalStatus::Cancelled);
+    }
+
+    #[test]
+    fn test_cancel_proposal_already_cancelled() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
+
+        let id = propose(
+            &env,
+            &admin,
+            Symbol::new(&env, "action"),
+            Vec::new(&env),
+        )
+        .unwrap();
+
+        cancel_proposal(&env, &admin, id).unwrap();
+
+        let result = cancel_proposal(&env, &admin, id);
+        assert_eq!(result, Err(TimelockError::ProposalAlreadyCancelled));
+    }
+
+    #[test]
+    fn test_cancel_proposal_already_executed() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
+
+        let id = propose(
+            &env,
+            &admin,
+            Symbol::new(&env, "action"),
+            Vec::new(&env),
+        )
+        .unwrap();
+
+        env.ledger().with_mut(|li| {
+            li.timestamp += 86400 + 1;
+        });
+
+        execute_proposal(&env, &admin, id).unwrap();
+
+        let result = cancel_proposal(&env, &admin, id);
+        assert_eq!(result, Err(TimelockError::ProposalAlreadyExecuted));
+    }
+
+    #[test]
+    fn test_cancel_proposal_not_found() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
+
+        let result = cancel_proposal(&env, &admin, 42);
+        assert_eq!(result, Err(TimelockError::ProposalNotFound));
+    }
+
+    // -----------------------------------------------------------------------
+    // get_proposal
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_get_proposal_not_found() {
+        let (env, _admin) = setup();
+        let result = get_proposal(&env, 0);
+        assert_eq!(result, Err(TimelockError::ProposalNotFound));
+    }
+
+    // -----------------------------------------------------------------------
+    // update_delay
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_update_delay_bootstrap() {
+        // No delay set yet => admin can set directly.
+        let (env, admin) = setup();
+        let result = update_delay(&env, &admin, 172800);
+        assert!(result.is_ok());
+        assert_eq!(get_delay(&env), Some(172800));
+    }
+
+    #[test]
+    fn test_update_delay_invalid() {
+        let (env, admin) = setup();
+        assert_eq!(
+            update_delay(&env, &admin, 10),
+            Err(TimelockError::InvalidDelay)
+        );
+        assert_eq!(
+            update_delay(&env, &admin, MAX_TIMELOCK_DELAY + 1),
+            Err(TimelockError::InvalidDelay)
+        );
+    }
+
+    #[test]
+    fn test_update_delay_requires_timelock_when_already_set() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
+
+        // Delay is already set; a direct update without a matching executed
+        // proposal should fail.
+        let result = update_delay(&env, &admin, 172800);
+        assert_eq!(result, Err(TimelockError::ProposalNotReady));
+    }
+
+    #[test]
+    fn test_update_delay_through_timelock() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
+
+        // 1. Propose a delay change.
+        let id = propose(
+            &env,
+            &admin,
+            Symbol::new(&env, "update_delay"),
+            Vec::new(&env),
+        )
+        .unwrap();
+
+        // 2. Wait for eta.
+        env.ledger().with_mut(|li| {
+            li.timestamp += 86400 + 1;
+        });
+
+        // 3. Execute the proposal.
+        execute_proposal(&env, &admin, id).unwrap();
+
+        // 4. Now update_delay should succeed.
+        let result = update_delay(&env, &admin, 172800);
+        assert!(result.is_ok());
+        assert_eq!(get_delay(&env), Some(172800));
+    }
+
+    #[test]
+    fn test_update_delay_unauthorized() {
+        let (env, _admin) = setup();
+        let rando = Address::generate(&env);
+        let result = update_delay(&env, &rando, 86400);
+        assert_eq!(result, Err(TimelockError::Unauthorized));
+    }
+
+    // -----------------------------------------------------------------------
+    // Edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_execute_at_exact_eta() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
+
+        let id = propose(
+            &env,
+            &admin,
+            Symbol::new(&env, "action"),
+            Vec::new(&env),
+        )
+        .unwrap();
+
+        let p = get_proposal(&env, id).unwrap();
+
+        // Set timestamp to exactly eta
+        env.ledger().with_mut(|li| {
+            li.timestamp = p.eta;
+        });
+
+        let result = execute_proposal(&env, &admin, id);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_execute_at_exact_grace_period_end() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
+
+        let id = propose(
+            &env,
+            &admin,
+            Symbol::new(&env, "action"),
+            Vec::new(&env),
+        )
+        .unwrap();
+
+        let p = get_proposal(&env, id).unwrap();
+
+        // Set timestamp to exactly grace_period_end (should be expired)
+        env.ledger().with_mut(|li| {
+            li.timestamp = p.grace_period_end;
+        });
+
+        let result = execute_proposal(&env, &admin, id);
+        assert_eq!(result, Err(TimelockError::ProposalExpired));
+    }
+
+    #[test]
+    fn test_cancel_does_not_affect_other_proposals() {
+        let (env, admin) = setup();
+        initialize_timelock(&env, &admin, 86400).unwrap();
+
+        let id0 = propose(
+            &env,
+            &admin,
+            Symbol::new(&env, "a"),
+            Vec::new(&env),
+        )
+        .unwrap();
+
+        let id1 = propose(
+            &env,
+            &admin,
+            Symbol::new(&env, "b"),
+            Vec::new(&env),
+        )
+        .unwrap();
+
+        cancel_proposal(&env, &admin, id0).unwrap();
+
+        let p0 = get_proposal(&env, id0).unwrap();
+        let p1 = get_proposal(&env, id1).unwrap();
+        assert_eq!(p0.status, ProposalStatus::Cancelled);
+        assert_eq!(p1.status, ProposalStatus::Pending);
     }
 }

@@ -730,6 +730,10 @@ pub fn execute_flash_loan_liquidation(
     collateral_asset: Option<Address>,
     debt_amount: i128,
 ) -> Result<FlashLoanLiquidationResult, FlashLoanError> {
+    // Reentrancy guard — prevents re-entry during token transfers
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| FlashLoanError::Reentrancy)?;
+
     liquidator.require_auth();
 
     let sim = simulate_flash_loan_liquidation(
@@ -863,6 +867,10 @@ pub fn execute_multi_asset_flash_loan(
     legs: Vec<FlashLoanLeg>,
     callback: Address,
 ) -> Result<i128, FlashLoanError> {
+    // Reentrancy guard — prevents re-entry during multi-asset flash loan
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| FlashLoanError::Reentrancy)?;
+
     user.require_auth();
 
     if legs.is_empty() {
