@@ -234,6 +234,8 @@ pub fn deposit_collateral(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<i128, DepositError> {
+    user.require_auth();
+
     // Validate amount
     if amount <= 0 {
         return Err(DepositError::InvalidAmount);
@@ -314,9 +316,8 @@ pub fn deposit_collateral(
             );
         }
     } else {
-        // Native XLM deposit - in Soroban, native assets are handled differently
-        // For now, we'll track it but actual XLM handling depends on Soroban's native asset support
-        // This is a placeholder for native asset handling
+        // Native XLM deposit placeholder rejected: fail closed to prevent crediting unbacked collateral
+        return Err(DepositError::InvalidAsset);
     }
 
     // Get or create user position
