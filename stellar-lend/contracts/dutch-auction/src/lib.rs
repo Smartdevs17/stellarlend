@@ -1,8 +1,38 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env};
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, Val, IntoVal};
 
 const BPS_BASE: i128 = 10_000;
+
+/// Storage key for the reentrancy guard.
+#[contracttype]
+#[derive(Clone)]
+enum GuardKey {
+    ReentrancyLock,
+}
+
+/// RAII reentrancy guard. Panics on re-entry, auto-clears on drop.
+struct ReentrancyGuard<'a> {
+    env: &'a Env,
+}
+
+impl<'a> ReentrancyGuard<'a> {
+    fn new(env: &'a Env) -> Self {
+        let key: Val = GuardKey::ReentrancyLock.into_val(env);
+        if env.storage().temporary().has(&key) {
+            panic!("reentrancy detected");
+        }
+        env.storage().temporary().set(&key, &true);
+        Self { env }
+    }
+}
+
+impl<'a> Drop for ReentrancyGuard<'a> {
+    fn drop(&mut self) {
+        let key: Val = GuardKey::ReentrancyLock.into_val(self.env);
+        self.env.storage().temporary().remove(&key);
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]
@@ -192,6 +222,7 @@ impl DutchAuctionContract {
         bidder: Address,
         debt_repay_amount: i128,
     ) -> AuctionBid {
+        let _guard = ReentrancyGuard::new(&env);
         bidder.require_auth();
 
         let mut auction: Auction = env

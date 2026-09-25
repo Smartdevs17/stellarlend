@@ -1,8 +1,38 @@
 #![no_std]
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, token::Client as TokenClient,
-    token::StellarAssetClient, Address, Env,
+    token::StellarAssetClient, Address, Env, Val, IntoVal,
 };
+
+/// Storage key for the reentrancy guard.
+#[contracttype]
+#[derive(Clone)]
+enum GuardKey {
+    ReentrancyLock,
+}
+
+/// RAII reentrancy guard. Panics on re-entry, auto-clears on drop.
+struct ReentrancyGuard<'a> {
+    env: &'a Env,
+}
+
+impl<'a> ReentrancyGuard<'a> {
+    fn new(env: &'a Env) -> Self {
+        let key: Val = GuardKey::ReentrancyLock.into_val(env);
+        if env.storage().temporary().has(&key) {
+            panic!("reentrancy detected");
+        }
+        env.storage().temporary().set(&key, &true);
+        Self { env }
+    }
+}
+
+impl<'a> Drop for ReentrancyGuard<'a> {
+    fn drop(&mut self) {
+        let key: Val = GuardKey::ReentrancyLock.into_val(self.env);
+        self.env.storage().temporary().remove(&key);
+    }
+}
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -208,6 +238,7 @@ impl AutoCompoundVault {
         amount: i128,
         min_shares: i128,
     ) -> Result<i128, VaultError> {
+        let _guard = ReentrancyGuard::new(&env);
         user.require_auth();
 
         let config: VaultConfig = env
@@ -312,6 +343,7 @@ impl AutoCompoundVault {
         shares: i128,
         min_assets: i128,
     ) -> Result<i128, VaultError> {
+        let _guard = ReentrancyGuard::new(&env);
         user.require_auth();
 
         let config: VaultConfig = env

@@ -4,6 +4,8 @@
       contractimport!(file = "admin.rs");
       contractimport!(file = "treasury.rs");
 
+      pub mod timelock;
+
       #[no_mangle]
       pub fn transfer_admin(
           env: Env,

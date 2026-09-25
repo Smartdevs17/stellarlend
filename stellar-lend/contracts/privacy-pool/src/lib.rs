@@ -1,8 +1,38 @@
 #![no_std]
 extern crate alloc;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, Vec,
+    contract, contracterror, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, IntoVal, Val, Vec,
 };
+
+/// Storage key for the reentrancy guard.
+#[contracttype]
+#[derive(Clone)]
+enum GuardKey {
+    ReentrancyLock,
+}
+
+/// RAII reentrancy guard. Panics on re-entry, auto-clears on drop.
+struct ReentrancyGuard<'a> {
+    env: &'a Env,
+}
+
+impl<'a> ReentrancyGuard<'a> {
+    fn new(env: &'a Env) -> Self {
+        let key: Val = GuardKey::ReentrancyLock.into_val(env);
+        if env.storage().temporary().has(&key) {
+            panic!("reentrancy detected");
+        }
+        env.storage().temporary().set(&key, &true);
+        Self { env }
+    }
+}
+
+impl<'a> Drop for ReentrancyGuard<'a> {
+    fn drop(&mut self) {
+        let key: Val = GuardKey::ReentrancyLock.into_val(self.env);
+        self.env.storage().temporary().remove(&key);
+    }
+}
 
 use stealth_address::StealthAddressRegistryClient;
 
@@ -152,6 +182,7 @@ impl PrivacyPool {
         recipient: Address,
         ephemeral_public_key: BytesN<32>,
     ) -> Result<u32, PrivacyPoolError> {
+        let _guard = ReentrancyGuard::new(&env);
         let config = get_config(&env)?;
 
         if config.deposit_paused {
@@ -232,6 +263,7 @@ impl PrivacyPool {
         proof: WithdrawalProof,
         compliance_disclosure: Option<ComplianceDisclosure>,
     ) -> Result<(), PrivacyPoolError> {
+        let _guard = ReentrancyGuard::new(&env);
         let config = get_config(&env)?;
 
         if config.withdraw_paused {

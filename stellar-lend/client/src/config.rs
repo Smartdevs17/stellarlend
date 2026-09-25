@@ -87,6 +87,15 @@ pub struct BlockchainConfig {
 
     /// Transaction timeout (in seconds)
     pub tx_timeout_secs: u64,
+
+    /// Maximum idle connections per host in the connection pool
+    pub pool_max_idle_per_host: usize,
+
+    /// Connection pool idle timeout (in seconds)
+    pub pool_idle_timeout_secs: u64,
+
+    /// Maximum total connections in the pool
+    pub pool_max_connections: usize,
 }
 
 impl BlockchainConfig {
@@ -108,6 +117,9 @@ impl BlockchainConfig {
             retry_multiplier: 2.0,
             tx_poll_interval_ms: 1000,
             tx_timeout_secs: 60,
+            pool_max_idle_per_host: 10,
+            pool_idle_timeout_secs: 90,
+            pool_max_connections: 100,
         }
     }
 
@@ -160,6 +172,9 @@ impl BlockchainConfig {
             retry_multiplier: 2.0,
             tx_poll_interval_ms: 1000,
             tx_timeout_secs: 60,
+            pool_max_idle_per_host: 10,
+            pool_idle_timeout_secs: 90,
+            pool_max_connections: 100,
         })
     }
 
@@ -192,6 +207,19 @@ impl BlockchainConfig {
     pub fn with_tx_config(mut self, poll_interval_ms: u64, timeout_secs: u64) -> Self {
         self.tx_poll_interval_ms = poll_interval_ms;
         self.tx_timeout_secs = timeout_secs;
+        self
+    }
+
+    /// Set connection pool configuration
+    pub fn with_pool_config(
+        mut self,
+        max_idle_per_host: usize,
+        idle_timeout_secs: u64,
+        max_connections: usize,
+    ) -> Self {
+        self.pool_max_idle_per_host = max_idle_per_host;
+        self.pool_idle_timeout_secs = idle_timeout_secs;
+        self.pool_max_connections = max_connections;
         self
     }
 
@@ -235,6 +263,21 @@ impl BlockchainConfig {
         if self.tx_timeout_secs == 0 {
             return Err(BlockchainError::ConfigError(
                 "Transaction timeout must be greater than 0".to_string(),
+            ));
+        }
+        if self.pool_max_idle_per_host == 0 {
+            return Err(BlockchainError::ConfigError(
+                "Pool max idle per host must be greater than 0".to_string(),
+            ));
+        }
+        if self.pool_idle_timeout_secs == 0 {
+            return Err(BlockchainError::ConfigError(
+                "Pool idle timeout must be greater than 0".to_string(),
+            ));
+        }
+        if self.pool_max_connections == 0 {
+            return Err(BlockchainError::ConfigError(
+                "Pool max connections must be greater than 0".to_string(),
             ));
         }
 
@@ -359,5 +402,41 @@ mod tests {
         let config = BlockchainConfig::default();
         assert_eq!(config.network, Network::Testnet);
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_pool_config_defaults() {
+        let config = BlockchainConfig::testnet();
+        assert_eq!(config.pool_max_idle_per_host, 10);
+        assert_eq!(config.pool_idle_timeout_secs, 90);
+        assert_eq!(config.pool_max_connections, 100);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_pool_config_builder() {
+        let config = BlockchainConfig::testnet()
+            .with_pool_config(20, 120, 200);
+
+        assert_eq!(config.pool_max_idle_per_host, 20);
+        assert_eq!(config.pool_idle_timeout_secs, 120);
+        assert_eq!(config.pool_max_connections, 200);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_pool_config_validation() {
+        let mut config = BlockchainConfig::testnet();
+
+        config.pool_max_idle_per_host = 0;
+        assert!(config.validate().is_err());
+
+        config.pool_max_idle_per_host = 10;
+        config.pool_idle_timeout_secs = 0;
+        assert!(config.validate().is_err());
+
+        config.pool_idle_timeout_secs = 90;
+        config.pool_max_connections = 0;
+        assert!(config.validate().is_err());
     }
 }

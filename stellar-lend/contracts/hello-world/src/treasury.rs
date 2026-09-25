@@ -258,6 +258,10 @@ pub fn claim_reserves(
     recipient: Address,
     amount: i128,
 ) -> Result<(), TreasuryError> {
+    // Reentrancy guard — prevents re-entry during token transfer
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| TreasuryError::Unauthorized)?;
+
     caller.require_auth();
     crate::admin::require_admin(env, &caller).map_err(|_| TreasuryError::Unauthorized)?;
 

@@ -2,7 +2,37 @@
 #![allow(deprecated)]
 
 use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, IntoVal, Symbol, Val};
+
+/// Storage key for the reentrancy guard.
+#[contracttype]
+#[derive(Clone)]
+enum GuardKey {
+    ReentrancyLock,
+}
+
+/// RAII reentrancy guard. Panics on re-entry, auto-clears on drop.
+struct ReentrancyGuard<'a> {
+    env: &'a Env,
+}
+
+impl<'a> ReentrancyGuard<'a> {
+    fn new(env: &'a Env) -> Self {
+        let key: Val = GuardKey::ReentrancyLock.into_val(env);
+        if env.storage().temporary().has(&key) {
+            panic!("reentrancy detected");
+        }
+        env.storage().temporary().set(&key, &true);
+        Self { env }
+    }
+}
+
+impl<'a> Drop for ReentrancyGuard<'a> {
+    fn drop(&mut self) {
+        let key: Val = GuardKey::ReentrancyLock.into_val(self.env);
+        self.env.storage().temporary().remove(&key);
+    }
+}
 
 const BPS: i128 = 10_000;
 
@@ -264,6 +294,7 @@ impl StablecoinContract {
         user: Address,
         amount: i128,
     ) -> Result<(), StablecoinError> {
+        let _guard = ReentrancyGuard::new(&env);
         require_init(&env)?;
         user.require_auth();
         if is_shutdown(&env) {
@@ -297,6 +328,7 @@ impl StablecoinContract {
         user: Address,
         collateral_amount: i128,
     ) -> Result<i128, StablecoinError> {
+        let _guard = ReentrancyGuard::new(&env);
         require_init(&env)?;
         user.require_auth();
         if is_shutdown(&env) {
@@ -377,6 +409,7 @@ impl StablecoinContract {
         user: Address,
         burn_amount: i128,
     ) -> Result<i128, StablecoinError> {
+        let _guard = ReentrancyGuard::new(&env);
         require_init(&env)?;
         user.require_auth();
         if is_shutdown(&env) {

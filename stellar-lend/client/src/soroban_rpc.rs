@@ -4,6 +4,7 @@
 //! simulating and invoking smart contract functions, and retrieving contract state.
 
 use crate::config::BlockchainConfig;
+use crate::dedup::{make_dedup_key, RequestDedup};
 use crate::error::{BlockchainError, Result};
 use crate::retry::RetryStrategy;
 use crate::types::{SorobanInvocationResult, TransactionHash, TransactionStatus};
@@ -30,6 +31,8 @@ pub struct SorobanRpcClient {
     config: Arc<BlockchainConfig>,
     /// Request ID counter
     request_id: Arc<std::sync::atomic::AtomicU64>,
+    /// Request deduplication for concurrent reads
+    dedup: RequestDedup,
 }
 
 /// JSON-RPC request
@@ -96,6 +99,8 @@ impl SorobanRpcClient {
     pub fn new(config: Arc<BlockchainConfig>) -> Result<Self> {
         let client = Client::builder()
             .timeout(config.request_timeout)
+            .pool_max_idle_per_host(config.pool_max_idle_per_host)
+            .pool_idle_timeout(std::time::Duration::from_secs(config.pool_idle_timeout_secs))
             .build()
             .map_err(BlockchainError::NetworkError)?;
 
@@ -107,6 +112,7 @@ impl SorobanRpcClient {
             retry_strategy,
             config,
             request_id: Arc::new(std::sync::atomic::AtomicU64::new(1)),
+            dedup: RequestDedup::new(),
         })
     }
 
@@ -174,11 +180,26 @@ impl SorobanRpcClient {
             .await
     }
 
-    /// Get latest ledger information
+    /// Get latest ledger information (deduplicated for concurrent callers)
     pub async fn get_latest_ledger(&self) -> Result<u64> {
         info!("Fetching latest ledger from Soroban RPC");
 
-        let result = self.call_rpc("getLatestLedger", json!({})).await?;
+        let key = make_dedup_key("getLatestLedger", "{}");
+        let client = self.clone();
+        let raw = self
+            .dedup
+            .deduplicated_request(key, || async move {
+                let result = client.call_rpc("getLatestLedger", json!({})).await;
+                match result {
+                    Ok(v) => Ok(v.to_string()),
+                    Err(e) => Err(e.to_string()),
+                }
+            })
+            .await
+            .map_err(|e| BlockchainError::SorobanRpcError(e))?;
+
+        let result: Value =
+            serde_json::from_str(&raw).map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
 
         let sequence = result["sequence"].as_u64().ok_or_else(|| {
             BlockchainError::InvalidResponse("Missing sequence in ledger response".to_string())
@@ -263,15 +284,26 @@ impl SorobanRpcClient {
         Ok(hash)
     }
 
-    /// Get transaction status and result
+    /// Get transaction status and result (deduplicated for concurrent callers)
     pub async fn get_transaction(&self, tx_hash: &str) -> Result<SorobanInvocationResult> {
         debug!("Fetching Soroban transaction: {}", tx_hash);
 
-        let params = json!({
-            "hash": tx_hash
-        });
+        let key = make_dedup_key("getTransaction", tx_hash);
+        let params = json!({ "hash": tx_hash });
+        let client = self.clone();
+        let raw = self
+            .dedup
+            .deduplicated_request(key, || async move {
+                match client.call_rpc("getTransaction", params).await {
+                    Ok(v) => Ok(v.to_string()),
+                    Err(e) => Err(e.to_string()),
+                }
+            })
+            .await
+            .map_err(|e| BlockchainError::SorobanRpcError(e))?;
 
-        let result = self.call_rpc("getTransaction", params).await?;
+        let result: Value =
+            serde_json::from_str(&raw).map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
 
         let status_str = result["status"].as_str().ok_or_else(|| {
             BlockchainError::InvalidResponse("Missing status in transaction response".to_string())
@@ -285,7 +317,6 @@ impl SorobanRpcClient {
         };
 
         let ledger = result["ledger"].as_u64().unwrap_or(0);
-
         let result_xdr = result["resultXdr"].as_str().unwrap_or("").to_string();
 
         debug!(
@@ -301,22 +332,46 @@ impl SorobanRpcClient {
         })
     }
 
-    /// Get network information
+    /// Get network information (deduplicated for concurrent callers)
     pub async fn get_network(&self) -> Result<Value> {
         debug!("Fetching Soroban network info");
 
-        self.call_rpc("getNetwork", json!({})).await
+        let key = make_dedup_key("getNetwork", "{}");
+        let client = self.clone();
+        let raw = self
+            .dedup
+            .deduplicated_request(key, || async move {
+                match client.call_rpc("getNetwork", json!({})).await {
+                    Ok(v) => Ok(v.to_string()),
+                    Err(e) => Err(e.to_string()),
+                }
+            })
+            .await
+            .map_err(|e| BlockchainError::SorobanRpcError(e))?;
+
+        serde_json::from_str(&raw).map_err(|e| BlockchainError::InvalidResponse(e.to_string()))
     }
 
-    /// Get contract data (ledger entry)
+    /// Get contract data (ledger entry) (deduplicated for concurrent callers)
     pub async fn get_ledger_entries(&self, keys: Vec<String>) -> Result<Value> {
         debug!("Fetching ledger entries (count: {})", keys.len());
 
-        let params = json!({
-            "keys": keys
-        });
+        let params_str = serde_json::to_string(&keys).unwrap_or_default();
+        let key = make_dedup_key("getLedgerEntries", &params_str);
+        let params = json!({ "keys": keys });
+        let client = self.clone();
+        let raw = self
+            .dedup
+            .deduplicated_request(key, || async move {
+                match client.call_rpc("getLedgerEntries", params).await {
+                    Ok(v) => Ok(v.to_string()),
+                    Err(e) => Err(e.to_string()),
+                }
+            })
+            .await
+            .map_err(|e| BlockchainError::SorobanRpcError(e))?;
 
-        self.call_rpc("getLedgerEntries", params).await
+        serde_json::from_str(&raw).map_err(|e| BlockchainError::InvalidResponse(e.to_string()))
     }
 
     /// Get events emitted by contracts

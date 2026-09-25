@@ -513,6 +513,10 @@ pub fn buy_listed_debt_token(
     buyer: Address,
     token_id: u64,
 ) -> Result<(), DebtTokenError> {
+    // Reentrancy guard — prevents re-entry during token transfer
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| DebtTokenError::Unauthorized)?;
+
     buyer.require_auth();
 
     let key = DebtTokenDataKey::Listing(token_id);
@@ -1145,6 +1149,10 @@ pub fn accept_bid(
     token_id: u64,
     bidder: Address,
 ) -> Result<(), DebtTokenError> {
+    // Reentrancy guard — prevents re-entry during token transfer
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| DebtTokenError::Unauthorized)?;
+
     seller.require_auth();
 
     // Verify ownership.
@@ -1274,6 +1282,10 @@ pub fn buy_listed_debt_token_tracked(
     buyer: Address,
     token_id: u64,
 ) -> Result<(), DebtTokenError> {
+    // Reentrancy guard — prevents re-entry during token transfer
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| DebtTokenError::Unauthorized)?;
+
     buyer.require_auth();
 
     let key = DebtTokenDataKey::Listing(token_id);
