@@ -1,0 +1,15 @@
+{
+  "positions": [
+    { "address": "C_ALICE", "collateral": "10000", "debt": "4000", "healthFactor": "1.9" },
+    { "address": "C_BOB", "collateral": "25000", "debt": "15000", "healthFactor": "1.25" },
+    { "address": "C_CAROL", "collateral": "5000", "debt": "0", "healthFactor": "99" }
+  ],
+  "pools": [
+    { "asset": "USDC", "supplyCap": "10000000", "interestRateBps": 450, "collateralFactorBps": 8000 },
+    { "asset": "XLM", "supplyCap": "50000000", "interestRateBps": 380, "collateralFactorBps": 7000 }
+  ],
+  "governance": [
+    { "proposalId": 1, "status": "executed", "votesFor": "120", "votesAgainst": "3", "executed": true },
+    { "proposalId": 2, "status": "active", "votesFor": "40", "votesAgainst": "5", "executed": false }
+  ]
+}

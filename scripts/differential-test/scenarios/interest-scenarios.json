@@ -1,0 +1,6 @@
+[
+  { "name": "small-loan-1y", "inputs": { "principal": 1000, "rate": 0.06, "years": 1 } },
+  { "name": "large-loan-3y", "inputs": { "principal": 500000, "rate": 0.11, "years": 3 } },
+  { "name": "long-tenor-10y", "inputs": { "principal": 25000, "rate": 0.085, "years": 10 } },
+  { "name": "no-growth", "inputs": { "principal": 1234, "rate": 0, "years": 4 } }
+]

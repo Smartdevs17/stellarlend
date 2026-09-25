@@ -11,6 +11,8 @@ print_usage() {
     echo ""
     echo "Commands:"
     echo "  check <network>    Verify deployment on a network (testnet/mainnet)"
+    echo "  manifest <file>    Deep-verify a deployment manifest (addressing,"
+    echo "                     bytecode hashes vs local WASM builds) via deploy-verify"
     echo "  status             Show deployment status from deployment.json"
     echo "  compare            Compare deployed contracts vs local build"
     echo "  help               Show this help message"
@@ -47,7 +49,7 @@ check_deployment() {
 
     local contract_count=0
     if command -v jq &> /dev/null; then
-        contract_count=$(jq | length 2>/dev/null || echo "0")
+        contract_count=$(jq 'length' "$deploy_file" 2>/dev/null || echo "0")
     fi
 
     echo "[2/5] Parsing deployment.json... OK (${contract_count} contracts)"
@@ -114,7 +116,7 @@ show_status() {
 
             if command -v jq &> /dev/null; then
                 local contract_count
-                contract_count=$(jq | length 2>/dev/null || echo "?")
+                contract_count=$(jq 'length' "$deploy_file" 2>/dev/null || echo "?")
                 echo "  Contracts deployed: ${contract_count}"
 
                 local last_updated
@@ -189,9 +191,42 @@ compare_deployed() {
     echo "═══════════════════════════════════════════════════════════════"
 }
 
+verify_manifest() {
+    local manifest="${1:-}"
+
+    if [ -z "$manifest" ]; then
+        echo "ERROR: manifest path required"
+        echo "Usage: $0 manifest <deployment.json> [--wasm-dir <dir>]"
+        exit 1
+    fi
+
+    if ! command -v node &> /dev/null; then
+        echo "ERROR: node >= 22 required for deep verification (--experimental-strip-types)"
+        exit 1
+    fi
+
+    local wasm_dir=""
+    if [ "${2:-}" = "--wasm-dir" ]; then
+        wasm_dir="${3:-}"
+    fi
+
+    local args=(--manifest "$manifest")
+    if [ -n "$wasm_dir" ]; then
+        args+=(--wasm-dir "$wasm_dir")
+    fi
+
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "  Deployment Manifest Verification ($manifest)"
+    echo "═══════════════════════════════════════════════════════════════"
+    node --experimental-strip-types "${SCRIPT_DIR}/deploy-verify/index.ts" "${args[@]}"
+}
+
 case "$MODE" in
     check)
         check_deployment "${2:-}"
+        ;;
+    manifest)
+        verify_manifest "${2:-}" "${3:-}" "${4:-}"
         ;;
     status)
         show_status
