@@ -169,3 +169,19 @@ fn test_upgrade_execute_and_rollback() {
     client.upgrade_rollback(&admin, &proposal_id);
     assert_eq!(client.current_version(), 0);
 }
+
+#[test]
+#[should_panic]
+fn test_initialize_requires_admin_auth() {
+    let env = Env::default();
+    // No mock_all_auths: must fail without admin signature
+    let admin = Address::generate(&env);
+    let lending = Address::generate(&env);
+    let bridge = Address::generate(&env);
+
+    let contract_id = env.register_contract(None, MigrationHub);
+    let client = MigrationHubClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &lending, &bridge, &100, &2_000_000);
+}
+
