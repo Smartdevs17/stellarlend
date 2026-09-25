@@ -12,8 +12,9 @@ extern crate std;
 
 use super::helpers::{allow_all, client, mk_asset, register_push_feed, report, setup};
 use crate::types::{FeedPriority, VERSION};
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, BytesN, Env, IntoVal};
+use crate::upgrade::UPGRADE_TIMELOCK_SECS;
+use soroban_sdk::testutils::{Address as _, Ledger};
+use soroban_sdk::{Address, BytesN, Env, IntoVal, Vec};
 
 /// An arbitrary 32-byte wasm hash used to test the staging state machine.
 /// It is never backed by an uploaded wasm, so a swap attempt always reverts.
@@ -139,4 +140,67 @@ fn test_apply_without_provisioned_wasm_reverts() {
     client(&te).stage_upgrade(&hash);
     // No wasm is uploaded for this hash in the test env -> swap reverts.
     client(&te).upgrade();
+}
+
+#[test]
+fn test_multisig_threshold_blocks_single_key_upgrade() {
+    let te = setup();
+    let hash = wasm_hash(&te.env, 10);
+    let approver2 = Address::generate(&te.env);
+
+    allow_all(&te);
+    assert_eq!(client(&te).upgrade_threshold(), 1);
+
+    client(&te).init_upgrade_multisig(&te.admin, &Vec::from_array(&te.env, [te.governance.clone(), approver2.clone()]), &2);
+    assert_eq!(client(&te).upgrade_threshold(), 2);
+
+    client(&te).stage_upgrade(&hash);
+    assert_eq!(client(&te).upgrade_approval_count(), 1);
+    assert!(!client(&te).upgrade_ready());
+
+    // Governance alone cannot execute anymore.
+    let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client(&te).upgrade();
+    }));
+    assert!(err.is_err());
+}
+
+#[test]
+fn test_multisig_requires_timelock_after_threshold() {
+    let te = setup();
+    let hash = wasm_hash(&te.env, 11);
+    let approver2 = Address::generate(&te.env);
+
+    allow_all(&te);
+    client(&te).init_upgrade_multisig(&te.admin, &Vec::from_array(&te.env, [te.governance.clone(), approver2.clone()]), &2);
+    client(&te).stage_upgrade(&hash);
+
+    assert_eq!(client(&te).approve_upgrade(&approver2), 2);
+    // Threshold met, but the 48 h timelock is still running.
+    assert!(!client(&te).upgrade_ready());
+
+    // Before the timelock elapses the swap must not run.
+    let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client(&te).upgrade();
+    }));
+    assert!(err.is_err());
+
+    te.env.ledger().set_timestamp(UPGRADE_TIMELOCK_SECS + 1);
+    assert!(client(&te).upgrade_ready());
+}
+
+#[test]
+fn test_multisig_rejects_unknown_approver_and_reapproval() {
+    let te = setup();
+    let hash = wasm_hash(&te.env, 12);
+    let approver2 = Address::generate(&te.env);
+    let stranger = Address::generate(&te.env);
+
+    allow_all(&te);
+    client(&te).init_upgrade_multisig(&te.admin, &Vec::from_array(&te.env, [te.governance.clone(), approver2.clone()]), &2);
+    client(&te).stage_upgrade(&hash);
+
+    assert!(client(&te).try_approve_upgrade(&stranger).is_err());
+    // Governance's own approval was recorded at staging; approving again fails.
+    assert!(client(&te).try_approve_upgrade(&te.governance).is_err());
 }

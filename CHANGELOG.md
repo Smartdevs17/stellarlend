@@ -9,6 +9,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ## [Unreleased]
 
 ### Added
+- Anomaly detection for unusual transaction patterns (median/MAD liquidation outliers, velocity bursts, amount spikes, dusting) in the analytics pipeline
+- Multi-signature requirement for protocol upgrades (Oracle Hub upgrade gate with approver threshold and 48 h timelock)
+- Timelock enforcement for governance parameter changes (per-parameter minimums plus maximum cap and view helpers in parameter-store)
+- Local Soroban devnet setup with Docker Compose (node, Horizon, Friendbot, seeded accounts/contracts)
 - Multi-stage Dockerization for API and Oracle services
 - OpenAPI/Swagger documentation for API
 - Price staleness detection and alerting in oracle service

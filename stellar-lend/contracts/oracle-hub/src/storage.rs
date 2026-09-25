@@ -31,4 +31,14 @@ pub enum DataKey {
     LastSuccess(Bytes),
     /// Staged upgrade WASM hash. Value: `soroban_sdk::BytesN<32>`.
     ProposedWasm,
+    /// Multi-signature approver set for protocol upgrades. Value: `Vec<Address>`.
+    UpgradeApprovers,
+    /// Number of distinct approvals required to execute an upgrade. Value: `u32`.
+    UpgradeThreshold,
+    /// Approvals collected on the pending upgrade. Value: `Vec<Address>`.
+    UpgradeApprovals,
+    /// Ledger timestamp at which the pending upgrade was staged. Value: `u64`.
+    UpgradeStagedAt,
+    /// Ledger timestamp after which the pending upgrade may be executed. Value: `u64`.
+    UpgradeTimelockUntil,
 }

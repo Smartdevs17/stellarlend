@@ -310,3 +310,15 @@ pub struct UpgradeExecutedEvent {
     pub wasm_hash: soroban_sdk::BytesN<32>,
     pub executed_by: Address,
 }
+
+/// Payload published on `upgrade_multisig_configured` topic.
+pub struct UpgradeMultisigConfiguredEvent {
+    pub threshold: u32,
+}
+
+/// Payload published on the `upgrade_approved` topic.
+pub struct UpgradeApprovedEvent {
+    pub approver: Address,
+    pub approval_count: u32,
+    pub timelock_until: u64,
+}

@@ -168,6 +168,26 @@ To run the project locally without manually installing Node.js dependencies, you
    ```
 4. The API will be accessible at http://localhost:3000.
 
+### Local Soroban Devnet (Docker Compose)
+
+For a full local Stellar/Soroban environment (local node, Horizon, Friendbot,
+deployed contracts, seeded accounts and test data):
+
+```bash
+cd docker/devnet
+cp .env.example .env
+docker compose up -d            # boots the Soroban node, API, oracle, postgres, redis
+./healthcheck.sh --wait         # wait for init + services
+```
+
+- Soroban RPC: http://localhost:8000/soroban/rpc
+- Horizon: http://localhost:8000
+- Friendbot (free test XLM): http://localhost:8000/friendbot
+
+See [docker/devnet/README.md](docker/devnet/README.md) for full setup, seeded
+data, liquidation scenarios, and reset instructions. The same environment is
+used by the VS Code Dev Container.
+
 ### Network Deployment
 
 #### Deploy to Testnet
