@@ -27,9 +27,33 @@ Rewards are based on the severity of the vulnerability and are paid in USDC.
 - Physical attacks against servers
 
 ### Responsible Disclosure Policy
-- Please submit vulnerability reports via our [Bug Bounty Submission Form](/bug-bounty) or use the GitHub issue template.
+
+**Please do not open a public GitHub issue to report a vulnerability.** A public
+issue discloses the vulnerability to everyone immediately, before the team has
+had a chance to assess or fix it, and it cannot be made private after the fact.
+
+Use one of the private channels below instead:
+
+1. **GitHub Security Advisories (preferred).** Open
+   `https://github.com/Smartdevs17/stellarlend/security/advisories/new` and
+   submit a private draft report. Drafts are visible only to the maintainers you
+   name until you publish them, and researchers are not credited publicly unless
+   they choose to be.
+   *This requires the repository to have private vulnerability reporting enabled
+   under `Settings → Advanced security`. If the page 404s, the maintainers need
+   to turn it on before this channel is usable.*
+2. **Bug Bounty Submission Form.** Our [Bug Bounty Submission Form](/bug-bounty)
+   is also private.
+
+Notes for reporters:
+- The backend API (`api/`) is explicitly **in scope**. Reports against it are
+  welcome and paid out under the same schedule as contract findings.
 - Do not exploit the vulnerability further than necessary to prove its existence.
-- Provide us a reasonable amount of time to resolve the issue before disclosing it to the public or a third party.
+- Provide us a reasonable amount of time to resolve the issue before disclosing
+  it to the public or a third party.
+- If you have already filed a public issue containing vulnerability details,
+  please open a private advisory as well and ask a maintainer to delete or redact
+  the public issue.
 
 ### SLAs
 We aim to respond to reports based on severity:

@@ -1,4 +1,10 @@
 #![no_std]
+
+// `alloc` is not in the extern prelude for a `no_std` crate. Declaring it at the
+// crate root makes `alloc::` paths usable from every module in the tree,
+// including the test-only property/invariant harnesses and the spec modules.
+extern crate alloc;
+
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Val, Vec};
 
 mod borrow;
@@ -12,6 +18,20 @@ mod reentrancy;
 mod risk_monitor;
 mod token_receiver;
 mod withdraw;
+
+// Property-based fuzzing and invariant-testing support. These modules existed in
+// the tree but were never declared here, so `invariant_prop_test.rs` could not
+// resolve `crate::proptest_helpers` / `crate::invariant_test_suite` and the whole
+// lending test target failed to compile. They are test-only: nothing in the
+// non-test build depends on them.
+#[cfg(test)]
+mod invariant_test_suite;
+#[cfg(test)]
+mod invariants;
+#[cfg(test)]
+mod proptest_helpers;
+#[cfg(test)]
+mod state_machine;
 
 use borrow::{
     borrow as borrow_cmd, borrow_with_rate as borrow_with_rate_logic, deposit as borrow_deposit,
@@ -78,11 +98,11 @@ mod dust_test;
 #[cfg(test)]
 mod flash_loan_test;
 #[cfg(test)]
+mod initialize_test;
+#[cfg(test)]
 mod insurance_test;
 #[cfg(test)]
 mod invariant_prop_test;
-#[cfg(test)]
-mod initialize_test;
 #[cfg(test)]
 mod math_safety_test;
 #[cfg(test)]

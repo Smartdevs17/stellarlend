@@ -384,3 +384,27 @@ pub fn get_protocol_report(env: &Env, stablecoin_assets: Vec<Address>) -> Protoc
         timestamp: env.ledger().timestamp(),
     }
 }
+
+// ─────────────────────────────────────────────
+// Protocol-state accessors (invariant testing)
+// ─────────────────────────────────────────────
+//
+// `data_store.rs` carries a verbatim copy of the standalone `data-store`
+// contract (`pub struct DataStore` + `#[contractimpl]`), so its
+// `get_total_assets` / `get_protocol_reserves` are inherent methods on
+// `DataStore` rather than free functions and cannot be reached as
+// `crate::data_store::get_total_assets`. The invariant and state-machine
+// harnesses need these as plain read functions, so they are exposed here.
+
+use crate::data_store::StoreKey;
+use stellarlend_storage_layer::{Storage, StorageTier};
+
+/// Total assets tracked by the protocol.
+pub fn get_total_assets(env: &Env) -> i128 {
+    Storage::new(env).get_or(StorageTier::Persistent, &StoreKey::TotalAssets, 0i128)
+}
+
+/// Protocol reserves (interest accrued but not yet withdrawn).
+pub fn get_protocol_reserves(env: &Env) -> i128 {
+    Storage::new(env).get_or(StorageTier::Persistent, &StoreKey::ProtocolReserves, 0i128)
+}

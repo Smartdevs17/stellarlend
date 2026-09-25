@@ -57,6 +57,12 @@ pub struct UpgradeProposal {
     pub execute_after: Option<u64>,
     /// True when this proposal was queued via the emergency path (4 h timelock).
     pub is_emergency: bool,
+    /// Storage-layout fingerprint declared for the target implementation.
+    ///
+    /// `None` means the proposer did not declare one, which keeps proposals
+    /// written before this field existed deserializable. A declared value is
+    /// checked against the recorded layout in `upgrade_execute`.
+    pub new_layout_hash: Option<BytesN<32>>,
 }
 
 #[contracttype]
@@ -82,6 +88,9 @@ enum UpgradeKey {
     CurrentWasmHash,
     CurrentVersion,
     Proposal(u64),
+    /// Fingerprint of the storage layout the currently deployed implementation
+    /// is known to be compatible with.
+    StorageLayoutHash,
 }
 
 #[contract]
@@ -202,6 +211,21 @@ impl UpgradeManager {
         new_wasm_hash: BytesN<32>,
         new_version: u32,
     ) -> u64 {
+        Self::upgrade_propose_with_layout(env, caller, new_wasm_hash, new_version, None)
+    }
+
+    /// Proposes an upgrade that also declares the target implementation's
+    /// storage-layout fingerprint.
+    ///
+    /// Equivalent to `upgrade_propose` with `new_layout_hash = None` when no
+    /// fingerprint is supplied, so existing callers are unaffected.
+    pub fn upgrade_propose_with_layout(
+        env: Env,
+        caller: Address,
+        new_wasm_hash: BytesN<32>,
+        new_version: u32,
+        new_layout_hash: Option<BytesN<32>>,
+    ) -> u64 {
         caller.require_auth();
         Self::assert_initialized(&env);
         Self::assert_admin(&env, &caller);
@@ -237,6 +261,7 @@ impl UpgradeManager {
             prev_version: None,
             execute_after: None,
             is_emergency: false,
+            new_layout_hash,
         };
 
         env.storage()
@@ -375,6 +400,9 @@ impl UpgradeManager {
                 None
             },
             is_emergency: true,
+            // The emergency path carries no declared layout fingerprint; the
+            // layout guard in `upgrade_execute` therefore does not apply to it.
+            new_layout_hash: None,
         };
 
         env.storage()
@@ -393,6 +421,34 @@ impl UpgradeManager {
         .publish(&env);
 
         id
+    }
+
+    /// Records the storage-layout fingerprint of the currently deployed
+    /// implementation.
+    ///
+    /// Soroban cannot introspect a WASM blob's storage layout on-chain, so the
+    /// fingerprint is supplied by the build: hash the ordered list of
+    /// `(storage key, type)` pairs the implementation reads and writes, and
+    /// commit that digest here. `upgrade_execute` then refuses any upgrade that
+    /// declares a different layout unless an admin has re-declared it, which
+    /// turns a silent storage-breaking upgrade into an explicit, auditable act.
+    ///
+    /// Admin only. Re-declaring is how a deliberate migration is acknowledged.
+    pub fn declare_storage_layout(env: Env, caller: Address, layout_hash: BytesN<32>) {
+        caller.require_auth();
+        Self::assert_initialized(&env);
+        Self::assert_admin(&env, &caller);
+
+        env.storage()
+            .persistent()
+            .set(&UpgradeKey::StorageLayoutHash, &layout_hash);
+    }
+
+    /// Returns the recorded storage-layout fingerprint, if one was declared.
+    pub fn storage_layout_hash(env: Env) -> Option<BytesN<32>> {
+        env.storage()
+            .persistent()
+            .get(&UpgradeKey::StorageLayoutHash)
     }
 
     /// Executes an approved (and timelock-elapsed) proposal. Caller must be an approver.
@@ -425,6 +481,21 @@ impl UpgradeManager {
 
         let current_hash = Self::current_wasm_hash(env.clone());
         let current_version = Self::current_version(env.clone());
+
+        // Storage layout guard: if the proposal declared a layout fingerprint,
+        // it must match the one recorded for the deployed implementation. This
+        // is the only construction site of `StorageLayoutMismatch`; previously the
+        // variant was declared but never raised, so a storage-incompatible
+        // upgrade could execute unnoticed.
+        if let Some(declared) = proposal.new_layout_hash.clone() {
+            let recorded = Self::storage_layout_hash(env.clone());
+            if let Some(recorded) = recorded {
+                if declared != recorded {
+                    panic_with_error!(&env, UpgradeError::StorageLayoutMismatch);
+                }
+            }
+        }
+
         proposal.prev_wasm_hash = Some(current_hash.clone());
         proposal.prev_version = Some(current_version);
         proposal.stage = UpgradeStage::Executed;
