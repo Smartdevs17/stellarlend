@@ -10,7 +10,10 @@ export {
   clusterByDayOfWeek,
   collateralFrequency,
 } from './metrics/analytics.js';
-export { detectAnomalies } from './anomaly/detect.js';
+export {
+  detectAnomalies,
+  detectTransactionAnomalies,
+} from './anomaly/detect.js';
 export { buildReport, writeReportFiles, pipelineFromRawEvents } from './reports/generate.js';
 export { toDashboardCharts } from './reports/dashboard.js';
 export type * from './types.js';

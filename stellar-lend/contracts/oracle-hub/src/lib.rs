@@ -34,7 +34,8 @@ use crate::types::{
     OracleHealthStatus, PriceFeed, PricePoint, ProviderPrice, VERSION,
 };
 use soroban_sdk::{
-    contract, contracterror, contractimpl, panic_with_error, Address, Bytes, BytesN, Env, Vec,
+    contract, contracterror, contractimpl, panic_with_error, Address, Bytes, BytesN, Env, Symbol,
+    Vec,
 };
 
 /// Errors surfaced by the Oracle Hub.
@@ -115,6 +116,9 @@ impl OracleHubContract {
     }
 
     /// Governance applies the staged upgrade, atomically swapping contract code.
+    ///
+    /// Requires the installed multi-signature threshold to be met and, when the
+    /// threshold is above 1, the 48-hour upgrade timelock to have elapsed.
     pub fn upgrade(env: Env) -> BytesN<32> {
         let governance = require_governance(&env);
         governance.require_auth();
@@ -122,9 +126,60 @@ impl OracleHubContract {
         upgrade::apply_upgrade(&env, &governance)
     }
 
+    /// Installs the multi-signature approver set and threshold for upgrades.
+    ///
+    /// Admin-only. Until this is called, upgrades require only governance
+    /// (threshold 1). Set a threshold > 1 and distribute keys to grant-free
+    /// members to harden the protocol against single-key takeovers.
+    pub fn init_upgrade_multisig(
+        env: Env,
+        caller: Address,
+        approvers: Vec<Address>,
+        threshold: u32,
+    ) -> Result<(), upgrade::UpgradeError> {
+        caller.require_auth();
+        require_not_frozen(&env);
+        upgrade::init_upgrade_multisig(&env, &caller, approvers, threshold)
+    }
+
+    /// A grant-free approver signs the pending upgrade.
+    ///
+    /// Once the threshold is met, the 48-hour timelock starts. Approval does
+    /// not itself swap code — `upgrade()` does, after the timelock.
+    pub fn approve_upgrade(env: Env, approver: Address) -> Result<u32, upgrade::UpgradeError> {
+        approver.require_auth();
+        require_not_frozen(&env);
+        let count = upgrade::approve_upgrade(&env, &approver)?;
+        let timelock_until: u64 = env
+            .storage()
+            .instance()
+            .get(&storage::DataKey::UpgradeTimelockUntil)
+            .unwrap_or(0);
+        env.events().publish(
+            (Symbol::new(&env, "upgrade_approved"), approver),
+            (count, timelock_until),
+        );
+        Ok(count)
+    }
+
     /// Staged upgrade WASM hash, if any.
     pub fn pending_wasm_hash(env: Env) -> Option<BytesN<32>> {
         upgrade::pending_wasm(&env)
+    }
+
+    /// Approvals collected on the pending upgrade.
+    pub fn upgrade_approval_count(env: Env) -> u32 {
+        upgrade::approval_count(&env)
+    }
+
+    /// Installed upgrade threshold (1 = single governance key).
+    pub fn upgrade_threshold(env: Env) -> u32 {
+        upgrade::upgrade_threshold(&env)
+    }
+
+    /// Whether the pending upgrade can be executed (threshold met + timelock).
+    pub fn upgrade_ready(env: Env) -> bool {
+        upgrade::can_execute(&env)
     }
 
     // ── Feed management ────────────────────────────────────────────────────

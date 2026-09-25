@@ -58,6 +58,21 @@ export interface Anomaly {
   metrics: LiquidationMetrics;
 }
 
+export interface TransactionRecord {
+  txHash: string;
+  sender: string;
+  recipient: string;
+  amount: number;
+  timestamp: Date;
+}
+
+export interface TransactionAnomaly {
+  txHash: string;
+  reason: 'velocity_burst' | 'amount_spike' | 'dusting';
+  score: number;
+  record: Partial<TransactionRecord> & { sender?: string; recipient?: string; amount?: number };
+}
+
 export interface LiquidationReport {
   period: 'daily' | 'weekly' | 'monthly';
   from: string;

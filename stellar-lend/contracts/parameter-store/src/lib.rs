@@ -13,6 +13,10 @@ pub const BPS_DIVISOR: i128 = 10_000;
 pub const RISK_TIMELOCK_SECONDS: u64 = 48 * 3600;
 pub const STANDARD_TIMELOCK_SECONDS: u64 = 24 * 3600;
 pub const EMERGENCY_TIMELOCK_SECONDS: u64 = 4 * 3600;
+/// Cap on any single parameter-change timelock (180 days). Prevents governance
+/// from accidentally locking a parameter out of change indefinitely with an
+/// absurd `effective_at`, while still leaving generous room for staged changes.
+pub const MAX_TIMELOCK_SECONDS: u64 = 180 * 24 * 3600;
 
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]
@@ -200,6 +204,10 @@ impl ParameterStoreContract {
         assert!(
             timelock_seconds >= min_timelock,
             "Timelock too short: min {min_timelock}s"
+        );
+        assert!(
+            timelock_seconds <= MAX_TIMELOCK_SECONDS,
+            "Timelock too long: max {MAX_TIMELOCK_SECONDS}s"
         );
 
         let counter: u64 = env
@@ -416,6 +424,19 @@ impl ParameterStoreContract {
             .instance()
             .get(&DataKey::Proposal(proposal_id))
             .expect("Proposal not found")
+    }
+
+    /// Minimum timelock enforced for a parameter type (risk parameters lock
+    /// longer). Governance tooling uses this to preflight proposals.
+    pub fn get_min_timelock(env: Env, parameter: ParameterType) -> u64 {
+        let _ = env;
+        parameter.min_timelock()
+    }
+
+    /// Maximum timelock any parameter change may carry.
+    pub fn get_max_timelock(env: Env) -> u64 {
+        let _ = env;
+        MAX_TIMELOCK_SECONDS
     }
 
     pub fn get_change_history(
@@ -946,6 +967,43 @@ mod tests {
                 client(&te).propose_change(&pool, &ParameterType::LTV, &7_000, &3600);
             },
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "Timelock too long")]
+    fn test_propose_timelock_too_long_rejected() {
+        let te = setup();
+        let pool = Address::generate(&te.env);
+        with_governance_auth(&te, "register_pool", (&pool,), || {
+            client(&te).register_pool(&pool);
+        });
+        with_governance_auth(
+            &te,
+            "propose_change",
+            (
+                &pool,
+                &ParameterType::LTV,
+                &7_000i128,
+                &(MAX_TIMELOCK_SECONDS + 1),
+            ),
+            || {
+                client(&te).propose_change(
+                    &pool,
+                    &ParameterType::LTV,
+                    &7_000,
+                    &(MAX_TIMELOCK_SECONDS + 1),
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn test_timelock_views() {
+        assert_eq!(
+            ParameterType::LTV.min_timelock(),
+            RISK_TIMELOCK_SECONDS
+        );
+        assert_eq!(MAX_TIMELOCK_SECONDS, 180 * 24 * 3600);
     }
 
     #[test]
