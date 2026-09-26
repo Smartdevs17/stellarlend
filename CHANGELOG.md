@@ -9,6 +9,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ## [Unreleased]
 
 ### Added
+- Opt-in TTL price cache in the Oracle Hub with freshness clamping, epoch invalidation on governance changes, and read-cost regression tests (#1037)
+- Per-asset aggregation parameters (deviation band, source floor) and an explicit switch to disable the deviation check in the Oracle Hub (#1035)
+- Per-asset feed index so the price read cost stays proportional to the sources actually registered (#1037)
+- Health, ring-buffer, and event-trail views on the TWAP oracle, plus a documented `force_record_price` escape hatch for genuine repricings (#1033)
 - Anomaly detection for unusual transaction patterns (median/MAD liquidation outliers, velocity bursts, amount spikes, dusting) in the analytics pipeline
 - Multi-signature requirement for protocol upgrades (Oracle Hub upgrade gate with approver threshold and 48 h timelock)
 - Timelock enforcement for governance parameter changes (per-parameter minimums plus maximum cap and view helpers in parameter-store)
@@ -30,6 +34,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Oracle contract updater
 
 ### Changed
+- TWAP oracle now computes a true time-weighted average (price × elapsed seconds) instead of a mean over sample counts, and rejects manipulated observations on ingestion instead of blending them into the average (#1033)
+- Oracle Hub aggregation now supports five feed slots per asset with median, weighted, and trimmed-mean strategies (#1036)
+- Oracle Hub now demotes a leading source that deviates from the rest beyond the configured band, with a quorum rule, a source floor, and on-chain evidence (#1035)
+- Oracle Hub pull quotes are normalized to a hub-wide canonical precision before aggregation (#1036)
 - Refactored duplicated validation logic using factory functions
 - Switched transaction polling to fixed interval strategy
 - Improved project structure and test organization

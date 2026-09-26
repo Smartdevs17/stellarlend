@@ -17,12 +17,15 @@ asset may serve prices at all.
 | `lib.rs` | Contract entry points, auth, global freeze, orchestration |
 | `types.rs` | Data types, constants, events |
 | `storage.rs` | `DataKey` layout |
+| `feeds.rs` | Per-asset feed index, slot lookups, iteration |
 | `interface.rs` | `PriceProvider` trait + generated `PriceProviderClient` |
-| `provider.rs` | Pull-based provider fetch, validation, timestamp clamp |
-| `aggregation.rs` | Median and weighted strategies, outlier filtering |
+| `provider.rs` | Pull-based provider fetch, validation, timestamp clamp, decimal rescale |
+| `aggregation.rs` | Median, weighted, and trimmed-mean strategies, outlier filtering |
+| `fallback.rs` | Deviation-checked selection of the leading source |
+| `cache.rs` | TTL price cache, epoch invalidation, counters |
 | `health.rs` | Feed classification, failure counters, circuit breaker |
 | `upgrade.rs` | Staged/apply upgrade mechanism |
-| `tests/` | 6 focused test suites (55 tests) |
+| `tests/` | 10 focused test suites (96 tests) |
 
 ## Price production flow
 
@@ -31,21 +34,28 @@ report_price (push) ──► PricePoint per (asset, priority)
 provider get_price  ──► fetch_provider_price ─► PricePoint per (asset, priority)
                              (pull)
 
-                        get_price(asset):
-                            for priority in Primary..Fallback:
-                                skip disabled / no point feeds
-                                jump out stale feeds (auto-disable; event)
-                                collect FeedQuote
-                            aggregate(quotes, effective_strategy):
-                                reject outliers > 20% from median
-                                Median   -> median price, avg confidence
-                                Weighted -> Σ(price*w*conf)/Σ(w*conf)
-                            recover auto-breaker if healthy
-                            return AggregatedPrice
+resolve(asset):                              cache::fresh_entry?
+    require_not_frozen / asset breaker            └─ hit ─► record_hit, return Cached
+    for slot in feed_index(asset)            cache miss
+        skip disabled / no point feeds
+        jump out stale feeds (auto-disable; event)
+        pull feeds: fetch → rescale → PricePoint
+        collect FeedQuote
+    fallback::select_sources(quotes, band)    leader vs median(others) ≥ 3 quotes
+        └─ demoted ──► DeviationRejected + FallbackActivated events
+    accepted.len() < min_sources?  ──► revert InsufficientSources
+    aggregation::aggregate(accepted, strategy, band)
+        reject outliers > band from median
+        Median      -> lower median, avg confidence
+        Weighted    -> Σ(price*w*conf)/Σ(w*conf)
+        TrimmedMean -> drop both tails, average the rest
+    recover auto-breaker if healthy
+    cache::store(quote, clamped ttl)
+    return AggregatedPrice
 ```
 
 Effective strategy resolution in `get_aggregation_strategy`:
-per-asset override (`DataKey::Strategy(asset)`) else the hub default
+per-asset override (`DataKey::AggregationParams(asset)`) else the hub default
 (`DataKey::DefaultStrategy`, initialized to `Median`).
 
 ## Storage layout
@@ -59,13 +69,19 @@ All keys live in instance storage. `DataKey` variants (see `storage.rs`):
 | `Version` | `u32` | Protocol version, bumped by upgrade |
 | `Frozen` | `bool` | Global freeze flag |
 | `DefaultStrategy` | `AggregationStrategy` | Hub-wide default |
-| `Strategy(Bytes)` | `AggregationStrategy` | Per-asset override |
+| `AggregationParams(Bytes)` | `AggregationParams` | Per-asset strategy, deviation band, source floor |
 | `FeedCount` | `u32` | Total registered feed slots |
+| `FeedIndex(Bytes)` | `Vec<u32>` | Registered slots of an asset |
 | `Feed(Bytes, u32)` | `PriceFeed` | Feed config per (asset, priority) |
 | `LatestPrice(Bytes, u32)` | `PricePoint` | Last report / pull per slot |
 | `ConsecutiveFailures(Bytes)` | `u32` | Health failure counter |
 | `LastSuccess(Bytes)` | `u64` | Last successful read timestamp |
 | `AssetBreaker(Bytes)` | `BreakerState` | Per-asset circuit breaker |
+| `PriceDecimals` | `u32` | Canonical precision (default 8, max 18) |
+| `CacheTtl` | `u64` | Configured cache TTL in seconds (default 0) |
+| `CacheEpoch` | `u32` | Bumped by every governance mutation |
+| `CacheStats` | `CacheStats` | hits / misses / writes / pull_reads |
+| `CachedPrice(Bytes)` | `CachedPrice` | Memoized aggregate, its TTL and epoch |
 | `ProposedWasm` | `BytesN<32>` | Staged upgrade hash |
 
 ## Pluggable provider interface
@@ -125,15 +141,61 @@ monitors.
 
 ## Aggregation
 
-`outlier filter`: quote is kept iff `deviation_bps(price, median) <= 2000`
-(20 %). If every quote were an outlier the code degrades to the full set so the
-system never bricks. A single quote short-circuits (returns it directly).
+Runs in three stages, all bounded by `MAX_FEEDS_PER_ASSET` (5):
 
-- Median: upper median of kept prices (index `len/2`); confidence = mean of
+1. **Selection** (`fallback.rs`) — see below.
+2. **Outlier filter**: a quote is kept iff
+   `deviation_bps(price, median(quotes)) <= band`. Non-positive prices are
+   always dropped. If fewer than two quotes survive, aggregation fails closed:
+   an unvalidated single quote must not control the price. A single quote with
+   no competitors short-circuits and is returned directly, flagged `Sole`.
+3. **Combination**:
+
+- Median: lower median of kept prices (index `(len-1)/2`); confidence = mean of
   kept confidences; timestamp = latest.
 - Weighted: effective weight `w = feed.weight_bps * max(confidence, 1)`;
   `price = Σ(price·w) / Σw`; confidence = confidence-weighted mean. Feed
   weight defaults to `10_000` bps.
+- TrimmedMean: drops the highest and lowest kept price and averages the rest
+  (median for fewer than three kept quotes). Removes one manipulated quote from
+  either tail, which a plain mean would absorb.
+
+The reported `deviation_bps` is re-anchored on the surviving set, so consumers
+learn how far the sources they actually used disagree.
+
+## Deviation-checked selection
+
+`fallback::select_sources` runs before aggregation and answers one question:
+may the leading source be trusted?
+
+- **Quorum.** With fewer than three candidates there is no independent
+  reference, so the leader is left alone and aggregation decides.
+- **Reference.** The median of every candidate except the leader.
+- **Band.** `max_deviation_bps` (default `OUTLIER_DEVIATION_BPS` = 20 %); `0`
+  disables the check.
+- **Demotion.** Beyond the band the leader is dropped, `DeviationRejectedEvent`
+  records `{price, reference, deviation_bps}` and `FallbackActivatedEvent`
+  records `{rejected_priority, serving_priority, remaining_sources}`.
+- **Fail closed.** If the survivor count would drop below `min_sources` while
+  the asset has more than one source, `resolve` reverts with
+  `InsufficientSources` instead of publishing a thinner consensus.
+
+Deviation is computed with saturating arithmetic and returns `i128::MAX` for
+non-positive operands, so a zero or negative quote can never be counted as
+agreeing with the reference.
+
+## Price cache
+
+`cache.rs` memoizes the aggregated price per asset for `min(configured TTL,
+shortest source staleness budget)` seconds. Entries carry the configuration
+epoch they were produced under, and every governance mutation
+(`bump_epoch`) invalidates all of them, so a cached aggregate can never outlive
+the configuration it was computed from. `set_cache_ttl` is deliberately not an
+invalidating mutation. `refresh_price` bypasses the cache, and
+`get_cache_stats` exposes hits, misses, writes, and pull reads.
+
+The cache is off by default (`DEFAULT_CACHE_TTL_SECONDS = 0`): serving a
+memoized price is a security decision governance has to make explicitly.
 
 ## Upgrade mechanism
 
@@ -156,8 +218,11 @@ the full governance lifecycle and the VM's rejection of invalid targets.
 
 All re-exported from `types.rs`: `FeedRegisteredEvent`, `FeedUpdatedEvent`,
 `FeedDisabledEvent`, `FeedEnabledEvent`, `FeedAutoDisabledEvent`,
-`PriceReportedEvent`, `PricePulledEvent`, `FrozenEvent`, `UnfrozenEvent`,
-`AssetStrategyUpdatedEvent`, `DefaultStrategyUpdatedEvent`,
+`PriceReportedEvent`, `PricePulledEvent`, `ProviderPriceRescaledEvent`,
+`DeviationRejectedEvent`, `FallbackActivatedEvent`,
+`PriceCachedEvent`, `CacheConfigUpdatedEvent`, `PriceDecimalsUpdatedEvent`,
+`AggregationParamsUpdatedEvent`, `AssetStrategyUpdatedEvent`,
+`DefaultStrategyUpdatedEvent`, `FrozenEvent`, `UnfrozenEvent`,
 `HealthFailureEvent`, `HealthSuccessEvent`, `BreakerOpenedEvent`,
 `BreakerUnfrozenEvent`, `UpgradeStagedEvent`, `UpgradeExecutedEvent`.
 
@@ -165,8 +230,16 @@ All re-exported from `types.rs`: `FeedRegisteredEvent`, `FeedUpdatedEvent`,
 
 - All management paths require governance `require_auth`.
 - `report_price` authorizes the *registered oracle address* for the slot.
-- Pull providers are untrusted inputs: prices are validated (`> 0`) and
-  timestamps clamped before use.
+- Pull providers are untrusted inputs: prices are validated (`> 0`),
+  timestamps clamped, and decimals normalized before use.
+- No source can steer the aggregate by itself: a demoted leader is removed and
+  reported, and a read that cannot reach `min_sources` reverting rather than
+  publishing a thin consensus.
+- Aggregation is bounded by `MAX_FEEDS_PER_ASSET`, so the read cost cannot grow
+  with governance configuration; the feed index keeps it proportional to the
+  sources actually registered.
+- The price cache is opt-in, clamped to source freshness, and invalidated by
+  every governance mutation.
 - Health failures only auto-freeze the affected asset, never the whole hub.
 - A disabled or stale feed never participates in aggregation; a halt returns
   errors rather than a fabricated price.

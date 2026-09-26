@@ -3,16 +3,22 @@
 use soroban_sdk::{contractevent, contracttype, Address, Bytes};
 
 /// Current protocol version baked into the initial deployment.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
-/// Upper bound on the number of feed slots an asset may register.
-/// Each asset can register up to three priority slots, so this is purely a
-/// safety bound for aggregation arrays.
+/// Number of feed slots an asset may register (`FeedPriority` variants).
+///
+/// Aggregation is bounded by this value: a quote vector can never hold more
+/// than [`MAX_FEEDS_PER_ASSET`] entries, which keeps the read path gas
+/// predictable no matter how many sources governance wires up.
 pub const MAX_FEEDS_PER_ASSET: u32 = 5;
 
-/// Maximum deviation from the median (in basis points) before a quote is
-/// treated as an outlier during aggregation. Defaults to 20 %.
+/// Default maximum deviation from the median (in basis points) before a quote
+/// is treated as an outlier during aggregation. Defaults to 20 %.
 pub const OUTLIER_DEVIATION_BPS: i128 = 2_000;
+
+/// Default number of sources that must agree before a price is published when
+/// the asset has more than one registered source.
+pub const DEFAULT_MIN_SOURCES: u32 = 2;
 
 /// Default staleness threshold used when a feed is registered without one.
 pub const DEFAULT_STALE_THRESHOLD_SECONDS: u64 = 3600;
@@ -20,7 +26,29 @@ pub const DEFAULT_STALE_THRESHOLD_SECONDS: u64 = 3600;
 /// Default per-feed weight used by the weighted aggregation strategy.
 pub const DEFAULT_FEED_WEIGHT_BPS: u32 = 10_000;
 
-/// Priority of a feed slot. Primary is leading; Fallback is used last.
+/// Canonical number of decimals every aggregated price is expressed in.
+///
+/// Push reporters must submit canonical-scale prices; pull providers declare
+/// their own scale in [`ProviderPrice::decimals`] and the hub rescales the
+/// quote before it takes part in aggregation.
+pub const CANONICAL_DECIMALS: u32 = 8;
+
+/// Largest provider decimal count the hub will rescale from. Beyond this the
+/// rescale can overflow `i128`, so the quote is rejected instead.
+pub const MAX_PROVIDER_DECIMALS: u32 = 18;
+
+/// Default price cache TTL in seconds. `0` disables caching, which is the
+/// default because serving a memoized price to a lending market is a
+/// security-relevant choice; governance opts in with `set_cache_ttl`.
+pub const DEFAULT_CACHE_TTL_SECONDS: u64 = 0;
+
+/// Largest cache TTL governance may configure (1 hour).
+pub const MAX_CACHE_TTL_SECONDS: u64 = 3600;
+
+/// Basis-point denominator used across the hub.
+pub const BPS_DENOM: i128 = 10_000;
+
+/// Priority of a feed slot. Lower slots are consulted first during fallback.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[contracttype]
 pub enum FeedPriority {
@@ -28,8 +56,13 @@ pub enum FeedPriority {
     Primary = 0,
     /// Second feed slot; used when the primary is stale or disabled.
     Secondary = 1,
-    /// Final feed slot; used when all higher-priority slots are unavailable.
+    /// Third feed slot. Historical slot of the `Fallback` tier; kept stable so
+    /// previously registered deployments keep resolving the same way.
     Fallback = 2,
+    /// Fourth feed slot; used only when every higher slot is unusable.
+    Quaternary = 3,
+    /// Fifth and final feed slot.
+    Quinary = 4,
 }
 
 /// How a feed obtains prices.
@@ -50,6 +83,43 @@ pub enum AggregationStrategy {
     Median = 0,
     /// Confidence- and weight-adjusted mean across active feeds.
     Weighted = 1,
+    /// Mean of the accepted quotes after dropping the highest and the lowest.
+    /// Robust against a single corrupted source on either side of the median.
+    TrimmedMean = 2,
+}
+
+/// Origin of the price returned by `get_price`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[contracttype]
+pub enum PriceSource {
+    /// Aggregated from every source that passed the deviation check.
+    Consensus = 0,
+    /// The asset's only usable source.
+    Sole = 1,
+    /// A memoized price served from the cache entry.
+    Cached = 2,
+}
+
+/// Per-asset aggregation and deviation-check parameters.
+///
+/// A `0` on either numeric field means "inherit the hub default", which keeps
+/// the stored struct small for the common case.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[contracttype]
+pub struct AggregationParams {
+    /// Strategy used for this asset.
+    pub strategy: AggregationStrategy,
+    /// Maximum deviation (bps) from the median before a source is rejected.
+    /// Read only when `deviation_configured` is set; a value of `0` then
+    /// disables the deviation check entirely.
+    pub max_deviation_bps: i128,
+    /// Whether governance pinned `max_deviation_bps` for this asset. Without
+    /// it the hub default applies, which keeps `0` free to mean "no deviation
+    /// check" instead of "unset".
+    pub deviation_configured: bool,
+    /// Sources that must agree before a price is published.
+    /// `0` inherits [`DEFAULT_MIN_SOURCES`].
+    pub min_sources: u32,
 }
 
 /// Registered configuration of a single feed slot for an asset.
@@ -94,16 +164,20 @@ pub struct PricePoint {
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub struct FeedQuote {
+    /// Price already rescaled to the canonical decimal precision.
     pub price: i128,
     pub timestamp: u64,
     pub confidence: u32,
-    /// Priority slot (0..=2) the quote came from.
+    /// Feed slot (0..[`MAX_FEEDS_PER_ASSET`]) the quote came from.
     pub priority: u32,
     /// Feed-configured weight for the `Weighted` strategy.
     pub weight_bps: u32,
+    /// Freshness budget of the source that produced the quote. A memoized
+    /// price may never outlive the shortest budget that fed into it.
+    pub stale_threshold_seconds: u64,
 }
 
-/// Result of aggregating all active feeds for an asset.
+/// Result of aggregating the accepted quotes of an asset.
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub struct AggregatedPrice {
@@ -116,6 +190,46 @@ pub struct AggregatedPrice {
     pub num_active_feeds: u32,
     /// Strategy used for this asset.
     pub strategy: AggregationStrategy,
+    /// Number of candidate sources the deviation check threw away.
+    pub rejected_sources: u32,
+    /// True when a lower-priority source replaced the leading one.
+    pub used_fallback: bool,
+    /// True when the price was served from the cache instead of being recomputed.
+    pub from_cache: bool,
+    /// Where the returned price came from.
+    pub source: PriceSource,
+    /// Largest deviation (in basis points) observed inside the accepted set.
+    pub deviation_bps: i128,
+}
+
+/// Memoized aggregate plus the bookkeeping the cache needs on read.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct CachedPrice {
+    /// The memoized aggregate.
+    pub price: AggregatedPrice,
+    /// Ledger timestamp the entry was written at.
+    pub cached_at: u64,
+    /// Effective TTL: the smaller of the configured TTL and the freshness
+    /// budget of every source that fed the aggregate.
+    pub ttl_seconds: u64,
+    /// Configuration epoch the entry was produced under. Any governance
+    /// change bumps the epoch, which invalidates every entry at once.
+    pub epoch: u32,
+}
+
+/// Cache observability counters, exposed through `get_cache_stats`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[contracttype]
+pub struct CacheStats {
+    /// Reads answered from the cache.
+    pub hits: u32,
+    /// Reads that had to recompute.
+    pub misses: u32,
+    /// Entries written after a recompute.
+    pub writes: u32,
+    /// Reads served straight from a pull provider.
+    pub pull_reads: u32,
 }
 
 /// Health classification of a single feed slot.
@@ -232,6 +346,79 @@ pub struct PricePulledEvent {
 
 #[contractevent]
 #[derive(Clone, Debug)]
+pub struct ProviderPriceRescaledEvent {
+    #[topic]
+    pub asset: Bytes,
+    pub provider: Address,
+    pub raw_price: i128,
+    pub price: i128,
+    pub from_decimals: u32,
+    pub to_decimals: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct DeviationRejectedEvent {
+    #[topic]
+    pub asset: Bytes,
+    pub priority: u32,
+    pub price: i128,
+    pub reference: i128,
+    pub deviation_bps: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct FallbackActivatedEvent {
+    #[topic]
+    pub asset: Bytes,
+    pub rejected_priority: u32,
+    pub serving_priority: u32,
+    pub remaining_sources: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct PriceCachedEvent {
+    #[topic]
+    pub asset: Bytes,
+    pub price: i128,
+    pub ttl_seconds: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct CacheServedEvent {
+    #[topic]
+    pub asset: Bytes,
+    pub price: i128,
+    pub age_seconds: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct CacheConfigUpdatedEvent {
+    pub cache_ttl_seconds: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct PriceDecimalsUpdatedEvent {
+    pub decimals: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct AggregationParamsUpdatedEvent {
+    #[topic]
+    pub asset: Bytes,
+    pub strategy: AggregationStrategy,
+    pub max_deviation_bps: i128,
+    pub min_sources: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
 pub struct DefaultStrategyUpdatedEvent {
     pub strategy: AggregationStrategy,
 }
@@ -311,13 +498,18 @@ pub struct UpgradeExecutedEvent {
     pub executed_by: Address,
 }
 
-/// Payload published on `upgrade_multisig_configured` topic.
+// The explicit topic overrides the derived snake-case name, which would
+// exceed the 32-character symbol limit.
+#[contractevent(topics = ["upgrade_multisig_configured"])]
+#[derive(Clone, Debug)]
 pub struct UpgradeMultisigConfiguredEvent {
     pub threshold: u32,
 }
 
-/// Payload published on the `upgrade_approved` topic.
+#[contractevent(topics = ["upgrade_approved"])]
+#[derive(Clone, Debug)]
 pub struct UpgradeApprovedEvent {
+    #[topic]
     pub approver: Address,
     pub approval_count: u32,
     pub timelock_until: u64,
