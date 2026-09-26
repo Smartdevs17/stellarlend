@@ -337,6 +337,10 @@ pub fn emergency_withdraw(
         total_withdrawn.saturating_add(amount),
         total_fees.saturating_add(fee_amount),
     );
+    if fee_amount > 0 {
+        crate::lazy::add(env, crate::lazy::LazyField::AccumulatedFees, fee_amount)
+            .map_err(|_| WithdrawError::Overflow)?;
+    }
 
     EmergencyWithdrawEvent {
         user,

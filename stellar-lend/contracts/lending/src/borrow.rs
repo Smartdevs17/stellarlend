@@ -438,7 +438,15 @@ fn borrow_inner(
     save_collateral_position(env, &user, &collateral_position);
     set_total_debt(env, new_total);
 
-    crate::risk_monitor::on_utilization_changed(env, new_total, debt_ceiling);
+    // Lazy pool state (#1046): the borrow-index snapshot is only materialised
+    // by the pool's first borrow, never at pool creation.
+    let snapshot = crate::lazy::LazyField::BorrowIndexSnapshot;
+    if total_debt == 0 && !crate::lazy::is_initialized(env, snapshot) {
+        crate::lazy::set(env, snapshot, get_interest_index(env))
+            .map_err(|_| BorrowError::Overflow)?;
+    }
+
+    crate::risk_monitor::on_utilization_changed(env, new_total, limits.debt_ceiling);
 
     emit_borrow_event(env, user, asset, amount);
 
