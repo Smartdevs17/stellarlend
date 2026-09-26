@@ -927,35 +927,10 @@ pub fn initialize_borrow_settings(
         },
     );
     crate::interest_rate::set_default_if_missing(env);
-    if !env
-        .storage()
-        .persistent()
-        .has(&BorrowDataKey::StableRatePremiumBps)
-    {
-        env.storage().persistent().set(
-            &BorrowDataKey::StableRatePremiumBps,
-            &DEFAULT_STABLE_PREMIUM_BPS,
-        );
-    }
-    if !env
-        .storage()
-        .persistent()
-        .has(&BorrowDataKey::StableRateRecalcIntervalSecs)
-    {
-        env.storage().persistent().set(
-            &BorrowDataKey::StableRateRecalcIntervalSecs,
-            &DEFAULT_STABLE_RECALC_INTERVAL_SECS,
-        );
-    }
-    if !env
-        .storage()
-        .persistent()
-        .has(&BorrowDataKey::RateSwitchFeeBps)
-    {
-        env.storage()
-            .persistent()
-            .set(&BorrowDataKey::RateSwitchFeeBps, &DEFAULT_SWITCH_FEE_BPS);
-    }
+    // Stable-rate premium, recalculation interval and switch fee are *not*
+    // written here any more (#1046): their getters already fall back to the
+    // `DEFAULT_*` constants, so the slots are only allocated when an admin
+    // overrides them. This saves three persistent entries per pool.
     Ok(())
 }
 
