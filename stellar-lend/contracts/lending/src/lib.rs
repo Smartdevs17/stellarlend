@@ -50,11 +50,11 @@ use deposit::{
     deposit as deposit_logic, get_user_collateral as get_deposit_collateral,
     initialize_deposit_settings as initialize_deposit_logic, DepositCollateral, DepositError,
 };
-use lazy::{LazyField, PoolStateView};
 use flash_loan::{
     flash_loan as flash_loan_logic, set_flash_loan_fee_bps as set_flash_loan_fee_logic,
     FlashLoanError,
 };
+use lazy::{LazyField, PoolStateView};
 use pause::{is_paused, set_pause as set_pause_logic, PauseType};
 use reentrancy::ReentrancyGuard;
 use token_receiver::receive as receive_logic;
