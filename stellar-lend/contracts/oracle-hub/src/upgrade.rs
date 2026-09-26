@@ -21,8 +21,8 @@
 //! push a malicious build on its own.
 
 use crate::storage::DataKey;
-use crate::types::{UpgradeExecutedEvent, UpgradeStagedEvent};
-use soroban_sdk::{contracterror, panic_with_error, Address, BytesN, Env, Symbol, Vec};
+use crate::types::{UpgradeExecutedEvent, UpgradeMultisigConfiguredEvent, UpgradeStagedEvent};
+use soroban_sdk::{contracterror, panic_with_error, Address, BytesN, Env, Vec};
 
 /// Standard upgrade timelock: 48 hours in seconds.
 pub const UPGRADE_TIMELOCK_SECS: u64 = 172_800;
@@ -108,10 +108,7 @@ pub fn init_upgrade_multisig(
         .instance()
         .set(&DataKey::UpgradeApprovals, &Vec::<Address>::new(env));
 
-    env.events().publish(
-        (Symbol::new(env, "upgrade_multisig_configured"),),
-        threshold,
-    );
+    UpgradeMultisigConfiguredEvent { threshold }.publish(env);
 
     Ok(())
 }
@@ -161,8 +158,7 @@ pub fn approve_upgrade(env: &Env, approver: &Address) -> Result<u32, UpgradeErro
         let timelock_until = env
             .ledger()
             .timestamp()
-            .checked_add(UPGRADE_TIMELOCK_SECS)
-            .unwrap_or(u64::MAX);
+            .saturating_add(UPGRADE_TIMELOCK_SECS);
         env.storage()
             .instance()
             .set(&DataKey::UpgradeTimelockUntil, &timelock_until);

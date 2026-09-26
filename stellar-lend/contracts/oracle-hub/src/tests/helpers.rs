@@ -6,8 +6,12 @@
 
 use crate::types::{FeedMode, FeedPriority, ProviderPrice};
 use crate::{OracleHubContract, OracleHubContractClient};
-use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env, IntoVal};
+use soroban_sdk::testutils::{Address as _, Events, MockAuth, MockAuthInvoke};
+use soroban_sdk::xdr::{ContractEventBody, ScVal};
+use soroban_sdk::{
+    contract, contractimpl, contracttype, Address, Bytes, Env, IntoVal, Symbol, TryFromVal, Val,
+    Vec,
+};
 
 /// A wired-up hub instance plus its actor addresses.
 pub struct TestEnv {
@@ -94,6 +98,47 @@ pub fn report(te: &TestEnv, asset: &Bytes, oracle: &Address, price: i128, priori
     client(te).report_price(asset, &price, &100, priority);
 }
 
+/// Register `n` push feeds (one per slot, from `Primary` upwards) and report
+/// `prices[i]` on slot `i`. Returns the oracle addresses in slot order.
+pub fn register_and_report(te: &TestEnv, asset: &Bytes, prices: &[i128]) -> Vec<Address> {
+    let mut oracles: Vec<Address> = Vec::new(&te.env);
+    for (i, price) in prices.iter().enumerate() {
+        let oracle = Address::generate(&te.env);
+        let slot = slot(i);
+        register_push_feed(te, asset, &oracle, &slot, 3600);
+        report(te, asset, &oracle, *price, &slot);
+        oracles.push_back(oracle);
+    }
+    oracles
+}
+
+/// The `i`-th feed slot.
+pub fn slot(i: usize) -> FeedPriority {
+    match i {
+        0 => FeedPriority::Primary,
+        1 => FeedPriority::Secondary,
+        2 => FeedPriority::Fallback,
+        3 => FeedPriority::Quaternary,
+        _ => FeedPriority::Quinary,
+    }
+}
+
+/// Whether an event with the given name was published for `asset`.
+///
+/// `#[contractevent]` publishes the snake-cased struct name as the first
+/// topic and every `#[topic]` field after it, so the asset id appears among
+/// the remaining topics of asset-scoped events.
+pub fn has_event(te: &TestEnv, name: &str, asset: &Bytes) -> bool {
+    let name_val: Val = Symbol::new(&te.env, name).into_val(&te.env);
+    let asset_val: Val = asset.clone().into_val(&te.env);
+    let expected_name = ScVal::try_from_val(&te.env, &name_val).unwrap();
+    let expected_asset = ScVal::try_from_val(&te.env, &asset_val).unwrap();
+    te.env.events().all().events().iter().any(|event| {
+        let ContractEventBody::V0(body) = &event.body;
+        body.topics.first() == Some(&expected_name) && body.topics.contains(&expected_asset)
+    })
+}
+
 // ── Mock pull-based provider ────────────────────────────────────────────────
 
 /// An external contract that implements the `PriceProvider` interface by
@@ -127,6 +172,19 @@ impl MockProvider {
         env.storage()
             .instance()
             .remove(&MockProviderKey::Price(asset));
+    }
+
+    /// Configure a price quoted at a precision other than the canonical 8.
+    pub fn set_scaled_price(env: Env, asset: Bytes, price: i128, decimals: u32, confidence: u32) {
+        env.storage().instance().set(
+            &MockProviderKey::Price(asset.clone()),
+            &ProviderPrice {
+                price,
+                decimals,
+                timestamp: env.ledger().timestamp(),
+                confidence,
+            },
+        );
     }
 
     pub fn get_price(env: Env, asset: Bytes) -> ProviderPrice {

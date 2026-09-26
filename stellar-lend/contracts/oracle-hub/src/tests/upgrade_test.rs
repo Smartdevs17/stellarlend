@@ -151,7 +151,11 @@ fn test_multisig_threshold_blocks_single_key_upgrade() {
     allow_all(&te);
     assert_eq!(client(&te).upgrade_threshold(), 1);
 
-    client(&te).init_upgrade_multisig(&te.admin, &Vec::from_array(&te.env, [te.governance.clone(), approver2.clone()]), &2);
+    client(&te).init_upgrade_multisig(
+        &te.admin,
+        &Vec::from_array(&te.env, [te.governance.clone(), approver2.clone()]),
+        &2,
+    );
     assert_eq!(client(&te).upgrade_threshold(), 2);
 
     client(&te).stage_upgrade(&hash);
@@ -172,7 +176,11 @@ fn test_multisig_requires_timelock_after_threshold() {
     let approver2 = Address::generate(&te.env);
 
     allow_all(&te);
-    client(&te).init_upgrade_multisig(&te.admin, &Vec::from_array(&te.env, [te.governance.clone(), approver2.clone()]), &2);
+    client(&te).init_upgrade_multisig(
+        &te.admin,
+        &Vec::from_array(&te.env, [te.governance.clone(), approver2.clone()]),
+        &2,
+    );
     client(&te).stage_upgrade(&hash);
 
     assert_eq!(client(&te).approve_upgrade(&approver2), 2);
@@ -197,7 +205,11 @@ fn test_multisig_rejects_unknown_approver_and_reapproval() {
     let stranger = Address::generate(&te.env);
 
     allow_all(&te);
-    client(&te).init_upgrade_multisig(&te.admin, &Vec::from_array(&te.env, [te.governance.clone(), approver2.clone()]), &2);
+    client(&te).init_upgrade_multisig(
+        &te.admin,
+        &Vec::from_array(&te.env, [te.governance.clone(), approver2.clone()]),
+        &2,
+    );
     client(&te).stage_upgrade(&hash);
 
     assert!(client(&te).try_approve_upgrade(&stranger).is_err());
