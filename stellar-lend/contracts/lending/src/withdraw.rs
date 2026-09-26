@@ -2,6 +2,7 @@ use soroban_sdk::{contracterror, contracttype, Address, Env};
 
 use crate::deposit::{DepositCollateral, DepositDataKey};
 use crate::dust::is_dust_amount;
+use crate::hot_storage::DepositHotSlot;
 use crate::reentrancy::ReentrancyGuard;
 
 pub use crate::events::WithdrawEvent;
@@ -102,9 +103,9 @@ pub(crate) fn withdraw_with_auth(
 
     save_collateral_position(env, &user, &updated_position);
 
-    let total_deposits = get_total_deposits(env);
-    let new_total = total_deposits.checked_sub(amount).unwrap_or(0);
-    set_total_deposits(env, new_total);
+    let mut hot = DepositHotSlot::load(env);
+    hot.state.total = hot.state.total.checked_sub(amount).unwrap_or(0);
+    hot.commit(env);
 
     WithdrawEvent {
         user,
@@ -191,11 +192,13 @@ pub fn sweep_deposit_dust(env: &Env, user: Address, asset: Address) -> Result<i1
     };
     save_collateral_position(env, &user, &updated_position);
 
-    let total_deposits = get_total_deposits(env);
-    let new_total = total_deposits
+    let mut hot = DepositHotSlot::load(env);
+    hot.state.total = hot
+        .state
+        .total
         .checked_sub(position.amount)
         .ok_or(WithdrawError::Overflow)?;
-    set_total_deposits(env, new_total);
+    hot.commit(env);
 
     WithdrawEvent {
         user,
@@ -232,19 +235,6 @@ fn save_collateral_position(env: &Env, user: &Address, position: &DepositCollate
     env.storage()
         .persistent()
         .set(&DepositDataKey::UserCollateral(user.clone()), position);
-}
-
-fn get_total_deposits(env: &Env) -> i128 {
-    env.storage()
-        .persistent()
-        .get(&DepositDataKey::TotalAmount)
-        .unwrap_or(0)
-}
-
-fn set_total_deposits(env: &Env, amount: i128) {
-    env.storage()
-        .persistent()
-        .set(&DepositDataKey::TotalAmount, &amount);
 }
 
 fn get_min_withdraw_amount(env: &Env) -> i128 {
@@ -335,9 +325,9 @@ pub fn emergency_withdraw(
     };
     save_collateral_position(env, &user, &updated_position);
 
-    let total_deposits = get_total_deposits(env);
-    let new_total = total_deposits.checked_sub(amount).unwrap_or(0);
-    set_total_deposits(env, new_total);
+    let mut hot = DepositHotSlot::load(env);
+    hot.state.total = hot.state.total.checked_sub(amount).unwrap_or(0);
+    hot.commit(env);
 
     // Track total emergency analytics
     let total_withdrawn = get_total_emergency_withdrawn(env);
