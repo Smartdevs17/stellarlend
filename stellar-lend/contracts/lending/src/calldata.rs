@@ -36,7 +36,17 @@
 //!
 //! Trailing bytes after the last op are rejected so a payload has exactly one
 //! meaning.
+//!
+//! ## Execution
+//!
+//! [`execute`] authorises the user **once**, then runs the ops in order.
+//! Consecutive `Deposit` ops are coalesced into a single
+//! [`deposit_batch`](crate::deposit_batch) call, so they also share one write
+//! of the packed deposit state (#1043/#1044). The whole payload is atomic: any
+//! failing op reverts every op before it.
 
+use crate::deposit_batch::{deposit_batch_with_auth, DepositRequest, MAX_BATCH_DEPOSITS};
+use crate::pause::{is_paused, PauseType};
 use soroban_sdk::{contracterror, contracttype, Address, Bytes, Env, Vec};
 
 /// Current wire-format version.
@@ -304,4 +314,74 @@ pub fn get_dictionary(env: &Env) -> Vec<Address> {
 /// Resolve a dictionary index to its asset address.
 pub fn resolve(dictionary: &Vec<Address>, index: u32) -> Result<Address, CalldataError> {
     dictionary.get(index).ok_or(CalldataError::UnknownAsset)
+}
+
+// ── Execution ────────────────────────────────────────────────────────────
+
+fn flush_deposits(
+    env: &Env,
+    user: &Address,
+    pending: &mut Vec<DepositRequest>,
+) -> Result<(), CalldataError> {
+    if pending.is_empty() {
+        return Ok(());
+    }
+    deposit_batch_with_auth(env, user.clone(), pending.clone(), false)
+        .map_err(|_| CalldataError::DepositFailed)?;
+    *pending = Vec::new(env);
+    Ok(())
+}
+
+/// Decode and execute a compressed payload on behalf of `user`.
+///
+/// Returns the number of operations executed.
+pub fn execute(env: &Env, user: Address, payload: Bytes) -> Result<u32, CalldataError> {
+    user.require_auth();
+
+    let ops = decode(env, &payload)?;
+    let dictionary = get_dictionary(env);
+
+    let mut pending: Vec<DepositRequest> = Vec::new(env);
+    for op in ops.iter() {
+        let asset = resolve(&dictionary, op.asset_index)?;
+
+        if op.op == OpCode::Deposit {
+            pending.push_back(DepositRequest {
+                asset,
+                amount: op.amount,
+            });
+            if pending.len() == MAX_BATCH_DEPOSITS {
+                flush_deposits(env, &user, &mut pending)?;
+            }
+            continue;
+        }
+
+        // Preserve ordering: earlier deposits land before any other op.
+        flush_deposits(env, &user, &mut pending)?;
+
+        match op.op {
+            OpCode::Deposit => unreachable!(),
+            OpCode::Withdraw => {
+                crate::withdraw::withdraw_with_auth(env, user.clone(), asset, op.amount, false)
+                    .map_err(|_| CalldataError::WithdrawFailed)?;
+            }
+            OpCode::Repay => {
+                if is_paused(env, PauseType::Repay) {
+                    return Err(CalldataError::OperationPaused);
+                }
+                crate::borrow::repay(env, user.clone(), asset, op.amount)
+                    .map_err(|_| CalldataError::RepayFailed)?;
+            }
+            OpCode::DepositCollateral => {
+                if is_paused(env, PauseType::Deposit) {
+                    return Err(CalldataError::OperationPaused);
+                }
+                crate::borrow::deposit(env, user.clone(), asset, op.amount)
+                    .map_err(|_| CalldataError::CollateralFailed)?;
+            }
+        }
+    }
+    flush_deposits(env, &user, &mut pending)?;
+
+    Ok(ops.len())
 }
