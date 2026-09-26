@@ -12,6 +12,7 @@ mod deposit;
 mod dust;
 mod events;
 mod flash_loan;
+mod hot_storage;
 mod interest_rate;
 mod pause;
 mod reentrancy;
