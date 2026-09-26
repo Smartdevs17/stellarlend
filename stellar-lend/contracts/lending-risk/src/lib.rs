@@ -99,6 +99,64 @@ impl RiskManager {
             liquidator_profit: bonus,
         })
     }
+
+    /// Enforces supply cap with graceful degradation.
+    ///
+    /// When a deposit amount would breach the pool supply cap, instead of
+    /// hard-failing the transaction, this calculates the available headroom and
+    /// gracefully degrades the deposit to the maximum allowable amount.
+    /// If the cap is already 100% exhausted (0 headroom), returns an error.
+    pub fn enforce_supply_cap_graceful(
+        current_pool_supply: i128,
+        pool_supply_cap: i128,
+        deposit_amount: i128,
+    ) -> Result<SupplyCapEnforcementResult, MathError> {
+        if deposit_amount <= 0 {
+            return Err(MathError::Underflow);
+        }
+        if pool_supply_cap <= 0 {
+            // Cap <= 0 means unlimited
+            return Ok(SupplyCapEnforcementResult {
+                accepted_amount: deposit_amount,
+                is_degraded: false,
+                remaining_headroom: i128::MAX,
+                tier: SupplyCapDegradationTier::Normal,
+            });
+        }
+        if current_pool_supply >= pool_supply_cap {
+            return Err(MathError::Underflow);
+        }
+
+        let available_headroom = safe_sub(pool_supply_cap, current_pool_supply)?;
+        let (accepted_amount, is_degraded) = if deposit_amount > available_headroom {
+            (available_headroom, true)
+        } else {
+            (deposit_amount, false)
+        };
+
+        let new_supply = safe_add(current_pool_supply, accepted_amount)?;
+        let remaining_headroom = safe_sub(pool_supply_cap, new_supply)?;
+
+        let utilization_bps =
+            safe_mul(new_supply, BPS_DIVISOR).and_then(|v| safe_div(v, pool_supply_cap))?;
+
+        let tier = if remaining_headroom == 0 {
+            SupplyCapDegradationTier::Capped
+        } else if utilization_bps >= 9500 {
+            SupplyCapDegradationTier::Critical
+        } else if utilization_bps >= 8000 {
+            SupplyCapDegradationTier::Elevated
+        } else {
+            SupplyCapDegradationTier::Normal
+        };
+
+        Ok(SupplyCapEnforcementResult {
+            accepted_amount,
+            is_degraded,
+            remaining_headroom,
+            tier,
+        })
+    }
 }
 
 /// Resulting position state and liquidator payout from
@@ -109,6 +167,26 @@ pub struct LiquidationOutcome {
     pub new_debt_value: i128,
     pub seized_collateral: i128,
     pub liquidator_profit: i128,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SupplyCapDegradationTier {
+    Normal,
+    Elevated,
+    Critical,
+    Capped,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SupplyCapEnforcementResult {
+    /// The amount permitted to be deposited (full or gracefully clamped to remaining headroom)
+    pub accepted_amount: i128,
+    /// Whether the deposit had to be gracefully degraded (partially filled) due to the cap
+    pub is_degraded: bool,
+    /// Headroom remaining after this deposit
+    pub remaining_headroom: i128,
+    /// Degradation tier after this deposit
+    pub tier: SupplyCapDegradationTier,
 }
 
 pub struct RiskMetrics {
@@ -237,5 +315,61 @@ mod tests {
     #[test]
     fn test_liquidation_bonus_overflow_is_err() {
         assert!(RiskManager::calculate_liquidation_bonus(i128::MAX, i128::MAX).is_err());
+    }
+
+    #[test]
+    fn test_supply_cap_graceful_normal_deposit() {
+        // Pool cap 10,000, current supply 2,000, deposit 3,000 -> Accepted in full (50% utilization, Normal)
+        let res = RiskManager::enforce_supply_cap_graceful(2_000, 10_000, 3_000).unwrap();
+        assert_eq!(res.accepted_amount, 3_000);
+        assert!(!res.is_degraded);
+        assert_eq!(res.remaining_headroom, 5_000);
+        assert_eq!(res.tier, SupplyCapDegradationTier::Normal);
+    }
+
+    #[test]
+    fn test_supply_cap_graceful_elevated_and_critical_tiers() {
+        // Elevated: new supply 8,500 / 10,000 = 85%
+        let res1 = RiskManager::enforce_supply_cap_graceful(5_000, 10_000, 3_500).unwrap();
+        assert_eq!(res1.accepted_amount, 3_500);
+        assert_eq!(res1.tier, SupplyCapDegradationTier::Elevated);
+
+        // Critical: new supply 9,700 / 10,000 = 97%
+        let res2 = RiskManager::enforce_supply_cap_graceful(9_000, 10_000, 700).unwrap();
+        assert_eq!(res2.accepted_amount, 700);
+        assert_eq!(res2.tier, SupplyCapDegradationTier::Critical);
+    }
+
+    #[test]
+    fn test_supply_cap_graceful_degradation_partial_fill() {
+        // Pool cap 10,000, current supply 8,000. User requests to deposit 5,000.
+        // Instead of hard-failing, gracefully accepts remaining 2,000 headroom!
+        let res = RiskManager::enforce_supply_cap_graceful(8_000, 10_000, 5_000).unwrap();
+        assert_eq!(res.accepted_amount, 2_000);
+        assert!(res.is_degraded);
+        assert_eq!(res.remaining_headroom, 0);
+        assert_eq!(res.tier, SupplyCapDegradationTier::Capped);
+    }
+
+    #[test]
+    fn test_supply_cap_graceful_rejection_when_fully_capped() {
+        // Cap is already 100% full -> Cannot accept any further deposits
+        assert!(RiskManager::enforce_supply_cap_graceful(10_000, 10_000, 100).is_err());
+        assert!(RiskManager::enforce_supply_cap_graceful(11_000, 10_000, 100).is_err());
+    }
+
+    #[test]
+    fn test_supply_cap_graceful_unlimited_cap() {
+        // Unlimited cap (0 or negative)
+        let res = RiskManager::enforce_supply_cap_graceful(5_000, 0, 10_000).unwrap();
+        assert_eq!(res.accepted_amount, 10_000);
+        assert!(!res.is_degraded);
+        assert_eq!(res.tier, SupplyCapDegradationTier::Normal);
+    }
+
+    #[test]
+    fn test_supply_cap_graceful_invalid_amount() {
+        assert!(RiskManager::enforce_supply_cap_graceful(1_000, 10_000, 0).is_err());
+        assert!(RiskManager::enforce_supply_cap_graceful(1_000, 10_000, -50).is_err());
     }
 }

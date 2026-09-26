@@ -42,6 +42,40 @@ impl VotingConfig {
     }
 }
 
+/// Rules a risk parameter proposal must satisfy before it can be accepted.
+///
+/// Risk parameters directly govern protocol solvency and liquidation thresholds.
+/// Governance can configure stricter quorum, approval supermajority,
+/// and extended voting windows for risk parameter proposals.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct RiskVotingConfig {
+    /// Share of total voting power that must participate, in basis points.
+    pub quorum_bps: i128,
+    /// Share of votes cast that must be in favour, in basis points (e.g. 6667 for 2/3 supermajority).
+    pub approval_threshold_bps: i128,
+    /// How long after creation a proposal accepts votes, in seconds.
+    pub voting_period_seconds: u64,
+}
+
+impl RiskVotingConfig {
+    pub fn is_valid(&self) -> bool {
+        self.quorum_bps > 0
+            && self.quorum_bps <= BPS_DIVISOR
+            && self.approval_threshold_bps > 0
+            && self.approval_threshold_bps <= BPS_DIVISOR
+            && self.voting_period_seconds > 0
+    }
+
+    pub fn to_voting_config(&self) -> VotingConfig {
+        VotingConfig {
+            quorum_bps: self.quorum_bps,
+            approval_threshold_bps: self.approval_threshold_bps,
+            voting_period_seconds: self.voting_period_seconds,
+        }
+    }
+}
+
 /// One address's vote on one proposal.
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]

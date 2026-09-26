@@ -133,3 +133,74 @@ fn test_supply_headroom_analytics() {
     assert_eq!(current2, 300);
     assert_eq!(avail2, 700);
 }
+
+#[test]
+fn test_cross_asset_deposit_graceful_partial_fill_and_status() {
+    let env = create_test_env();
+    let admin = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let dai = Address::generate(&env);
+
+    let _client = setup_protocol(&env, &admin, Some(dai.clone()), 1000);
+
+    // Initial status: Normal
+    let (status, current, cap, headroom) =
+        crate::cross_asset::get_supply_cap_status(&env, Some(dai.clone())).unwrap();
+    assert_eq!(status, crate::cross_asset::SupplyCapStatus::Normal);
+    assert_eq!(current, 0);
+    assert_eq!(cap, 1000);
+    assert_eq!(headroom, 1000);
+
+    // 1. User1 deposits 850 under graceful deposit -> Accepted in full (85% = Elevated)
+    let (pos1, accepted1, is_degraded1) = crate::cross_asset::cross_asset_deposit_graceful(
+        &env,
+        user1.clone(),
+        Some(dai.clone()),
+        850,
+    )
+    .unwrap();
+    assert_eq!(accepted1, 850);
+    assert!(!is_degraded1);
+    assert_eq!(pos1.collateral, 850);
+
+    let (status_elevated, current_elevated, _, _) =
+        crate::cross_asset::get_supply_cap_status(&env, Some(dai.clone())).unwrap();
+    assert_eq!(
+        status_elevated,
+        crate::cross_asset::SupplyCapStatus::Elevated
+    );
+    assert_eq!(current_elevated, 850);
+
+    // 2. User2 attempts to deposit 500 when only 150 headroom remains
+    // Instead of reverting, graceful degradation accepts the remaining 150!
+    let (pos2, accepted2, is_degraded2) = crate::cross_asset::cross_asset_deposit_graceful(
+        &env,
+        user2.clone(),
+        Some(dai.clone()),
+        500,
+    )
+    .unwrap();
+    assert_eq!(accepted2, 150);
+    assert!(is_degraded2);
+    assert_eq!(pos2.collateral, 150);
+
+    // 3. Pool is now at 100% cap -> Status is Capped
+    let (status_capped, current_capped, _, headroom_capped) =
+        crate::cross_asset::get_supply_cap_status(&env, Some(dai.clone())).unwrap();
+    assert_eq!(status_capped, crate::cross_asset::SupplyCapStatus::Capped);
+    assert_eq!(current_capped, 1000);
+    assert_eq!(headroom_capped, 0);
+
+    // 4. Further deposits when fully capped return SupplyCapExceeded
+    let over_res = crate::cross_asset::cross_asset_deposit_graceful(
+        &env,
+        user1.clone(),
+        Some(dai.clone()),
+        50,
+    );
+    assert_eq!(
+        over_res,
+        Err(crate::cross_asset::CrossAssetError::SupplyCapExceeded)
+    );
+}

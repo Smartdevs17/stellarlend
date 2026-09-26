@@ -52,6 +52,25 @@ pub struct PoolFrozenEvent {
     pub timestamp: u64,
 }
 
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct SupplyCapDegradedEvent {
+    pub asset: Option<Address>,
+    pub requested_amount: i128,
+    pub accepted_amount: i128,
+    pub remaining_cap: i128,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SupplyCapStatus {
+    Normal = 0,
+    Elevated = 1,
+    Critical = 2,
+    Capped = 3,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssetConfig {
@@ -534,6 +553,97 @@ pub fn cross_asset_deposit(
     update_per_user_supply(env, &user, &asset_key, amount);
 
     Ok(position)
+}
+
+/// Deposit an asset with graceful degradation when near or at the supply cap.
+///
+/// If the requested `amount` would exceed the asset's remaining supply cap headroom,
+/// instead of hard-rejecting the deposit, this gracefully accepts the remaining
+/// available headroom, emits a `SupplyCapDegradedEvent`, updates state, and returns
+/// `(position, accepted_amount, is_degraded)`.
+/// If the supply cap is already 100% exhausted, returns `CrossAssetError::SupplyCapExceeded`.
+pub fn cross_asset_deposit_graceful(
+    env: &Env,
+    user: Address,
+    asset: Option<Address>,
+    amount: i128,
+) -> Result<(AssetPosition, i128, bool), CrossAssetError> {
+    user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
+
+    let asset_key = AssetKey::from_option(asset.clone());
+    let config = get_asset_config(env, &asset_key)?;
+
+    if config.is_frozen || !config.can_collateralize {
+        return Err(CrossAssetError::AssetDisabled);
+    }
+
+    let (accepted_amount, is_degraded) = if config.max_supply > 0 {
+        let total_supply = get_total_supply(env, &asset_key);
+        if total_supply >= config.max_supply {
+            return Err(CrossAssetError::SupplyCapExceeded);
+        }
+        let headroom = config.max_supply - total_supply;
+        if amount > headroom {
+            SupplyCapDegradedEvent {
+                asset: asset.clone(),
+                requested_amount: amount,
+                accepted_amount: headroom,
+                remaining_cap: 0,
+                timestamp: env.ledger().timestamp(),
+            }
+            .publish(env);
+            (headroom, true)
+        } else {
+            (amount, false)
+        }
+    } else {
+        (amount, false)
+    };
+
+    check_per_user_supply_limit(env, &user, &asset_key, accepted_amount)?;
+
+    let mut position = get_user_asset_position(env, &user, asset.clone());
+    position.collateral += accepted_amount;
+    position.last_updated = env.ledger().timestamp();
+
+    set_user_asset_position(env, &user, asset, position.clone());
+    update_total_supply(env, &asset_key, accepted_amount);
+    update_per_user_supply(env, &user, &asset_key, accepted_amount);
+
+    Ok((position, accepted_amount, is_degraded))
+}
+
+/// Get current supply cap degradation status and metrics for an asset.
+pub fn get_supply_cap_status(
+    env: &Env,
+    asset: Option<Address>,
+) -> Result<(SupplyCapStatus, i128, i128, i128), CrossAssetError> {
+    let asset_key = AssetKey::from_option(asset);
+    let config = get_asset_config(env, &asset_key)?;
+    let current_supply = get_total_supply(env, &asset_key);
+
+    if config.max_supply <= 0 {
+        return Ok((SupplyCapStatus::Normal, current_supply, 0, i128::MAX));
+    }
+
+    let headroom = (config.max_supply - current_supply).max(0);
+    let util_bps = (current_supply.saturating_mul(10_000)) / config.max_supply.max(1);
+
+    let status = if headroom == 0 {
+        SupplyCapStatus::Capped
+    } else if util_bps >= 9_500 {
+        SupplyCapStatus::Critical
+    } else if util_bps >= 8_000 {
+        SupplyCapStatus::Elevated
+    } else {
+        SupplyCapStatus::Normal
+    };
+
+    Ok((status, current_supply, config.max_supply, headroom))
 }
 
 /// Borrow a specific asset against cross-asset collateral.

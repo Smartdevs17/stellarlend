@@ -7,7 +7,7 @@ pub mod simulation;
 pub mod voting;
 
 pub use simulation::{ImpactSeverity, ParameterImpact, PoolSnapshot, RelatedParameters};
-pub use voting::{ParameterVote, VoteTally, VotingConfig};
+pub use voting::{ParameterVote, RiskVotingConfig, VoteTally, VotingConfig};
 
 pub const BPS_DIVISOR: i128 = 10_000;
 pub const RISK_TIMELOCK_SECONDS: u64 = 48 * 3600;
@@ -326,7 +326,17 @@ impl ParameterStoreContract {
 
         // When governance has installed voting rules, the vote decides; until
         // then the governance address accepts directly, as it always has.
-        if let Some(config) = voting_config(&env) {
+        // Risk parameters use RiskVotingConfig if configured, otherwise standard VotingConfig.
+        let is_risk = proposal.parameter.is_risk_parameter();
+        let applicable_config = if is_risk {
+            risk_voting_config(&env)
+                .map(|r| r.to_voting_config())
+                .or_else(|| voting_config(&env))
+        } else {
+            voting_config(&env)
+        };
+
+        if let Some(config) = applicable_config {
             assert!(
                 !voting::is_voting_open(&env, proposal.created_at, &config),
                 "Voting still open"
@@ -493,13 +503,42 @@ impl ParameterStoreContract {
         let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
         governance.require_auth();
         assert!(config.is_valid(), "Invalid voting config");
-        env.storage().instance().set(&DataKey::VotingConfig, &config);
+        env.storage()
+            .instance()
+            .set(&DataKey::VotingConfig, &config);
         env.events().publish(("voting_config",), &config);
     }
 
     /// Reads the installed voting rules, if any.
     pub fn get_voting_config(env: Env) -> Option<VotingConfig> {
         env.storage().instance().get(&DataKey::VotingConfig)
+    }
+
+    /// Installs or replaces the voting rules specifically for risk parameters
+    /// (LTV, LiquidationThreshold, CloseFactor, LiquidationIncentive).
+    pub fn set_risk_voting_config(env: Env, config: RiskVotingConfig) {
+        let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
+        governance.require_auth();
+        assert!(config.is_valid(), "Invalid risk voting config");
+        env.storage()
+            .instance()
+            .set(&DataKey::RiskVotingConfig, &config);
+        env.events().publish(("risk_voting_config",), &config);
+    }
+
+    /// Reads the installed risk parameter voting rules, if any.
+    pub fn get_risk_voting_config(env: Env) -> Option<RiskVotingConfig> {
+        env.storage().instance().get(&DataKey::RiskVotingConfig)
+    }
+
+    /// Checks if a proposal is for a risk parameter.
+    pub fn is_risk_parameter_proposal(env: Env, proposal_id: u64) -> bool {
+        let proposal: ParameterProposal = env
+            .storage()
+            .instance()
+            .get(&DataKey::Proposal(proposal_id))
+            .expect("Proposal not found");
+        proposal.parameter.is_risk_parameter()
     }
 
     /// Sets an address's voting weight, keeping the registered total in step.
@@ -526,10 +565,9 @@ impl ParameterStoreContract {
         env.storage()
             .instance()
             .set(&DataKey::VotingPower(voter.clone()), &weight);
-        env.storage().instance().set(
-            &DataKey::TotalVotingPower,
-            &(total - previous + weight),
-        );
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalVotingPower, &(total - previous + weight));
         env.events().publish(("voting_power", &voter), &weight);
     }
 
@@ -558,12 +596,20 @@ impl ParameterStoreContract {
     pub fn cast_vote(env: Env, proposal_id: u64, voter: Address, support: bool) {
         voter.require_auth();
 
-        let config = voting_config(&env).expect("Voting is not enabled");
         let proposal: ParameterProposal = env
             .storage()
             .instance()
             .get(&DataKey::Proposal(proposal_id))
             .expect("Proposal not found");
+
+        let applicable_config = if proposal.parameter.is_risk_parameter() {
+            risk_voting_config(&env)
+                .map(|r| r.to_voting_config())
+                .or_else(|| voting_config(&env))
+        } else {
+            voting_config(&env)
+        };
+        let config = applicable_config.expect("Voting is not enabled");
         assert!(
             !proposal.accepted && !proposal.rejected,
             "Proposal already decided"
@@ -644,7 +690,11 @@ impl ParameterStoreContract {
     }
 
     /// Projects the effect of an existing proposal.
-    pub fn simulate_proposal(env: Env, proposal_id: u64, snapshot: PoolSnapshot) -> ParameterImpact {
+    pub fn simulate_proposal(
+        env: Env,
+        proposal_id: u64,
+        snapshot: PoolSnapshot,
+    ) -> ParameterImpact {
         let proposal: ParameterProposal = env
             .storage()
             .instance()
@@ -732,13 +782,20 @@ fn commit_change(env: &Env, proposal: &ParameterProposal, timestamp: u64, is_eme
         is_emergency,
     };
     env.events().publish(
-        (Symbol::new(env, "param_changed"), proposal.parameter.clone()),
+        (
+            Symbol::new(env, "param_changed"),
+            proposal.parameter.clone(),
+        ),
         notification,
     );
 }
 
 fn voting_config(env: &Env) -> Option<VotingConfig> {
     env.storage().instance().get(&DataKey::VotingConfig)
+}
+
+fn risk_voting_config(env: &Env) -> Option<RiskVotingConfig> {
+    env.storage().instance().get(&DataKey::RiskVotingConfig)
 }
 
 fn stored_votes(env: &Env, proposal_id: u64) -> Vec<ParameterVote> {
@@ -799,6 +856,8 @@ enum DataKey {
     VersionedValue(ParameterType, Address, u32),
     /// Voting rules, absent until governance installs them.
     VotingConfig,
+    /// Risk parameter voting rules, absent until governance installs them.
+    RiskVotingConfig,
     /// Voting weight registered for an address.
     VotingPower(Address),
     /// Sum of all registered voting power.
@@ -999,10 +1058,7 @@ mod tests {
 
     #[test]
     fn test_timelock_views() {
-        assert_eq!(
-            ParameterType::LTV.min_timelock(),
-            RISK_TIMELOCK_SECONDS
-        );
+        assert_eq!(ParameterType::LTV.min_timelock(), RISK_TIMELOCK_SECONDS);
         assert_eq!(MAX_TIMELOCK_SECONDS, 180 * 24 * 3600);
     }
 
@@ -1212,5 +1268,206 @@ mod tests {
                 );
             },
         );
+    }
+
+    #[test]
+    fn test_risk_voting_config_and_proposal_check() {
+        let te = setup();
+        let pool = Address::generate(&te.env);
+        with_governance_auth(&te, "register_pool", (&pool,), || {
+            client(&te).register_pool(&pool);
+        });
+
+        // Set risk voting config: 25% quorum, 66.67% approval, 3 days
+        let r_cfg = RiskVotingConfig {
+            quorum_bps: 2_500,
+            approval_threshold_bps: 6_667,
+            voting_period_seconds: 3 * 86_400,
+        };
+        with_governance_auth(&te, "set_risk_voting_config", (&r_cfg,), || {
+            client(&te).set_risk_voting_config(&r_cfg);
+        });
+        assert_eq!(client(&te).get_risk_voting_config(), Some(r_cfg));
+
+        // Propose LTV (a risk parameter)
+        with_governance_auth(
+            &te,
+            "propose_change",
+            (
+                &pool,
+                &ParameterType::LTV,
+                &7_000i128,
+                &RISK_TIMELOCK_SECONDS,
+            ),
+            || {
+                client(&te).propose_change(
+                    &pool,
+                    &ParameterType::LTV,
+                    &7_000,
+                    &RISK_TIMELOCK_SECONDS,
+                );
+            },
+        );
+        assert!(client(&te).is_risk_parameter_proposal(&1));
+
+        // Propose ReserveFactor (non-risk parameter)
+        with_governance_auth(
+            &te,
+            "propose_change",
+            (
+                &pool,
+                &ParameterType::ReserveFactor,
+                &800i128,
+                &STANDARD_TIMELOCK_SECONDS,
+            ),
+            || {
+                client(&te).propose_change(
+                    &pool,
+                    &ParameterType::ReserveFactor,
+                    &800,
+                    &STANDARD_TIMELOCK_SECONDS,
+                );
+            },
+        );
+        assert!(!client(&te).is_risk_parameter_proposal(&2));
+    }
+
+    #[test]
+    fn test_risk_parameter_voting_supermajority_pass_and_fail() {
+        let te = setup();
+        let pool = Address::generate(&te.env);
+        with_governance_auth(&te, "register_pool", (&pool,), || {
+            client(&te).register_pool(&pool);
+        });
+
+        // Standard voting config: 20% quorum, 50.01% approval
+        let std_cfg = VotingConfig {
+            quorum_bps: 2_000,
+            approval_threshold_bps: 5_001,
+            voting_period_seconds: 86_400,
+        };
+        with_governance_auth(&te, "set_voting_config", (&std_cfg,), || {
+            client(&te).set_voting_config(&std_cfg);
+        });
+
+        // Risk voting config: 20% quorum, 66.67% supermajority
+        let risk_cfg = RiskVotingConfig {
+            quorum_bps: 2_000,
+            approval_threshold_bps: 6_667,
+            voting_period_seconds: 86_400,
+        };
+        with_governance_auth(&te, "set_risk_voting_config", (&risk_cfg,), || {
+            client(&te).set_risk_voting_config(&risk_cfg);
+        });
+
+        // Register voter power
+        let voter_for = Address::generate(&te.env);
+        let voter_against = Address::generate(&te.env);
+        with_governance_auth(&te, "set_voting_power", (&voter_for, &600i128), || {
+            client(&te).set_voting_power(&voter_for, &600);
+        });
+        with_governance_auth(&te, "set_voting_power", (&voter_against, &400i128), || {
+            client(&te).set_voting_power(&voter_against, &400);
+        });
+
+        // Propose LTV (risk parameter)
+        with_governance_auth(
+            &te,
+            "propose_change",
+            (
+                &pool,
+                &ParameterType::LTV,
+                &7_500i128,
+                &RISK_TIMELOCK_SECONDS,
+            ),
+            || {
+                client(&te).propose_change(
+                    &pool,
+                    &ParameterType::LTV,
+                    &7_500,
+                    &RISK_TIMELOCK_SECONDS,
+                );
+            },
+        );
+
+        // Vote: 600 For, 400 Against (60% approval, clears standard 50% but FAILS 66.67% supermajority)
+        te.env.mock_all_auths();
+        client(&te).cast_vote(&1, &voter_for, &true);
+        client(&te).cast_vote(&1, &voter_against, &false);
+
+        // Fast forward past voting period and timelock
+        te.env
+            .ledger()
+            .set_timestamp(RISK_TIMELOCK_SECONDS + 86_401);
+
+        // Accepting proposal must fail because it failed the risk voting supermajority threshold!
+        let fail_res = client(&te).try_accept_proposal(&1);
+        assert!(
+            fail_res.is_err(),
+            "Proposal with 60% approval should fail 66.67% risk supermajority"
+        );
+    }
+
+    #[test]
+    fn test_risk_parameter_voting_supermajority_success() {
+        let te = setup();
+        let pool = Address::generate(&te.env);
+        with_governance_auth(&te, "register_pool", (&pool,), || {
+            client(&te).register_pool(&pool);
+        });
+
+        let risk_cfg = RiskVotingConfig {
+            quorum_bps: 2_000,
+            approval_threshold_bps: 6_667,
+            voting_period_seconds: 86_400,
+        };
+        with_governance_auth(&te, "set_risk_voting_config", (&risk_cfg,), || {
+            client(&te).set_risk_voting_config(&risk_cfg);
+        });
+
+        let voter1 = Address::generate(&te.env);
+        let voter2 = Address::generate(&te.env);
+        with_governance_auth(&te, "set_voting_power", (&voter1, &750i128), || {
+            client(&te).set_voting_power(&voter1, &750);
+        });
+        with_governance_auth(&te, "set_voting_power", (&voter2, &250i128), || {
+            client(&te).set_voting_power(&voter2, &250);
+        });
+
+        with_governance_auth(
+            &te,
+            "propose_change",
+            (
+                &pool,
+                &ParameterType::LTV,
+                &7_500i128,
+                &RISK_TIMELOCK_SECONDS,
+            ),
+            || {
+                client(&te).propose_change(
+                    &pool,
+                    &ParameterType::LTV,
+                    &7_500,
+                    &RISK_TIMELOCK_SECONDS,
+                );
+            },
+        );
+
+        // Vote: 750 For, 250 Against (75% approval > 66.67% supermajority)
+        te.env.mock_all_auths();
+        client(&te).cast_vote(&1, &voter1, &true);
+        client(&te).cast_vote(&1, &voter2, &false);
+
+        te.env
+            .ledger()
+            .set_timestamp(RISK_TIMELOCK_SECONDS + 86_401);
+
+        with_governance_auth(&te, "accept_proposal", (1u64,), || {
+            client(&te).accept_proposal(&1);
+        });
+
+        let prop = client(&te).get_proposal(&1);
+        assert!(prop.accepted);
+        assert_eq!(client(&te).get_parameter(&ParameterType::LTV, &pool), 7_500);
     }
 }
