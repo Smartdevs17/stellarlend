@@ -51,9 +51,7 @@ use deposit::{
     deposit as deposit_logic, get_user_collateral as get_deposit_collateral,
     initialize_deposit_settings as initialize_deposit_logic, DepositCollateral, DepositError,
 };
-use deposit_batch::{
-    deposit_batch as deposit_batch_logic, BatchDepositResult, DepositRequest,
-};
+use deposit_batch::{deposit_batch as deposit_batch_logic, BatchDepositResult, DepositRequest};
 use flash_loan::{
     flash_loan as flash_loan_logic, set_flash_loan_fee_bps as set_flash_loan_fee_logic,
     FlashLoanError,
