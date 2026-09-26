@@ -439,12 +439,13 @@ mod unit {
     #[test]
     fn rejects_amount_above_i128_max() {
         let env = Env::default();
-        // 18 continuation bytes of 0xFF then a final group of 0x02 sets bit 127.
-        let mut raw = [0xFFu8; 21];
+        // 18 continuation bytes of 0xFF, then a 19th (shift 126) group of 0x02
+        // which would set bit 127.
+        let mut raw = [0xFFu8; 22];
         raw[0] = 1;
         raw[1] = 1;
         raw[2] = 0x10;
-        raw[20] = 0x02;
+        raw[21] = 0x02;
         let err = decode(&env, &Bytes::from_slice(&env, &raw[..])).unwrap_err();
         assert_eq!(err, CalldataError::InvalidAmount);
     }
