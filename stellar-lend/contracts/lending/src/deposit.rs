@@ -22,6 +22,10 @@ pub enum DepositError {
     ExceedsDepositCap = 5,
     Unauthorized = 6,
     ReentrancyDetected = 7,
+    /// `deposit_batch` was called with no entries.
+    EmptyBatch = 8,
+    /// `deposit_batch` exceeded `MAX_BATCH_DEPOSITS` entries.
+    BatchTooLarge = 9,
 }
 
 /// Storage keys for deposit-related data
