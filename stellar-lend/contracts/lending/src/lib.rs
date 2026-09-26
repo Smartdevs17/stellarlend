@@ -48,6 +48,7 @@ use borrow::{
     sweep_debt_dust as borrow_sweep_debt_dust, switch_rate_type as switch_rate_type_logic,
     BorrowCollateral, BorrowError, DebtPosition, RateType,
 };
+use calldata::{CalldataError, CompressedOp};
 use deposit::{
     deposit as deposit_logic, get_user_collateral as get_deposit_collateral,
     initialize_deposit_settings as initialize_deposit_logic, DepositCollateral, DepositError,
@@ -391,6 +392,51 @@ impl LendingContract {
     ) -> DepositCollateral {
         get_deposit_collateral(&env, &user, &asset)
     }
+    // ═══════════════════════════════════════════════════════════════════
+    // Compressed calldata (#1045)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Execute a compressed multi-operation payload for `user` (single auth,
+    /// atomic). Returns the number of operations executed.
+    pub fn execute_compressed(
+        env: Env,
+        user: Address,
+        payload: Bytes,
+    ) -> Result<u32, CalldataError> {
+        calldata::execute(&env, user, payload)
+    }
+
+    /// Replace the asset dictionary used to resolve compressed asset indices
+    /// (admin only).
+    pub fn set_calldata_assets(
+        env: Env,
+        admin: Address,
+        assets: Vec<Address>,
+    ) -> Result<(), CalldataError> {
+        let current_admin = get_borrow_admin(&env).ok_or(CalldataError::Unauthorized)?;
+        if admin != current_admin {
+            return Err(CalldataError::Unauthorized);
+        }
+        admin.require_auth();
+        calldata::set_dictionary(&env, &assets)
+    }
+
+    /// Current compressed-calldata asset dictionary (index = position).
+    pub fn get_calldata_assets(env: Env) -> Vec<Address> {
+        calldata::get_dictionary(&env)
+    }
+
+    /// Encode operations into the compressed wire format (read-only helper for
+    /// clients building payloads via simulation).
+    pub fn encode_calldata(env: Env, ops: Vec<CompressedOp>) -> Result<Bytes, CalldataError> {
+        calldata::encode(&env, &ops)
+    }
+
+    /// Decode a compressed payload without executing it.
+    pub fn decode_calldata(env: Env, payload: Bytes) -> Result<Vec<CompressedOp>, CalldataError> {
+        calldata::decode(&env, &payload)
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Lazy pool state (#1046)
     // ═══════════════════════════════════════════════════════════════════
