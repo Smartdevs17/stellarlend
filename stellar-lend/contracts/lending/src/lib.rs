@@ -50,6 +50,7 @@ use deposit::{
     deposit as deposit_logic, get_user_collateral as get_deposit_collateral,
     initialize_deposit_settings as initialize_deposit_logic, DepositCollateral, DepositError,
 };
+use lazy::{LazyField, PoolStateView};
 use flash_loan::{
     flash_loan as flash_loan_logic, set_flash_loan_fee_bps as set_flash_loan_fee_logic,
     FlashLoanError,
@@ -374,6 +375,40 @@ impl LendingContract {
     ) -> DepositCollateral {
         get_deposit_collateral(&env, &user, &asset)
     }
+    // ═══════════════════════════════════════════════════════════════════
+    // Lazy pool state (#1046)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Snapshot of the lazily-initialised pool fields. Pure read: fields that
+    /// have never been written report their defaults and are not allocated.
+    pub fn get_pool_state(env: Env) -> PoolStateView {
+        lazy::snapshot(&env)
+    }
+
+    /// Read a single lazily-initialised pool field (default if never written).
+    pub fn get_pool_state_field(env: Env, field: LazyField) -> i128 {
+        lazy::get(&env, field)
+    }
+
+    /// Materialise every lazy field and fold legacy per-field hot-path entries
+    /// into their packed slots (admin only). Idempotent; returns the number of
+    /// storage entries that were newly written or migrated.
+    pub fn migrate_pool_state(env: Env, admin: Address) -> Result<u32, BorrowError> {
+        let current_admin = get_borrow_admin(&env).ok_or(BorrowError::Unauthorized)?;
+        if admin != current_admin {
+            return Err(BorrowError::Unauthorized);
+        }
+        admin.require_auth();
+        let mut written = lazy::migrate_initialize_all(&env);
+        if hot_storage::migrate_deposit_state(&env) {
+            written += 1;
+        }
+        if hot_storage::migrate_borrow_limits(&env) {
+            written += 1;
+        }
+        Ok(written)
+    }
+
     /// Get protocol admin
     pub fn get_admin(env: Env) -> Option<Address> {
         get_borrow_admin(&env)

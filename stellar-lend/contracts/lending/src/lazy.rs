@@ -125,19 +125,58 @@ pub fn add(env: &Env, field: LazyField, delta: i128) -> Result<i128, LazyError> 
     Ok(next)
 }
 
+/// Every deferrable field, in [`LazyField`] discriminant order.
+pub const ALL_FIELDS: [LazyField; 5] = [
+    LazyField::ReserveBalance,
+    LazyField::AccumulatedFees,
+    LazyField::LiquidationCounter,
+    LazyField::TotalReserves,
+    LazyField::BorrowIndexSnapshot,
+];
+
+/// Read-only snapshot of all lazy pool fields.
+///
+/// Uninitialised fields report their [`default_for`] value; `initialized_mask`
+/// has bit `n` set when the field with discriminant `n` has been materialised,
+/// so indexers can tell "zero because empty" from "never touched".
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PoolStateView {
+    pub reserve_balance: i128,
+    pub accumulated_fees: i128,
+    pub liquidation_counter: i128,
+    pub total_reserves: i128,
+    pub borrow_index_snapshot: i128,
+    pub initialized_mask: u32,
+    /// Whether the packed deposit hot-state slot exists yet.
+    pub deposit_state_initialized: bool,
+}
+
+/// Build a [`PoolStateView`] without writing to storage.
+pub fn snapshot(env: &Env) -> PoolStateView {
+    let mut mask = 0u32;
+    for f in ALL_FIELDS.iter() {
+        if is_initialized(env, *f) {
+            mask |= 1 << (*f as u32);
+        }
+    }
+    PoolStateView {
+        reserve_balance: get(env, LazyField::ReserveBalance),
+        accumulated_fees: get(env, LazyField::AccumulatedFees),
+        liquidation_counter: get(env, LazyField::LiquidationCounter),
+        total_reserves: get(env, LazyField::TotalReserves),
+        borrow_index_snapshot: get(env, LazyField::BorrowIndexSnapshot),
+        initialized_mask: mask,
+        deposit_state_initialized: crate::hot_storage::is_deposit_state_initialized(env),
+    }
+}
+
 /// Migration path for pre-existing pools: eagerly materialise every lazy field
 /// to its default so historical pools behave identically to lazily-initialised
 /// ones. Returns the number of fields that were newly written.
 pub fn migrate_initialize_all(env: &Env) -> u32 {
-    let fields = [
-        LazyField::ReserveBalance,
-        LazyField::AccumulatedFees,
-        LazyField::LiquidationCounter,
-        LazyField::TotalReserves,
-        LazyField::BorrowIndexSnapshot,
-    ];
     let mut written = 0u32;
-    for f in fields.iter() {
+    for f in ALL_FIELDS.iter() {
         if ensure_initialized(env, *f) {
             written += 1;
         }
