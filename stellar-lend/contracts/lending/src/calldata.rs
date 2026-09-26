@@ -384,3 +384,68 @@ pub fn execute(env: &Env, user: Address, payload: Bytes) -> Result<u32, Calldata
 
     Ok(ops.len())
 }
+
+#[cfg(test)]
+mod unit {
+    use super::*;
+    use soroban_sdk::Env;
+
+    fn op(op: OpCode, asset_index: u32, amount: i128) -> CompressedOp {
+        CompressedOp {
+            op,
+            asset_index,
+            amount,
+        }
+    }
+
+    #[test]
+    fn roundtrip_short_and_extended_indices() {
+        let env = Env::default();
+        let mut ops = Vec::new(&env);
+        ops.push_back(op(OpCode::Deposit, 0, 1));
+        ops.push_back(op(OpCode::Withdraw, 14, 1_000_000_000));
+        ops.push_back(op(OpCode::Repay, 15, 300));
+        ops.push_back(op(OpCode::DepositCollateral, 255, i128::MAX));
+
+        let bytes = encode(&env, &ops).unwrap();
+        assert_eq!(decode(&env, &bytes).unwrap(), ops);
+    }
+
+    #[test]
+    fn small_amount_is_one_byte() {
+        let env = Env::default();
+        let mut ops = Vec::new(&env);
+        ops.push_back(op(OpCode::Deposit, 3, 100));
+        let bytes = encode(&env, &ops).unwrap();
+        // version + count + header + 1-byte varint
+        assert_eq!(bytes.len(), 4);
+    }
+
+    #[test]
+    fn rejects_malformed_payloads() {
+        let env = Env::default();
+        let bad = |raw: &[u8]| decode(&env, &Bytes::from_slice(&env, raw)).unwrap_err();
+
+        assert_eq!(bad(&[]), CalldataError::Truncated);
+        assert_eq!(bad(&[2, 1, 0x10, 1]), CalldataError::UnsupportedVersion);
+        assert_eq!(bad(&[1, 0]), CalldataError::InvalidOpCount);
+        assert_eq!(bad(&[1, 1, 0x90, 1]), CalldataError::UnknownOpCode);
+        assert_eq!(bad(&[1, 1, 0x10, 0]), CalldataError::InvalidAmount);
+        assert_eq!(bad(&[1, 1, 0x10, 0x81, 0x00]), CalldataError::InvalidAmount);
+        assert_eq!(bad(&[1, 1, 0x10, 0x81]), CalldataError::Truncated);
+        assert_eq!(bad(&[1, 1, 0x10, 1, 9]), CalldataError::TrailingBytes);
+    }
+
+    #[test]
+    fn rejects_amount_above_i128_max() {
+        let env = Env::default();
+        // 18 continuation bytes of 0xFF then a final group of 0x02 sets bit 127.
+        let mut raw = [0xFFu8; 21];
+        raw[0] = 1;
+        raw[1] = 1;
+        raw[2] = 0x10;
+        raw[20] = 0x02;
+        let err = decode(&env, &Bytes::from_slice(&env, &raw[..])).unwrap_err();
+        assert_eq!(err, CalldataError::InvalidAmount);
+    }
+}
