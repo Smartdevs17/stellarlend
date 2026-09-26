@@ -345,27 +345,25 @@ pub fn execute(env: &Env, user: Address, payload: Bytes) -> Result<u32, Calldata
     for op in ops.iter() {
         let asset = resolve(&dictionary, op.asset_index)?;
 
-        if op.op == OpCode::Deposit {
-            pending.push_back(DepositRequest {
-                asset,
-                amount: op.amount,
-            });
-            if pending.len() == MAX_BATCH_DEPOSITS {
-                flush_deposits(env, &user, &mut pending)?;
-            }
-            continue;
-        }
-
-        // Preserve ordering: earlier deposits land before any other op.
-        flush_deposits(env, &user, &mut pending)?;
-
+        // Every non-deposit op flushes pending deposits first, preserving the
+        // payload's ordering.
         match op.op {
-            OpCode::Deposit => unreachable!(),
+            OpCode::Deposit => {
+                pending.push_back(DepositRequest {
+                    asset,
+                    amount: op.amount,
+                });
+                if pending.len() == MAX_BATCH_DEPOSITS {
+                    flush_deposits(env, &user, &mut pending)?;
+                }
+            }
             OpCode::Withdraw => {
+                flush_deposits(env, &user, &mut pending)?;
                 crate::withdraw::withdraw_with_auth(env, user.clone(), asset, op.amount, false)
                     .map_err(|_| CalldataError::WithdrawFailed)?;
             }
             OpCode::Repay => {
+                flush_deposits(env, &user, &mut pending)?;
                 if is_paused(env, PauseType::Repay) {
                     return Err(CalldataError::OperationPaused);
                 }
@@ -373,6 +371,7 @@ pub fn execute(env: &Env, user: Address, payload: Bytes) -> Result<u32, Calldata
                     .map_err(|_| CalldataError::RepayFailed)?;
             }
             OpCode::DepositCollateral => {
+                flush_deposits(env, &user, &mut pending)?;
                 if is_paused(env, PauseType::Deposit) {
                     return Err(CalldataError::OperationPaused);
                 }
