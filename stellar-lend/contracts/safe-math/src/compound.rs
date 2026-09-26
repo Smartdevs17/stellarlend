@@ -32,8 +32,9 @@ pub fn compound_interest_continuous(
         return Ok(principal);
     }
     let seconds_per_year: i128 = 31_536_000;
-    let rate_scaled = fp_mul(env, annual_rate_bps, elapsed_secs as i128)?;
-    let rate_scaled = fp_div(env, rate_scaled, seconds_per_year)?;
+    let rate_wad = crate::int128::safe_mul(annual_rate_bps, crate::fixed_point::WAD / 10_000)?;
+    let rate_t = crate::int128::safe_mul(rate_wad, elapsed_secs as i128)?;
+    let rate_scaled = crate::int128::safe_div(rate_t, seconds_per_year)?;
     let factor = crate::exponential::wad_exp(env, rate_scaled)?;
     fp_mul(env, principal, factor)
 }

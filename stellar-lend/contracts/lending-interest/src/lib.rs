@@ -5,7 +5,9 @@ use stellarlend_math::rates::{
     dual_slope_rate, supply_rate_from_reserve_factor, RateCurve, RateModelKind,
 };
 use stellarlend_math::MathError as SharedMathError;
-use stellarlend_safe_math::{bps_mul, safe_add, safe_div, safe_mul, MathError, WAD};
+use stellarlend_safe_math::{
+    bps_mul, compound_interest_continuous, safe_add, safe_div, safe_mul, safe_sub, MathError, WAD,
+};
 
 /// Translates the shared math library's error into this crate's `MathError`.
 ///
@@ -206,6 +208,76 @@ pub fn compound_interest(principal: i128, rate: i128, periods: u64) -> Result<i1
     safe_add(result, -principal)
 }
 
+/// Accrue interest using continuous compounding: returns the accrued delta
+/// `principal * e^(rate * elapsed) - principal`.
+pub fn accrue_interest_continuous(
+    env: &Env,
+    principal: i128,
+    rate_bps: i128,
+    time_elapsed: u64,
+) -> Result<i128, MathError> {
+    if principal == 0 || rate_bps == 0 || time_elapsed == 0 {
+        return Ok(0);
+    }
+    let total = compound_interest_continuous(env, principal, rate_bps, time_elapsed)?;
+    safe_sub(total, principal)
+}
+
+/// Advance and persist the cumulative index using continuous compounding.
+pub fn update_interest_cache_continuous(
+    env: &Env,
+    current_rate_bps: i128,
+) -> Result<InterestIndexCache, MathError> {
+    let stored: Option<InterestIndexCache> = env
+        .storage()
+        .persistent()
+        .get(&InterestCacheKey::GlobalIndex);
+    let mut cache = stored
+        .clone()
+        .unwrap_or_else(|| InterestIndexCache::fresh(env, current_rate_bps));
+    let now = env.ledger().timestamp();
+    let ledger = env.ledger().sequence();
+    let mut changed = stored.is_none();
+
+    if ledger != cache.last_ledger && now > cache.last_update {
+        let elapsed = now - cache.last_update;
+        let delta = accrue_interest_continuous(env, cache.index, cache.rate_bps, elapsed)?;
+        cache.index = safe_add(cache.index, delta)?;
+        cache.last_update = now;
+        cache.last_ledger = ledger;
+        changed = true;
+    }
+
+    if cache.rate_bps != current_rate_bps {
+        cache.rate_bps = current_rate_bps;
+        changed = true;
+    }
+
+    if changed {
+        env.storage()
+            .persistent()
+            .set(&InterestCacheKey::GlobalIndex, &cache);
+    }
+
+    Ok(cache)
+}
+
+/// Preview the up-to-date index with continuous compounding without writing to storage.
+pub fn preview_interest_index_continuous(
+    env: &Env,
+    current_rate_bps: i128,
+) -> Result<i128, MathError> {
+    let cache = get_interest_cache(env, current_rate_bps);
+    let now = env.ledger().timestamp();
+    if now <= cache.last_update {
+        return Ok(cache.index);
+    }
+
+    let delta =
+        accrue_interest_continuous(env, cache.index, cache.rate_bps, now - cache.last_update)?;
+    safe_add(cache.index, delta)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,10 +409,63 @@ mod tests {
                 preview,
                 INTEREST_INDEX_SCALE + INTEREST_INDEX_SCALE * 5 / 100
             );
-            assert_eq!(
-                get_interest_cache(&env, 500).index,
-                INTEREST_INDEX_SCALE
+            assert_eq!(get_interest_cache(&env, 500).index, INTEREST_INDEX_SCALE);
+        });
+    }
+
+    #[test]
+    fn test_accrue_interest_continuous_basics() {
+        let env = Env::default();
+        // Zero elapsed time
+        assert_eq!(accrue_interest_continuous(&env, 1_000_000, 500, 0), Ok(0));
+        // Zero principal
+        assert_eq!(
+            accrue_interest_continuous(&env, 0, 500, stellarlend_safe_math::SECONDS_PER_YEAR),
+            Ok(0)
+        );
+        // Zero rate
+        assert_eq!(
+            accrue_interest_continuous(&env, 1_000_000, 0, stellarlend_safe_math::SECONDS_PER_YEAR),
+            Ok(0)
+        );
+
+        // 1 year at 5% (500 bps): continuous compound should yield slightly more than simple interest (50_000)
+        let delta = accrue_interest_continuous(
+            &env,
+            1_000_000,
+            500,
+            stellarlend_safe_math::SECONDS_PER_YEAR,
+        )
+        .unwrap();
+        assert!(
+            delta >= 50_000,
+            "continuous compound {delta} should be >= simple interest 50_000"
+        );
+        assert!(delta < 60_000);
+    }
+
+    #[test]
+    fn test_continuous_interest_cache_update_and_preview() {
+        let env = Env::default();
+        let contract_id = env.register(CacheTestContract, ());
+
+        env.as_contract(&contract_id, || {
+            let initial = update_interest_cache_continuous(&env, 500).unwrap();
+            assert_eq!(initial.index, INTEREST_INDEX_SCALE);
+
+            env.ledger().set_sequence_number(2);
+            env.ledger()
+                .set_timestamp(stellarlend_safe_math::SECONDS_PER_YEAR);
+
+            let preview = preview_interest_index_continuous(&env, 500).unwrap();
+            assert!(
+                preview > INTEREST_INDEX_SCALE + INTEREST_INDEX_SCALE * 5 / 100,
+                "continuous preview should compound higher than simple"
             );
+
+            let accrued = update_interest_cache_continuous(&env, 1_000).unwrap();
+            assert_eq!(accrued.index, preview);
+            assert_eq!(accrued.rate_bps, 1_000);
         });
     }
 }
