@@ -9,6 +9,7 @@ use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Val, Vec};
 
 mod borrow;
 mod deposit;
+mod deposit_batch;
 mod dust;
 mod events;
 mod flash_loan;
@@ -49,6 +50,9 @@ use borrow::{
 use deposit::{
     deposit as deposit_logic, get_user_collateral as get_deposit_collateral,
     initialize_deposit_settings as initialize_deposit_logic, DepositCollateral, DepositError,
+};
+use deposit_batch::{
+    deposit_batch as deposit_batch_logic, BatchDepositResult, DepositRequest,
 };
 use flash_loan::{
     flash_loan as flash_loan_logic, set_flash_loan_fee_bps as set_flash_loan_fee_logic,
@@ -249,6 +253,19 @@ impl LendingContract {
             return Err(DepositError::DepositPaused);
         }
         deposit_logic(&env, user, asset, amount)
+    }
+
+    /// Apply up to `MAX_BATCH_DEPOSITS` deposits atomically with a single auth
+    /// check and a single write of shared pool state.
+    pub fn deposit_batch(
+        env: Env,
+        user: Address,
+        requests: Vec<DepositRequest>,
+    ) -> Result<BatchDepositResult, DepositError> {
+        if is_paused(&env, PauseType::Deposit) {
+            return Err(DepositError::DepositPaused);
+        }
+        deposit_batch_logic(&env, user, requests)
     }
 
     /// Deposit collateral for a borrow position
