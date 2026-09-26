@@ -8,6 +8,7 @@ extern crate alloc;
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Val, Vec};
 
 mod borrow;
+mod calldata;
 mod deposit;
 mod deposit_batch;
 mod dust;
