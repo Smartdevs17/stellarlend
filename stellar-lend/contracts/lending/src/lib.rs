@@ -14,6 +14,7 @@ mod events;
 mod flash_loan;
 mod hot_storage;
 mod interest_rate;
+mod lazy;
 mod pause;
 mod reentrancy;
 mod risk_monitor;

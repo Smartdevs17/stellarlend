@@ -1,4 +1,4 @@
-//! # Lazy Pool-State Initialisation (issue #634, re-filed as #600)
+//! # Lazy Pool-State Initialisation (issues #634 / #600, wired in by #1046)
 //!
 //! Creating a pool previously initialised *every* state field up front, paying
 //! storage rent for slots that aren't touched until much later (or ever). This
@@ -19,6 +19,14 @@
 //!
 //! Eager fields stay in their existing modules; only the deferrable fields below
 //! are routed through the [`LazyField`] check-exists pattern.
+//!
+//! Other deferred slots that follow the same "read default until first write"
+//! rule live next to the code that owns them:
+//!
+//! * the packed deposit hot state (`hot_storage::DepositHotSlot`), created on
+//!   the first deposit / withdraw / settings update;
+//! * the stable-rate premium, recalc interval and switch fee in `borrow`,
+//!   which are only written when an admin overrides the defaults.
 
 use soroban_sdk::{contracterror, contracttype, Env};
 
