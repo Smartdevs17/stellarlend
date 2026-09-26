@@ -182,6 +182,13 @@ pub fn flash_loan(
     }
     append_liquidity_observation(env, &asset, final_balance)?;
 
+    // Accumulated fees are a lazy pool field (#1046): the slot is created by
+    // the first fee-bearing flash loan rather than at pool creation.
+    if fee > 0 {
+        crate::lazy::add(env, crate::lazy::LazyField::AccumulatedFees, fee)
+            .map_err(|_| FlashLoanError::Overflow)?;
+    }
+
     FlashLoanEvent {
         receiver: receiver.clone(),
         asset: asset.clone(),

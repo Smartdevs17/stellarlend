@@ -99,13 +99,13 @@ pub enum BorrowDataKey {
     BorrowUserCollateral(Address),
     /// Aggregate protocol debt
     BorrowTotalDebt,
-    /// Maximum total debt allowed
+    /// Maximum total debt allowed (legacy; now packed in `HotStorageKey::BorrowLimits`)
     BorrowDebtCeiling,
     /// Interest rate configuration
     BorrowInterestRate,
     /// Collateral ratio configuration
     BorrowCollateralRatio,
-    /// Minimum borrow amount
+    /// Minimum borrow amount (legacy; now packed in `HotStorageKey::BorrowLimits`)
     BorrowMinAmount,
     /// Oracle contract address for price feeds (optional)
     OracleAddress,
@@ -391,20 +391,20 @@ fn borrow_inner(
         return Err(BorrowError::InvalidAmount);
     }
 
-    let min_borrow = get_min_borrow_amount(env);
-    if amount < min_borrow {
+    // Both static limits come from one packed entry (#1043).
+    let limits = crate::hot_storage::borrow_limits(env);
+    if amount < limits.min_borrow {
         return Err(BorrowError::BelowMinimumBorrow);
     }
 
     validate_collateral_ratio(collateral_amount, amount)?;
 
     let total_debt = get_total_debt(env);
-    let debt_ceiling = get_debt_ceiling(env);
     let new_total = total_debt
         .checked_add(amount)
         .ok_or(BorrowError::Overflow)?;
 
-    if new_total > debt_ceiling {
+    if new_total > limits.debt_ceiling {
         return Err(BorrowError::DebtCeilingReached);
     }
 
@@ -438,7 +438,15 @@ fn borrow_inner(
     save_collateral_position(env, &user, &collateral_position);
     set_total_debt(env, new_total);
 
-    crate::risk_monitor::on_utilization_changed(env, new_total, debt_ceiling);
+    // Lazy pool state (#1046): the borrow-index snapshot is only materialised
+    // by the pool's first borrow, never at pool creation.
+    let snapshot = crate::lazy::LazyField::BorrowIndexSnapshot;
+    if total_debt == 0 && !crate::lazy::is_initialized(env, snapshot) {
+        crate::lazy::set(env, snapshot, get_interest_index(env))
+            .map_err(|_| BorrowError::Overflow)?;
+    }
+
+    crate::risk_monitor::on_utilization_changed(env, new_total, limits.debt_ceiling);
 
     emit_borrow_event(env, user, asset, amount);
 
@@ -896,17 +904,11 @@ pub fn sweep_debt_dust(env: &Env, user: Address, asset: Address) -> Result<i128,
 }
 
 pub(crate) fn get_debt_ceiling(env: &Env) -> i128 {
-    env.storage()
-        .persistent()
-        .get(&BorrowDataKey::BorrowDebtCeiling)
-        .unwrap_or(i128::MAX)
+    crate::hot_storage::borrow_limits(env).debt_ceiling
 }
 
 pub(crate) fn get_min_borrow_amount(env: &Env) -> i128 {
-    env.storage()
-        .persistent()
-        .get(&BorrowDataKey::BorrowMinAmount)
-        .unwrap_or(1000)
+    crate::hot_storage::borrow_limits(env).min_borrow
 }
 
 fn emit_borrow_event(env: &Env, user: Address, asset: Address, amount: i128) {
@@ -925,42 +927,18 @@ pub fn initialize_borrow_settings(
     min_borrow_amount: i128,
 ) -> Result<(), BorrowError> {
     // Note: ProtocolAdmin check should be performed by the caller (lib.rs)
-    env.storage()
-        .persistent()
-        .set(&BorrowDataKey::BorrowDebtCeiling, &debt_ceiling);
-    env.storage()
-        .persistent()
-        .set(&BorrowDataKey::BorrowMinAmount, &min_borrow_amount);
+    crate::hot_storage::store_borrow_limits(
+        env,
+        &crate::hot_storage::BorrowLimits {
+            debt_ceiling,
+            min_borrow: min_borrow_amount,
+        },
+    );
     crate::interest_rate::set_default_if_missing(env);
-    if !env
-        .storage()
-        .persistent()
-        .has(&BorrowDataKey::StableRatePremiumBps)
-    {
-        env.storage().persistent().set(
-            &BorrowDataKey::StableRatePremiumBps,
-            &DEFAULT_STABLE_PREMIUM_BPS,
-        );
-    }
-    if !env
-        .storage()
-        .persistent()
-        .has(&BorrowDataKey::StableRateRecalcIntervalSecs)
-    {
-        env.storage().persistent().set(
-            &BorrowDataKey::StableRateRecalcIntervalSecs,
-            &DEFAULT_STABLE_RECALC_INTERVAL_SECS,
-        );
-    }
-    if !env
-        .storage()
-        .persistent()
-        .has(&BorrowDataKey::RateSwitchFeeBps)
-    {
-        env.storage()
-            .persistent()
-            .set(&BorrowDataKey::RateSwitchFeeBps, &DEFAULT_SWITCH_FEE_BPS);
-    }
+    // Stable-rate premium, recalculation interval and switch fee are *not*
+    // written here any more (#1046): their getters already fall back to the
+    // `DEFAULT_*` constants, so the slots are only allocated when an admin
+    // overrides them. This saves three persistent entries per pool.
     Ok(())
 }
 

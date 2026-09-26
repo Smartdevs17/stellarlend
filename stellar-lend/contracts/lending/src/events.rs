@@ -49,6 +49,22 @@ pub struct VaultDepositEvent {
     pub timestamp: u64,
 }
 
+/// Summary of a `deposit_batch` call. Each entry in the batch still emits its
+/// own [`VaultDepositEvent`]; this event lets indexers group them.
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct BatchDepositEvent {
+    #[topic]
+    pub user: Address,
+    /// Number of deposits applied.
+    pub count: u32,
+    /// Sum of all deposited amounts.
+    pub total_amount: i128,
+    /// User's collateral balance after the whole batch.
+    pub new_balance: i128,
+    pub timestamp: u64,
+}
+
 /// Withdraw / emergency-withdraw event (includes post-withdrawal balance).
 #[contractevent]
 #[derive(Clone, Debug)]

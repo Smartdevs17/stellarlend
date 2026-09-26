@@ -8,11 +8,15 @@ extern crate alloc;
 use soroban_sdk::{contract, contractimpl, Address, Bytes, Env, Val, Vec};
 
 mod borrow;
+mod calldata;
 mod deposit;
+mod deposit_batch;
 mod dust;
 mod events;
 mod flash_loan;
+mod hot_storage;
 mod interest_rate;
+mod lazy;
 mod pause;
 mod reentrancy;
 mod risk_monitor;
@@ -44,14 +48,17 @@ use borrow::{
     sweep_debt_dust as borrow_sweep_debt_dust, switch_rate_type as switch_rate_type_logic,
     BorrowCollateral, BorrowError, DebtPosition, RateType,
 };
+use calldata::{CalldataError, CompressedOp};
 use deposit::{
     deposit as deposit_logic, get_user_collateral as get_deposit_collateral,
     initialize_deposit_settings as initialize_deposit_logic, DepositCollateral, DepositError,
 };
+use deposit_batch::{deposit_batch as deposit_batch_logic, BatchDepositResult, DepositRequest};
 use flash_loan::{
     flash_loan as flash_loan_logic, set_flash_loan_fee_bps as set_flash_loan_fee_logic,
     FlashLoanError,
 };
+use lazy::{LazyField, PoolStateView};
 use pause::{is_paused, set_pause as set_pause_logic, PauseType};
 use reentrancy::ReentrancyGuard;
 use token_receiver::receive as receive_logic;
@@ -248,6 +255,19 @@ impl LendingContract {
         deposit_logic(&env, user, asset, amount)
     }
 
+    /// Apply up to `MAX_BATCH_DEPOSITS` deposits atomically with a single auth
+    /// check and a single write of shared pool state.
+    pub fn deposit_batch(
+        env: Env,
+        user: Address,
+        requests: Vec<DepositRequest>,
+    ) -> Result<BatchDepositResult, DepositError> {
+        if is_paused(&env, PauseType::Deposit) {
+            return Err(DepositError::DepositPaused);
+        }
+        deposit_batch_logic(&env, user, requests)
+    }
+
     /// Deposit collateral for a borrow position
     pub fn deposit_collateral(
         env: Env,
@@ -372,6 +392,85 @@ impl LendingContract {
     ) -> DepositCollateral {
         get_deposit_collateral(&env, &user, &asset)
     }
+    // ═══════════════════════════════════════════════════════════════════
+    // Compressed calldata (#1045)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Execute a compressed multi-operation payload for `user` (single auth,
+    /// atomic). Returns the number of operations executed.
+    pub fn execute_compressed(
+        env: Env,
+        user: Address,
+        payload: Bytes,
+    ) -> Result<u32, CalldataError> {
+        calldata::execute(&env, user, payload)
+    }
+
+    /// Replace the asset dictionary used to resolve compressed asset indices
+    /// (admin only).
+    pub fn set_calldata_assets(
+        env: Env,
+        admin: Address,
+        assets: Vec<Address>,
+    ) -> Result<(), CalldataError> {
+        let current_admin = get_borrow_admin(&env).ok_or(CalldataError::Unauthorized)?;
+        if admin != current_admin {
+            return Err(CalldataError::Unauthorized);
+        }
+        admin.require_auth();
+        calldata::set_dictionary(&env, &assets)
+    }
+
+    /// Current compressed-calldata asset dictionary (index = position).
+    pub fn get_calldata_assets(env: Env) -> Vec<Address> {
+        calldata::get_dictionary(&env)
+    }
+
+    /// Encode operations into the compressed wire format (read-only helper for
+    /// clients building payloads via simulation).
+    pub fn encode_calldata(env: Env, ops: Vec<CompressedOp>) -> Result<Bytes, CalldataError> {
+        calldata::encode(&env, &ops)
+    }
+
+    /// Decode a compressed payload without executing it.
+    pub fn decode_calldata(env: Env, payload: Bytes) -> Result<Vec<CompressedOp>, CalldataError> {
+        calldata::decode(&env, &payload)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Lazy pool state (#1046)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Snapshot of the lazily-initialised pool fields. Pure read: fields that
+    /// have never been written report their defaults and are not allocated.
+    pub fn get_pool_state(env: Env) -> PoolStateView {
+        lazy::snapshot(&env)
+    }
+
+    /// Read a single lazily-initialised pool field (default if never written).
+    pub fn get_pool_state_field(env: Env, field: LazyField) -> i128 {
+        lazy::get(&env, field)
+    }
+
+    /// Materialise every lazy field and fold legacy per-field hot-path entries
+    /// into their packed slots (admin only). Idempotent; returns the number of
+    /// storage entries that were newly written or migrated.
+    pub fn migrate_pool_state(env: Env, admin: Address) -> Result<u32, BorrowError> {
+        let current_admin = get_borrow_admin(&env).ok_or(BorrowError::Unauthorized)?;
+        if admin != current_admin {
+            return Err(BorrowError::Unauthorized);
+        }
+        admin.require_auth();
+        let mut written = lazy::migrate_initialize_all(&env);
+        if hot_storage::migrate_deposit_state(&env) {
+            written += 1;
+        }
+        if hot_storage::migrate_borrow_limits(&env) {
+            written += 1;
+        }
+        Ok(written)
+    }
+
     /// Get protocol admin
     pub fn get_admin(env: Env) -> Option<Address> {
         get_borrow_admin(&env)

@@ -1,4 +1,4 @@
-//! # Lazy Pool-State Initialisation (issue #634, re-filed as #600)
+//! # Lazy Pool-State Initialisation (issues #634 / #600, wired in by #1046)
 //!
 //! Creating a pool previously initialised *every* state field up front, paying
 //! storage rent for slots that aren't touched until much later (or ever). This
@@ -19,6 +19,14 @@
 //!
 //! Eager fields stay in their existing modules; only the deferrable fields below
 //! are routed through the [`LazyField`] check-exists pattern.
+//!
+//! Other deferred slots that follow the same "read default until first write"
+//! rule live next to the code that owns them:
+//!
+//! * the packed deposit hot state (`hot_storage::DepositHotSlot`), created on
+//!   the first deposit / withdraw / settings update;
+//! * the stable-rate premium, recalc interval and switch fee in `borrow`,
+//!   which are only written when an admin overrides the defaults.
 
 use soroban_sdk::{contracterror, contracttype, Env};
 
@@ -117,19 +125,58 @@ pub fn add(env: &Env, field: LazyField, delta: i128) -> Result<i128, LazyError> 
     Ok(next)
 }
 
+/// Every deferrable field, in [`LazyField`] discriminant order.
+pub const ALL_FIELDS: [LazyField; 5] = [
+    LazyField::ReserveBalance,
+    LazyField::AccumulatedFees,
+    LazyField::LiquidationCounter,
+    LazyField::TotalReserves,
+    LazyField::BorrowIndexSnapshot,
+];
+
+/// Read-only snapshot of all lazy pool fields.
+///
+/// Uninitialised fields report their [`default_for`] value; `initialized_mask`
+/// has bit `n` set when the field with discriminant `n` has been materialised,
+/// so indexers can tell "zero because empty" from "never touched".
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PoolStateView {
+    pub reserve_balance: i128,
+    pub accumulated_fees: i128,
+    pub liquidation_counter: i128,
+    pub total_reserves: i128,
+    pub borrow_index_snapshot: i128,
+    pub initialized_mask: u32,
+    /// Whether the packed deposit hot-state slot exists yet.
+    pub deposit_state_initialized: bool,
+}
+
+/// Build a [`PoolStateView`] without writing to storage.
+pub fn snapshot(env: &Env) -> PoolStateView {
+    let mut mask = 0u32;
+    for f in ALL_FIELDS.iter() {
+        if is_initialized(env, *f) {
+            mask |= 1 << (*f as u32);
+        }
+    }
+    PoolStateView {
+        reserve_balance: get(env, LazyField::ReserveBalance),
+        accumulated_fees: get(env, LazyField::AccumulatedFees),
+        liquidation_counter: get(env, LazyField::LiquidationCounter),
+        total_reserves: get(env, LazyField::TotalReserves),
+        borrow_index_snapshot: get(env, LazyField::BorrowIndexSnapshot),
+        initialized_mask: mask,
+        deposit_state_initialized: crate::hot_storage::is_deposit_state_initialized(env),
+    }
+}
+
 /// Migration path for pre-existing pools: eagerly materialise every lazy field
 /// to its default so historical pools behave identically to lazily-initialised
 /// ones. Returns the number of fields that were newly written.
 pub fn migrate_initialize_all(env: &Env) -> u32 {
-    let fields = [
-        LazyField::ReserveBalance,
-        LazyField::AccumulatedFees,
-        LazyField::LiquidationCounter,
-        LazyField::TotalReserves,
-        LazyField::BorrowIndexSnapshot,
-    ];
     let mut written = 0u32;
-    for f in fields.iter() {
+    for f in ALL_FIELDS.iter() {
         if ensure_initialized(env, *f) {
             written += 1;
         }
