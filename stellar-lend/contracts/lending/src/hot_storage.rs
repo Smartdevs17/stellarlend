@@ -17,6 +17,10 @@
 //! A deposit now costs one read + one write of the packed slot (instead of three
 //! reads + one write), and a withdraw costs one read + one write.
 //!
+//! The borrow hot path gets the same treatment for its two static limits
+//! (`BorrowDebtCeiling`, `BorrowMinAmount`), which are packed into a single
+//! [`BorrowLimits`] entry, halving the configuration reads on every borrow.
+//!
 //! ## Backward compatibility
 //!
 //! Contracts deployed before this change still hold the three legacy entries.
@@ -33,6 +37,7 @@
 //! only created the first time a deposit, withdraw or settings update needs to
 //! persist it.
 
+use crate::borrow::BorrowDataKey;
 use crate::deposit::DepositDataKey;
 use soroban_sdk::{contracttype, Env};
 
@@ -42,6 +47,8 @@ use soroban_sdk::{contracttype, Env};
 pub enum HotStorageKey {
     /// Packed [`DepositHotState`].
     DepositState,
+    /// Packed [`BorrowLimits`].
+    BorrowLimits,
 }
 
 /// Deposit hot-path globals packed into a single ledger entry.
@@ -159,5 +166,73 @@ pub fn migrate_deposit_state(env: &Env) -> bool {
         return false;
     }
     slot.commit(env);
+    true
+}
+
+// ── Borrow limits ────────────────────────────────────────────────────────
+
+/// Static borrow limits read on every borrow, packed into one entry.
+#[contracttype]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BorrowLimits {
+    /// Maximum aggregate protocol debt.
+    pub debt_ceiling: i128,
+    /// Minimum principal for a single borrow.
+    pub min_borrow: i128,
+}
+
+impl BorrowLimits {
+    /// Values a pool reads before any limits have been configured.
+    pub const DEFAULT: BorrowLimits = BorrowLimits {
+        debt_ceiling: i128::MAX,
+        min_borrow: 1000,
+    };
+}
+
+/// Read the packed borrow limits, falling back to legacy keys and then defaults.
+///
+/// Never writes: a pool that predates #1043 keeps working from its legacy
+/// entries until [`store_borrow_limits`] (or [`migrate_borrow_limits`]) runs.
+pub fn borrow_limits(env: &Env) -> BorrowLimits {
+    let storage = env.storage().persistent();
+    if let Some(limits) = storage.get::<_, BorrowLimits>(&HotStorageKey::BorrowLimits) {
+        return limits;
+    }
+    BorrowLimits {
+        debt_ceiling: storage
+            .get(&BorrowDataKey::BorrowDebtCeiling)
+            .unwrap_or(BorrowLimits::DEFAULT.debt_ceiling),
+        min_borrow: storage
+            .get(&BorrowDataKey::BorrowMinAmount)
+            .unwrap_or(BorrowLimits::DEFAULT.min_borrow),
+    }
+}
+
+/// Persist the packed borrow limits and drop any legacy per-field entries.
+pub fn store_borrow_limits(env: &Env, limits: &BorrowLimits) {
+    let storage = env.storage().persistent();
+    storage.set(&HotStorageKey::BorrowLimits, limits);
+    if storage.has(&BorrowDataKey::BorrowDebtCeiling) {
+        storage.remove(&BorrowDataKey::BorrowDebtCeiling);
+    }
+    if storage.has(&BorrowDataKey::BorrowMinAmount) {
+        storage.remove(&BorrowDataKey::BorrowMinAmount);
+    }
+}
+
+/// Eagerly migrate legacy borrow-limit entries into the packed slot.
+/// Returns `true` if a migration was performed.
+pub fn migrate_borrow_limits(env: &Env) -> bool {
+    let storage = env.storage().persistent();
+    if storage.has(&HotStorageKey::BorrowLimits) {
+        return false;
+    }
+    if !storage.has(&BorrowDataKey::BorrowDebtCeiling)
+        && !storage.has(&BorrowDataKey::BorrowMinAmount)
+    {
+        return false;
+    }
+    let limits = borrow_limits(env);
+    store_borrow_limits(env, &limits);
     true
 }

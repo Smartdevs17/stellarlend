@@ -99,13 +99,13 @@ pub enum BorrowDataKey {
     BorrowUserCollateral(Address),
     /// Aggregate protocol debt
     BorrowTotalDebt,
-    /// Maximum total debt allowed
+    /// Maximum total debt allowed (legacy; now packed in `HotStorageKey::BorrowLimits`)
     BorrowDebtCeiling,
     /// Interest rate configuration
     BorrowInterestRate,
     /// Collateral ratio configuration
     BorrowCollateralRatio,
-    /// Minimum borrow amount
+    /// Minimum borrow amount (legacy; now packed in `HotStorageKey::BorrowLimits`)
     BorrowMinAmount,
     /// Oracle contract address for price feeds (optional)
     OracleAddress,
@@ -391,20 +391,20 @@ fn borrow_inner(
         return Err(BorrowError::InvalidAmount);
     }
 
-    let min_borrow = get_min_borrow_amount(env);
-    if amount < min_borrow {
+    // Both static limits come from one packed entry (#1043).
+    let limits = crate::hot_storage::borrow_limits(env);
+    if amount < limits.min_borrow {
         return Err(BorrowError::BelowMinimumBorrow);
     }
 
     validate_collateral_ratio(collateral_amount, amount)?;
 
     let total_debt = get_total_debt(env);
-    let debt_ceiling = get_debt_ceiling(env);
     let new_total = total_debt
         .checked_add(amount)
         .ok_or(BorrowError::Overflow)?;
 
-    if new_total > debt_ceiling {
+    if new_total > limits.debt_ceiling {
         return Err(BorrowError::DebtCeilingReached);
     }
 
@@ -896,17 +896,11 @@ pub fn sweep_debt_dust(env: &Env, user: Address, asset: Address) -> Result<i128,
 }
 
 pub(crate) fn get_debt_ceiling(env: &Env) -> i128 {
-    env.storage()
-        .persistent()
-        .get(&BorrowDataKey::BorrowDebtCeiling)
-        .unwrap_or(i128::MAX)
+    crate::hot_storage::borrow_limits(env).debt_ceiling
 }
 
 pub(crate) fn get_min_borrow_amount(env: &Env) -> i128 {
-    env.storage()
-        .persistent()
-        .get(&BorrowDataKey::BorrowMinAmount)
-        .unwrap_or(1000)
+    crate::hot_storage::borrow_limits(env).min_borrow
 }
 
 fn emit_borrow_event(env: &Env, user: Address, asset: Address, amount: i128) {
@@ -925,12 +919,13 @@ pub fn initialize_borrow_settings(
     min_borrow_amount: i128,
 ) -> Result<(), BorrowError> {
     // Note: ProtocolAdmin check should be performed by the caller (lib.rs)
-    env.storage()
-        .persistent()
-        .set(&BorrowDataKey::BorrowDebtCeiling, &debt_ceiling);
-    env.storage()
-        .persistent()
-        .set(&BorrowDataKey::BorrowMinAmount, &min_borrow_amount);
+    crate::hot_storage::store_borrow_limits(
+        env,
+        &crate::hot_storage::BorrowLimits {
+            debt_ceiling,
+            min_borrow: min_borrow_amount,
+        },
+    );
     crate::interest_rate::set_default_if_missing(env);
     if !env
         .storage()
