@@ -1,0 +1,9 @@
+{
+  "name": "healthy-xlm-borrow",
+  "description": "20,000 XLM against 8,000 USDC with a flat 1.0 oracle price, which is what the contract's own MockOracle returns: with price = PRICE_SCALE the contract's value equals the raw amount, so these are directly comparable. Weighted collateral is 16,000 against 8,000 of debt, giving a 2.0x health factor and a 50% collateral fall before liquidation.",
+  "oraclePresent": true,
+  "collateral": [
+    { "asset": "XLM", "amount": "20000", "price": "100000000" }
+  ],
+  "debt": { "asset": "USDC", "amount": "8000", "price": "100000000" }
+}

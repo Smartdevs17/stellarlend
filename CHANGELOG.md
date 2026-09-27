@@ -9,6 +9,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ## [Unreleased]
 
 ### Added
+- Lending pool position health simulation in `scripts/position-health-sim`: a faithful reference implementation of the contract's `compute_health_factor` (including its two truncating divisions, the no-debt sentinel, the no-oracle 0 and the overflow fallbacks), with the contract's constants read out of the Rust source rather than copied; simulates the committed `scenarios/*.json` corpus and price shock grids, computes the break-even collateral price and the distance to liquidation, and sweeps the admin-settable `liquidation_threshold_bps` to show what a change does to the liquidation boundary (#1013)
 - Flash loan pool rules in the `flash-loan` crate: validated fee (rounded up) and min/max amount, a per-loan pool-share cap, balance-based repayment checking and metrics (#1019)
 - Collateral factor registry in `lending-risk`: risk tiers with parameter ceilings, threshold-gap and coverage validation, freezing and supply caps (#1020)
 - Liquidator loyalty incentives and an MEV guard (per-position cooldown, per-ledger cap, price-deviation band) in `lending-risk` (#1021)

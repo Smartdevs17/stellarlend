@@ -1,0 +1,10 @@
+{
+  "name": "multi-asset-borrow",
+  "description": "8,000 XLM plus 2,000 BTC units priced at 0.5 against 7,000 USDC. The collateral value is 8,000 + 1,000 = 9,000, so the weighted amount is 7,200 and the health factor is 1.03x. The break-even is no longer a single asset's price: it is the weighted combination, which is exactly what a single-asset liquidation price cannot express.",
+  "oraclePresent": true,
+  "collateral": [
+    { "asset": "XLM", "amount": "8000", "price": "100000000" },
+    { "asset": "BTC", "amount": "2000", "price": "50000000" }
+  ],
+  "debt": { "asset": "USDC", "amount": "7000", "price": "100000000" }
+}

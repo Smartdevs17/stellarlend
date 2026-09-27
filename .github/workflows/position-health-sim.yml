@@ -1,0 +1,117 @@
+name: Lending Pool Position Health Simulation (#1013)
+
+# Simulate market conditions against the lending pool's own health factor and
+# liquidation threshold math.
+#
+#   - Runs both unit suites.
+#   - Publishes an example report to the job summary.
+#   - Confirms the tool fails rather than guessing when a contract constant is
+#     renamed (negative test).
+#   - Confirms a malformed scenario is rejected rather than skipped (negative
+#     test).
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "scripts/position-health-sim/**"
+      - "scenarios/**"
+      - "stellar-lend/contracts/lending/src/views.rs"
+      - "stellar-lend/contracts/lending/src/borrow.rs"
+      - ".github/workflows/position-health-sim.yml"
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "scripts/position-health-sim/**"
+      - "scenarios/**"
+      - "stellar-lend/contracts/lending/src/views.rs"
+      - "stellar-lend/contracts/lending/src/borrow.rs"
+      - ".github/workflows/position-health-sim.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  position-health-sim:
+    name: Position health simulation (#1013)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22 (type-stripping)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run unit suites
+        run: node --experimental-strip-types --test scripts/position-health-sim/*.test.ts
+
+      - name: Simulate the leveraged position through a flash crash
+        run: |
+          node --experimental-strip-types scripts/position-health-sim/index.ts \
+            --position leveraged-xlm-borrow --grid flash_crash
+
+      - name: Publish the report to the job summary
+        if: always()
+        run: |
+          set -euo pipefail
+          for position in leveraged-xlm-borrow multi-asset-borrow no-oracle-xlm-borrow; do
+            REPORT="$(mktemp)"
+            node --experimental-strip-types scripts/position-health-sim/index.ts \
+              --position "$position" --grid both_sides \
+              --format markdown --out "$REPORT"
+            {
+              echo
+              cat "$REPORT"
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+            rm -f "$REPORT"
+          done
+
+      - name: Negative test — a renamed contract constant must fail the tool
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          cp -r stellar-lend/contracts/lending/src "$TMP/src"
+          # Rename HEALTH_FACTOR_SCALE. The tool reads the constant out of the
+          # source, so pointing it at this copy must make it fail rather than
+          # simulate against its fallback.
+          sed -i 's/HEALTH_FACTOR_SCALE/HEALTH_FACTOR_SCALE_RENAMED/g' "$TMP/src/views.rs"
+          if node --experimental-strip-types scripts/position-health-sim/index.ts \
+            --contract-src "$TMP/src" \
+            --position leveraged-xlm-borrow >/dev/null 2>&1; then
+            echo "::error::Simulator ran against a renamed constant — expected failure."
+            exit 1
+          fi
+          # The same copy with the constant intact must still simulate, so the
+          # failure above is the rename and not the path.
+          cp stellar-lend/contracts/lending/src/views.rs "$TMP/src/views.rs"
+          if ! node --experimental-strip-types scripts/position-health-sim/index.ts \
+            --contract-src "$TMP/src" \
+            --position leveraged-xlm-borrow >/dev/null 2>&1; then
+            echo "::error::Simulator failed on an unmutated copy of the contract source."
+            exit 1
+          fi
+          echo "Negative test passed (a renamed constant was rejected, an intact copy was not)."
+
+      - name: Negative test — a malformed scenario must be rejected
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          cat > "$TMP/broken.json" <<'JSON'
+          { "name": "Broken", "priceChanges": [ { "asset": "XLM" } ] }
+          JSON
+          if node --experimental-strip-types -e "
+            import('./scripts/position-health-sim/scenarios.ts').then((m) => {
+              m.parseScenario(require('fs').readFileSync('$TMP/broken.json', 'utf8'), 'broken.json');
+            });
+          " 2>/dev/null; then
+            echo "::error::A scenario with a non-numeric changePercent was accepted."
+            exit 1
+          fi
+          echo "Negative test passed (a malformed scenario was rejected)."
