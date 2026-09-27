@@ -1,0 +1,112 @@
+name: Lending Protocol Gas Budget Planner (#1012)
+
+# A lender's gas budget for a pattern of operations, derived from the cost data
+# the repository already publishes.
+#
+#   - Runs the planner unit suite.
+#   - Publishes a worked example plan to the job summary.
+#   - Confirms an over-budget plan really does fail the gate (negative test).
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "scripts/gas-budget-planner/**"
+      - "api/src/services/gas/estimator.ts"
+      - "stellar-lend/benchmarks/**"
+      - "stellar-lend/contracts/lending/src/deposit_batch.rs"
+      - ".github/workflows/gas-budget-planner.yml"
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "scripts/gas-budget-planner/**"
+      - "api/src/services/gas/estimator.ts"
+      - "stellar-lend/benchmarks/**"
+      - "stellar-lend/contracts/lending/src/deposit_batch.rs"
+      - ".github/workflows/gas-budget-planner.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gas-budget-planner:
+    name: Gas budget planner (#1012)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22 (type-stripping)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run planner unit suite
+        run: node --experimental-strip-types --test scripts/gas-budget-planner/planner.test.ts
+
+      - name: Plan the multi-asset rebalancer pattern
+        run: |
+          node --experimental-strip-types scripts/gas-budget-planner/index.ts \
+            --plan scripts/gas-budget-planner/patterns/multi-asset-rebalancer.json \
+            --budget-xlm 0.5
+
+      - name: Publish the plan to the job summary
+        if: always()
+        run: |
+          set -euo pipefail
+          for pattern in steady-lender leveraged-loop multi-asset-rebalancer watchtower-liquidator; do
+            REPORT="$(mktemp)"
+            node --experimental-strip-types scripts/gas-budget-planner/index.ts \
+              --plan "scripts/gas-budget-planner/patterns/${pattern}.json" \
+              --budget-xlm 0.5 --xlm-price 0.11 \
+              --format markdown --out "$REPORT"
+            {
+              echo
+              cat "$REPORT"
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+            rm -f "$REPORT"
+          done
+
+      - name: Negative test — an over-budget plan must fail the gate
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp)"
+          # Same pattern, a budget a fraction of what it needs.
+          cat > "$TMP" <<'JSON'
+          {
+            "name": "over-budget",
+            "periodDays": 30,
+            "operations": { "deposit": 4, "borrow": 4, "repay": 4, "withdraw": 4 }
+          }
+          JSON
+          if node --experimental-strip-types scripts/gas-budget-planner/index.ts \
+            --plan "$TMP" --budget-stroops 1000 --fail-over-budget >/dev/null 2>&1; then
+            echo "::error::Planner passed an over-budget plan — expected failure."
+            exit 1
+          fi
+          echo "Negative test passed (an over-budget plan failed the gate)."
+
+      - name: Negative test — an unknown operation must not price at zero
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp)"
+          cat > "$TMP" <<'JSON'
+          {
+            "name": "typo",
+            "periodDays": 30,
+            "operations": { "deposit": 1, "depositt": 1 }
+          }
+          JSON
+          REPORT="$(mktemp)"
+          node --experimental-strip-types scripts/gas-budget-planner/index.ts \
+            --plan "$TMP" --format json --out "$REPORT" 2>/dev/null
+          if ! grep -q "unknown-operation" "$REPORT"; then
+            echo "::error::An operation missing from the cost table was silently ignored."
+            exit 1
+          fi
+          echo "Negative test passed (an unknown operation was reported)."
