@@ -2,6 +2,8 @@
 
 use soroban_sdk::{contractclient, contracttype, Address, Env};
 
+pub mod pool;
+
 /// Standard interface for contracts that want to receive flash loans
 #[contractclient(name = "FlashLoanReceiverClient")]
 pub trait FlashLoanReceiver {
