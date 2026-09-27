@@ -9,6 +9,10 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ## [Unreleased]
 
 ### Added
+- Flash loan pool rules in the `flash-loan` crate: validated fee (rounded up) and min/max amount, a per-loan pool-share cap, balance-based repayment checking and metrics (#1019)
+- Collateral factor registry in `lending-risk`: risk tiers with parameter ceilings, threshold-gap and coverage validation, freezing and supply caps (#1020)
+- Liquidator loyalty incentives and an MEV guard (per-position cooldown, per-ledger cap, price-deviation band) in `lending-risk` (#1021)
+- Documentation for the utilization-based variable interest rate model in `lending-interest` (#1018)
 - Heartbeat monitoring in the Oracle Hub: opt-in per-asset reporting-cadence expectations (`interval_seconds`, `stale_after_seconds`, `expiry_seconds`), a permissionless idempotent sweep, and a fail-closed expiry that withholds a price nobody is updating instead of serving a stale one (#1034)
 - Bounded price-history retention in the Oracle Hub: an opt-in fixed ring of resolved prices per asset, recorded on fresh resolutions only, queryable by range and recorded with the inputs that produced each decision (#1041)
 - Governance-funded reporter incentives in the Oracle Hub: a token reward pool that pays oracle addresses for accepted reports, with per-asset rates, a per-oracle minimum interval, a rate ceiling, reporter-authorized claims, and a withdrawal floor that cannot touch earnings already owed (#1042)

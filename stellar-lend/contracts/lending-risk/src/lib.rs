@@ -4,6 +4,7 @@ use lending_types::{calculate_health_factor, is_healthy, BPS_DIVISOR};
 use stellarlend_safe_math::{safe_add, safe_div, safe_mul, safe_sub, MathError};
 
 pub mod collateral_registry;
+pub mod liquidator_incentives;
 
 pub struct RiskManager;
 
