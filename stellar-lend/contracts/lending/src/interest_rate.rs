@@ -239,3 +239,13 @@ impl From<InterestRateError> for BorrowError {
         }
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    InterestRateError => stellarlend_errors::domains::LENDING_INTEREST_RATE;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    InvalidParameter => InvalidInput, "Parameter is invalid or out of range";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    DivisionByZero => DivisionByZero, "Division by zero";
+}

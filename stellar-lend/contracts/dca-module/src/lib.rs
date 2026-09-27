@@ -430,3 +430,22 @@ impl DcaModule {
 
 #[cfg(test)]
 mod test;
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    DcaError => stellarlend_errors::domains::DCA_MODULE;
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    PlanNotFound => NotFound, "Plan not found";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    InvalidFrequency => InvalidInput, "Invalid frequency";
+    PlanNotActive => InvalidState, "Plan not active";
+    PlanAlreadyPaused => InvalidState, "Plan already paused", FixInput;
+    PlanNotPaused => InvalidState, "Plan not paused", FixInput;
+    ExecutionNotDue => InvalidState, "Execution not due";
+    InsufficientFunds => Insufficient, "Funds are insufficient for this operation";
+    PlanCompleted => InvalidState, "Plan completed", FixInput;
+    MaxPlansReached => LimitExceeded, "Max plans reached", ReduceAmount;
+}

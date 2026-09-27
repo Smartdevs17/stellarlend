@@ -1096,3 +1096,23 @@ fn auto_disable_feed(env: &Env, asset: &Bytes, priority: u32) {
         .publish(env);
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    OracleHubError => stellarlend_errors::domains::ORACLE_HUB;
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    Frozen => Paused, "Frozen";
+    FeedNotFound => NotFound, "Feed not found";
+    FeedDisabled => PriceUnavailable, "Feed disabled";
+    InvalidPrice => PriceUnavailable, "Invalid price";
+    NoActiveFeeds => PriceUnavailable, "No active feeds";
+    FetchFailed => Internal, "Fetch failed", RetryLater;
+    InvalidConfig => InvalidInput, "Configuration values are invalid";
+    FeedSlotOccupied => AlreadyExists, "The requested feed slot already holds a feed";
+    InsufficientSources => PriceUnavailable, "Too few sources agreed to publish a price";
+    HeartbeatExpired => PriceUnavailable, "A monitored feed slot stopped reporting past its expiry, so the hub refuses to serve a price nobody is updating";
+    RewardPoolShortfall => Insufficient, "The reward pool cannot cover a claim or withdrawal reporters have already earned against", ContactAdmin;
+    RewardOverflow => Overflow, "A reporter's earnings would exceed the largest representable balance";
+}

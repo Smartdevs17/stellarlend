@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
 
 [dependencies]
+stellarlend-errors = { path = "../errors" }
 soroban-sdk = { workspace = true }
 
 [dev-dependencies]

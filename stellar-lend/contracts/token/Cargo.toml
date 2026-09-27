@@ -8,6 +8,7 @@ description = "Unified token adapter pattern for StellarLend — consolidates ER
 crate-type = ["rlib"]
 
 [dependencies]
+stellarlend-errors = { path = "../errors" }
 soroban-sdk = { workspace = true }
 soroban-token-sdk = { workspace = true }
 

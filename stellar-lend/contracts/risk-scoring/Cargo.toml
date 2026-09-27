@@ -8,6 +8,7 @@ crate-type = ["cdylib", "lib"]
 doctest = false
 
 [dependencies]
+stellarlend-errors = { path = "../errors" }
 soroban-sdk = { workspace = true }
 lending-risk = { path = "../lending-risk" }
 lending-types = { path = "../lending-types" }

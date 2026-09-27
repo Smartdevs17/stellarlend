@@ -242,6 +242,7 @@ name = "auto-compound-vault"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -332,6 +333,7 @@ version = "0.0.0"
 dependencies = [
  "soroban-sdk",
  "stellarlend-common",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -678,6 +680,7 @@ name = "dca-module"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -703,6 +706,7 @@ name = "delegation-registry"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
  "stellarlend-shared-deadline",
 ]
 
@@ -1538,6 +1542,7 @@ name = "insurance-marketplace"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -1704,6 +1709,7 @@ name = "leveraged-yield"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -1963,6 +1969,7 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "soroban-token-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -2048,6 +2055,7 @@ name = "position-manager"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -2099,6 +2107,7 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "soroban-token-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -2108,6 +2117,7 @@ dependencies = [
  "soroban-sdk",
  "soroban-token-sdk",
  "stealth-address",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -2346,6 +2356,7 @@ name = "referral-program"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -2447,6 +2458,7 @@ dependencies = [
  "lending-risk",
  "lending-types",
  "soroban-sdk",
+ "stellarlend-errors",
  "stellarlend-safe-math",
 ]
 
@@ -2817,6 +2829,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -2888,6 +2901,7 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "stellarlend-common",
+ "stellarlend-errors",
  "stellarlend-shared-deadline",
 ]
 
@@ -3150,6 +3164,7 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "soroban-token-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3199,6 +3214,7 @@ dependencies = [
  "soroban-sdk",
  "soroban-token-sdk",
  "stellarlend-common",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3256,6 +3272,7 @@ name = "stellarlend-compliance"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3272,6 +3289,7 @@ version = "0.1.0"
 dependencies = [
  "shared-events",
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3288,6 +3306,7 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "soroban-token-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3311,6 +3330,7 @@ name = "stellarlend-earnings-reinvest"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3327,6 +3347,7 @@ dependencies = [
  "soroban-sdk",
  "soroban-token-sdk",
  "stellarlend-common",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3368,6 +3389,7 @@ dependencies = [
  "soroban-sdk",
  "soroban-token-sdk",
  "stellarlend-common",
+ "stellarlend-errors",
  "stellarlend-shared-deadline",
 ]
 
@@ -3403,6 +3425,7 @@ name = "stellarlend-pool-migration"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
  "stellarlend-shared-deadline",
 ]
 
@@ -3419,6 +3442,7 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "stellarlend-common",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3434,6 +3458,7 @@ name = "stellarlend-security"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3448,6 +3473,7 @@ name = "stellarlend-shared-signatures"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3456,6 +3482,7 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "soroban-token-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3471,6 +3498,7 @@ name = "stellarlend-storage-layer"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3478,6 +3506,7 @@ name = "stellarlend-swap-router"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3486,6 +3515,7 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "soroban-token-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3494,6 +3524,7 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "soroban-token-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3501,6 +3532,7 @@ name = "stellarlend-twap-oracle"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -3964,6 +3996,7 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "soroban-token-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -4497,6 +4530,7 @@ version = "0.1.0"
 dependencies = [
  "pool-interfaces",
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -4504,6 +4538,7 @@ name = "yield-splitter"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]
@@ -4512,6 +4547,7 @@ version = "0.1.0"
 dependencies = [
  "soroban-sdk",
  "soroban-token-sdk",
+ "stellarlend-errors",
 ]
 
 [[package]]

@@ -547,3 +547,21 @@ impl TokenAdapter for UnifiedTokenAdapter {
         })
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    TokenError => stellarlend_errors::domains::TOKEN;
+    InsufficientBalance => Insufficient, "Insufficient balance for the requested operation";
+    InsufficientAllowance => Insufficient, "Insufficient allowance for the spender";
+    TransferFailed => Internal, "Token transfer failed";
+    ApproveFailed => Internal, "Token approval failed";
+    InvalidAmount => InvalidInput, "Invalid amount (zero, negative, or exceeds bounds)";
+    DecimalMismatch => InvalidInput, "Decimal mismatch between expected and actual token decimals";
+    DustAmount => InvalidInput, "Amount is below the dust threshold";
+    TokenNotRegistered => NotFound, "Token address is not registered with the adapter";
+    Unauthorized => Unauthorized, "Caller is not authorized for this operation";
+    Overflow => Overflow, "Arithmetic overflow occurred";
+    VerificationFailed => Internal, "Adapter verification failed";
+    TypeMismatch => InvalidInput, "Adapter type does not match the expected type";
+}

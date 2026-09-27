@@ -308,3 +308,15 @@ fn compute_view_tag(env: &Env, shared_secret: &BytesN<32>) -> BytesN<16> {
 
 #[cfg(test)]
 mod tests;
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    StealthError => stellarlend_errors::domains::STEALTH_ADDRESS;
+    AlreadyRegistered => AlreadyExists, "Already registered";
+    NotRegistered => NotFound, "Not registered";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    InvalidPublicKey => InvalidInput, "Invalid public key";
+    InvalidViewTag => InvalidInput, "Invalid view tag";
+    RegistrationPaused => Paused, "Registration paused";
+}

@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
 
 [dependencies]
+stellarlend-errors = { path = "../errors" }
 soroban-sdk = { workspace = true, features = ["alloc"] }
 stellarlend-shared-deadline = { path = "../shared-deadline" }
 soroban-token-sdk = { workspace = true }

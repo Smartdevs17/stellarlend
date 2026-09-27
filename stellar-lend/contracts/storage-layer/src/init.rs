@@ -188,3 +188,13 @@ mod tests {
         });
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    InitError => stellarlend_errors::domains::STORAGE_LAYER_INIT;
+    AlreadyInitialized => AlreadyInitialized, "`bootstrap` was called again after the contract was already initialized";
+    NotInitialized => NotInitialized, "An action that requires a prior bootstrap ran before initialization";
+    NotAuthorized => Unauthorized, "The caller is not the designated upgrade authority";
+    VersionRegression => InvalidInput, "An upgrade attempted to move the version backwards";
+}

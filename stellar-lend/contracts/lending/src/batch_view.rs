@@ -349,3 +349,12 @@ mod tests {
         assert_eq!(MAX_BATCH_SIZE, 200);
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    BatchViewError => stellarlend_errors::domains::LENDING_BATCH_VIEW;
+    InvalidInput => InvalidInput, "Input is malformed or out of range";
+    TooManyPositions => LimitExceeded, "Too many positions", ReduceAmount;
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+}

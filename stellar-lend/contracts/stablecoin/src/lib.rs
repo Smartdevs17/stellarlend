@@ -597,3 +597,17 @@ mod test {
         assert_eq!(client.get_user_collateral(&user), 80);
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    StablecoinError => stellarlend_errors::domains::STABLECOIN;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    InvalidParameter => InvalidInput, "Parameter is invalid or out of range";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    Shutdown => Paused, "Stablecoin system has been shut down";
+    InsufficientCollateral => Insufficient, "Collateral is insufficient for this position", AddCollateral;
+}

@@ -9,6 +9,7 @@ description = "Storage abstraction layer for StellarLend contracts (issue #707)"
 path = "src/lib.rs"
 
 [dependencies]
+stellarlend-errors = { path = "../errors" }
 soroban-sdk = { workspace = true }
 
 [dev-dependencies]

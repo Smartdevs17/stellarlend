@@ -13,6 +13,7 @@ default = []
 testutils = ["soroban-sdk/testutils"]
 
 [dependencies]
+stellarlend-errors = { path = "../errors" }
 soroban-sdk = { workspace = true }
 
 [dev-dependencies]

@@ -1132,3 +1132,21 @@ pub fn get_stablecoin_config(env: &Env, asset: &Address) -> Option<StablecoinCon
         .persistent()
         .get(&BorrowDataKey::AssetStablecoinConfig(asset.clone()))
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    BorrowError => stellarlend_errors::domains::LENDING_BORROW;
+    InsufficientCollateral => Insufficient, "Collateral amount does not meet the 150% minimum ratio", AddCollateral;
+    DebtCeilingReached => LimitExceeded, "Total protocol debt would exceed the configured debt ceiling", ReduceAmount;
+    ProtocolPaused => Paused, "Borrow operations are currently paused";
+    InvalidAmount => InvalidInput, "Borrow or collateral amount is zero or negative";
+    Overflow => Overflow, "Arithmetic overflow during calculation";
+    Unauthorized => Unauthorized, "Caller is not authorized for this operation";
+    AssetNotSupported => InvalidAsset, "The requested asset is not supported for borrowing";
+    BelowMinimumBorrow => InvalidInput, "Borrow amount is below the configured minimum";
+    RepayAmountTooHigh => InvalidInput, "Repay amount exceeds current debt", ReduceAmount;
+    PositionHealthy => InvalidState, "Position is healthy and cannot be liquidated";
+    InsufficientReserves => Insufficient, "Insufficient reserves to recover bad debt", ContactAdmin;
+    ReentrancyDetected => Reentrancy, "Reentrant call detected";
+}

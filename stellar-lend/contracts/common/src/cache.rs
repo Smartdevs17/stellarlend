@@ -153,3 +153,10 @@ pub fn cache_stats(env: &Env) -> CacheStats {
         size: values.len(),
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    CacheError => stellarlend_errors::domains::COMMON_CACHE;
+    InvalidTtl => InvalidInput, "Invalid ttl";
+}

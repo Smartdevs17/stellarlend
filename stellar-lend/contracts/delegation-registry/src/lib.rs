@@ -90,3 +90,11 @@ impl DelegationRegistry {
         }
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    DelegationError => stellarlend_errors::domains::DELEGATION_REGISTRY;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    InvalidExpiry => InvalidInput, "Invalid expiry";
+}

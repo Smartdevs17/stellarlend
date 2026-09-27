@@ -4,7 +4,7 @@
 //! `#[cfg(test)]` code across contract crates, reducing duplication of the
 //! `assert_eq!(err as u32, ...)` boilerplate.
 
-use crate::CoreError;
+use crate::{decode_global_code, ContractError, CoreError};
 
 /// Asserts that the numeric `code` corresponds to a specific [`CoreError`] category.
 ///
@@ -12,6 +12,30 @@ use crate::CoreError;
 /// Panics with a descriptive message when `code` does not map onto `expected`.
 pub fn assert_code(code: u32, expected: CoreError) {
     assert_eq!(code, expected as u32, "error code mismatch");
+}
+
+/// Checks that a registered [`ContractError`] enum is internally consistent:
+/// every variant resolves by its code, global codes decode back to the enum's
+/// domain, and every message and suggestion is non-empty.
+///
+/// Call it from each contract crate's tests:
+/// `stellarlend_errors::testing::assert_registry::<MyError>();`
+///
+/// # Panics
+/// Panics describing the first inconsistency found.
+pub fn assert_registry<E: ContractError + core::fmt::Debug + PartialEq>() {
+    let variants = E::variants();
+    assert!(!variants.is_empty(), "error registry is empty");
+    for v in variants {
+        let d = v.describe();
+        assert_eq!(E::from_local_code(d.local_code), Some(*v), "{:?} does not round-trip", v);
+        let (domain, local) =
+            decode_global_code(d.global_code).expect("global code has unknown contract");
+        assert_eq!(domain, E::DOMAIN, "{:?} global code decodes to wrong domain", v);
+        assert_eq!(local, d.local_code, "{:?} global code decodes to wrong local code", v);
+        assert!(!d.name.is_empty() && !d.message.is_empty(), "{:?} has no message", v);
+        assert!(!d.suggestion().is_empty(), "{:?} has no suggestion", v);
+    }
 }
 
 /// Convenience macro mirroring `assert_code` but usable inline.

@@ -220,3 +220,22 @@ impl PositionManager {
 #[cfg(test)]
 mod test;
 
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    PositionError => stellarlend_errors::domains::POSITION_MANAGER;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    PositionNotFound => NotFound, "Position not found";
+    PositionAlreadyOpen => AlreadyExists, "Position already open";
+    InvalidLeverage => InvalidInput, "Invalid leverage";
+    InsufficientCollateral => Insufficient, "Collateral is insufficient for this position", AddCollateral;
+    HealthFactorTooLow => GuaranteeViolated, "Health factor too low";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    MaxPositionsReached => LimitExceeded, "Max positions reached", ReduceAmount;
+    PositionNotActive => InvalidState, "Position not active";
+    DeleverageBelowMinimum => InvalidInput, "Deleverage below minimum";
+}

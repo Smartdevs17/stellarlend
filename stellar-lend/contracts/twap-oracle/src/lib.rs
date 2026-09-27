@@ -896,3 +896,19 @@ fn empty_result(window_secs: u64, coverage_secs: u64) -> TwapResult {
 
 #[cfg(test)]
 mod tests;
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    TwapOracleError => stellarlend_errors::domains::TWAP_ORACLE;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    InvalidConfig => InvalidInput, "Configuration values are invalid";
+    InsufficientSamples => PriceUnavailable, "Insufficient samples";
+    PriceManipulationDetected => PriceUnavailable, "Price manipulation detected";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    InvalidPrice => PriceUnavailable, "Invalid price";
+    Stale => PriceUnavailable, "TWAP price is stale";
+    RingOverflow => Overflow, "Ring overflow";
+}
