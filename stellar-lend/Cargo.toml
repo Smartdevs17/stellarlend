@@ -71,10 +71,13 @@ members = [
   "contracts/dca-module",
 ]
 exclude = [
-  "fuzz",
-  "formal-verification/safe-math-proofs",
-  "formal-verification/interest-rate-model-proofs",
-  "formal-verification/liquidation-math-proofs",
+   "fuzz",
+   "formal-verification/safe-math-proofs",
+   "formal-verification/interest-rate-model-proofs",
+   "formal-verification/liquidation-math-proofs",
+   "formal-verification/lending-math-proofs",
+   "formal-verification/oracle-proofs",
+   "formal-verification/upgrade-proofs",
 ]
 
 [workspace.lints.rust]
