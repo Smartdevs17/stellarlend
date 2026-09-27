@@ -10,6 +10,11 @@ export interface ReferralRecord {
   referrerEarned: number;
 }
 
+export interface RewardTranche {
+  amount: number;
+  accruedAt: number;
+}
+
 export interface ReferrerStats {
   code: string;
   totalReferrals: number;
@@ -17,6 +22,7 @@ export interface ReferrerStats {
   totalEarned: number;
   totalClaimed: number;
   claimable: number;
+  pendingTranches: RewardTranche[];
   lastClaimAt: number;
   referees: string[];
   tier: number;
@@ -93,13 +99,47 @@ const stats = new Map<string, ReferrerStats>();
 const distributions: RewardDistributionRecord[] = [];
 
 function generateUniqueCode(address: string): string {
-  const hash = crypto.createHash('sha256').update(address + Date.now()).digest('hex');
+  const hash = crypto
+    .createHash('sha256')
+    .update(address + Date.now())
+    .digest('hex');
   return hash.slice(0, 8).toUpperCase();
 }
 
 function maskAddress(addr: string): string {
   if (addr.length <= 8) return addr;
   return `${addr.substring(0, 4)}...${addr.substring(addr.length - 4)}`;
+}
+
+function maturityMs(): number {
+  return PROGRAM_CONFIG.maturityDays * 24 * 60 * 60 * 1000;
+}
+
+function accrueTranche(s: ReferrerStats, amount: number, now: number): void {
+  s.pendingTranches.push({ amount, accruedAt: now });
+}
+
+/**
+ * Moves every tranche older than `maturityDays` out of pending into a settled
+ * amount. Returns the matured total (0 when nothing has aged yet) and keeps
+ * immature tranches pending.
+ */
+function settleMaturedRewards(s: ReferrerStats, now: number): number {
+  const ms = maturityMs();
+  let matured = 0;
+  const remaining: RewardTranche[] = [];
+  for (const t of s.pendingTranches) {
+    if (now - t.accruedAt >= ms) {
+      matured += t.amount;
+    } else {
+      remaining.push(t);
+    }
+  }
+  if (matured <= 0) return 0;
+  s.pendingTranches = remaining;
+  s.claimable -= matured;
+  s.totalClaimed += matured;
+  return matured;
 }
 
 export const referralService = {
@@ -119,6 +159,7 @@ export const referralService = {
         totalEarned: 0,
         totalClaimed: 0,
         claimable: 0,
+        pendingTranches: [],
         lastClaimAt: 0,
         referees: [],
         tier: 0,
@@ -166,6 +207,7 @@ export const referralService = {
     const record = referrals.get(refereeAddress);
     if (!record) return;
 
+    const now = Date.now();
     const l1Share = (feeAmount * PROGRAM_CONFIG.l1FeeSharePct) / 100;
     record.totalFeesGenerated += feeAmount;
     record.referrerEarned += l1Share;
@@ -174,6 +216,7 @@ export const referralService = {
     if (referrerStats) {
       referrerStats.totalEarned += l1Share;
       referrerStats.claimable += l1Share;
+      accrueTranche(referrerStats, l1Share, now);
     }
 
     // L2 commission
@@ -184,6 +227,7 @@ export const referralService = {
       if (l1Stats) {
         l1Stats.totalEarned += l2Share;
         l1Stats.claimable += l2Share;
+        accrueTranche(l1Stats, l2Share, now);
       }
     }
   },
@@ -196,15 +240,16 @@ export const referralService = {
     const s = stats.get(userAddress);
     if (!s || s.claimable <= 0) throw new Error('Nothing to claim');
 
-    const maturityMs = PROGRAM_CONFIG.maturityDays * 24 * 60 * 60 * 1000;
     const now = Date.now();
-    if (s.lastClaimAt > 0 && now - s.lastClaimAt < maturityMs) {
+    if (s.lastClaimAt > 0 && now - s.lastClaimAt < maturityMs()) {
       throw new Error(`${PROGRAM_CONFIG.maturityDays}-day maturity period not reached`);
     }
 
-    const amount = s.claimable;
-    s.totalClaimed += amount;
-    s.claimable = 0;
+    const amount = settleMaturedRewards(s, now);
+    if (amount <= 0) {
+      throw new Error(`${PROGRAM_CONFIG.maturityDays}-day maturity period not reached`);
+    }
+
     s.lastClaimAt = now;
 
     const txHash = `dist_tx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -230,9 +275,8 @@ export const referralService = {
     totalDistributedAmount: number;
     distributions: RewardDistributionRecord[];
   } {
-    const targets = userAddresses && userAddresses.length > 0
-      ? userAddresses
-      : Array.from(stats.keys());
+    const targets =
+      userAddresses && userAddresses.length > 0 ? userAddresses : Array.from(stats.keys());
 
     const batchId = `batch_${Date.now()}`;
     const batchDistributions: RewardDistributionRecord[] = [];
@@ -242,17 +286,18 @@ export const referralService = {
       const userStat = stats.get(address);
       if (!userStat || userStat.claimable <= 0) continue;
 
-      const amount = userStat.claimable;
-      userStat.totalClaimed += amount;
-      userStat.claimable = 0;
-      userStat.lastClaimAt = Date.now();
+      const now = Date.now();
+      const amount = settleMaturedRewards(userStat, now);
+      if (amount <= 0) continue;
+
+      userStat.lastClaimAt = now;
 
       const record: RewardDistributionRecord = {
         id: `dist_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         userAddress: address,
         amount,
         asset: 'USDC',
-        distributedAt: Date.now(),
+        distributedAt: now,
         txHash: `dist_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
         batchId,
         status: 'completed',
@@ -263,7 +308,9 @@ export const referralService = {
       totalDistributedAmount += amount;
     }
 
-    logger.info(`Affiliate rewards distributed: ${batchDistributions.length} payouts totaling ${totalDistributedAmount}`);
+    logger.info(
+      `Affiliate rewards distributed: ${batchDistributions.length} payouts totaling ${totalDistributedAmount}`
+    );
     return {
       distributedCount: batchDistributions.length,
       totalDistributedAmount,
@@ -284,7 +331,10 @@ export const referralService = {
   /**
    * Leaderboard: rank top referrers by earnings or total referrals
    */
-  getLeaderboard(limit = 10, sortBy: 'totalEarned' | 'totalReferrals' | 'claimable' = 'totalEarned'): LeaderboardEntry[] {
+  getLeaderboard(
+    limit = 10,
+    sortBy: 'totalEarned' | 'totalReferrals' | 'claimable' = 'totalEarned'
+  ): LeaderboardEntry[] {
     const list: { address: string; stat: ReferrerStats }[] = [];
     for (const [address, stat] of stats.entries()) {
       list.push({ address, stat });
@@ -338,13 +388,13 @@ export const referralService = {
     }
 
     const totalAffiliates = stats.size;
-    const conversionRate = totalAffiliates > 0
-      ? ((totalRefereesCount / Math.max(1, totalAffiliates * 3)) * 100).toFixed(1)
-      : '0.0';
+    const conversionRate =
+      totalAffiliates > 0
+        ? ((totalRefereesCount / Math.max(1, totalAffiliates * 3)) * 100).toFixed(1)
+        : '0.0';
 
-    const averageEarnedPerAffiliate = totalAffiliates > 0
-      ? Math.round((totalRewardsDistributed / totalAffiliates) * 100) / 100
-      : 0;
+    const averageEarnedPerAffiliate =
+      totalAffiliates > 0 ? Math.round((totalRewardsDistributed / totalAffiliates) * 100) / 100 : 0;
 
     return {
       totalAffiliates,
@@ -406,7 +456,8 @@ export const referralService = {
       referralCode: s.code,
       referralsGenerated: s.referees.length,
       referralsConverted: s.totalReferrals,
-      conversionRate: s.referees.length > 0 ? (s.totalReferrals / s.referees.length * 100).toFixed(2) : '0',
+      conversionRate:
+        s.referees.length > 0 ? ((s.totalReferrals / s.referees.length) * 100).toFixed(2) : '0',
       l2Referrals: s.l2Referrals,
     };
   },
