@@ -23,6 +23,7 @@ StellarLend is a lending and borrowing protocol built on Soroban. It features cr
 - **[Chaos Engineering](chaos-engineering.md)** - Network-failure experiment registry, steady-state hypotheses, halt criteria, and chaos CI reporting (Issue #689).
 - **[Recovery Procedures](recovery.md)** - Automated recovery runbook for partition, RPC outage, and oracle disruption scenarios (Issue #689).
 - **[Governance Lifecycle](GOVERNANCE.md)** - Proposal state machine, config knobs, invariants, E2E coverage, and gas benchmarks (Issue #690).
+- **[Lending Pool Gas Cost Estimator](../scripts/lending-gas-estimator/README.md)** - Per-entry-point storage indexing, stroop cost estimates, and storage-pattern optimization suggestions for the Soroban lending pool (Issue #1011). See [Developer Tooling](DEV_TOOLING.md) for usage.
 
 ## Modules and Features
 - **[Real-Time Price Feed with Anomaly Detection](REALTIME_PRICE_FEED.md)** - Production-ready oracle aggregation pipeline with Z-score/IQR/velocity anomaly detection, cross-feed correlation, TWAP smoothing, health monitoring, integration tests, and performance benchmarks

@@ -102,6 +102,46 @@ The analyzer returns:
 - aggregated state-change summaries
 - overhead warnings when tracing materially changes runtime characteristics
 
+## Lending Pool Gas Cost Estimator
+
+Estimate what each lending pool operation costs on Soroban, and get optimization
+suggestions derived from the contract's storage patterns.
+
+```bash
+# Every entry point
+node --experimental-strip-types scripts/lending-gas-estimator/index.ts
+
+# The user-facing hot path, priced with 5-item batches, as markdown
+node --experimental-strip-types scripts/lending-gas-estimator/index.ts \
+  --operations deposit,withdraw,borrow,repay,flash_loan \
+  --iterations 5 --format markdown
+```
+
+The tool indexes the contract source rather than reading a hand-maintained table,
+so the storage counts it reports are the ones the contract actually performs —
+including accesses made several call levels down, writes performed by an RAII
+guard's `Drop` body, and storage written inside a loop. It prices the resulting
+transaction footprint using the stroop constants from
+`api/src/services/gas/estimator.ts`, and then diffs that API's
+`OPERATION_COMPLEXITY` table against the source so the two cannot drift apart
+silently.
+
+Suggestions come from nine storage-pattern rules (packable key namespaces,
+redundant existence probes, loop-amplified writes, legacy migration fallbacks,
+and so on). Each one names the operations it affects, cites the `file.rs:line`
+that triggered it, and estimates the saving in stroops.
+
+```bash
+# The available rules
+node --experimental-strip-types scripts/lending-gas-estimator/index.ts --list-rules
+
+# Gate CI on a severity band (exit 0 ok, 1 findings, 2 usage error)
+node --experimental-strip-types scripts/lending-gas-estimator/index.ts --fail-on high
+```
+
+See `scripts/lending-gas-estimator/README.md` for the cost model, the full rule
+list and the caveats that say where the estimate is an upper bound.
+
 ## Deployment Verification
 
 After deployment and initialization, run:

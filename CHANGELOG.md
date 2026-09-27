@@ -9,6 +9,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 ## [Unreleased]
 
 ### Added
+- Lending pool gas cost estimator in `scripts/lending-gas-estimator`: statically indexes each contract entry point's storage accesses (including transitive calls, RAII guards, loop-bounded writes and the `#[contracttype]` size of every written value), prices the footprint in stroops using the API's own cost constants, and suggests optimizations from nine storage-pattern rules that each cite `file.rs:line`; includes a drift table diffing the API's hand-maintained `OPERATION_COMPLEXITY` against the contract source (#1011)
 - Flash loan pool rules in the `flash-loan` crate: validated fee (rounded up) and min/max amount, a per-loan pool-share cap, balance-based repayment checking and metrics (#1019)
 - Collateral factor registry in `lending-risk`: risk tiers with parameter ceilings, threshold-gap and coverage validation, freezing and supply caps (#1020)
 - Liquidator loyalty incentives and an MEV guard (per-position cooldown, per-ledger cap, price-deviation band) in `lending-risk` (#1021)
