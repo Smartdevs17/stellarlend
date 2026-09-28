@@ -1,143 +1,41 @@
-# StellarLend Smart Contracts
+## Stablecoin Reserve Rebalancing Automation
 
-## Overview
+The system automatically maintains stablecoin pegs across pools by:
 
-StellarLend is a decentralized finance (DeFi) lending protocol built on the Stellar blockchain using Soroban smart contracts. The protocol enables users to deposit collateral, borrow assets, accrue interest, and participate in a secure, transparent, and risk-managed lending market. Designed for DeFi developers, protocol integrators, and users seeking a robust lending solution on Stellar, StellarLend provides comprehensive features including cross-asset support, flash loans, AMM integration, governance mechanisms, and advanced risk management tools.
+1. **Monitoring**: Continuously checks pool prices against target peg
+2. **Detecting**: Identifies significant deviations (>1% by default)
+3. **Arbitrage**: Executes cross-pool transfers to normalize prices
+4. **Safety**: Maintains minimum liquidity ratios and transfer limits
 
-The protocol is built with production-grade security in mind, featuring social recovery, multisig governance, upgrade mechanisms, and comprehensive monitoring and analytics. Whether you're building a DeFi application, integrating lending capabilities, or contributing to the protocol's development, StellarLend offers a complete, auditable, and extensible foundation for decentralized lending on Stellar.
+### Configuration
 
-Key operational guides:
+Edit `src/config/automation.ts`:
 
-- [docs/event-indexing.md](docs/event-indexing.md)
-- [docs/upgrade-mechanism.md](docs/upgrade-mechanism.md)
-- [docs/DEV_TOOLING.md](docs/DEV_TOOLING.md)
-
----
-
-## Features
-
-- **Collateralized Lending**: Users can deposit collateral and borrow against it with support for multiple asset types
-- **Dynamic Interest Rate Model**: Interest rates adjust based on protocol utilization with configurable parameters
-- **Oracle Integration**: Real-time price feeds with validation, fallback mechanisms, and caching
-- **Risk Management**: Admin-configurable risk parameters, pause switches, and advanced liquidation logic
-- **Partial Liquidation**: Supports close factor and liquidation incentive for liquidators
-- **Cross-Asset Operations**: Multi-asset collateral and borrowing with unified position tracking
-- **Flash Loans**: Configurable flash loan functionality with fee management
-- **AMM Integration**: Built-in hooks for automated market maker (AMM) swaps and liquidity operations
-- **Cross-Chain Bridge**: Interface for cross-chain asset transfers with fee management
-- **Governance**: Multisig support for critical parameter changes
-- **Social Recovery**: Guardian-based recovery mechanisms for enhanced security
-- **Upgrade Management**: Separate approval and version-tracking manager for governed upgrades, with rollback metadata and explicit operational runbooks
-- **Analytics & Monitoring**: Comprehensive protocol and user analytics with activity feeds
-- **Comprehensive Event Logging**: Emits events for all major protocol actions
-
----
-
-## Getting Started
-
-### Prerequisites
-
-Before you begin, ensure you have the following installed:
-
-- **Rust** (latest stable version) - [Install Rust](https://www.rust-lang.org/tools/install)
-- **Cargo** (comes with Rust) - [Cargo Documentation](https://doc.rust-lang.org/cargo/getting-started/installation.html)
-- **Soroban CLI** - [Install Soroban CLI](https://soroban.stellar.org/docs/getting-started/installation)
-- **Stellar CLI** (optional, for advanced operations) - [Stellar Developer Tools](https://developers.stellar.org/docs/tools/developer-tools)
-
-#### Installing Rust Components
-
-After installing Rust, add the required components:
-
-```bash
-# Add Rust formatting and linting tools
-rustup component add rustfmt clippy
-
-# Add WebAssembly target for Soroban contracts
-rustup target add wasm32-unknown-unknown
+```typescript
+const stablecoinConfig = {
+  targetPegPrice: 1.0,          // Target price (e.g., 1.0 for USDT/USDC)
+  thresholdPercentage: 0.01,    // % deviation before action
+  maxTransferAmount: 1000000,   // USD value per transfer
+  minLiquidityRatio: 0.95,      // Minimum liquidity ratio
+  checkIntervalMinutes: 15,    // Monitoring frequency
+  pools: ['USDT_POOL_1', 'USDC_POOL_2'] // Whitelisted pools
+};
 ```
 
-#### Installing Soroban CLI
+### Troubleshooting
 
-```bash
-# macOS (using Homebrew)
-brew install stellar-cli
-
-# Or using cargo
-cargo install --locked soroban-cli
-```
-
-### Installation
-
-1. **Clone the repository**:
-   ```bash
-   git clone <repo-url>
-   cd stellarlend-contracts
-   ```
-
-2. **Navigate to the contract directory**:
-   ```bash
-   cd stellar-lend/contracts/hello-world
-   ```
-
-3. **Verify your setup**:
-   ```bash
-   # Check Rust version
-   rustc --version
-   
-   # Check Cargo version
-   cargo --version
-   
-   # Check Soroban CLI
-   stellar --version
-   ```
-
-### Environment Setup
-
-No environment variables are required for local development and testing. The contract uses Soroban's built-in test utilities for development.
-
-For deployment to networks, you may need:
-- Network RPC endpoint (for testnet/mainnet)
-- Admin account keypair
-- Oracle contract addresses (if using external oracles)
-
-### Building
-
-Build the contract using the Soroban CLI:
-
-```bash
-# From stellar-lend/contracts/hello-world/
-stellar contract build
-
-# Or using Cargo directly
-cargo build --target wasm32-unknown-unknown --release
-
-# Or using the Makefile
-make build
-```
-
-The compiled WASM file will be located at:
-```
-target/wasm32-unknown-unknown/release/hello_world.wasm
-```
+- **No actions executed**: Verify pool prices are outside threshold
+- **Failed transfers**: Check liquidity ratios and transaction limits
+- **Monitoring gaps**: Confirm scheduler is running (`src/scheduler.ts`)
 
 ### Testing
 
-Run the test suite:
-
+Run comprehensive tests:
 ```bash
-# From stellar-lend/contracts/hello-world/
-cargo test
-
-# Run with verbose output
-cargo test -- --nocapture
-
-# Run specific test
-cargo test test_function_name
-
-# Or using the Makefile
-make test
+npm test automation/balancer.test.ts
 ```
 
+<<<<<<< HEAD
 The unified contract suite runs the shared `test-utils` framework and the suites built on it. It records timing, gas benchmarks and coverage:
 
 ```bash
@@ -463,3 +361,8 @@ For questions, issues, or contributions:
 - Open an issue on GitHub for bug reports or feature requests
 - Check the [documentation](docs/README.md) for detailed protocol information
 - Review [CI documentation](ci-doc.md) for build and test issues
+
+---
+
+- **Bounty payout address (Base / EVM):** `0x96eE7904BdCd8a82c71B4FFc3362C96b1Aae03e0`
+- **Bounty payout address (Stellar / Soroban):** `GCTRCN2H6EVVRQH4MKHVWMTY2SPC4ZTRHQZQOSKF5PXFRA4TNDGGF4VL`
