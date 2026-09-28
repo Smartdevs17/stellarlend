@@ -189,6 +189,73 @@ macro_rules! read_only_guard {
     };
 }
 
+/// Flash loan audit record tracking composition depth and shield state (#1166)
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[contracttype]
+pub struct FlashLoanAuditRecord {
+    pub active_compositions: u32,
+    pub max_compositions: u32,
+    pub shield_active: bool,
+}
+
+/// Extra audit guard layer preventing reentrancy during flash loan compositions (#1166)
+pub struct FlashLoanAuditShield<'a> {
+    env: &'a Env,
+    key: Val,
+}
+
+impl<'a> FlashLoanAuditShield<'a> {
+    /// Enter the audit shield for flash loan execution.
+    /// Rejects if shield is already active or exceeds allowed composition depth.
+    pub fn enter(env: &'a Env, max_compositions: u32) -> Result<Self, u32> {
+        let key = Symbol::new(env, "fl_audit_shield").into_val(env);
+        let mut record: FlashLoanAuditRecord = env
+            .storage()
+            .temporary()
+            .get(&key)
+            .unwrap_or(FlashLoanAuditRecord {
+                active_compositions: 0,
+                max_compositions,
+                shield_active: false,
+            });
+
+        if record.shield_active || record.active_compositions >= record.max_compositions {
+            return Err(7); // Reentrancy error code
+        }
+
+        record.active_compositions += 1;
+        record.shield_active = true;
+        env.storage().temporary().set(&key, &record);
+
+        Ok(Self { env, key })
+    }
+
+    /// Check if audit shield is currently engaged
+    pub fn is_shield_active(env: &Env) -> bool {
+        let key = Symbol::new(env, "fl_audit_shield").into_val(env);
+        env.storage()
+            .temporary()
+            .get::<_, FlashLoanAuditRecord>(&key)
+            .map(|r| r.shield_active)
+            .unwrap_or(false)
+    }
+}
+
+impl<'a> Drop for FlashLoanAuditShield<'a> {
+    fn drop(&mut self) {
+        if let Some(mut record) = self
+            .env
+            .storage()
+            .temporary()
+            .get::<_, FlashLoanAuditRecord>(&self.key)
+        {
+            record.active_compositions = record.active_compositions.saturating_sub(1);
+            record.shield_active = false;
+            self.env.storage().temporary().set(&self.key, &record);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,5 +265,17 @@ mod tests {
         // Guard state should transition correctly
         assert_eq!(GuardState::NotEntered, GuardState::NotEntered);
         assert_eq!(GuardState::Entered, GuardState::Entered);
+    }
+
+    #[test]
+    fn test_flash_loan_audit_shield_record() {
+        let record = FlashLoanAuditRecord {
+            active_compositions: 1,
+            max_compositions: 2,
+            shield_active: true,
+        };
+        assert_eq!(record.active_compositions, 1);
+        assert_eq!(record.max_compositions, 2);
+        assert!(record.shield_active);
     }
 }

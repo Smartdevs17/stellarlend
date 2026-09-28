@@ -165,3 +165,24 @@ pub fn oracle_edge_cases() -> Vec<EdgeCase> {
         },
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_catalog_covers_each_function_with_unique_ids() {
+        let catalog = EdgeCaseCatalog::default();
+        for function in ["deposit", "liquidate", "accrue_interest", "getPrice"] {
+            assert!(
+                !catalog.get_cases_for_function(function).is_empty(),
+                "no edge cases for {function}"
+            );
+        }
+        let mut ids: Vec<&str> = catalog.cases.iter().map(|c| c.id.as_str()).collect();
+        let total = ids.len();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), total, "edge case ids must be unique");
+    }
+}

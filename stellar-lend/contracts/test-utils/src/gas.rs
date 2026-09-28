@@ -2,6 +2,11 @@
 //!
 //! Thin wrappers around `soroban_sdk` testutils budget so multi-contract
 //! scenarios can assert relative gas ordering and absolute ceilings.
+//!
+//! Soroban resets metering before every top-level contract invocation, so a
+//! measurement covers the last invocation made inside the measured closure.
+//! Measure one contract call per closure; [`crate::bench::GasMeter`] builds
+//! per-step reports on the same rule.
 
 #![allow(unused)]
 
@@ -28,19 +33,13 @@ pub fn snapshot(env: &Env) -> GasSnapshot {
     }
 }
 
-/// Measure CPU/memory delta of a closure relative to a prior snapshot.
-pub fn measure_delta<F>(env: &Env, before: &GasSnapshot, f: F) -> GasSnapshot
+/// Measure the CPU/memory cost of `f`. The budget is reset first, so the
+/// result does not depend on `_before`, which is kept for existing callers.
+pub fn measure_delta<F>(env: &Env, _before: &GasSnapshot, f: F) -> GasSnapshot
 where
     F: FnOnce(),
 {
-    f();
-    let after = snapshot(env);
-    GasSnapshot {
-        cpu_instructions: after
-            .cpu_instructions
-            .saturating_sub(before.cpu_instructions),
-        memory_bytes: after.memory_bytes.saturating_sub(before.memory_bytes),
-    }
+    timed(env, f).1
 }
 
 /// Assert a measurement is under an absolute CPU-instruction ceiling.
@@ -65,21 +64,14 @@ pub fn assert_cheaper_or_equal(label: &str, a: &GasSnapshot, b: &GasSnapshot) {
     );
 }
 
-/// Run `f` and return (result, GasSnapshot delta).
+/// Run `f` and return (result, cost of `f`).
 pub fn timed<F, T>(env: &Env, f: F) -> (T, GasSnapshot)
 where
     F: FnOnce() -> T,
 {
-    let before = snapshot(env);
+    reset_budget(env);
     let result = f();
-    let after = snapshot(env);
-    let delta = GasSnapshot {
-        cpu_instructions: after
-            .cpu_instructions
-            .saturating_sub(before.cpu_instructions),
-        memory_bytes: after.memory_bytes.saturating_sub(before.memory_bytes),
-    };
-    (result, delta)
+    (result, snapshot(env))
 }
 
 /// Convenience: run and assert a ceiling in one call.
@@ -87,14 +79,6 @@ pub fn assert_within_cpu<F>(env: &Env, label: &str, ceiling: u64, f: F)
 where
     F: FnOnce(),
 {
-    let before = snapshot(env);
-    f();
-    let after = snapshot(env);
-    let delta = GasSnapshot {
-        cpu_instructions: after
-            .cpu_instructions
-            .saturating_sub(before.cpu_instructions),
-        memory_bytes: after.memory_bytes.saturating_sub(before.memory_bytes),
-    };
-    assert_under_cpu_ceiling(label, &delta, ceiling);
+    let (_, cost) = timed(env, f);
+    assert_under_cpu_ceiling(label, &cost, ceiling);
 }

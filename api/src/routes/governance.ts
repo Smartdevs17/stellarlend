@@ -18,5 +18,6 @@ router.get('/action-type-delay/:actionTypeId', governanceController.getActionTyp
 router.post('/guardian/emergency-approve', governanceController.guardianApproveEmergency);
 router.post('/guardian/emergency-execute', governanceController.guardianEmergencyExecute);
 router.post('/clean-queue', governanceController.cleanQueue);
+router.post('/delegate', governanceController.delegateVote);
 
 export default router;

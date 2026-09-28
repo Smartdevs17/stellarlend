@@ -1,0 +1,15 @@
+[
+  { "name": "default-close-factor", "inputs": { "totalDebt": "10000", "healthFactor": "8000" } },
+  { "name": "full-close-factor", "inputs": { "totalDebt": "10000", "healthFactor": "8000", "closeFactorBps": "10000" } },
+  { "name": "minimum-close-factor-rounds", "inputs": { "totalDebt": "10000", "healthFactor": "8000", "closeFactorBps": "1" } },
+  { "name": "healthy-cannot-be-liquidated", "inputs": { "totalDebt": "10000", "healthFactor": "10000" } },
+  { "name": "unknown-health-factor-cannot-be-liquidated", "inputs": { "totalDebt": "10000", "healthFactor": "0" } },
+  { "name": "no-debt", "inputs": { "totalDebt": "0", "healthFactor": "5000" } },
+  { "name": "default-incentive", "inputs": { "totalDebt": "10000", "healthFactor": "8000", "repayAmount": "10000" } },
+  { "name": "zero-incentive", "inputs": { "totalDebt": "10000", "healthFactor": "8000", "repayAmount": "10000", "liquidationIncentiveBps": "0" } },
+  { "name": "full-incentive", "inputs": { "totalDebt": "10000", "healthFactor": "8000", "repayAmount": "10000", "liquidationIncentiveBps": "10000" } },
+  { "name": "zero-repay-has-no-incentive", "inputs": { "totalDebt": "10000", "healthFactor": "8000", "repayAmount": "0" } },
+  { "name": "negative-repay-has-no-incentive", "inputs": { "totalDebt": "10000", "healthFactor": "8000", "repayAmount": "-500" } },
+  { "name": "single-unit-repay", "inputs": { "totalDebt": "10000", "healthFactor": "8000", "repayAmount": "1" } },
+  { "name": "very-large-debt", "inputs": { "totalDebt": "900000000000000", "healthFactor": "9000" } }
+]

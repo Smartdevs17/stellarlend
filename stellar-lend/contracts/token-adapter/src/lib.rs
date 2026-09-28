@@ -447,3 +447,19 @@ impl TokenAdapterContract {
 
 #[cfg(test)]
 mod lib_test;
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    AdapterError => stellarlend_errors::domains::TOKEN_ADAPTER;
+    InsufficientBalance => Insufficient, "Balance is too low for this operation";
+    InsufficientAllowance => Insufficient, "Spender allowance is too low";
+    TransferFailed => Internal, "Transfer failed";
+    ApproveFailed => Internal, "Approve failed";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    DecimalMismatch => InvalidInput, "Decimal mismatch";
+    DustAmount => InvalidInput, "Amount is below the dust threshold";
+    TokenNotRegistered => NotFound, "Token not registered";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+}

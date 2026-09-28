@@ -644,3 +644,20 @@ impl UpgradeManager {
         }
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    UpgradeError => stellarlend_errors::domains::COMMON_UPGRADE;
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    NotAuthorized => Unauthorized, "Caller is not authorized to perform this action";
+    ProposalNotFound => NotFound, "Proposal not found";
+    InvalidVersion => InvalidInput, "Invalid version";
+    InvalidStatus => InvalidState, "Invalid status";
+    AlreadyApproved => AlreadyExists, "Already approved";
+    NotEnoughApprovals => InvalidState, "Not enough approvals", RetryLater;
+    InvalidThreshold => InvalidInput, "Invalid threshold";
+    TimelockNotElapsed => InvalidState, "Timelock not elapsed";
+    StorageLayoutMismatch => InvalidState, "Storage layout mismatch", ContactAdmin;
+}

@@ -62,3 +62,13 @@ pub fn compound_yield(env: &Env, source: YieldSource) -> Result<i128, YieldError
     );
     Ok(compounded_amount)
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    YieldError => stellarlend_errors::domains::LENDING_YIELD_FARMING;
+    VaultNotFound => NotFound, "Vault not found";
+    InsufficientFunds => Insufficient, "Funds are insufficient for this operation";
+    IntegrationFailed => Internal, "Integration failed";
+    RiskTooHigh => LimitExceeded, "Risk too high", ReduceAmount;
+}

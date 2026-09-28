@@ -377,3 +377,18 @@ impl YieldToken {
 
 #[cfg(test)]
 mod test;
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    YieldTokenError => stellarlend_errors::domains::YIELD_TOKEN;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    InsufficientBalance => Insufficient, "Balance is too low for this operation";
+    InsufficientAllowance => Insufficient, "Spender allowance is too low";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    TokenNotActive => InvalidState, "Token not active";
+    MaturityReached => InvalidState, "Maturity reached", FixInput;
+}

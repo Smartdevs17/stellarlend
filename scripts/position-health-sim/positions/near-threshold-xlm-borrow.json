@@ -1,0 +1,9 @@
+{
+  "name": "near-threshold-xlm-borrow",
+  "description": "20,000 XLM against 19,000 USDC, flat 1.0 oracle. Weighted collateral is 16,000 against 19,000 of debt, so the position is already liquidatable at today's price — the state a margin call exists to prevent. Max closeable is half the debt, by the default 50% close factor.",
+  "oraclePresent": true,
+  "collateral": [
+    { "asset": "XLM", "amount": "20000", "price": "100000000" }
+  ],
+  "debt": { "asset": "USDC", "amount": "19000", "price": "100000000" }
+}

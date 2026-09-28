@@ -1,0 +1,77 @@
+{
+  "id": "lending_journey_001",
+  "name": "Lending journey with price shock and rejected steps",
+  "description": "Deposit, borrow, a rejected under-collateralized borrow, a collateral price shock that makes the position liquidatable, price recovery, repay, a rejected over-repay, withdraw, and a paused deposit that succeeds once deposits resume.",
+  "steps": [
+    {
+      "action": "deposit",
+      "params": { "user": "alice", "asset": "collateral", "amount": "10000" },
+      "expected_result": "success"
+    },
+    {
+      "action": "borrow",
+      "params": { "user": "alice", "asset": "debt", "amount": "2000", "collateral_asset": "collateral", "collateral_amount": "3000" },
+      "expected_result": "success"
+    },
+    {
+      "action": "borrow",
+      "params": { "user": "alice", "asset": "debt", "amount": "5000", "collateral_asset": "collateral", "collateral_amount": "5000" },
+      "expected_result": "error"
+    },
+    {
+      "action": "expect_healthy",
+      "params": { "user": "alice" },
+      "expected_result": "success"
+    },
+    {
+      "action": "set_price",
+      "params": { "asset": "collateral", "price": "50000000" },
+      "expected_result": "success"
+    },
+    {
+      "action": "expect_healthy",
+      "params": { "user": "alice" },
+      "expected_result": "error: liquidatable"
+    },
+    {
+      "action": "set_price",
+      "params": { "asset": "collateral", "price": "100000000" },
+      "expected_result": "success"
+    },
+    {
+      "action": "repay",
+      "params": { "user": "alice", "asset": "debt", "amount": "2000" },
+      "expected_result": "success"
+    },
+    {
+      "action": "repay",
+      "params": { "user": "alice", "asset": "debt", "amount": "1" },
+      "expected_result": "error"
+    },
+    {
+      "action": "withdraw",
+      "params": { "user": "alice", "asset": "collateral", "amount": "10000" },
+      "expected_result": "success"
+    },
+    {
+      "action": "pause_deposits",
+      "params": { "paused": "true" },
+      "expected_result": "success"
+    },
+    {
+      "action": "deposit",
+      "params": { "user": "bob", "asset": "collateral", "amount": "500" },
+      "expected_result": "error"
+    },
+    {
+      "action": "pause_deposits",
+      "params": { "paused": "false" },
+      "expected_result": "success"
+    },
+    {
+      "action": "deposit",
+      "params": { "user": "bob", "asset": "collateral", "amount": "500" },
+      "expected_result": "success"
+    }
+  ]
+}

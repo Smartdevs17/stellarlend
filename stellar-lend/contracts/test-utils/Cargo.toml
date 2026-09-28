@@ -2,6 +2,7 @@
 name = "test-utils"
 version = "0.1.0"
 edition = "2021"
+description = "Unified test framework for StellarLend contracts: environments, fixtures, data seeding, scenarios and gas benchmarks."
 
 [lib]
 crate-type = ["lib"]
@@ -9,6 +10,8 @@ crate-type = ["lib"]
 [dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 soroban-token-sdk = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 

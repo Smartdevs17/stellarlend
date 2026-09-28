@@ -629,3 +629,24 @@ pub struct PrivacyPoolInitializedEvent {
 
 #[cfg(test)]
 mod tests;
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    PrivacyPoolError => stellarlend_errors::domains::PRIVACY_POOL;
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    DepositPaused => Paused, "Deposits are paused";
+    WithdrawPaused => Paused, "Withdrawals are paused";
+    InvalidProof => InvalidInput, "Invalid proof";
+    NullifierAlreadyUsed => AlreadyExists, "Nullifier already used";
+    CommitmentNotFound => NotFound, "Commitment not found";
+    InsufficientAnonymitySet => Insufficient, "Insufficient anonymity set", RetryLater;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    MerkleTreeFull => LimitExceeded, "Merkle tree full", ReduceAmount;
+    ComplianceRequired => Unauthorized, "Compliance required";
+    DisclosureInvalid => InvalidInput, "Disclosure invalid";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    AssetNotSupported => InvalidAsset, "Asset not supported";
+}

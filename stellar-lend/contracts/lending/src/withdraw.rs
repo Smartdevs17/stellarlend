@@ -405,3 +405,18 @@ pub fn get_emergency_stats(env: &Env) -> (i128, i128) {
         get_total_emergency_fees(env),
     )
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    WithdrawError => stellarlend_errors::domains::LENDING_WITHDRAW;
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    WithdrawPaused => Paused, "Withdrawals are paused";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    InsufficientCollateral => Insufficient, "Collateral is insufficient for this position", AddCollateral;
+    InsufficientCollateralRatio => GuaranteeViolated, "Insufficient collateral ratio";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    DustAmount => InvalidInput, "Amount is below the dust threshold";
+    EmergencyLimitExceeded => LimitExceeded, "Emergency limit exceeded", ReduceAmount;
+    ReentrancyDetected => Reentrancy, "Reentrant call blocked";
+}

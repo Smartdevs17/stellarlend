@@ -8,6 +8,10 @@ These suites build against the contract's public client (`LendingContractClient`
 | `user_journeys.rs` | #693 | Full user journeys with Soroban gas metered per step and checked against `benchmarks/baseline.json` budgets |
 | `event_topics.rs` | #685 | The event layout the off-chain indexer depends on |
 | `protocol_formal_specs.rs` | — | Formal specification lemmas |
+| `scenarios.rs` | #700 | JSON scenarios from `test-utils/scenarios/`, plus seeded multi-user and price-path checks against the reference health-factor model |
+| `config_auth.rs`, `admin_config_auth.rs` | — | Admin-only configuration entry points reject callers without auth |
+
+Shared setup lives in `common/mod.rs` and builds on the `test-utils` framework: `snapshotless_env()`, `PriceOracle`, and `GasMeter`/`GasBudgets` for journey metering. See [`../../../TESTING.md`](../../../TESTING.md) for the unified runner (`scripts/testing/run-contract-tests.sh`), coverage and CI.
 
 Run everything, with timing and a performance report:
 

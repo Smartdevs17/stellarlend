@@ -1,0 +1,161 @@
+name: Contract Tests
+
+# Issue #700 – unified contract test framework.
+#
+# Runs every suite registered in scripts/testing/run-contract-tests.sh (built on
+# stellar-lend/contracts/test-utils) with per-suite timing, publishes the gas
+# benchmark reports, and measures coverage with cargo-llvm-cov.
+# See stellar-lend/TESTING.md.
+
+on:
+  push:
+    branches: ["main", "dev"]
+    paths:
+      - "stellar-lend/contracts/test-utils/**"
+      - "stellar-lend/contracts/common/**"
+      - "stellar-lend/contracts/lending/**"
+      - "stellar-lend/tests/integration/flash-loan-liquidation/**"
+      - "stellar-lend/benchmarks/baseline.json"
+      - "stellar-lend/Cargo.toml"
+      - "stellar-lend/Cargo.lock"
+      - "scripts/testing/**"
+      - ".github/workflows/contract-tests.yml"
+  pull_request:
+    branches: ["main", "dev"]
+    paths:
+      - "stellar-lend/contracts/test-utils/**"
+      - "stellar-lend/contracts/common/**"
+      - "stellar-lend/contracts/lending/**"
+      - "stellar-lend/tests/integration/flash-loan-liquidation/**"
+      - "stellar-lend/benchmarks/baseline.json"
+      - "stellar-lend/Cargo.toml"
+      - "stellar-lend/Cargo.lock"
+      - "scripts/testing/**"
+      - ".github/workflows/contract-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  PROPTEST_CASES: "16"
+
+jobs:
+  unified-suite:
+    name: Unified suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            stellar-lend/target
+          key: ${{ runner.os }}-cargo-contract-tests-${{ hashFiles('stellar-lend/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-contract-tests-
+            ${{ runner.os }}-cargo-
+
+      - name: Format (test-utils)
+        working-directory: stellar-lend
+        run: cargo fmt -p test-utils -- --check
+
+      - name: Clippy (test-utils)
+        working-directory: stellar-lend
+        run: cargo clippy -p test-utils --all-targets -- -D warnings
+
+      - name: Run suites
+        run: scripts/testing/run-contract-tests.sh test
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-tests-${{ github.sha }}
+          path: |
+            stellar-lend/target/test-reports/*.json
+            stellar-lend/target/test-reports/*.log
+          retention-days: 14
+          if-no-files-found: ignore
+
+  benchmarks:
+    name: Gas benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            stellar-lend/target
+          key: ${{ runner.os }}-cargo-contract-tests-${{ hashFiles('stellar-lend/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-contract-tests-
+            ${{ runner.os }}-cargo-
+
+      - name: Run benchmark suites
+        run: scripts/testing/run-contract-tests.sh bench
+
+      - name: Upload benchmark reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-benchmarks-${{ github.sha }}
+          path: stellar-lend/target/test-reports/benchmarks/
+          retention-days: 30
+          if-no-files-found: ignore
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Line-coverage floor across the registered suites; raise it as suites
+      # are added rather than lowering it.
+      COVERAGE_MIN: "35"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-contract-cov-${{ hashFiles('stellar-lend/Cargo.lock') }}
+
+      - name: Coverage for registered suites
+        run: scripts/testing/run-contract-tests.sh coverage
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-coverage-${{ github.sha }}
+          path: |
+            stellar-lend/target/test-reports/coverage/lcov.info
+            stellar-lend/target/test-reports/coverage/summary.txt
+          retention-days: 30
+          if-no-files-found: ignore

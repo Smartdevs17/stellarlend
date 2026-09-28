@@ -474,3 +474,27 @@ impl YieldSplitter {
 
 #[cfg(test)]
 mod test;
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    YieldSplitterError => stellarlend_errors::domains::YIELD_SPLITTER;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    InvalidMaturity => InvalidInput, "Invalid maturity";
+    MaturityNotReached => InvalidState, "Maturity not reached", RetryLater;
+    MaturityPassed => InvalidState, "Maturity passed", FixInput;
+    PTBurnFailed => Internal, "PT burn failed";
+    YTBurnFailed => Internal, "YT burn failed";
+    PTMintFailed => Internal, "PT mint failed";
+    YTMintFailed => Internal, "YT mint failed";
+    InsufficientBalance => Insufficient, "Balance is too low for this operation";
+    PositionNotFound => NotFound, "Position not found";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    SplitAlreadyExists => AlreadyExists, "Split already exists";
+    NoYieldAccrued => InvalidState, "No yield accrued", RetryLater;
+    LossExceedsPrincipal => Insufficient, "Loss exceeds principal";
+    InvalidPenalty => InvalidInput, "Invalid penalty";
+}

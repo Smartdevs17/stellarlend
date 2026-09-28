@@ -1373,3 +1373,42 @@ impl BridgeContract {
         stellarlend_common::upgrade::UpgradeManager::current_version(env)
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    ContractError => stellarlend_errors::domains::BRIDGE;
+    AlreadyInitialised => AlreadyInitialized, "Contract or feature is already initialized";
+    NotInitialised => NotInitialized, "Contract or feature is not initialized";
+    Unauthorised => Unauthorized, "Caller is not authorized to perform this action";
+    BridgeAlreadyExists => AlreadyExists, "Bridge already exists";
+    BridgeNotFound => NotFound, "Bridge not found";
+    BridgeInactive => InvalidState, "Bridge inactive";
+    FeeTooHigh => LimitExceeded, "Fee too high", ReduceAmount;
+    InvalidBridgeIdLen => InvalidInput, "Invalid bridge id len";
+    InvalidBridgeIdChar => InvalidInput, "Invalid bridge id char";
+    NegativeMinAmount => InvalidInput, "Negative min amount";
+    AmountNotPositive => InvalidInput, "Amount not positive";
+    AmountBelowMinimum => InvalidInput, "Amount below minimum";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    BridgeAcceptancePaused => Paused, "Bridge acceptance paused";
+    ValidatorAlreadyExists => AlreadyExists, "Validator already exists";
+    ValidatorNotFound => NotFound, "Validator not found";
+    ValidatorInactive => InvalidState, "Validator inactive";
+    InvalidValidatorStake => InvalidInput, "Invalid validator stake";
+    MessageAlreadyExists => AlreadyExists, "Message already exists";
+    MessageNotFound => NotFound, "Message not found";
+    DuplicateAttestation => AlreadyExists, "Duplicate attestation";
+    QuorumNotReached => InvalidState, "Quorum not reached";
+    MessageNotFinal => InvalidState, "Message not final";
+    MessageAlreadyExecuted => AlreadyExists, "Message already executed";
+    MessageInvalidated => InvalidState, "Message invalidated", FixInput;
+    ReplayDetected => AlreadyExists, "Replay detected";
+    ChannelClosed => InvalidState, "Channel closed";
+    InvalidMessageVersion => InvalidInput, "Invalid message version";
+    InvalidSecurityConfig => InvalidInput, "Invalid security config";
+    ConflictingMessages => InvalidState, "Conflicting messages", ContactAdmin;
+    NothingToSlash => InvalidState, "Nothing to slash", FixInput;
+    MessageRejected => InvalidState, "Message rejected", FixInput;
+    InvalidMessageOrdering => InvalidInput, "Invalid message ordering";
+}

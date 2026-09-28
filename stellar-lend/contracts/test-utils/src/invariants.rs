@@ -61,7 +61,12 @@ pub fn assert_health_direction_after_borrow(before: i128, after: i128, label: &s
 
 /// Oracle price must be strictly positive when consumed by a risk check.
 pub fn assert_price_sane(price: i128, label: &str) {
-    assert!(price > 0, "{}: oracle price must be > 0, got {}", label, price);
+    assert!(
+        price > 0,
+        "{}: oracle price must be > 0, got {}",
+        label,
+        price
+    );
 }
 
 /// No free value: repaying debt cannot mint tokens out of thin air.

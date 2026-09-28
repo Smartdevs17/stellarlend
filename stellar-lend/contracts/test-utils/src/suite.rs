@@ -1,17 +1,9 @@
+//! Test suite registry: named test cases grouped by category, run together
+//! with per-case results. Moved here from the former `packages/test-framework`
+//! crate.
+
 use serde::{Deserialize, Serialize};
 use soroban_sdk::Env;
-
-pub mod edge_cases;
-pub mod fixtures;
-pub mod gas_benchmark;
-pub mod helpers;
-pub mod scenarios;
-
-pub use edge_cases::{EdgeCase, EdgeCaseCatalog};
-pub use fixtures::{ContractFixture, FixtureBuilder};
-pub use gas_benchmark::{GasBenchmark, GasReport};
-pub use helpers::*;
-pub use scenarios::{Scenario, ScenarioRunner};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum TestCategory {
@@ -136,4 +128,32 @@ where
     }
 
     fn teardown(&mut self, _env: &Env) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn suite_reports_each_case() {
+        let env = Env::default();
+        let mut suite = TestSuite::new("smoke");
+        suite.add_test(Box::new(NamedTest::new(
+            "passes",
+            TestCategory::Unit,
+            |_env: &Env| Ok(()),
+        )));
+        suite.add_test(Box::new(NamedTest::new(
+            "fails",
+            TestCategory::Integration,
+            |_env: &Env| Err("expected failure".to_string()),
+        )));
+
+        let results = suite.run(&env);
+        assert_eq!(results.len(), 2);
+        assert!(results[0].passed);
+        assert_eq!(results[0].category, TestCategory::Unit);
+        assert!(!results[1].passed);
+        assert_eq!(results[1].message, "expected failure");
+    }
 }

@@ -138,6 +138,16 @@ cargo test test_function_name
 make test
 ```
 
+The unified contract suite runs the shared `test-utils` framework and the suites built on it. It records timing, gas benchmarks and coverage:
+
+```bash
+scripts/testing/run-contract-tests.sh            # all suites
+scripts/testing/run-contract-tests.sh bench      # gas benchmark reports
+scripts/testing/run-contract-tests.sh coverage   # lcov + summary (cargo-llvm-cov)
+```
+
+See [stellar-lend/TESTING.md](stellar-lend/TESTING.md) for fixtures, seeding, scenarios and CI.
+
 ### Running Local CI Checks
 
 To reproduce CI checks locally before pushing:
@@ -412,6 +422,13 @@ When reporting issues, please include:
 ### Security
 
 If you discover a security vulnerability, please **do not** open a public issue. Instead, see our [SECURITY.md](SECURITY.md) for disclosure instructions and contact information.
+
+The approved private submission channel is **GitHub Security Advisories**
+(`https://github.com/Smartdevs17/stellarlend/security/advisories/new`).
+Our USDC bug bounty program is currently active and accepting reports on
+the Stellar network. Locally reproduced source-code findings within the
+documented scope qualify for bounty eligibility even without verified
+deployment exposure.
 
 ---
 

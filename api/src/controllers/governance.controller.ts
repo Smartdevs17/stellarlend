@@ -278,3 +278,27 @@ export const cleanQueue = async (req: Request, res: Response, next: NextFunction
     return;
   }
 };
+
+export const delegateVote = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { delegatorAddress, delegateeAddress, lockDurationDays } = req.body as any;
+
+    if (!delegatorAddress || !delegateeAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: delegatorAddress, delegateeAddress',
+      });
+    }
+
+    const result = await governanceService.delegateWithLock({
+      delegatorAddress,
+      delegateeAddress,
+      lockDurationDays,
+    });
+    logger.info('Governance vote delegated with lock', { delegator: delegatorAddress, delegatee: delegateeAddress });
+    return res.status(200).json(result);
+  } catch (error) {
+    next(error);
+    return;
+  }
+};

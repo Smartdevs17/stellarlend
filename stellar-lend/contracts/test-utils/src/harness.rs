@@ -8,9 +8,7 @@
 
 use soroban_sdk::{symbol_short, Address, Env, Symbol};
 
-use crate::events::{
-    topic_borrow, topic_deposit, topic_repay, topic_withdraw, EventRecorder,
-};
+use crate::events::{topic_borrow, topic_deposit, topic_repay, topic_withdraw, EventRecorder};
 use crate::gas::{reset_budget, snapshot, GasSnapshot};
 use crate::invariants::InvariantReport;
 use crate::mock_contracts::{register_mock_oracle, register_mock_token};

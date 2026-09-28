@@ -321,3 +321,17 @@ impl VaultShare {
 
 #[cfg(test)]
 mod test;
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    VaultShareError => stellarlend_errors::domains::VAULT_SHARE;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    InsufficientBalance => Insufficient, "Balance is too low for this operation";
+    InsufficientAllowance => Insufficient, "Spender allowance is too low";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    MintNotAllowed => Unauthorized, "Mint not allowed";
+    BurnNotAllowed => Unauthorized, "Burn not allowed";
+}

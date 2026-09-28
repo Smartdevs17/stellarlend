@@ -142,6 +142,57 @@ node --experimental-strip-types scripts/lending-gas-estimator/index.ts --fail-on
 See `scripts/lending-gas-estimator/README.md` for the cost model, the full rule
 list and the caveats that say where the estimate is an upper bound.
 
+## Lending Pool Position Health Simulation
+
+Simulate market conditions against the lending pool's own health factor and
+liquidation threshold math, before a price move happens on-chain.
+
+```bash
+# A shipped example position, through a flash crash
+node --experimental-strip-types scripts/position-health-sim/index.ts \
+  --position leveraged-xlm-borrow --grid flash_crash
+
+# One historical scenario, at an explicit threshold
+node --experimental-strip-types scripts/position-health-sim/index.ts \
+  --position healthy-xlm-borrow --scenario luna-ust-collapse --threshold-bps 8500
+
+# What scenarios and shock grids exist?
+node --experimental-strip-types scripts/position-health-sim/index.ts --list-scenarios
+
+# Gate: fail if any market condition liquidates the position
+node --experimental-strip-types scripts/position-health-sim/index.ts \
+  --position leveraged-xlm-borrow --grid flash_crash --fail-on liquidatable
+```
+
+The health factor is a port of `views.rs::compute_health_factor`, and the
+constants it depends on (`HEALTH_FACTOR_SCALE`, `PRICE_SCALE`,
+`HEALTH_FACTOR_NO_DEBT`, `COLLATERAL_RATIO_MIN` and the `borrow.rs` admin
+defaults) are **parsed out of the contract source** rather than copied — so
+renaming one on-chain makes the tool fail loudly instead of simulating against a
+stale number. Use `--contract-src` to point it at a different checkout or
+revision.
+
+This matters because the off-chain health-factor surfaces disagree with the
+contract: `risk-engine/stress-tester/engine.ts`, `services/risk-simulation.service.ts`,
+`services/position-simulator.ts` and `controllers/simulation.controller.ts` all
+compute a raw `collateralValue / debtValue` with **no liquidation threshold**, and
+`portfolio.service.ts` hardcodes 1.2 where the contract's default is 0.8. At the
+default 80% threshold the contract's health factor is 0.8× the raw ratio, so those
+surfaces call positions healthy that the contract would liquidate. This tool is
+the reference to check them against.
+
+It also answers the threshold question the repo could not: `liquidation_threshold_bps`
+is admin-settable across 1..10000 bps, and `--thresholds` (or the default grid)
+shows what a change does to the liquidation boundary.
+
+Note that `liquidate` in the lending pool is still a stub (`lib.rs:298`), and
+neither `close_factor_bps` nor `liquidation_incentive_bps` is exposed in the
+`#[contractimpl]`, so the tool prices what a liquidation *would* cost from the
+view functions rather than from a liquidation path.
+
+See `scripts/position-health-sim/README.md` for the position file format, the
+fidelity details, and the tests transcribed from the contract's own suite.
+
 ## Deployment Verification
 
 After deployment and initialization, run:
@@ -211,3 +262,44 @@ Mutation reports are written to `api/reports/mutation/`.
 ### CI strategy
 
 The repository includes a dedicated GitHub Actions workflow for scheduled or manually triggered mutation runs so regular PR validation remains fast while mutation testing still has a persistent quality gate.
+
+## Gas Golf Leaderboard
+
+`scripts/gas-golf` is a competition harness for gas optimization. It is a plain
+Node script with no dependencies, so it runs on its own rather than through the
+API package:
+
+```bash
+node --experimental-strip-types scripts/gas-golf/index.ts --list-challenges
+node --experimental-strip-types scripts/gas-golf/index.ts --gate all
+node --experimental-strip-types scripts/gas-golf/index.ts
+node --experimental-strip-types --test scripts/gas-golf/*.test.ts
+```
+
+Two rules make its output worth anything, and both are enforced rather than
+documented:
+
+- **Correctness gates the score.** Every submission is compared against a
+  maintainer-owned reference over a fixed vector set at a tolerance of exactly
+  `0`, with the tolerance and allow-list read from the course definition so a
+  submitter cannot widen their own pass mark. This is the `scripts/differential-test`
+  comparison with competitive rules attached.
+- **Only a same-session delta is a score.** Instruction counts are
+  build-dependent, so a figure is reported only against the reference's figure
+  from the same run; `--require-fresh` refuses a report stitched from two
+  commits.
+
+The score is `instructions / budget` — the same `FunctionRow.utilizationPct`
+the gas report uses, so the two can never disagree about what "over budget"
+means. Storage read/write counts are deliberately excluded: they are
+hand-declared literals, not measurements.
+
+The board does **not** run the Rust benchmark suite. Today `baseline.json` has
+`"results": []` and `gas-baseline.json` holds only `hello-world` measurements, so
+the default run reports no rankable entries and explains why instead of printing
+a table of zeroes. Producing real comparable measurements is
+`gas-regression.yml`'s job. See `scripts/gas-golf/README.md` for the full
+description, and `scripts/gas-golf/fixtures/README.md` for the clearly-labelled
+synthetic session used to exercise the populated path.
+
+CI: `.github/workflows/gas-golf.yml`.

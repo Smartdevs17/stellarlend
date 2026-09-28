@@ -461,3 +461,23 @@ impl EarningsReinvestContract {
 
 #[cfg(test)]
 mod lib_test;
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    ReinvestError => stellarlend_errors::domains::EARNINGS_REINVEST;
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    PlanNotFound => NotFound, "Plan not found";
+    InvalidThreshold => InvalidInput, "Invalid threshold";
+    InvalidWeights => InvalidInput, "Invalid weights";
+    PlanPaused => Paused, "Plan paused";
+    PlanNotPaused => InvalidState, "Plan not paused", FixInput;
+    BelowThreshold => InvalidInput, "Below threshold";
+    PoolPaused => Paused, "Pool paused";
+    GasExceedsEarnings => InvalidState, "Gas exceeds earnings", RetryLater;
+    ScheduleNotDue => InvalidState, "Schedule not due";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+}

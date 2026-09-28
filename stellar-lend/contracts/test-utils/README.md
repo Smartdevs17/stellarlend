@@ -1,89 +1,9 @@
 # Test Utilities
 
-Shared test utilities for StellarLend smart contracts.
-
-## Overview
-
-This crate provides common testing infrastructure to reduce code duplication across contract tests and ensure consistent testing patterns.
-
-## Modules
-
-### Environment (`environment.rs`)
-
-Test environment setup helpers:
-
-```rust
-use test_utils::TestEnv;
-
-let mut test_env = TestEnv::new()
-    .with_timestamp(1000)
-    .with_ledger_sequence(1);
-
-let user = test_env.generate_user();
-test_env.advance_time(3600);
-```
-
-Helper functions:
-- `setup_test_env()` - Basic env with admin
-- `setup_test_env_with_users(count)` - Env with multiple users
-- `create_string(env, value)` - Create Soroban strings
-
-### Mock Contracts (`mock_contracts.rs`)
-
-Pre-built mock implementations:
-
-```rust
-use test_utils::{register_mock_token, register_mock_oracle};
-
-let token_address = register_mock_token(&env);
-let oracle_address = register_mock_oracle(&env);
-```
-
-Available mocks:
-- `MockToken` - Basic token with mint/burn/transfer
-- `MockOracle` - Price oracle with configurable prices
-
-### Assertions (`assertions.rs`)
-
-Domain-specific assertion helpers:
-
-```rust
-use test_utils::*;
-
-assert_non_negative(balance, "User balance");
-assert_approximately_equal(actual, expected, 100, "Interest calculation");
-assert_in_range(ltv, 0, 10_000, "LTV ratio");
-```
-
-Available assertions:
-- `assert_non_negative` / `assert_positive`
-- `assert_in_range`
-- `assert_balance_non_negative`
-- `assert_balances_equal`
-- `assert_approximately_equal`
-- `assert_percentage_in_range`
-- `assert_greater_than` / `assert_less_than`
-- `assert_zero` / `assert_not_zero`
-
-### Fixtures (`fixtures.rs`)
-
-Common test constants and builders:
-
-```rust
-use test_utils::{AmountFixtures, AssetConfigFixture};
-
-let amount = AmountFixtures::MEDIUM;
-
-let config = AssetConfigFixture::new()
-    .with_collateral_factor(8000)
-    .with_price(2_000_000);
-```
-
-Available fixtures:
-- Amount constants: `MIN_AMOUNT`, `MAX_AMOUNT`, `LARGE_CEILING`
-- Time constants: `TimeFixtures::HOUR`, `TimeFixtures::DAY`
-- Rate constants: `RateFixtures::FIVE_PERCENT`
-- `AssetConfigFixture` - Builder for asset configurations
+The unified test framework for StellarLend smart contracts. Every contract
+suite uses it to set up environments, fixtures, seeded data, scenarios and gas
+benchmarks. [`../../TESTING.md`](../../TESTING.md) covers how the suites are
+organised, run in CI, benchmarked and measured for coverage.
 
 ## Usage
 
@@ -94,36 +14,125 @@ Add to your contract's `Cargo.toml`:
 test-utils = { path = "../test-utils" }
 ```
 
-Import in tests:
-
 ```rust
 #[cfg(test)]
 mod tests {
     use test_utils::*;
-    
+
     #[test]
     fn test_example() {
-        let mut test_env = TestEnv::new();
-        let user = test_env.generate_user();
-        
-        // Your test logic
+        let f = ProtocolFixture::builder().users(2).initial_balance(1_000).build();
+        let contract_id = f.env.register(MyContract, ());
+        // ...
     }
 }
 ```
 
-## Design Principles
+## Modules
 
-1. **Zero Dependencies**: Only depends on `soroban-sdk`
-2. **Flexible**: Composable helpers that don't impose rigid patterns
-3. **Clear**: Self-documenting names and comprehensive error messages
-4. **Minimal**: Only includes truly common patterns
-5. **Type-Safe**: Leverages Rust's type system for correctness
+### Environment (`environment.rs`)
+
+```rust
+let mut test_env = TestEnv::new()        // or TestEnv::snapshotless()
+    .with_timestamp(1000)
+    .with_ledger_sequence(1)
+    .with_unlimited_budget();
+
+let user = test_env.generate_user();
+test_env.advance_time(3600);
+```
+
+- `snapshotless_env()` returns an env that doesn't write `test_snapshots/` on drop. Use it for property tests and other suites that create many envs. Auths are not mocked.
+- `setup_test_env()`, `setup_test_env_with_users(count)`, `create_string(env, value)` and `advance_time(env, seconds)` are also available.
+
+### Fixtures (`fixtures.rs`)
+
+The value fixtures are `AmountFixtures`, `TimeFixtures`, `RateFixtures`, `AssetConfigFixture` and the default constants.
+
+Deployed-state fixtures:
+
+```rust
+let f = ProtocolFixture::builder()
+    .users(3)                               // default 2
+    .tokens(2)                              // Stellar Asset Contracts, default 1
+    .default_price(ORACLE_PRICE_SCALE)      // price every token starts at
+    .token_price(1, ORACLE_PRICE_SCALE / 2)
+    .initial_balance(10_000)                // minted to every user, every token
+    .timestamp(1_700_000_000)
+    .build();
+
+f.token(0).mint(f.user(0), 500);
+f.set_price(0, 2 * ORACLE_PRICE_SCALE);
+f.advance_time(TimeFixtures::DAY);
+```
+
+`TokenFixture::deploy(env, admin)` deploys a single SAC.
+
+### Data seeding (`seeding.rs`)
+
+`SeedRng` is a deterministic SplitMix64 generator. `Seeder` funds users, quotes random prices, runs bounded price walks and generates amounts, and it records every balance it mints. `TEST_SEED` overrides `DEFAULT_SEED`.
+
+```rust
+let mut seeder = Seeder::from_env(&f);
+seeder.fund_random(0, 1_000, 50_000);
+let path = seeder.price_walk(1, 40, 500);
+assert_eq!(seeder.seeded_for(f.user(0), 0), f.token(0).balance(f.user(0)));
+```
+
+### Mock contracts (`mock_contracts.rs`)
+
+- `PriceOracle` exposes `price(asset)`, `set_price` and `set_default_price`. It uses 8 decimals and is the interface the lending contract calls. Register it with `register_price_oracle(env, default_price)`.
+- `MockToken` supports mint, burn and balance.
+- `MockOracle` exposes `get_price` and `set_price`, with 6-decimal defaults.
+
+### Scenarios (`scenario.rs`, `scenarios/*.json`)
+
+JSON scenarios run step by step against a real contract through a handler you supply. `expected_result` is `"success"`, `"error"` or `"error:<text>"`.
+
+```rust
+let scenario = Scenario::bundled("lending-journey.json");
+ScenarioRunner::new().run(&scenario, |step| apply(step)).assert_passed();
+```
+
+### Gas benchmarks (`bench.rs`, `gas.rs`)
+
+```rust
+let budgets = GasBudgets::workspace_baseline();          // benchmarks/baseline.json
+let mut meter = GasMeter::new("journey");
+meter.measure(&env, "deposit", "lending::deposit", || client.deposit(&u, &a, &1_000));
+budgets.assert_within(&meter);
+BenchReport::new(&[meter], &budgets).write(&dir, "journey.json");
+```
+
+Soroban resets metering before every top-level contract invocation, so measure one contract call per closure. `gas.rs` has the lower-level `timed`, `assert_within_cpu` and `assert_cheaper_or_equal`.
+
+### Assertions, invariants and reference math
+
+- `assertions.rs`: `assert_non_negative`, `assert_in_range`, `assert_approximately_equal`, `assert_percentage_in_range`, and more.
+- `invariants.rs`: accounting identity, collateral conservation, health-factor direction, index monotonicity and pause freezing, plus `InvariantReport`.
+- `reference.rs`: `health_factor_bps`, `is_liquidatable`, `calculate_interest_accrual`, and tolerance assertions.
+
+### Events and cross-contract harness (`events.rs`, `harness.rs`)
+
+`EventRecorder` records topics in a bounded buffer. `CrossContractHarness` registers a mock token and oracle and drives labeled scenario steps.
+
+### Suite registry and edge cases (`suite.rs`, `edge_cases.rs`)
+
+- `TestSuite` holds `TestCase` / `NamedTest` cases and returns a result for each one.
+- `EdgeCaseCatalog` documents the expected failure modes for each function.
+
+## Running this crate's tests
+
+```bash
+cd stellar-lend
+cargo test -p test-utils
+```
 
 ## Contributing
 
 When adding new utilities:
 
-1. Ensure the pattern is used in at least 3 different contracts
-2. Add comprehensive documentation with examples
-3. Keep functions focused and composable
-4. Maintain backward compatibility
+1. Add a helper here once at least two suites need it. Otherwise keep it in the suite.
+2. Test it in this crate, either as a unit test in the module or in `tests/`.
+3. Keep functions focused and composable, and keep existing signatures working.
+4. Document it here and, if it changes how suites are written, in `TESTING.md`.

@@ -12,9 +12,11 @@ pub mod upgrade;
 /// `stellarlend-errors` as a separate dependency just to normalize errors.
 pub mod errors {
     pub use stellarlend_errors::{
-        assert_error_code, lending_code_to_core, lending_code_to_core_or_internal, log_error,
-        log_error_with_tag, recover, CoreError, ErrorAnalytics,
-        IntoError, LendingCode, RecoveryDecision,
+        assert_error_code, decode_global_code, domains, explain, impl_contract_error,
+        lending_code_to_core, lending_code_to_core_or_internal, log_contract_error, log_error,
+        log_error_with_tag, recover, ContractError, ContractId, CoreError, ErrorAnalytics,
+        ErrorDescriptor, ErrorDomain, ErrorInfo, IntoError, LendingCode, RecoveryAction,
+        RecoveryDecision, Severity,
     };
     pub use stellarlend_errors::mapping as mapping;
 
@@ -25,7 +27,7 @@ pub mod errors {
         pub use stellarlend_errors::logging::{log_error, log_error_with_tag};
     }
     pub mod testing {
-        pub use stellarlend_errors::testing::assert_code;
+        pub use stellarlend_errors::testing::{assert_code, assert_registry};
     }
 }
 

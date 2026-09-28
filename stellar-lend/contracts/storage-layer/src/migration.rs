@@ -112,3 +112,11 @@ mod tests {
         });
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    MigrationError => stellarlend_errors::domains::STORAGE_LAYER_MIGRATION;
+    VersionRegression => InvalidInput, "A migration requested a *decrease* in schema version";
+    UnsupportedVersion => InvalidInput, "A version was read that is ahead of what this build knows how to migrate";
+}
