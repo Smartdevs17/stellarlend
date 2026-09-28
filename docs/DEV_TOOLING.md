@@ -142,6 +142,50 @@ node --experimental-strip-types scripts/lending-gas-estimator/index.ts --fail-on
 See `scripts/lending-gas-estimator/README.md` for the cost model, the full rule
 list and the caveats that say where the estimate is an upper bound.
 
+## Lending Protocol Gas Budget Planner
+
+Plan what a lender's gas costs will be for a pattern of operations, before any
+transaction is submitted.
+
+```bash
+# A built-in pattern
+node --experimental-strip-types scripts/gas-budget-planner/index.ts --preset steady_lender
+
+# Your own pattern, against a budget
+node --experimental-strip-types scripts/gas-budget-planner/index.ts \
+  --plan scripts/gas-budget-planner/patterns/multi-asset-rebalancer.json \
+  --budget-xlm 0.5 --xlm-price 0.11
+
+# Just the per-call price table
+node --experimental-strip-types scripts/gas-budget-planner/index.ts --operation-costs
+```
+
+A plan file declares how many deposits, borrows, repays and withdrawals happen
+per period, an optional `batchSize` for deposits that go through
+`deposit_batch`, and optionally a budget. The tool multiplies the per-call costs
+by those counts, reports the period and annualised totals in stroops, XLM and
+optionally USD, compares them against the budget, projects the plan forward at
+higher volume to show where it breaks, and suggests levers derived from the
+plan's own shape.
+
+Per-call costs are read from `api/src/services/gas/estimator.ts` — the same
+constants and formula `POST /api/gas/estimate` uses — and the committed
+CPU-instruction budgets from `stellar-lend/benchmarks/baseline.json`, so a plan
+agrees with the API and with the gas budget gate CI enforces. Where a measured
+count exists in `stellar-lend/benchmarks/gas-baseline.json` it is preferred over
+the API's baseline.
+
+Four example plans ship in `scripts/gas-budget-planner/patterns/`, and
+`--list-presets` prints the built-in pattern names. Exit codes are `0` ok, `1`
+over budget, `2` usage error, so `--fail-over-budget` is usable as a gate.
+
+Note this is the **gas** budget, distinct from the capital-allocation and yield
+planner in `api/src/services/planner/budget-planner.ts` (documented in
+[BUDGET_PLANNER.md](BUDGET_PLANNER.md)) — same name, different question.
+
+See `scripts/gas-budget-planner/README.md` for the plan file format, the cost
+sources and the full suggestion rule list.
+
 ## Lending Pool Position Health Simulation
 
 Simulate market conditions against the lending pool's own health factor and

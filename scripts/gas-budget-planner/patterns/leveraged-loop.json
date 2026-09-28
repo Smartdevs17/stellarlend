@@ -1,0 +1,12 @@
+{
+  "name": "leveraged-loop",
+  "description": "A leveraged position re-levered weekly: each cycle opens a borrow against the collateral, pays it down, and re-opens. Repay and borrow dominate the budget because they write the most storage.",
+  "periodDays": 30,
+  "batchSize": 1,
+  "operations": {
+    "deposit": 1,
+    "borrow": 4,
+    "repay": 4,
+    "withdraw": 1
+  }
+}

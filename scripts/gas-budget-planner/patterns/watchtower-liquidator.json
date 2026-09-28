@@ -1,0 +1,11 @@
+{
+  "name": "watchtower-liquidator",
+  "description": "An account that watches for unhealthy positions and closes them. `liquidation` writes the most storage of any call in the table, so the budget is dominated by how many positions it can realistically close per month.",
+  "periodDays": 30,
+  "operations": {
+    "deposit": 1,
+    "borrow": 1,
+    "repay": 1,
+    "liquidation": 4
+  }
+}
