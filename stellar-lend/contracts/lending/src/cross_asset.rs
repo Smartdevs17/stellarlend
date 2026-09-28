@@ -277,3 +277,17 @@ fn get_price(_env: &Env, _price_feed: &Address) -> Result<i128, CrossAssetError>
 pub fn initialize_admin(env: &Env, admin: Address) {
     env.storage().persistent().set(&CrossAssetDataKey::Admin, &admin);
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    CrossAssetError => stellarlend_errors::domains::LENDING_CROSS_ASSET;
+    InsufficientCollateral => Insufficient, "Collateral is insufficient for this position", AddCollateral;
+    DebtCeilingReached => LimitExceeded, "Debt ceiling reached", ReduceAmount;
+    ProtocolPaused => Paused, "Protocol is paused";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    AssetNotSupported => InvalidAsset, "Asset not supported";
+    PriceUnavailable => PriceUnavailable, "Price data is unavailable";
+}

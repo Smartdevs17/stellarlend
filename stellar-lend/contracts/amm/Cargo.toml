@@ -8,6 +8,7 @@ name = "stellarlend_amm"
 crate-type = ["lib", "cdylib"]
 
 [dependencies]
+stellarlend-errors = { path = "../errors" }
 soroban-sdk = { workspace = true }
 soroban-token-sdk = { workspace = true }
 stellarlend-common = { path = "../common" }

@@ -139,3 +139,13 @@ mod tests {
         let _ = ReentrancyError::ReentrancyDetected;
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    ReentrancyError => stellarlend_errors::domains::LENDING_REENTRANCY;
+    ReentrancyDetected => Reentrancy, "Reentrant call blocked";
+    CrossContractReentrancy => Reentrancy, "Cross contract reentrancy";
+    ConstructorReentrancy => Reentrancy, "Constructor reentrancy";
+    DelegateCallReentrancy => Reentrancy, "Delegate call reentrancy";
+}

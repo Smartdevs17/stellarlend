@@ -219,10 +219,63 @@ export const RiskAnalyzer: React.FC = () => {
   return (
     <div style={styles.container}>
       <div style={styles.header}>
-        <h2>Liquidation Risk Analyzer</h2>
+        <h2>Market Risk Assessment Dashboard & Risk Analyzer</h2>
         <div style={styles.wsStatus}>
           <span style={{ ...styles.statusDot, backgroundColor: wsConnected ? COLORS.safe : COLORS.critical }} />
           {wsConnected ? 'Live' : 'Disconnected'}
+        </div>
+      </div>
+
+      {/* Admin Market Risk Assessment Dashboard */}
+      <div style={{ ...styles.collateralMonitoring, marginBottom: 20 }}>
+        <div style={styles.sectionHeader}>
+          <h3>Admin Market Risk Assessment & Stress Test Scenarios</h3>
+        </div>
+        <div style={styles.snapshotsGrid}>
+          <div style={{ ...styles.snapshotCard, borderLeft: `4px solid ${COLORS.safe}` }}>
+            <div style={styles.cardHeader}>
+              <strong>Market Exposure</strong>
+              <span style={{ ...styles.badge, backgroundColor: COLORS.safe }}>LOW RISK</span>
+            </div>
+            <div style={styles.metricRow}>
+              <span style={styles.metricLabel}>Total Exposure:</span>
+              <span style={styles.metricValue}>$14.5M</span>
+            </div>
+            <div style={styles.metricRow}>
+              <span style={styles.metricLabel}>Volatility Index:</span>
+              <span style={styles.metricValue}>28.4</span>
+            </div>
+          </div>
+
+          <div style={{ ...styles.snapshotCard, borderLeft: `4px solid ${COLORS.warning}` }}>
+            <div style={styles.cardHeader}>
+              <strong>Stress Testing</strong>
+              <span style={{ ...styles.badge, backgroundColor: COLORS.warning }}>5 SCENARIOS</span>
+            </div>
+            <div style={styles.metricRow}>
+              <span style={styles.metricLabel}>Worst Capital Loss:</span>
+              <span style={styles.metricValue}>$850,000</span>
+            </div>
+            <div style={styles.metricRow}>
+              <span style={styles.metricLabel}>Solvency Buffer:</span>
+              <span style={styles.metricValue}>1.42x</span>
+            </div>
+          </div>
+
+          <div style={{ ...styles.snapshotCard, borderLeft: `4px solid ${COLORS.danger}` }}>
+            <div style={styles.cardHeader}>
+              <strong>Scenario Analysis</strong>
+              <span style={{ ...styles.badge, backgroundColor: COLORS.danger }}>CRASH (-35%)</span>
+            </div>
+            <div style={styles.metricRow}>
+              <span style={styles.metricLabel}>Proj. Liquidations:</span>
+              <span style={styles.metricValue}>$680,000</span>
+            </div>
+            <div style={styles.metricRow}>
+              <span style={styles.metricLabel}>Solvency State:</span>
+              <span style={{ ...styles.metricValue, color: COLORS.safe }}>SOLVENT</span>
+            </div>
+          </div>
         </div>
       </div>
 

@@ -10,6 +10,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ### Added
 - Lending protocol gas budget planner in `scripts/gas-budget-planner`: a lender declares an interaction pattern (calls per period, optional batch size, optional budget) and the tool prices it per call, per period and annualised, projects it forward, and suggests six levers derived from the plan's own shape; per-call costs are read from `api/src/services/gas/estimator.ts` and the committed instruction budgets from `stellar-lend/benchmarks/baseline.json`, so a plan matches `POST /api/gas/estimate` instead of restating it (#1012)
+- Gas golf competition harness and leaderboard in `scripts/gas-golf`: a maintainer-owned differential correctness gate at tolerance 0, a `utilizationPct` leaderboard over `public-functions.json` targets, measurement-integrity checks, and an honest empty state where no `lending::*` measurement exists (#1014)
 - Flash loan pool rules in the `flash-loan` crate: validated fee (rounded up) and min/max amount, a per-loan pool-share cap, balance-based repayment checking and metrics (#1019)
 - Collateral factor registry in `lending-risk`: risk tiers with parameter ceilings, threshold-gap and coverage validation, freezing and supply caps (#1020)
 - Liquidator loyalty incentives and an MEV guard (per-position cooldown, per-ledger cap, price-deviation band) in `lending-risk` (#1021)

@@ -9,6 +9,7 @@ crate-type = ["cdylib", "lib"]
 doctest = false
 
 [dependencies]
+stellarlend-errors = { path = "../errors" }
 soroban-sdk = { workspace = true }
 soroban-token-sdk = { workspace = true }
 stealth-address = { path = "../stealth-address" }

@@ -36,3 +36,13 @@ impl Default for GuardBehavior {
         GuardBehavior::AllowReadOnlyReentry
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    ReentrancyError => stellarlend_errors::domains::SECURITY_REENTRANCY;
+    ReentrancyDetected => Reentrancy, "A re-entrant call into the same guard key was blocked";
+    CrossContractReentrancy => Reentrancy, "A cross-contract re-entrant call was detected for the armed caller";
+    ConstructorReentrancy => Reentrancy, "A re-entrant call into a constructor/initializer was blocked";
+    DelegateCallReentrancy => Reentrancy, "A delegate-call re-entrancy was blocked";
+}

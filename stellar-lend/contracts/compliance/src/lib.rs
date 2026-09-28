@@ -553,3 +553,24 @@ impl ComplianceContract {
 #[cfg(test)]
 mod lib_test;
 
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    ComplianceError => stellarlend_errors::domains::COMPLIANCE;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    AddressSanctioned => Unauthorized, "Address sanctioned";
+    TransactionLimitExceeded => LimitExceeded, "Transaction limit exceeded";
+    GeographicRestricted => Unauthorized, "Geographic restricted";
+    KYCRequired => Unauthorized, "KYC required";
+    KYCExpired => Unauthorized, "KYC expired";
+    TransactionTooLarge => LimitExceeded, "Transaction too large", ReduceAmount;
+    DailyLimitExceeded => LimitExceeded, "Daily limit exceeded";
+    WeeklyLimitExceeded => LimitExceeded, "Weekly limit exceeded";
+    AlreadySanctioned => AlreadyExists, "Already sanctioned";
+    AddressNotSanctioned => NotFound, "Address not sanctioned";
+    InvalidJurisdiction => InvalidInput, "Invalid jurisdiction";
+    SARAlreadyFiled => AlreadyExists, "SAR already filed";
+    CompliancePaused => Paused, "Compliance paused";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+}

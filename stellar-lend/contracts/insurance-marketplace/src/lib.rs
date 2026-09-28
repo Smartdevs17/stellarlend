@@ -706,3 +706,18 @@ mod tests {
         assert_eq!(pid, 0);
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    Error => stellarlend_errors::domains::INSURANCE_MARKETPLACE;
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    NotFound => NotFound, "Requested item was not found";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    Insolvent => Insufficient, "Insolvent", ContactAdmin;
+    Expired => InvalidState, "Expired", FixInput;
+    TriggerNotCovered => InvalidInput, "Trigger not covered";
+    AlreadyClaimed => AlreadyExists, "Already claimed";
+    NotExpired => InvalidState, "Not expired", RetryLater;
+}

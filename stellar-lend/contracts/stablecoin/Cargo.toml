@@ -8,6 +8,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+stellarlend-errors = { path = "../errors" }
 soroban-sdk = { workspace = true }
 soroban-token-sdk = { workspace = true }
 

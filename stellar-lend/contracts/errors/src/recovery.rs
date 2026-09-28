@@ -19,28 +19,13 @@ pub enum RecoveryDecision {
 
 /// Classifies a [`CoreError`] into a [`RecoveryDecision`] using conservative defaults.
 ///
-/// The mapping assumes the protocol's retryable failures are: rate limits, price
-/// unavailability, and transient state; everything else is terminal.
+/// Derived from the category's default [`crate::RecoveryAction`], so the retry
+/// decision and the user-facing suggestion can never disagree. The retryable
+/// categories are rate limits, price unavailability, and transient state;
+/// everything else is terminal. Prefer [`crate::ContractError::decision`] when
+/// the concrete variant is known — it honours per-variant action overrides.
 pub fn recover(error: CoreError) -> RecoveryDecision {
-    match error {
-        CoreError::LimitExceeded | CoreError::PriceUnavailable | CoreError::InvalidState => {
-            RecoveryDecision::Retry
-        }
-        CoreError::Unauthorized
-        | CoreError::InvalidInput
-        | CoreError::InvalidAsset
-        | CoreError::Insufficient
-        | CoreError::GuaranteeViolated
-        | CoreError::Overflow
-        | CoreError::Paused
-        | CoreError::Reentrancy
-        | CoreError::NotInitialized
-        | CoreError::AlreadyInitialized
-        | CoreError::NotFound
-        | CoreError::AlreadyExists
-        | CoreError::DivisionByZero
-        | CoreError::Internal => RecoveryDecision::Terminal,
-    }
+    error.default_action().decision()
 }
 
 /// Returns a human-readable retry hint for a decision (for dashboards/logs).

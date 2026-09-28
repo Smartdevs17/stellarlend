@@ -19,6 +19,11 @@
 //!   per-module error enum so the framework can normalize failures with a single
 //!   `into_core()` call. A blanket impl for `T: LendingCode` means most contracts
 //!   only need to write `impl LendingCode for MyError { fn code(&self) -> u32 { *self as u32 } }`.
+//! * Every contract error enum is registered with [`impl_contract_error!`], which
+//!   implements [`ContractError`]: a protocol-wide unique **global code** (see
+//!   [`domain`] and the central [`domains`] registry), a per-variant
+//!   **message**, and a [`RecoveryAction`] with **suggestion** text. The numeric
+//!   on-chain codes are untouched. See `docs/ERROR_HANDLING.md`.
 //! * Three stable helpers build on top of the normalized category:
 //!   * [`analytics::ErrorAnalytics`] — per-category counters for dashboards.
 //!   * [`logging::log_error`] — uniform Soroban event emission.
@@ -68,13 +73,20 @@ use soroban_sdk::{contracterror, Env, Symbol};
 
 pub mod analytics;
 pub mod benchmark;
+pub mod catalog;
+pub mod contract_error;
+pub mod domain;
+pub mod domains;
 pub mod logging;
 pub mod mapping;
 pub mod recovery;
 pub mod testing;
 
 pub use analytics::ErrorAnalytics;
-pub use logging::{log_error, log_error_with_tag};
+pub use catalog::{ErrorDescriptor, ErrorInfo, RecoveryAction, Severity};
+pub use contract_error::{explain, ContractError};
+pub use domain::{decode_global_code, ContractId, ErrorDomain};
+pub use logging::{log_contract_error, log_error, log_error_with_tag};
 pub use mapping::{lending_code_to_core, lending_code_to_core_or_internal, LendingCode};
 pub use recovery::{recover, hint, RecoveryDecision};
 

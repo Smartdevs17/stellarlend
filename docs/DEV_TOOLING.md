@@ -215,3 +215,44 @@ Mutation reports are written to `api/reports/mutation/`.
 ### CI strategy
 
 The repository includes a dedicated GitHub Actions workflow for scheduled or manually triggered mutation runs so regular PR validation remains fast while mutation testing still has a persistent quality gate.
+
+## Gas Golf Leaderboard
+
+`scripts/gas-golf` is a competition harness for gas optimization. It is a plain
+Node script with no dependencies, so it runs on its own rather than through the
+API package:
+
+```bash
+node --experimental-strip-types scripts/gas-golf/index.ts --list-challenges
+node --experimental-strip-types scripts/gas-golf/index.ts --gate all
+node --experimental-strip-types scripts/gas-golf/index.ts
+node --experimental-strip-types --test scripts/gas-golf/*.test.ts
+```
+
+Two rules make its output worth anything, and both are enforced rather than
+documented:
+
+- **Correctness gates the score.** Every submission is compared against a
+  maintainer-owned reference over a fixed vector set at a tolerance of exactly
+  `0`, with the tolerance and allow-list read from the course definition so a
+  submitter cannot widen their own pass mark. This is the `scripts/differential-test`
+  comparison with competitive rules attached.
+- **Only a same-session delta is a score.** Instruction counts are
+  build-dependent, so a figure is reported only against the reference's figure
+  from the same run; `--require-fresh` refuses a report stitched from two
+  commits.
+
+The score is `instructions / budget` — the same `FunctionRow.utilizationPct`
+the gas report uses, so the two can never disagree about what "over budget"
+means. Storage read/write counts are deliberately excluded: they are
+hand-declared literals, not measurements.
+
+The board does **not** run the Rust benchmark suite. Today `baseline.json` has
+`"results": []` and `gas-baseline.json` holds only `hello-world` measurements, so
+the default run reports no rankable entries and explains why instead of printing
+a table of zeroes. Producing real comparable measurements is
+`gas-regression.yml`'s job. See `scripts/gas-golf/README.md` for the full
+description, and `scripts/gas-golf/fixtures/README.md` for the clearly-labelled
+synthetic session used to exercise the populated path.
+
+CI: `.github/workflows/gas-golf.yml`.

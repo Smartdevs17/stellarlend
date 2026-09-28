@@ -1,0 +1,12 @@
+[
+  { "name": "healthy-2x", "inputs": { "collateralAmount": "20000", "collateralPrice": "100000000", "debtAmount": "8000", "debtPrice": "100000000" } },
+  { "name": "exactly-on-boundary", "inputs": { "collateralAmount": "1500", "collateralPrice": "100000000", "debtAmount": "1000", "debtPrice": "100000000", "liquidationThresholdBps": "6667" } },
+  { "name": "truncation-sensitive", "inputs": { "collateralAmount": "1501", "collateralPrice": "100000000", "debtAmount": "1000", "debtPrice": "100000000", "liquidationThresholdBps": "6667" } },
+  { "name": "collapsing-divisions-would-differ", "inputs": { "collateralAmount": "1234567", "collateralPrice": "100000000", "debtAmount": "890123", "debtPrice": "100000000" } },
+  { "name": "low-threshold-liquidatable", "inputs": { "collateralAmount": "30000", "collateralPrice": "100000000", "debtAmount": "15000", "debtPrice": "100000000", "liquidationThresholdBps": "4000" } },
+  { "name": "custom-threshold", "inputs": { "collateralAmount": "20000", "collateralPrice": "100000000", "debtAmount": "10000", "debtPrice": "100000000", "liquidationThresholdBps": "7500" } },
+  { "name": "no-debt-sentinel", "inputs": { "collateralAmount": "20000", "collateralPrice": "100000000", "debtAmount": "0", "debtPrice": "100000000" } },
+  { "name": "no-oracle", "inputs": { "collateralAmount": "20000", "collateralPrice": "100000000", "debtAmount": "8000", "debtPrice": "100000000", "oraclePresent": false } },
+  { "name": "non-flat-prices", "inputs": { "collateralAmount": "40000000000", "collateralPrice": "1", "debtAmount": "2000000000", "debtPrice": "100" } },
+  { "name": "zero-price-debt", "inputs": { "collateralAmount": "20000", "collateralPrice": "100000000", "debtAmount": "8000", "debtPrice": "0" } }
+]

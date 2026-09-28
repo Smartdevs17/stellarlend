@@ -265,3 +265,17 @@ fn pending_approvals(env: &Env) -> Vec<Address> {
         .get(&DataKey::UpgradeApprovals)
         .unwrap_or_else(|| Vec::new(env))
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    UpgradeError => stellarlend_errors::domains::ORACLE_HUB_UPGRADE;
+    NotConfigured => NotInitialized, "Not configured";
+    InvalidThreshold => InvalidInput, "Invalid threshold";
+    AlreadyConfigured => AlreadyInitialized, "Already configured";
+    NotApprover => Unauthorized, "Not approver";
+    AlreadyApproved => AlreadyExists, "Already approved";
+    NotEnoughApprovals => InvalidState, "Not enough approvals", RetryLater;
+    TimelockNotElapsed => InvalidState, "Timelock not elapsed";
+    UpgradeNotStaged => InvalidState, "Upgrade not staged";
+}

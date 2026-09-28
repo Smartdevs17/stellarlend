@@ -141,6 +141,21 @@ pub struct DelegationRecord {
     pub delegatee: Address,
     pub delegated_at: u64,
     pub depth: u32,
+    pub lock_until: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct PackedBatchOperation {
+    pub op_type: u32,
+    pub packed_data: soroban_sdk::Bytes,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct OptimizedBatchCall {
+    pub shared_header: soroban_sdk::Bytes,
+    pub operations: soroban_sdk::Vec<PackedBatchOperation>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

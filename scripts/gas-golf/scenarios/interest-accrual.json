@@ -1,0 +1,10 @@
+[
+  { "name": "one-year-at-8pct", "inputs": { "principal": "1000000", "rateBps": "800", "elapsedSeconds": "31536000", "indexLast": "1000000000", "updates": "1" } },
+  { "name": "daily-updates", "inputs": { "principal": "1000000", "rateBps": "800", "elapsedSeconds": "31536000", "indexLast": "1000000000", "updates": "365" } },
+  { "name": "hourly-updates-drift", "inputs": { "principal": "1000000", "rateBps": "800", "elapsedSeconds": "31536000", "indexLast": "1000000000", "updates": "8760" } },
+  { "name": "accrued-index", "inputs": { "principal": "5000000", "rateBps": "1200", "elapsedSeconds": "7776000", "indexLast": "1042000000", "updates": "30" } },
+  { "name": "small-principal-truncates", "inputs": { "principal": "7", "rateBps": "800", "elapsedSeconds": "86400", "indexLast": "1000000000", "updates": "1" } },
+  { "name": "zero-rate", "inputs": { "principal": "1000000", "rateBps": "0", "elapsedSeconds": "31536000", "indexLast": "1000000000", "updates": "1" } },
+  { "name": "zero-principal", "inputs": { "principal": "0", "rateBps": "800", "elapsedSeconds": "31536000", "indexLast": "1000000000", "updates": "1" } },
+  { "name": "large-principal", "inputs": { "principal": "900000000000000", "rateBps": "2500", "elapsedSeconds": "31536000", "indexLast": "1000000000", "updates": "4" } }
+]

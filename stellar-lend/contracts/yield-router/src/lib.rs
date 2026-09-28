@@ -646,3 +646,27 @@ impl YieldRouter {
 
 #[cfg(test)]
 mod test;
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    RouterError => stellarlend_errors::domains::YIELD_ROUTER;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    InsufficientBalance => Insufficient, "Balance is too low for this operation";
+    PoolNotSupported => InvalidInput, "Pool not supported";
+    NoPoolsConfigured => NotInitialized, "No pools configured", ContactAdmin;
+    PoolAtCapacity => LimitExceeded, "Pool at capacity", ReduceAmount;
+    SlippageExceeded => LimitExceeded, "Price moved beyond the allowed slippage", AdjustTolerance;
+    RebalanceCooldownActive => LimitExceeded, "Rebalance cooldown active";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    MaxPoolsExceeded => LimitExceeded, "Max pools exceeded", ReduceAmount;
+    UserPositionNotFound => NotFound, "User position not found";
+    RiskProfileMismatch => InvalidInput, "Risk profile mismatch";
+    RebalanceThresholdNotMet => InvalidState, "Rebalance threshold not met";
+    AllocationMismatch => InvalidInput, "Allocation mismatch";
+    DepositPaused => Paused, "Deposits are paused";
+    WithdrawPaused => Paused, "Withdrawals are paused";
+}
