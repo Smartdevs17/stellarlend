@@ -215,6 +215,17 @@ pub fn delegate_vote(
     delegator: Address,
     delegatee: Address,
 ) -> Result<(), GovernanceError> {
+    delegate_vote_with_lock(env, delegator, delegatee, 0)
+}
+
+/// Delegate the voting power of `delegator`'s locked tokens to `delegatee`
+/// with an optional lock period for boosted voting power.
+pub fn delegate_vote_with_lock(
+    env: &Env,
+    delegator: Address,
+    delegatee: Address,
+    lock_duration: u64,
+) -> Result<(), GovernanceError> {
     delegator.require_auth();
     get_config(env)?;
 
@@ -231,12 +242,24 @@ pub fn delegate_vote(
     }
 
     let locked = get_locked_balance(env, &delegator);
+    // Optional boosted voting power based on lock period
+    // >= 180 days (15_552_000s) -> 20% boost, >= 30 days (2_592_000s) -> 10% boost
+    let boost_multiplier_bps = if lock_duration >= 15_552_000 {
+        12_000
+    } else if lock_duration >= 2_592_000 {
+        11_000
+    } else {
+        10_000
+    };
+    let voting_weight = (locked * boost_multiplier_bps) / 10_000;
+
     if locked > 0 {
         Series::Account(&previous).add(env, -locked);
-        Series::Account(&delegatee).add(env, locked);
+        Series::Account(&delegatee).add(env, voting_weight);
     }
 
     let now = env.ledger().timestamp();
+    let lock_until = now.saturating_add(lock_duration);
     env.storage().persistent().set(
         &GovernanceDataKey::DelegationRecord(delegator.clone()),
         &DelegationRecord {
@@ -244,6 +267,7 @@ pub fn delegate_vote(
             delegatee: delegatee.clone(),
             delegated_at: now,
             depth: 1,
+            lock_until,
         },
     );
 
@@ -266,6 +290,11 @@ pub fn revoke_delegation(env: &Env, delegator: Address) -> Result<(), Governance
     }
 
     let record = get_delegation(env, &delegator).ok_or(GovernanceError::NotDelegated)?;
+
+    let now = env.ledger().timestamp();
+    if record.lock_until > now {
+        return Err(GovernanceError::VotesLocked);
+    }
 
     let locked = get_locked_balance(env, &delegator);
     if locked > 0 {

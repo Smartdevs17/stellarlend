@@ -450,3 +450,23 @@ mod unit {
         assert_eq!(err, CalldataError::InvalidAmount);
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    CalldataError => stellarlend_errors::domains::LENDING_CALLDATA;
+    Truncated => InvalidInput, "Payload is shorter than its header or an op is truncated";
+    UnsupportedVersion => InvalidInput, "Unknown wire-format version";
+    InvalidOpCount => InvalidInput, "Op count is zero or above `MAX_COMPRESSED_OPS`";
+    UnknownOpCode => InvalidInput, "Header carries an opcode that is not defined";
+    InvalidAmount => InvalidInput, "Amount is zero, overflows `i128`, or is not canonically encoded";
+    TrailingBytes => InvalidInput, "Extra bytes follow the last declared op";
+    UnknownAsset => InvalidAsset, "Asset index is not present in the dictionary";
+    InvalidDictionary => InvalidInput, "Dictionary is empty, too large, or contains duplicates";
+    Unauthorized => Unauthorized, "Caller is not the protocol admin";
+    DepositFailed => Internal, "A deposit (or coalesced deposit batch) failed";
+    WithdrawFailed => Internal, "A withdraw failed";
+    RepayFailed => Internal, "A repay failed";
+    CollateralFailed => Internal, "A borrow-collateral deposit failed";
+    OperationPaused => Paused, "The targeted operation is paused";
+}

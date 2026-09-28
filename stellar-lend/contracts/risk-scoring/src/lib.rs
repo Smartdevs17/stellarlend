@@ -506,3 +506,14 @@ mod tests {
         assert_eq!(score_to_letter_grade(&t.env, 250), String::from_str(&t.env, "D"));
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    RiskScoringError => stellarlend_errors::domains::RISK_SCORING;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    InvalidPool => InvalidInput, "Invalid pool";
+    InvalidInput => InvalidInput, "Input is malformed or out of range";
+}

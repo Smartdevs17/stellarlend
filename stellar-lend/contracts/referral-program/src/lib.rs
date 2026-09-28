@@ -343,3 +343,17 @@ impl ReferralProgram {
             .set(&Self::referrer_stats_key(referrer), stats);
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    ReferralError => stellarlend_errors::domains::REFERRAL_PROGRAM;
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    AlreadyRegistered => AlreadyExists, "Already registered";
+    InvalidReferrer => InvalidInput, "Invalid referrer";
+    SelfReferral => InvalidInput, "Self referral";
+    NothingToClaim => InvalidState, "Nothing to claim", RetryLater;
+    MaturityNotReached => InvalidState, "Maturity not reached", RetryLater;
+}

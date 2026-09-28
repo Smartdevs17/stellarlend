@@ -17,6 +17,10 @@
 //! | [`mul_div`] | `I256`-backed `mul_div` for intermediates wider than `i128` |
 //! | [`compound`], [`exponential`] | compounding and `exp`/`ln` approximations |
 //! | [`int128`], [`rounding`], [`precision`] | primitives, rounding modes, precision tracking |
+//! | [`leverage`] | per-collateral leverage multipliers |
+//! | [`smoothing`] | rate-of-change and EMA smoothing for rate curves |
+//! | [`insurance_pool`] | opt-in lender insurance pool accounting |
+//! | [`oracle_deviation`] | oracle price-deviation alert levels |
 //!
 //! ## Choosing between `checked` and `mul_div`
 //!
@@ -32,13 +36,17 @@ pub mod compound;
 pub mod error;
 pub mod exponential;
 pub mod fixed_point;
+pub mod insurance_pool;
 pub mod int128;
 pub mod lending;
+pub mod leverage;
 pub mod liquidation;
 pub mod mul_div;
+pub mod oracle_deviation;
 pub mod precision;
 pub mod rates;
 pub mod rounding;
+pub mod smoothing;
 
 pub use error::MathError;
 

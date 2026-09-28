@@ -184,3 +184,18 @@ pub(crate) fn emit_deposit_event(
     }
     .publish(env);
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    DepositError => stellarlend_errors::domains::LENDING_DEPOSIT;
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    DepositPaused => Paused, "Deposits are paused";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    AssetNotSupported => InvalidAsset, "Asset not supported";
+    ExceedsDepositCap => LimitExceeded, "Exceeds deposit cap", ReduceAmount;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    ReentrancyDetected => Reentrancy, "Reentrant call blocked";
+    EmptyBatch => InvalidInput, "`deposit_batch` was called with no entries";
+    BatchTooLarge => LimitExceeded, "`deposit_batch` exceeded `MAX_BATCH_DEPOSITS` entries", ReduceAmount;
+}

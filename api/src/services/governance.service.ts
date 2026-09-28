@@ -58,6 +58,12 @@ export interface GuardianEmergencyRequest {
   operationId: number;
 }
 
+export interface DelegateVoteRequest {
+  delegatorAddress: string;
+  delegateeAddress: string;
+  lockDurationDays?: number;
+}
+
 export class GovernanceService {
   private stellarService: StellarService;
 
@@ -253,6 +259,31 @@ export class GovernanceService {
       return { removed: 0 };
     } catch (error) {
       logger.error('Failed to clean queue:', error);
+      throw error;
+    }
+  }
+
+  async delegateWithLock(request: DelegateVoteRequest): Promise<{
+    delegator: string;
+    delegatee: string;
+    lockUntil: number;
+    boostMultiplierBps: number;
+    success: boolean;
+  }> {
+    try {
+      logger.info('Delegating governance voting power with lock period', request);
+      const days = request.lockDurationDays || 0;
+      const boostMultiplierBps = days >= 180 ? 12000 : days >= 30 ? 11000 : 10000;
+      const lockUntil = Date.now() + days * 24 * 3600 * 1000;
+      return {
+        delegator: request.delegatorAddress,
+        delegatee: request.delegateeAddress,
+        lockUntil,
+        boostMultiplierBps,
+        success: true,
+      };
+    } catch (error) {
+      logger.error('Failed to delegate governance voting power:', error);
       throw error;
     }
   }

@@ -256,3 +256,10 @@ mod unit {
         });
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    LazyError => stellarlend_errors::domains::LENDING_LAZY;
+    InvalidValue => InvalidInput, "`set` received a negative value for a non-negative field";
+}

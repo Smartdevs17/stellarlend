@@ -22,6 +22,7 @@ StellarLend is a lending and borrowing protocol built on Soroban. It features cr
 - **[Upgrade Mechanism](upgrade-mechanism.md)** - Runbook for planned and emergency upgrades, rollback handling, and storage compatibility guidance.
 - **[Chaos Engineering](chaos-engineering.md)** - Network-failure experiment registry, steady-state hypotheses, halt criteria, and chaos CI reporting (Issue #689).
 - **[Recovery Procedures](recovery.md)** - Automated recovery runbook for partition, RPC outage, and oracle disruption scenarios (Issue #689).
+- **[Gas Golf Leaderboard](../scripts/gas-golf/README.md)** - Competitive gas optimization: a maintainer-owned correctness gate, a leaderboard scored on `utilizationPct`, and measurement integrity checks (Issue #1014).
 - **[Governance Lifecycle](GOVERNANCE.md)** - Proposal state machine, config knobs, invariants, E2E coverage, and gas benchmarks (Issue #690).
 - **[Lending Pool Position Health Simulation](../scripts/position-health-sim/README.md)** - Simulate market conditions against the contract's own health factor and liquidation threshold math: historical scenario replay, price shock grids, break-even collateral price, and a liquidation threshold sweep (Issue #1013). See [Developer Tooling](DEV_TOOLING.md) for usage.
 

@@ -8,7 +8,7 @@
 
 use soroban_sdk::{Env, String, Symbol, Vec};
 
-use crate::IntoError;
+use crate::{ContractError, IntoError};
 
 /// Emits an environment event carrying the normalized error category and a short
 /// description string. This is the recommended cross-contract logging primitive.
@@ -42,6 +42,23 @@ pub fn log_error_with_tag<E: IntoError>(env: &Env, tag: Symbol, source: &str, er
     topics.push_back(Symbol::new(env, source));
 
     env.events().publish(topics, String::from_str(env, source));
+}
+
+/// Emits a structured event for a registered [`ContractError`].
+///
+/// Topics are `["error", category, source]`; the data payload is
+/// `(global_code, recovery_action)` so indexers can resolve the exact variant
+/// and the suggested fix without decoding contract-specific enums.
+#[allow(deprecated)]
+pub fn log_contract_error<E: ContractError>(env: &Env, source: &str, error: E) {
+    let d = error.describe();
+    let mut topics = Vec::new(env);
+    topics.push_back(Symbol::new(env, "error"));
+    topics.push_back(d.category.tag(env));
+    topics.push_back(Symbol::new(env, source));
+
+    env.events()
+        .publish(topics, (d.global_code, d.action as u32));
 }
 
 #[cfg(test)]

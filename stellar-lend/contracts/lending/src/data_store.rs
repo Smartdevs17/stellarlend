@@ -711,3 +711,19 @@ impl DataStore {
         Storage::new(env).set(StorageTier::Persistent, &StoreKey::ProtocolReserves, &reserves);
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    DataStoreError => stellarlend_errors::domains::LENDING_DATA_STORE;
+    AlreadyInitialized => AlreadyInitialized, "Contract has already been initialised; `init` cannot be called again";
+    NotAuthorized => Unauthorized, "Caller is neither the admin nor a granted writer";
+    KeyTooLong => LimitExceeded, "Key exceeds `MAX_KEY_LEN` bytes", ReduceAmount;
+    ValueTooLarge => LimitExceeded, "Value exceeds `MAX_VALUE_LEN` bytes", ReduceAmount;
+    KeyNotFound => NotFound, "The requested key does not exist in the store";
+    BackupNotFound => NotFound, "The requested backup snapshot does not exist";
+    StoreFull => LimitExceeded, "Adding another entry would exceed `MAX_ENTRIES`", ReduceAmount;
+    BackupNameTooLong => LimitExceeded, "Backup name exceeds `MAX_BACKUP_NAME` bytes", ReduceAmount;
+    NotInitialized => NotInitialized, "Contract has not been initialised yet";
+    InvalidVersion => InvalidInput, "New schema version must be strictly greater than the current one";
+}

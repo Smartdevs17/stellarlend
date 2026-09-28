@@ -22,7 +22,7 @@ pub use self::multisig::{
     set_multisig_threshold,
 };
 pub use self::power::{
-    delegate_vote, get_delegation, get_locked_balance, get_past_total_locked, get_past_votes,
+    delegate_vote, delegate_vote_with_lock, get_delegation, get_locked_balance, get_past_total_locked, get_past_votes,
     get_total_locked, get_votes, lock_tokens, revoke_delegation, unlock_tokens,
 };
 pub use self::proposal::{

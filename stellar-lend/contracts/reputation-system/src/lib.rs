@@ -834,3 +834,16 @@ mod tests {
         assert_eq!(res2.unwrap_err().unwrap(), ReputationError::InvalidConfig);
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    ReputationError => stellarlend_errors::domains::REPUTATION_SYSTEM;
+    Unauthorized => Unauthorized, "Caller is not the admin";
+    NotInitialized => NotInitialized, "The contract has not been initialized yet";
+    AlreadyInitialized => AlreadyInitialized, "The contract is already initialized";
+    NotFound => NotFound, "No reputation record exists for the given address";
+    InvalidConfig => InvalidInput, "Invalid configuration parameters";
+    InvalidAmount => InvalidInput, "Invalid amount";
+    Overflow => Overflow, "Arithmetic overflow";
+}

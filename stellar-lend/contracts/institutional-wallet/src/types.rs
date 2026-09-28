@@ -103,3 +103,27 @@ pub struct AuditEntry {
     pub action: soroban_sdk::Symbol,
     pub timestamp: u64,
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    WalletError => stellarlend_errors::domains::INSTITUTIONAL_WALLET;
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    InvalidThreshold => InvalidInput, "Invalid threshold";
+    InvalidAdmins => InvalidInput, "Invalid admins";
+    ProposalNotFound => NotFound, "Proposal not found";
+    AlreadyVoted => AlreadyExists, "Already voted";
+    ProposalNotActive => InvalidState, "Proposal not active";
+    InsufficientApprovals => InvalidState, "Insufficient approvals", RetryLater;
+    ExecutionFailed => Internal, "Execution failed";
+    InvalidBatch => InvalidInput, "Invalid batch";
+    GuardianAcceptanceRequired => InvalidState, "Guardian acceptance required";
+    GuardianNotAccepted => InvalidState, "Guardian not accepted";
+    RecoveryNotActive => InvalidState, "Recovery not active";
+    RecoveryAlreadyExists => AlreadyExists, "Recovery already exists";
+    GuardianRotationFailed => Internal, "Guardian rotation failed";
+    EmergencyTimeoutActive => Paused, "Emergency timeout active";
+    RecoveryCancelledByOwner => InvalidState, "Recovery cancelled by owner";
+}

@@ -413,6 +413,13 @@ When reporting issues, please include:
 
 If you discover a security vulnerability, please **do not** open a public issue. Instead, see our [SECURITY.md](SECURITY.md) for disclosure instructions and contact information.
 
+The approved private submission channel is **GitHub Security Advisories**
+(`https://github.com/Smartdevs17/stellarlend/security/advisories/new`).
+Our USDC bug bounty program is currently active and accepting reports on
+the Stellar network. Locally reproduced source-code findings within the
+documented scope qualify for bounty eligibility even without verified
+deployment exposure.
+
 ---
 
 ## License

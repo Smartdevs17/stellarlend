@@ -109,3 +109,22 @@ pub struct MigrationAnalytics {
     pub successful_migrations: u32,
     pub failed_migrations: u32,
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    MigrationError => stellarlend_errors::domains::MIGRATION_HUB;
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    InvalidProtocol => InvalidInput, "Invalid protocol";
+    MigrationFailed => Internal, "Migration failed";
+    RateLimitExceeded => LimitExceeded, "Rate limit exceeded";
+    BridgeError => Internal, "Bridge error";
+    DeadlineExceeded => InvalidState, "Deadline exceeded", AdjustTolerance;
+    InsufficientFunds => Insufficient, "Funds are insufficient for this operation";
+    InvalidPercentage => InvalidInput, "Invalid percentage";
+    RollbackFailed => Internal, "Rollback failed";
+    DestinationPoolInactive => InvalidState, "Destination pool inactive";
+    InterestCalculationFailed => Internal, "Interest calculation failed";
+}

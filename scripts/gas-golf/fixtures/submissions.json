@@ -1,0 +1,26 @@
+[
+  {
+    "id": "reference",
+    "author": "maintainers",
+    "challenge": "lending::get_health_factor",
+    "implementation": "courses/health-factor.ts",
+    "measurement": "fixtures/reference-session.json",
+    "notes": "SYNTHETIC fixture entry. The maintainer reference, self-scored to 0%."
+  },
+  {
+    "id": "cached-threshold",
+    "author": "@example-contributor",
+    "challenge": "lending::get_health_factor",
+    "implementation": "submissions/cached-health-factor.ts",
+    "measurement": "fixtures/measurements/cached-threshold.json",
+    "notes": "SYNTHETIC fixture entry. Correct and faster: the threshold read is hoisted, both divisions kept."
+  },
+  {
+    "id": "full-recompute",
+    "author": "@example-contributor",
+    "challenge": "lending::repay",
+    "implementation": "submissions/recompute-per-update.ts",
+    "measurement": "fixtures/measurements/full-recompute.json",
+    "notes": "SYNTHETIC fixture entry. Correct and slower: a full recompute per step."
+  }
+]

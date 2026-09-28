@@ -1261,3 +1261,23 @@ pub fn get_liquidity_history(
 
     Ok(filtered_history)
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    AmmError => stellarlend_errors::domains::AMM;
+    InvalidSwapParams => InvalidInput, "Invalid swap parameters";
+    InsufficientLiquidity => Insufficient, "Insufficient liquidity for swap";
+    SlippageExceeded => LimitExceeded, "Slippage tolerance exceeded", AdjustTolerance;
+    InvalidAmmProtocol => InvalidInput, "Invalid AMM protocol address";
+    InvalidCallback => InvalidInput, "AMM callback validation failed";
+    SwapPaused => Paused, "Swap operations are paused";
+    LiquidityPaused => Paused, "Liquidity operations are paused";
+    Unauthorized => Unauthorized, "Unauthorized AMM operation";
+    Overflow => Overflow, "Overflow occurred during calculation";
+    UnsupportedProtocol => InvalidInput, "AMM protocol not supported";
+    InvalidTokenPair => InvalidAsset, "Invalid token pair";
+    MinOutputNotMet => InvalidInput, "Minimum output amount not met", AdjustTolerance;
+    MaxInputExceeded => LimitExceeded, "Maximum input amount exceeded", ReduceAmount;
+    AlreadyInitialized => AlreadyInitialized, "Contract has already been initialized";
+}

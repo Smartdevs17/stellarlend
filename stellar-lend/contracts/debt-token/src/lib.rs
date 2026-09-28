@@ -1150,3 +1150,18 @@ mod tests {
         assert!(position.minted_tokens > 0);
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    DebtTokenError => stellarlend_errors::domains::DEBT_TOKEN;
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    InsufficientBalance => Insufficient, "Balance is too low for this operation";
+    InsufficientAllowance => Insufficient, "Spender allowance is too low";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    TransferLocked => InvalidState, "Transfer locked";
+    RedemptionFailed => Internal, "Redemption failed";
+    InterestCalculationFailed => Internal, "Interest calculation failed";
+}

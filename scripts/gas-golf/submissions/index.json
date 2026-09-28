@@ -1,0 +1,23 @@
+[
+  {
+    "id": "reference",
+    "author": "maintainers",
+    "challenge": "lending::get_health_factor",
+    "implementation": "courses/health-factor.ts",
+    "notes": "The maintainer reference itself, entered so the board has a known-zero baseline. Scored only against its own measurement: it is the yardstick, never a contestant."
+  },
+  {
+    "id": "cached-threshold",
+    "author": "@example-contributor",
+    "challenge": "lending::get_health_factor",
+    "implementation": "submissions/cached-health-factor.ts",
+    "notes": "Hoists the liquidation-threshold read out of the per-call path and leaves both truncating divisions intact. Correct, and the kind of change that should be allowed to win."
+  },
+  {
+    "id": "full-recompute",
+    "author": "@example-contributor",
+    "challenge": "lending::repay",
+    "implementation": "submissions/recompute-per-update.ts",
+    "notes": "Correct but a deliberately poor strategy: recomputes from the base index every step instead of carrying one forward. Same answer, worse budget consumption \u2014 the counterpart to the rejected entries."
+  }
+]

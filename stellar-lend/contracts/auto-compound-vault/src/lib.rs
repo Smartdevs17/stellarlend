@@ -687,3 +687,27 @@ impl AutoCompoundVault {
 
 #[cfg(test)]
 mod test;
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    VaultError => stellarlend_errors::domains::AUTO_COMPOUND_VAULT;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    InsufficientBalance => Insufficient, "Balance is too low for this operation";
+    InsufficientShares => Insufficient, "Insufficient shares";
+    SlippageExceeded => LimitExceeded, "Price moved beyond the allowed slippage", AdjustTolerance;
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    HarvestAlreadyCalled => InvalidState, "Harvest already called", RetryLater;
+    MinHarvestIntervalNotMet => LimitExceeded, "Min harvest interval not met";
+    PerformanceFeeExceedsMax => LimitExceeded, "Performance fee exceeds max", ReduceAmount;
+    ManagementFeeExceedsMax => LimitExceeded, "Management fee exceeds max", ReduceAmount;
+    DepositPaused => Paused, "Deposits are paused";
+    WithdrawPaused => Paused, "Withdrawals are paused";
+    VaultNotActive => InvalidState, "Vault not active";
+    ShareMintFailed => Internal, "Share mint failed";
+    ShareBurnFailed => Internal, "Share burn failed";
+    NoRewardsToHarvest => InvalidState, "No rewards to harvest", RetryLater;
+}

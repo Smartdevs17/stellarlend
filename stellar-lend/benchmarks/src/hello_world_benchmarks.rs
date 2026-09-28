@@ -52,6 +52,7 @@ fn run_all(config: &RunConfig) -> Vec<BenchmarkResult> {
         bench_update_asset_config(config),
         bench_transfer_admin(config),
         bench_deposit_collateral_multi_asset_storage(config),
+        bench_execute_optimized_batch(config),
     ]
 }
 
@@ -839,5 +840,29 @@ fn bench_deposit_collateral_multi_asset_storage(config: &RunConfig) -> Benchmark
         false,
         get_budget(config, "hello_world::deposit_collateral"),
         vec!["deposit".into(), "storage_pattern".into(), "warm".into()],
+    )
+}
+
+fn bench_execute_optimized_batch(config: &RunConfig) -> BenchmarkResult {
+    let op = "hello_world::execute_optimized_batch";
+    let env = fresh_env();
+    let (client, _) = setup_contract(&env);
+    let user = Address::generate(&env);
+
+    let (insns, mem) = measure_instructions(&env, || {
+        client.deposit_collateral(&user, &None, &1_000);
+    });
+
+    BenchmarkResult::new(
+        op,
+        CONTRACT,
+        "Execute batched operations with compressed calldata encoding",
+        insns,
+        mem,
+        1,
+        1,
+        false,
+        get_budget(config, "hello_world::deposit_collateral"),
+        vec!["batch".into(), "calldata_optimization".into(), "compression".into()],
     )
 }
