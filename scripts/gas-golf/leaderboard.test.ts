@@ -277,8 +277,83 @@ test("measurements spanning several commits are rejected when a fresh pair is re
   assert.equal(hasBlockingFinding(fresh), true);
 });
 
+test("a report whose rows name no commit is refused, not passed, when freshness is required", () => {
+  // The exact shape `write_json` (`stellar-lend/benchmarks/src/report.rs:195-204`)
+  // produces: a report-level timestamp and per-row timestamps, but no commit.
+  // Collecting commits from it yields an empty set, so "more than one commit" is
+  // false — which used to read as a clean bill of health on every real report.
+  const set = parseMeasurements(
+    JSON.stringify({
+      version: "0.1.0",
+      timestamp: "2026-09-28T10:00:00Z",
+      total_benchmarks: 2,
+      results: [
+        {
+          operation: "lending::deposit",
+          contract: "lending",
+          instructions: 400_000,
+          memory_bytes: 58_682,
+          timestamp: "2026-09-28T10:00:00.100Z",
+        },
+        {
+          operation: "lending::borrow",
+          contract: "lending",
+          instructions: 900_000,
+          memory_bytes: 61_000,
+          timestamp: "2026-09-28T10:00:00.900Z",
+        },
+      ],
+    }),
+  );
+  assert.equal(set.measurements.length, 2);
+  assert.ok(
+    set.measurements.every((m) => m.commit === null),
+    "the premise: the real report writer emits no per-row commit",
+  );
+
+  // Default behaviour is unchanged — freshness is opt-in, and an unverifiable
+  // report is still scoreable when nobody asked for the proof.
+  assert.equal(
+    checkIntegrity(set, course().challenges).some((f) => f.reason === "no-provenance"),
+    false,
+    "not checked by default",
+  );
+
+  const strict = checkIntegrity(set, course().challenges, { requireFresh: true });
+  const finding = strict.find((f) => f.reason === "no-provenance");
+  assert.ok(finding, `expected a no-provenance finding, got ${strict.map((f) => f.reason).join(", ")}`);
+  assert.match(finding.detail, /2 of 2 row\(s\) carry no commit/);
+  assert.match(finding.detail, /report\.rs:195-204/);
+  assert.equal(hasBlockingFinding(strict), true, "an unverifiable session blocks rather than passes");
+});
+
+test("a partly attributed report is refused too, because the unattributed rows are the hole", () => {
+  // One committed row next to one uncommitted row is what a stitched report
+  // looks like when only part of it was re-stamped: a single commit is present,
+  // so the commit count looks clean, and the uncommitted row rides along.
+  const set = parseMeasurements(
+    JSON.stringify({
+      results: [
+        { operation: "lending::deposit", contract: "lending", instructions: 10, git_commit: "aaa" },
+        { operation: "lending::borrow", contract: "lending", instructions: 10 },
+      ],
+    }),
+  );
+  const strict = checkIntegrity(set, [], { requireFresh: true });
+  assert.ok(strict.some((f) => f.reason === "no-provenance"), "the uncommitted row is caught");
+  assert.equal(
+    strict.some((f) => f.reason === "stale-pairing"),
+    false,
+    "one commit is not two commits; the missing row is the separate failure",
+  );
+  assert.equal(hasBlockingFinding(strict), true);
+});
+
 test("BLOCKING_REASONS is the set that refuses to rank", () => {
-  assert.deepEqual([...BLOCKING_REASONS].sort(), ["empty", "stale-pairing", "unreadable", "zero-instructions"]);
+  assert.deepEqual(
+    [...BLOCKING_REASONS].sort(),
+    ["empty", "no-provenance", "stale-pairing", "unreadable", "zero-instructions"],
+  );
 });
 
 test("indexById keeps the first row for a duplicated id", () => {
@@ -484,6 +559,24 @@ test("integrity findings are surfaced in both renderers", () => {
   assert.ok(renderText(board, ctx).includes("Measurement integrity"));
   assert.ok(renderMarkdown(board, ctx).includes("Measurement integrity"));
   assert.ok(renderMarkdown(board, ctx).includes("zero-instructions"));
+});
+
+test("a blocking reason the renderers do not know about is still disclosed", () => {
+  // `explainNoRanking` used to restate the blocking list inline, so a reason
+  // added to `BLOCKING_REASONS` would be scored correctly and then not printed
+  // where the empty state points the reader. Driven off the constant: the next
+  // reason added cannot be quietly dropped.
+  for (const reason of BLOCKING_REASONS) {
+    const ctx = context({ integrity: [{ reason, id: "lending::deposit", detail: "detail for " + reason }] });
+    const board = buildLeaderboard([score({ submissionId: "x", instructions: null })]);
+    for (const rendered of [renderText(board, ctx), renderMarkdown(board, ctx)]) {
+      assert.ok(
+        rendered.includes(`Why there is nothing to rank`),
+        `${reason} is blocking, so the empty state must explain itself`,
+      );
+      assert.ok(rendered.includes(reason), `${reason} must be named in the disclosure`);
+    }
+  }
 });
 
 test("the JSON board round-trips and records how it was scored", () => {

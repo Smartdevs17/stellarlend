@@ -27,10 +27,21 @@ on.
 **2. Only a same-session delta is a score.** Instruction counts are
 toolchain- and build-dependent, so an absolute number means nothing. A figure is
 only reported alongside the reference's figure from the *same* benchmark run;
-`--require-fresh` refuses a report stitched together from two commits. This is
-the same argument `gas-regression.yml` makes about cold caches: a cold,
-reproducible build keeps a measurement comparable with how the committed
+`--require-fresh` refuses a report that cannot be shown to come from one
+session. This is the same argument `gas-regression.yml` makes about cold caches:
+a cold, reproducible build keeps a measurement comparable with how the committed
 baseline was produced.
+
+> `--require-fresh` fails closed. It refuses rows from several commits **and**
+> rows that name no commit at all, because "no commit was found" is not evidence
+> of a single session — it is the absence of evidence, which is the one thing
+> this rule exists to refuse. Today that means the flag is effectively unusable
+> on a real report: `BenchmarkReport`
+> (`stellar-lend/benchmarks/src/report.rs:13-24`) has no `git_commit` field, so
+> every report `./run-benchmarks.sh` produces is unattributed. Adding the field
+> to the report writer is the fix, and it is deliberately left to the benchmark
+> crate rather than guessed at here. The flag is opt-in, so default runs are
+> unaffected.
 
 The score itself is `instructions / budget` — the repository's existing
 `FunctionRow.utilizationPct` (`api/src/services/gasReport/report.ts:191`), which
@@ -61,7 +72,7 @@ index.ts --gate all|<id>
 | `--list-courses` | Print the gated courses. |
 | `--format text\|json\|markdown` | Output format. Default `text`. |
 | `--out <file>` | Write to a file instead of stdout. |
-| `--require-fresh` | Fail when a report's rows come from more than one commit. |
+| `--require-fresh` | Refuse measurements that cannot be shown to come from one session: rows from several commits, or rows naming no commit. |
 
 Exit codes: `0` ok, `1` a gate failed, `2` usage error.
 
