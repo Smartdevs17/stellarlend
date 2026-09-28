@@ -960,6 +960,7 @@ name = "flash-loan-liquidation-tests"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk 27.0.6",
+ "test-utils",
 ]
 
 [[package]]
@@ -3442,6 +3443,7 @@ dependencies = [
  "shared-events",
  "soroban-sdk 27.0.6",
  "stellarlend-errors",
+ "test-utils",
 ]
 
 [[package]]
@@ -3542,6 +3544,7 @@ dependencies = [
  "stellarlend-security",
  "stellarlend-shared-deadline",
  "stellarlend-storage-layer",
+ "test-utils",
 ]
 
 [[package]]
@@ -3813,18 +3816,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "test-framework"
+name = "test-utils"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
- "soroban-sdk 27.0.6",
-]
-
-[[package]]
-name = "test-utils"
-version = "0.1.0"
-dependencies = [
  "soroban-sdk 27.0.6",
  "soroban-token-sdk",
 ]

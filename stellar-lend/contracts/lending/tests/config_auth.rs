@@ -1,12 +1,13 @@
-use soroban_sdk::{testutils::Address as _, Address, Env};
-use stellarlend_lending::{LendingContract, LendingContractClient};
+mod common;
 
+use soroban_sdk::Env;
+use stellarlend_lending::LendingContractClient;
+use test_utils::snapshotless_env;
+
+/// Deployed with no auths mocked, so every admin-gated call must fail.
 fn setup() -> (Env, LendingContractClient<'static>) {
-    let env = Env::default();
-    let contract_id = env.register(LendingContract, ());
-    let client = LendingContractClient::new(&env, &contract_id);
-    let admin = Address::generate(&env);
-    client.initialize(&admin, &1_000_000_000, &1_000);
+    let env = snapshotless_env();
+    let (client, _admin) = common::deploy(&env);
     (env, client)
 }
 

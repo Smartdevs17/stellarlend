@@ -1,21 +1,20 @@
 //! Shared fixture for the lending integration suites (`fuzz_invariants.rs`,
-//! `user_journeys.rs`).
+//! `user_journeys.rs`, `scenarios.rs`, ...).
 //!
 //! These suites live under `tests/` so they compile against the public
 //! contract surface only — the same surface wallets, the API and the
-//! benchmark harness use — rather than crate internals.
+//! benchmark harness use — rather than crate internals. Environment setup,
+//! the price oracle and gas metering come from the shared `test-utils` crate;
+//! this module only adds what is specific to the lending contract.
 
 #![allow(dead_code)]
 
-use soroban_sdk::{
-    contract, contractimpl,
-    testutils::{Address as _, EnvTestConfig},
-    Address, Env,
-};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 use stellarlend_lending::{LendingContract, LendingContractClient};
+use test_utils::{register_price_oracle, snapshotless_env, PriceOracleClient};
 
 /// Oracle price scale used by the lending views (8 decimals).
-pub const PRICE_SCALE: i128 = 100_000_000;
+pub const PRICE_SCALE: i128 = test_utils::ORACLE_PRICE_SCALE;
 /// Health factor scale (10_000 = 1.0).
 pub const HF_SCALE: i128 = 10_000;
 /// Sentinel returned by `get_health_factor` for debt-free positions.
@@ -29,48 +28,50 @@ pub const DEPOSIT_CAP: i128 = 1_000_000_000;
 pub const MIN_DEPOSIT: i128 = 100;
 pub const MIN_WITHDRAW: i128 = 100;
 
-/// Flat 1.0 price oracle: every asset is worth exactly one unit. Keeping the
-/// price flat isolates protocol accounting from market moves, so any health
-/// factor drop observed by the suites comes from the contract itself.
-#[contract]
-pub struct FlatOracle;
-
-#[contractimpl]
-impl FlatOracle {
-    pub fn price(_env: Env, _asset: Address) -> i128 {
-        PRICE_SCALE
-    }
-}
-
 pub struct Fixture<'a> {
     pub env: Env,
     pub client: LendingContractClient<'a>,
     pub admin: Address,
+    pub oracle: Address,
     pub collateral_asset: Address,
     pub debt_asset: Address,
 }
 
-/// Deploy and fully initialize a lending contract with a flat oracle.
+impl Fixture<'_> {
+    pub fn oracle_client(&self) -> PriceOracleClient<'_> {
+        PriceOracleClient::new(&self.env, &self.oracle)
+    }
+}
+
+/// Register a lending contract and call `initialize` with the suite
+/// defaults. Auths are left as the caller configured them, so authorization
+/// suites can deploy without mocking.
+pub fn deploy<'a>(env: &Env) -> (LendingContractClient<'a>, Address) {
+    let contract_id = env.register(LendingContract, ());
+    let client = LendingContractClient::new(env, &contract_id);
+    let admin = Address::generate(env);
+    client.initialize(&admin, &DEBT_CEILING, &MIN_BORROW);
+    (client, admin)
+}
+
+/// Deploy and fully initialize a lending contract with a flat 1.0 oracle.
+/// Keeping prices flat isolates protocol accounting from market moves, so any
+/// health factor drop observed by the suites comes from the contract itself;
+/// tests that need a price move set it through `oracle_client()`.
 pub fn setup<'a>() -> Fixture<'a> {
     // Snapshot capture is off: property runs create thousands of envs and
     // would otherwise write a snapshot file per env into test_snapshots/.
-    let env = Env::new_with_config(EnvTestConfig {
-        capture_snapshot_at_drop: false,
-    });
+    let env = snapshotless_env();
     env.mock_all_auths();
     // Property runs execute hundreds of calls per case; metering limits are
     // exercised separately by the journey budget tests.
     env.cost_estimate().budget().reset_unlimited();
 
-    let contract_id = env.register(LendingContract, ());
-    let client = LendingContractClient::new(&env, &contract_id);
-    let admin = Address::generate(&env);
-
-    client.initialize(&admin, &DEBT_CEILING, &MIN_BORROW);
+    let (client, admin) = deploy(&env);
     client.initialize_deposit_settings(&DEPOSIT_CAP, &MIN_DEPOSIT);
     client.initialize_withdraw_settings(&MIN_WITHDRAW);
 
-    let oracle = env.register(FlatOracle, ());
+    let oracle = register_price_oracle(&env, PRICE_SCALE);
     client.set_oracle(&admin, &oracle);
 
     Fixture {
@@ -79,6 +80,7 @@ pub fn setup<'a>() -> Fixture<'a> {
         env,
         client,
         admin,
+        oracle,
     }
 }
 

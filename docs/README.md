@@ -25,6 +25,7 @@ StellarLend is a lending and borrowing protocol built on Soroban. It features cr
 - **[Gas Golf Leaderboard](../scripts/gas-golf/README.md)** - Competitive gas optimization: a maintainer-owned correctness gate, a leaderboard scored on `utilizationPct`, and measurement integrity checks (Issue #1014).
 - **[Governance Lifecycle](GOVERNANCE.md)** - Proposal state machine, config knobs, invariants, E2E coverage, and gas benchmarks (Issue #690).
 - **[Lending Protocol Gas Budget Planner](../scripts/gas-budget-planner/README.md)** - Plan a lender's gas budget for a pattern of deposits, borrows, repays and withdrawals: per-call costs, period and annualised totals, budget headroom, volume projections and batching savings (Issue #1012). See [Developer Tooling](DEV_TOOLING.md) for usage.
+- **[Lending Pool Position Health Simulation](../scripts/position-health-sim/README.md)** - Simulate market conditions against the contract's own health factor and liquidation threshold math: historical scenario replay, price shock grids, break-even collateral price, and a liquidation threshold sweep (Issue #1013). See [Developer Tooling](DEV_TOOLING.md) for usage.
 
 ## Modules and Features
 - **[Real-Time Price Feed with Anomaly Detection](REALTIME_PRICE_FEED.md)** - Production-ready oracle aggregation pipeline with Z-score/IQR/velocity anomaly detection, cross-feed correlation, TWAP smoothing, health monitoring, integration tests, and performance benchmarks

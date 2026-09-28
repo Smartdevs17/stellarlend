@@ -146,6 +146,57 @@ planner in `api/src/services/planner/budget-planner.ts` (documented in
 See `scripts/gas-budget-planner/README.md` for the plan file format, the cost
 sources and the full suggestion rule list.
 
+## Lending Pool Position Health Simulation
+
+Simulate market conditions against the lending pool's own health factor and
+liquidation threshold math, before a price move happens on-chain.
+
+```bash
+# A shipped example position, through a flash crash
+node --experimental-strip-types scripts/position-health-sim/index.ts \
+  --position leveraged-xlm-borrow --grid flash_crash
+
+# One historical scenario, at an explicit threshold
+node --experimental-strip-types scripts/position-health-sim/index.ts \
+  --position healthy-xlm-borrow --scenario luna-ust-collapse --threshold-bps 8500
+
+# What scenarios and shock grids exist?
+node --experimental-strip-types scripts/position-health-sim/index.ts --list-scenarios
+
+# Gate: fail if any market condition liquidates the position
+node --experimental-strip-types scripts/position-health-sim/index.ts \
+  --position leveraged-xlm-borrow --grid flash_crash --fail-on liquidatable
+```
+
+The health factor is a port of `views.rs::compute_health_factor`, and the
+constants it depends on (`HEALTH_FACTOR_SCALE`, `PRICE_SCALE`,
+`HEALTH_FACTOR_NO_DEBT`, `COLLATERAL_RATIO_MIN` and the `borrow.rs` admin
+defaults) are **parsed out of the contract source** rather than copied — so
+renaming one on-chain makes the tool fail loudly instead of simulating against a
+stale number. Use `--contract-src` to point it at a different checkout or
+revision.
+
+This matters because the off-chain health-factor surfaces disagree with the
+contract: `risk-engine/stress-tester/engine.ts`, `services/risk-simulation.service.ts`,
+`services/position-simulator.ts` and `controllers/simulation.controller.ts` all
+compute a raw `collateralValue / debtValue` with **no liquidation threshold**, and
+`portfolio.service.ts` hardcodes 1.2 where the contract's default is 0.8. At the
+default 80% threshold the contract's health factor is 0.8× the raw ratio, so those
+surfaces call positions healthy that the contract would liquidate. This tool is
+the reference to check them against.
+
+It also answers the threshold question the repo could not: `liquidation_threshold_bps`
+is admin-settable across 1..10000 bps, and `--thresholds` (or the default grid)
+shows what a change does to the liquidation boundary.
+
+Note that `liquidate` in the lending pool is still a stub (`lib.rs:298`), and
+neither `close_factor_bps` nor `liquidation_incentive_bps` is exposed in the
+`#[contractimpl]`, so the tool prices what a liquidation *would* cost from the
+view functions rather than from a liquidation path.
+
+See `scripts/position-health-sim/README.md` for the position file format, the
+fidelity details, and the tests transcribed from the contract's own suite.
+
 ## Deployment Verification
 
 After deployment and initialization, run:

@@ -138,6 +138,16 @@ cargo test test_function_name
 make test
 ```
 
+The unified contract suite runs the shared `test-utils` framework and the suites built on it. It records timing, gas benchmarks and coverage:
+
+```bash
+scripts/testing/run-contract-tests.sh            # all suites
+scripts/testing/run-contract-tests.sh bench      # gas benchmark reports
+scripts/testing/run-contract-tests.sh coverage   # lcov + summary (cargo-llvm-cov)
+```
+
+See [stellar-lend/TESTING.md](stellar-lend/TESTING.md) for fixtures, seeding, scenarios and CI.
+
 ### Running Local CI Checks
 
 To reproduce CI checks locally before pushing:

@@ -1,4 +1,7 @@
-use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, String as SorobanString};
+use soroban_sdk::{
+    testutils::{Address as _, EnvTestConfig, Ledger as _},
+    Address, Env, String as SorobanString,
+};
 
 pub struct TestEnv {
     pub env: Env,
@@ -8,7 +11,18 @@ pub struct TestEnv {
 
 impl TestEnv {
     pub fn new() -> Self {
-        let env = Env::default();
+        Self::from_env(Env::default())
+    }
+
+    /// Like [`TestEnv::new`], but the env does not write a test snapshot on
+    /// drop. Use it for suites that create many environments (property tests,
+    /// benchmarks, seeded scenarios).
+    pub fn snapshotless() -> Self {
+        Self::from_env(snapshotless_env())
+    }
+
+    /// Wrap an existing env: mocks all auths and generates an admin.
+    pub fn from_env(env: Env) -> Self {
         env.mock_all_auths();
 
         let admin = Address::generate(&env);
@@ -17,15 +31,23 @@ impl TestEnv {
         Self { env, admin, users }
     }
 
-    pub fn with_timestamp(mut self, timestamp: u64) -> Self {
+    pub fn with_timestamp(self, timestamp: u64) -> Self {
         self.env.ledger().with_mut(|li| li.timestamp = timestamp);
         self
     }
 
-    pub fn with_ledger_sequence(mut self, sequence: u32) -> Self {
+    pub fn with_ledger_sequence(self, sequence: u32) -> Self {
         self.env
             .ledger()
             .with_mut(|li| li.sequence_number = sequence);
+        self
+    }
+
+    /// Lift the default CPU/memory limits, e.g. for long seeded sequences.
+    /// Gas measurements through [`crate::bench::GasMeter`] still reset the
+    /// budget per step.
+    pub fn with_unlimited_budget(self) -> Self {
+        self.env.cost_estimate().budget().reset_unlimited();
         self
     }
 
@@ -44,10 +66,7 @@ impl TestEnv {
     }
 
     pub fn advance_time(&mut self, seconds: u64) {
-        let current = self.env.ledger().timestamp();
-        self.env
-            .ledger()
-            .with_mut(|li| li.timestamp = current + seconds);
+        advance_time(&self.env, seconds);
     }
 
     pub fn advance_ledger(&mut self, blocks: u32) {
@@ -62,6 +81,20 @@ impl Default for TestEnv {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// An env that skips writing `test_snapshots/` on drop. Auths are not mocked,
+/// so authorization tests can use it as-is.
+pub fn snapshotless_env() -> Env {
+    Env::new_with_config(EnvTestConfig {
+        capture_snapshot_at_drop: false,
+    })
+}
+
+/// Move the ledger clock forward by `seconds`.
+pub fn advance_time(env: &Env, seconds: u64) {
+    let current = env.ledger().timestamp();
+    env.ledger().with_mut(|li| li.timestamp = current + seconds);
 }
 
 pub fn create_string(env: &Env, value: &str) -> SorobanString {

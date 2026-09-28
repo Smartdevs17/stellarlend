@@ -4,7 +4,6 @@ members = [
   "benchmarks",
   "client",
   "packages/oracle-client",
-  "packages/test-framework",
   "contracts/amm",
   "contracts/bridge",
   "contracts/common",

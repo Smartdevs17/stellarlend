@@ -1,4 +1,9 @@
-use soroban_sdk::{contract, contractimpl, Address, Env};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, Symbol};
+
+/// Price scale used by the lending views (8 decimals, `100_000_000` = 1.0).
+pub const ORACLE_PRICE_SCALE: i128 = 100_000_000;
+
+const DEFAULT_PRICE_KEY: Symbol = symbol_short!("default");
 
 #[contract]
 pub struct MockToken;
@@ -57,10 +62,48 @@ impl MockOracle {
     }
 }
 
+/// Oracle exposing the `price(asset) -> i128` interface the lending contract
+/// calls. Every asset returns the default price until it is overridden with
+/// `set_price`, so one registration covers both flat-price and price-shock
+/// tests.
+#[contract]
+pub struct PriceOracle;
+
+#[contractimpl]
+impl PriceOracle {
+    pub fn __constructor(env: Env, default_price: i128) {
+        env.storage()
+            .instance()
+            .set(&DEFAULT_PRICE_KEY, &default_price);
+    }
+
+    pub fn price(env: Env, asset: Address) -> i128 {
+        env.storage().persistent().get(&asset).unwrap_or_else(|| {
+            env.storage()
+                .instance()
+                .get(&DEFAULT_PRICE_KEY)
+                .unwrap_or(ORACLE_PRICE_SCALE)
+        })
+    }
+
+    pub fn set_price(env: Env, asset: Address, price: i128) {
+        env.storage().persistent().set(&asset, &price);
+    }
+
+    pub fn set_default_price(env: Env, price: i128) {
+        env.storage().instance().set(&DEFAULT_PRICE_KEY, &price);
+    }
+}
+
 pub fn register_mock_token(env: &Env) -> Address {
     env.register(MockToken, ())
 }
 
 pub fn register_mock_oracle(env: &Env) -> Address {
     env.register(MockOracle, ())
+}
+
+/// Register a [`PriceOracle`] that quotes `default_price` for every asset.
+pub fn register_price_oracle(env: &Env, default_price: i128) -> Address {
+    env.register(PriceOracle, (default_price,))
 }
