@@ -1,16 +1,16 @@
+cargo-features = ["edition2021"]
+
 [package]
 name = "flash-loan"
-version = "0.0.0"
+version = "0.1.0"
+authors = ["Smartdevs17"]
 edition = "2021"
-publish = false
-
-[lib]
-crate-type = ["cdylib", "lib"]
-doctest = false
+license = "Apache-2.0"
+repository = "https://github.com/Smartdevs17/stellarlend"
 
 [dependencies]
-soroban-sdk = { workspace = true }
-soroban-token-sdk = { workspace = true }
+soroban-sdk = "20.0.0"
+stellar-lend-core = { path = "../core" }
 
 [dev-dependencies]
-soroban-sdk = { workspace = true, features = ["testutils"] }
+soroban-sdk = { version = "20.0.0", features = ["testutils"] }
