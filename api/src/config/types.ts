@@ -54,6 +54,21 @@ export interface CacheConfig {
   simulationTtlMs: number;
 }
 
+export interface ReadCacheConfig {
+  enabled: boolean;
+  defaultTtlMs: number;
+  maxQueryLength: number;
+}
+
+export interface PrefetchConfig {
+  enabled: boolean;
+  intervalMs: number;
+  windowMs: number;
+  hotThreshold: number;
+  maxTrackedKeys: number;
+  maxKeysPerRun: number;
+}
+
 export interface WsConfig {
   priceUpdateIntervalMs: number;
   heartbeatIntervalMs: number;
@@ -95,6 +110,8 @@ export interface AppConfig {
   bodySizeLimit: BodySizeLimitConfig;
   pagination: PaginationConfig;
   cache: CacheConfig;
+  readCache: ReadCacheConfig;
+  prefetch: PrefetchConfig;
   ws: WsConfig;
   emergency: EmergencyConfig;
   analytics: AnalyticsConfig;
