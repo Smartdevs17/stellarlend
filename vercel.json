@@ -1,19 +1,9 @@
 {
   "version": 2,
-  "buildCommand": "cd api && npm ci && npm run build",
-  "outputDirectory": "api/dist",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/api/src/vercel.ts" }
-  ],
-  "functions": {
-    "api/src/vercel.ts": {
-      "runtime": "@vercel/node@3"
-    }
-  },
+  "buildCommand": "echo 'static site - no build required'",
+  "outputDirectory": "landing",
+  "cleanUrls": true,
   "github": {
     "silent": true
-  },
-  "env": {
-    "NODE_ENV": "production"
   }
 }
