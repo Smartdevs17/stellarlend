@@ -330,8 +330,8 @@ documented:
   comparison with competitive rules attached.
 - **Only a same-session delta is a score.** Instruction counts are
   build-dependent, so a figure is reported only against the reference's figure
-  from the same run; `--require-fresh` refuses a report stitched from two
-  commits.
+  from the same run; `--require-fresh` refuses a report that cannot be shown to
+  come from one session — rows from several commits, or rows naming no commit.
 
 The score is `instructions / budget` — the same `FunctionRow.utilizationPct`
 the gas report uses, so the two can never disagree about what "over budget"
