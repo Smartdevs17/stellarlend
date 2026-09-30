@@ -251,6 +251,63 @@ test("--require-fresh rejects a session stitched together from two commits", asy
   }
 });
 
+test("a report the Rust writer actually produces is refused under --require-fresh", async () => {
+  // The report below is the shape `write_json` emits: a report-level timestamp,
+  // per-row timestamps, and no `git_commit` anywhere. Its rows are also stitched
+  // from two different days, which is precisely what --require-fresh exists to
+  // catch. Before this was a finding, the CLI printed no integrity section at all
+  // and exited 0 — a clean bill of health on the one file shape the repository
+  // can actually produce.
+  const report = path.join(HERE, ".tmp-unattributed.json");
+  const row = (operation: string, instructions: number, timestamp: string) => ({
+    operation,
+    contract: "lending",
+    description: operation,
+    instructions,
+    memory_bytes: 20_000,
+    storage_reads: 3,
+    storage_writes: 1,
+    cold_storage: false,
+    budget: 1_000_000,
+    within_budget: true,
+    timestamp,
+    tags: [],
+  });
+  await (await import("node:fs/promises")).writeFile(
+    report,
+    JSON.stringify({
+      version: "0.1.0",
+      timestamp: "2026-09-28T10:00:00Z",
+      total_benchmarks: 2,
+      passed: 2,
+      failed: 0,
+      results: [
+        row("lending::get_health_factor", 200_000, "2026-09-28T10:00:00.100Z"),
+        row("lending::repay", 700_000, "2026-09-01T09:00:00.400Z"),
+      ],
+      summary_by_contract: {},
+      optimization_findings: [],
+    }),
+  );
+  try {
+    // Opt-in flag, opt-in consequence: the default run is unchanged.
+    const lenient = await cli("--reference", report);
+    assert.equal(lenient.code, 0);
+    assert.equal(/no-provenance/.test(lenient.stdout), false, "not checked unless asked for");
+
+    const strict = await cli("--reference", report, "--require-fresh");
+    assert.equal(strict.code, 0, "an unverifiable report explains itself rather than crashing");
+    assert.match(strict.stdout, /no-provenance/);
+    assert.match(strict.stdout, /2 of 2 row\(s\) carry no commit/);
+    assert.match(strict.stdout, /report\.rs:195-204/);
+    // It must be disclosed where the empty state sends the reader, not only in
+    // the integrity list further down.
+    assert.match(strict.stdout, /Why there is nothing to rank/);
+  } finally {
+    (await import("node:fs")).rmSync(report, { force: true });
+  }
+});
+
 test("a report of zeroes is treated as unmeasured, not as free", async () => {
   const report = path.join(HERE, ".tmp-zeroes.json");
   await (await import("node:fs/promises")).writeFile(

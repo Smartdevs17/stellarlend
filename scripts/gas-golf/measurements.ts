@@ -63,6 +63,7 @@ export type IntegrityReason =
   | "empty"
   | "zero-instructions"
   | "no-budget"
+  | "no-provenance"
   | "unknown-operation"
   | "not-required"
   | "stale-pairing"
@@ -243,6 +244,27 @@ export function checkIntegrity(
           "a score is only meaningful within a single session.",
       });
     }
+
+    // A row that cannot name its commit cannot be placed in a session at all, so
+    // the count above cannot be trusted to have seen the whole set. This is not a
+    // hypothetical: `BenchmarkReport` (`report.rs:13-24`) has no `git_commit` and
+    // `write_json` (`report.rs:195-204`) stamps only a report-level timestamp, so
+    // every report `./run-benchmarks.sh` produces lands here with all 39+ commits
+    // absent. Counting commits and finding none is not evidence of one session —
+    // it is the absence of evidence, and under `--require-fresh` the difference
+    // is the whole point of the flag.
+    const unattributed = set.measurements.filter((m) => m.commit === null);
+    if (unattributed.length > 0) {
+      findings.push({
+        reason: "no-provenance",
+        id: unattributed[0].id,
+        detail:
+          `${unattributed.length} of ${set.measurements.length} row(s) carry no commit, so this report ` +
+          "cannot be shown to come from a single session. `stellar-lend/benchmarks/src/report.rs:195-204` " +
+          "writes a timestamp but no `git_commit`, so reports it produces are unverifiable here; " +
+          "a report is only accepted under --require-fresh when every row names its commit.",
+      });
+    }
   }
 
   return findings;
@@ -254,6 +276,7 @@ export const BLOCKING_REASONS: readonly IntegrityReason[] = [
   "unreadable",
   "zero-instructions",
   "stale-pairing",
+  "no-provenance",
 ];
 
 /** True when at least one finding blocks scoring. */

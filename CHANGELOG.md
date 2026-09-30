@@ -59,6 +59,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - Added contributing documentation
 
 ### Fixed
+- Gas golf `--require-fresh` no longer passes a report it cannot verify: rows naming no commit are refused alongside rows from several commits, because `BenchmarkReport` writes no `git_commit` and "no commit found" was reading as a single clean session on every real report; the empty-state disclosure now reads the same blocking-reason list the scorer uses instead of restating it (#1014)
 - Repaid, withdrawn, and liquidated positions stay open while a market is paused, so the pause stops new risk instead of trapping users in it (#1031)
 - Range-check overflow lint in the isolated-market validation path
 - Borrow interest overflow error

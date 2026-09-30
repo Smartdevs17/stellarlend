@@ -30,9 +30,10 @@ import {
 import { BoundedTtlCache } from '../utils/boundedTtlCache';
 import { redisCacheService } from './redisCache.service';
 import { requestCoalescingService } from './requestCoalescing.service';
+import { readCacheService } from './readCache.service';
 import type { RawContractEvent } from './eventIndex/types';
 
-const CONTRACT_METHODS: Record<LendingOperation, string> = {
+export const CONTRACT_METHODS: Record<LendingOperation, string> = {
   deposit: 'deposit_collateral',
   borrow: 'borrow_asset',
   repay: 'repay_debt',
@@ -526,42 +527,41 @@ export class StellarService {
   async getProtocolStats(): Promise<ProtocolStatsResponse> {
     const coalescingKey = requestCoalescingService.generateKey('getProtocolStats', {});
 
-    return requestCoalescingService.execute(coalescingKey, async () => {
-      const redisKey = redisCacheService.buildKey('protocol', 'stats');
-      const redisCached = await redisCacheService.get<ProtocolStatsResponse>(redisKey);
-      if (redisCached) return redisCached;
+    return requestCoalescingService.execute(coalescingKey, () =>
+      readCacheService.getOrLoad<ProtocolStatsResponse>(
+        'protocol',
+        'stats',
+        config.cache.protocolStatsTtlMs,
+        async () => protocolStatsCache.get(PROTOCOL_STATS_CACHE_KEY) ?? this.loadProtocolStats()
+      )
+    );
+  }
 
-      const cachedResponse = protocolStatsCache.get(PROTOCOL_STATS_CACHE_KEY);
-      if (cachedResponse) {
-        return cachedResponse;
-      }
+  /**
+   * Fetch protocol stats from the contract, bypassing every cache layer.
+   * The prefetch scheduler uses this loader to keep the cached entry warm.
+   */
+  async loadProtocolStats(): Promise<ProtocolStatsResponse> {
+    try {
+      const report = await this.simulateContractCall('get_protocol_report');
+      const metrics = report?.metrics ?? report ?? {};
 
-      try {
-        const report = await this.simulateContractCall('get_protocol_report');
-        const metrics = report?.metrics ?? report ?? {};
+      const response: ProtocolStatsResponse = {
+        totalDeposits: toIntegerString(metrics.total_deposits ?? metrics.totalDeposits ?? 0),
+        totalBorrows: toIntegerString(metrics.total_borrows ?? metrics.totalBorrows ?? 0),
+        utilizationRate: formatBpsAsRatio(
+          toIntegerString(metrics.utilization_rate ?? metrics.utilizationRate ?? 0)
+        ),
+        numberOfUsers: toSafeNumber(metrics.total_users ?? metrics.totalUsers ?? 0),
+        tvl: toIntegerString(metrics.total_value_locked ?? metrics.totalValueLocked ?? 0),
+      };
 
-        const response: ProtocolStatsResponse = {
-          totalDeposits: toIntegerString(metrics.total_deposits ?? metrics.totalDeposits ?? 0),
-          totalBorrows: toIntegerString(metrics.total_borrows ?? metrics.totalBorrows ?? 0),
-          utilizationRate: formatBpsAsRatio(
-            toIntegerString(metrics.utilization_rate ?? metrics.utilizationRate ?? 0)
-          ),
-          numberOfUsers: toSafeNumber(metrics.total_users ?? metrics.totalUsers ?? 0),
-          tvl: toIntegerString(metrics.total_value_locked ?? metrics.totalValueLocked ?? 0),
-        };
-
-        protocolStatsCache.set(PROTOCOL_STATS_CACHE_KEY, response);
-        await redisCacheService.set(
-          redisKey,
-          response,
-          Math.floor(config.cache.protocolStatsTtlMs / 1000)
-        );
-        return response;
-      } catch (error) {
-        logger.error('Failed to fetch protocol stats:', error);
-        throw new InternalServerError('Failed to fetch protocol stats');
-      }
-    });
+      protocolStatsCache.set(PROTOCOL_STATS_CACHE_KEY, response);
+      return response;
+    } catch (error) {
+      logger.error('Failed to fetch protocol stats:', error);
+      throw new InternalServerError('Failed to fetch protocol stats');
+    }
   }
 
   async submitTransaction(txXdr: string): Promise<TransactionResponse> {
@@ -953,45 +953,45 @@ export class StellarService {
 
     const coalescingKey = requestCoalescingService.generateKey('getUserPosition', { userAddress });
 
-    return requestCoalescingService.execute(coalescingKey, async () => {
-      const cacheKey = redisCacheService.buildKey('position', userAddress);
-      const cached = await redisCacheService.get<PositionResponse>(cacheKey);
-      if (cached) return cached;
+    return requestCoalescingService.execute(coalescingKey, () =>
+      readCacheService.getOrLoad<PositionResponse>(
+        'position',
+        userAddress,
+        config.cache.positionTtlMs,
+        () => this.loadUserPosition(userAddress)
+      )
+    );
+  }
 
-      try {
-        const userParam = new Address(userAddress).toScVal();
-        const raw = await this.simulateContractCall('get_user_position', userParam);
+  private async loadUserPosition(userAddress: string): Promise<PositionResponse> {
+    try {
+      const userParam = new Address(userAddress).toScVal();
+      const raw = await this.simulateContractCall('get_user_position', userParam);
 
-        const collateral = toIntegerString(raw?.collateral ?? raw?.collateral_amount ?? 0);
-        const debt = toIntegerString(raw?.debt ?? raw?.debt_amount ?? 0);
-        const borrowInterest = toIntegerString(raw?.borrow_interest ?? raw?.interest ?? 0);
-        const lastAccrualTime = toSafeNumber(raw?.last_accrual_time ?? raw?.lastAccrualTime ?? 0);
+      const collateral = toIntegerString(raw?.collateral ?? raw?.collateral_amount ?? 0);
+      const debt = toIntegerString(raw?.debt ?? raw?.debt_amount ?? 0);
+      const borrowInterest = toIntegerString(raw?.borrow_interest ?? raw?.interest ?? 0);
+      const lastAccrualTime = toSafeNumber(raw?.last_accrual_time ?? raw?.lastAccrualTime ?? 0);
 
-        const collateralBig = BigInt(collateral);
-        const debtBig = BigInt(debt);
-        const collateralRatio =
-          debtBig > 0n ? ((collateralBig * 10000n) / debtBig).toString() : 'Infinity';
+      const collateralBig = BigInt(collateral);
+      const debtBig = BigInt(debt);
+      const collateralRatio =
+        debtBig > 0n ? ((collateralBig * 10000n) / debtBig).toString() : 'Infinity';
 
-        const result: PositionResponse = {
-          userAddress,
-          collateral,
-          debt,
-          borrowInterest,
-          lastAccrualTime,
-          collateralRatio,
-        };
+      const result: PositionResponse = {
+        userAddress,
+        collateral,
+        debt,
+        borrowInterest,
+        lastAccrualTime,
+        collateralRatio,
+      };
 
-        await redisCacheService.set(
-          cacheKey,
-          result,
-          Math.floor(config.cache.positionTtlMs / 1000)
-        );
-        return result;
-      } catch (error) {
-        logger.error('Failed to fetch user position:', error);
-        throw new InternalServerError('Failed to fetch user position');
-      }
-    });
+      return result;
+    } catch (error) {
+      logger.error('Failed to fetch user position:', error);
+      throw new InternalServerError('Failed to fetch user position');
+    }
   }
 
   private isValidStellarAddress(address: string): boolean {
