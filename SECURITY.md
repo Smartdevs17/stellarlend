@@ -14,6 +14,8 @@ We take the security of StellarLend seriously. This document outlines our vulner
    *This requires the repository to have private vulnerability reporting enabled
    under `Settings → Advanced security`. If the page 404s, the maintainers need
    to turn it on before this channel is usable.*
+2. **Private contact channels.** You can also reach the security team directly
+   via the channels listed in [SECURITY_CONTACT.md](SECURITY_CONTACT.md).
 
 **Do not open a public GitHub issue to report a vulnerability.** A public
 issue discloses the vulnerability to everyone immediately, before the team has
