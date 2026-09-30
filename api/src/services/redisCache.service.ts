@@ -10,7 +10,8 @@ export type HotCacheKeyKind =
   | 'gas'
   | 'mev'
   | 'nonce'
-  | 'simulation';
+  | 'simulation'
+  | 'http';
 
 interface CacheMetrics {
   hits: number;

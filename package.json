@@ -1,55 +1,59 @@
 {
   "name": "stellarlend",
   "version": "1.0.0",
-  "description": "StellarLend monorepo – pre-commit tooling and workspace scripts",
-  "private": true,
-  "workspaces": [
-    "api",
-    "oracle",
-    "packages/sdk",
-    "packages/ui-lending"
-  ],
+  "description": "Stellar Lending Protocol",
+  "main": "dist/index.js",
   "scripts": {
-    "prepare": "husky || true",
-    "lint:api": "npm run lint --workspace=api",
-    "format:api": "npm run format --workspace=api",
-    "typecheck:api": "npm run typecheck --workspace=api",
-    "lint:oracle": "npm run lint --workspace=oracle",
-    "format:oracle": "npm run format --workspace=oracle",
-    "typecheck:oracle": "npm run typecheck --workspace=oracle",
-    "lint:all": "npm run lint:api && npm run lint:oracle",
-    "format:all": "npm run format:api && npm run format:oracle",
-    "typecheck:all": "npm run typecheck:api && npm run typecheck:oracle",
-    "test:all": "npm run test --workspace=api && npm run test --workspace=oracle",
-    "test:chaos": "bash scripts/fuzz/run_chaos.sh run",
-    "test:e2e": "npm --prefix tests/e2e test",
-    "build:all": "npm run build --workspace=api && npm run build --workspace=oracle",
-    "install:all": "npm install --workspaces",
-    "gas:baseline": "bash scripts/gas-report.sh baseline",
-    "gas:report": "bash scripts/gas-report.sh report",
-    "gas:compare": "bash scripts/gas-report.sh compare",
-    "gas:check": "bash scripts/gas-report.sh check",
-    "gas:generate": "cd api && ts-node --transpile-only src/scripts/generate-gas-report.ts --stellar-lend-dir ../stellar-lend"
+    "build": "tsc",
+    "test": "jest",
+    "test:unit": "jest --testPathPattern=test/unit",
+    "test:integration": "jest --testPathPattern=test/integration",
+    "test:differential": "jest --testPathPattern=test/differential --reporters=default --reporters=jest-junit",
+    "test:differential:report": "ts-node scripts/generate-differential-report.ts",
+    "lint": "eslint . --ext .ts",
+    "prettier": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\""
   },
+  "keywords": [
+    "stellar",
+    "lending",
+    "defi",
+    "smart-contracts"
+  ],
+  "author": "SmartDevs17",
+  "license": "MIT",
   "devDependencies": {
-    "@commitlint/cli": "^19.3.0",
-    "@commitlint/config-conventional": "^19.2.2",
-    "husky": "^9.1.4",
-    "lint-staged": "^15.2.7"
+    "@types/jest": "^29.5.11",
+    "@types/node": "^20.10.6",
+    "@typescript-eslint/eslint-plugin": "^6.17.0",
+    "@typescript-eslint/parser": "^6.17.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.1.2",
+    "jest": "^29.7.0",
+    "jest-junit": "^16.0.0",
+    "prettier": "^3.1.1",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.3.3"
   },
-  "lint-staged": {
-    "api/src/**/*.ts": [
-      "npm run lint --workspace=api --",
-      "npm run format:check --workspace=api --",
-      "npm run typecheck --workspace=api"
+  "dependencies": {
+    "@stellar/stellar-sdk": "^11.0.0",
+    "fast-check": "^3.13.1"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "collectCoverageFrom": [
+      "src/**/*.ts",
+      "test/**/*.ts"
     ],
-    "oracle/src/**/*.ts": [
-      "npm run lint --workspace=oracle --",
-      "npm run format:check --workspace=oracle --",
-      "npm run typecheck --workspace=oracle"
-    ],
-    "contract/**/*.rs": [
-      "cargo check --manifest-path contract/Cargo.toml"
+    "coverageDirectory": "coverage",
+    "testResultsProcessor": "jest-junit",
+    "reporters": [
+      "default",
+      ["jest-junit", {
+        "outputDirectory": "test-results",
+        "outputName": "junit.xml"
+      }]
     ]
   }
 }

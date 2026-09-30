@@ -1,12 +1,11 @@
+// ... (existing error enum)
 
-use soroban_sdk::xdr::Hash;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PrivacyPoolError {
-    InvalidMerkleProof,
-    InvalidZKProof,
-    NullifierAlreadySpent,
-    TokenTransferFailed,
-    #[allow(dead_code)]
-    __Unused(u32),
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum PoolError {
+    // ... (existing variants)
+    #[error("Deposit cap not initialized")]
+    UninitializedDepositCap,
+    #[error("Debt ceiling not initialized")]
+    UninitializedDebtCeiling,
+    // ... (rest of variants)
 }

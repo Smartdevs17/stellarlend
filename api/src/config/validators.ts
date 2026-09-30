@@ -79,6 +79,34 @@ export function validateConfig(config: AppConfig): string[] {
     errors.push('IDEMPOTENCY_MAX_ENTRIES must be at least 1');
   }
 
+  if (config.readCache.defaultTtlMs < 1000) {
+    errors.push('READ_CACHE_DEFAULT_TTL_MS must be at least 1000');
+  }
+
+  if (config.readCache.maxQueryLength < 64) {
+    errors.push('READ_CACHE_MAX_KEY_LENGTH must be at least 64');
+  }
+
+  if (config.prefetch.intervalMs < 1000) {
+    errors.push('PREFETCH_INTERVAL_MS must be at least 1000');
+  }
+
+  if (config.prefetch.windowMs < 1000) {
+    errors.push('PREFETCH_WINDOW_MS must be at least 1000');
+  }
+
+  if (config.prefetch.hotThreshold < 1) {
+    errors.push('PREFETCH_HOT_THRESHOLD must be at least 1');
+  }
+
+  if (config.prefetch.maxTrackedKeys < 1) {
+    errors.push('PREFETCH_MAX_TRACKED_KEYS must be at least 1');
+  }
+
+  if (config.prefetch.maxKeysPerRun < 1) {
+    errors.push('PREFETCH_MAX_KEYS_PER_RUN must be at least 1');
+  }
+
   if (config.pagination.maxLimit < config.pagination.defaultLimit) {
     errors.push('PAGINATION_MAX_LIMIT must be >= PAGINATION_DEFAULT_LIMIT');
   }

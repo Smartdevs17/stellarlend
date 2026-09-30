@@ -86,6 +86,7 @@ import { requestLogger } from './middleware/requestLogger';
 import { sanitizeInput } from './middleware/sanitizeInput';
 import { fieldSelectionMiddleware } from './middleware/fieldSelection';
 import { redisCacheService } from './services/redisCache.service';
+import cacheRoutes from './routes/cache.routes';
 
 const app: Application = express();
 app.use(requestIdMiddleware);
@@ -295,6 +296,7 @@ app.use('/api/bridge', bridgeRoutes);
 app.use('/api/interest', interestRoutes);
 app.use('/api/events', eventsRoutes);
 app.use('/api/parameters', legacyGovernanceCompat, parametersRoutes);
+app.use('/api/cache', legacySystemCompat, cacheRoutes);
 
 app.use(errorHandler);
 

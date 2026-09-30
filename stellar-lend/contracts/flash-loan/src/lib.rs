@@ -1,23 +1,8 @@
-#![no_std]
+// SPDX-License-Identifier: Apache-2.0
+use soroban_sdk::{contractimport, symbol, Env, Vec as SorobanVec};
 
-use soroban_sdk::{contractclient, contracttype, Address, Env};
+mod primitives;
+mod executor;
 
-pub mod pool;
-
-/// Standard interface for contracts that want to receive flash loans
-#[contractclient(name = "FlashLoanReceiverClient")]
-pub trait FlashLoanReceiver {
-    /// Callback executed by the flash loan module after funds are transferred.
-    /// The receiver must authorize the transfer of `amount + fee` back to the pool
-    /// before this function returns.
-    fn on_flash_loan(env: Env, user: Address, asset: Address, amount: i128, fee: i128);
-}
-
-/// Metrics tracked for flash loan operations
-#[contracttype]
-#[derive(Clone, Debug, PartialEq)]
-pub struct FlashLoanMetrics {
-    pub total_flash_loans: u64,
-    pub total_volume: i128,
-    pub total_fees_collected: i128,
-}
+pub use primitives::{FlashLoan, LoanPrimitive};
+pub use executor::FlashLoanExecutor;

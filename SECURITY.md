@@ -1,43 +1,56 @@
 # Security Policy
 
-## Supported Versions
-
-Security updates are provided for the latest stable release and the previous minor version. Older versions may not receive security patches.
+We take the security of StellarLend seriously. This document outlines our vulnerability disclosure policy.
 
 ## Reporting a Vulnerability
 
-### Public Reporting
-For non-critical issues, you may open a GitHub Issue or submit a pull request. Label it with `security` for visibility.
+**The approved private submission channel is GitHub Security Advisories.** This is the preferred and primary method for reporting security vulnerabilities.
 
-### Private Reporting
-For critical or sensitive vulnerabilities, **do not** disclose publicly. Instead, use our private disclosure channel as described in [SECURITY_CONTACT.md](SECURITY_CONTACT.md).
+1. **GitHub Security Advisories (preferred and recommended).** Open
+   `https://github.com/Smartdevs17/stellarlend/security/advisories/new` and
+   submit a private draft report. Drafts are visible only to the maintainers you
+   name until you publish them, and researchers are not credited publicly unless
+   they choose to be.
+   *This requires the repository to have private vulnerability reporting enabled
+   under `Settings → Advanced security`. If the page 404s, the maintainers need
+   to turn it on before this channel is usable.*
+2. **Private contact channels.** You can also reach the security team directly
+   via the channels listed in [SECURITY_CONTACT.md](SECURITY_CONTACT.md).
 
-## Bug Bounty Program
+**Do not open a public GitHub issue to report a vulnerability.** A public
+issue discloses the vulnerability to everyone immediately, before the team has
+had a chance to assess or fix it, and it cannot be made private after the fact.
 
-StellarLend offers bug bounties for qualifying security vulnerabilities. See [SECURITY_CONTACT.md](SECURITY_CONTACT.md) for details on eligibility and payouts.
+If you have already filed a public issue containing vulnerability details,
+please open a private advisory as well and ask a maintainer to delete or redact
+the public issue.
 
-### Scope
-- Smart contract vulnerabilities (high/critical severity)
-- Protocol-level exploits
-- Authentication/authorization flaws
+## What to Include in a Report
 
-### Out of Scope
-- Frontend UI/UX issues
-- Non-security-related bugs
-- Theoretical vulnerabilities without practical impact
+Please provide enough information to reproduce the issue, including:
 
-## Response Time
+- The affected repository, file and function (if known).
+- Steps to reproduce.
+- Impact of the vulnerability.
+- Any proposed remediation, if you have one.
 
-The security team aims to:
-- Acknowledge receipt of private reports within **48 hours**.
-- Provide an initial assessment within **7 days**.
-- Deploy fixes for critical vulnerabilities within **14 days** (or as soon as feasible).
+Reports can be submitted anonymously if you prefer.
 
-## Payouts
+## Scope
 
-Bounty amounts are determined based on severity and impact, following the [OWASP Risk Rating Methodology](https://owasp.org/www-community/OWASP_Risk_Rating_Methodology).
+- Smart contracts within `contract/` and `packages/`
+- Backend API services (`api/`) handling state and critical operations.
 
-Payouts are made in **USDC** after the fix is deployed and confirmed. Submit your wallet address via the private channel.
+**Out of scope:**
 
-Bounty payout address (Base / EVM): 0x96eE7904BdCd8a82c71B4FFc3362C96b1Aae03e0
-Bounty payout address (Stellar / Soroban): GCTRCN2H6EVVRQH4MKHVWMTY2SPC4ZTRHQZQOSKF5PXFRA4TNDGGF4VL
+- Third-party oracle services (unless specifically integrated within our codebase and misconfigured by us)
+- Phishing or Social Engineering attacks
+- Physical attacks against servers
+
+## Response Times
+
+We aim to respond to reports based on severity:
+
+- **Critical**: < 24h
+- **High**: < 72h
+- **Medium/Low**: within 7 days

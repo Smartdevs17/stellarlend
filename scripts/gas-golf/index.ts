@@ -71,7 +71,9 @@ Options:
   --list-courses         Print the gated courses and exit
   --format <fmt>         text | json | markdown (default: text)
   --out <file>           Write the report to a file instead of stdout
-  --require-fresh        Fail when the measurements span more than one commit
+  --require-fresh        Refuse measurements that cannot be shown to come from
+                          one session: rows from several commits, or rows that
+                          name no commit at all
   --help                 Print this help and exit
 
 Exit codes:

@@ -9,7 +9,7 @@
  * failure mode this tool exists to prevent, so the empty state says why.
  */
 
-import type { IntegrityFinding } from "./measurements.ts";
+import { BLOCKING_REASONS, type IntegrityFinding } from "./measurements.ts";
 import type { Leaderboard, ScoredEntry } from "./scoring.ts";
 import { implausibleSaving } from "./scoring.ts";
 
@@ -126,9 +126,10 @@ function implausible(entry: ScoredEntry): string {
 export function explainNoRanking(context: BoardContext, board: Leaderboard): string[] {
   const lines: string[] = [];
 
-  const blocking = context.integrity.filter((f) =>
-    ["empty", "unreadable", "zero-instructions", "stale-pairing"].includes(f.reason),
-  );
+  // Read from the same list the scorer uses, rather than restating it: a second
+  // copy silently stops being the truth the moment a reason is added, and a
+  // blocking finding that is not disclosed here is a finding nobody reads.
+  const blocking = context.integrity.filter((f) => BLOCKING_REASONS.includes(f.reason));
   if (blocking.length > 0) {
     lines.push("Why there is nothing to rank:");
     // The reason label is shown here too, not just in the JSON: the markdown and
