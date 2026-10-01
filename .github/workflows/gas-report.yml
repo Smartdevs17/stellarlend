@@ -6,20 +6,21 @@ on:
     paths:
       - "stellar-lend/contracts/**"
       - "stellar-lend/benchmarks/**"
-      - "scripts/gas-report.sh"
+      - "stellar-lend/src/benchmarking/**"
+      - "scripts/gas_benchmark_report.py"
       - "run-benchmarks.sh"
-      - "package.json"
-      - "package-lock.json"
+      - "api/src/scripts/generate-gas-report.ts"
+      - "api/src/services/gasReport/**"
       - ".github/workflows/gas-report.yml"
   workflow_dispatch:
+
+permissions:
+  pull-requests: write
+  contents: read
 
 jobs:
   gas-report:
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      contents: read
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,64 +45,76 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: api/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        working-directory: api
+        run: npm ci --ignore-scripts
 
-      - name: Get base branch baseline
+      - name: Run gas benchmarks
         run: |
-          npm run --workspaces=false gas:baseline > /tmp/baseline.json || echo '{}' > /tmp/baseline.json
+          cd stellar-lend
+          cargo run -p stellarlend-benchmarks --bin run_benchmarks --release -- \
+            --output benchmark-results.json
 
-      - name: Generate current gas report
-        run: npm run --workspaces=false gas:report > /tmp/current.json
-
-      - name: Compare gas costs
-        run: npm run --workspaces=false gas:compare /tmp/baseline.json /tmp/current.json > /tmp/comparison.md
-
-      - name: Check for regressions
-        id: check-regression
+      - name: Generate gas report
+        id: gas-report
+        working-directory: api
         run: |
           set +e
-          npm run --workspaces=false gas:check /tmp/comparison.json > /tmp/check_result.json
-          CHECK_EXIT=$?
+          npx ts-node --transpile-only src/scripts/generate-gas-report.ts \
+            --stellar-lend-dir ../stellar-lend \
+            --results ../stellar-lend/benchmark-results.json \
+            --out-json ../stellar-lend/gas-report.json \
+            --out-md ../stellar-lend/gas-report.md
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
           set -e
-          FAILED=$(jq '.failed > 0' /tmp/check_result.json)
-          echo "FAILED=$FAILED" >> $GITHUB_OUTPUT
-          echo "CHECK_EXIT=$CHECK_EXIT" >> $GITHUB_OUTPUT
+          test -f ../stellar-lend/gas-report.json
 
       - name: Post report to PR
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const comparison = fs.readFileSync('/tmp/comparison.md', 'utf8');
-            const checkResult = JSON.parse(fs.readFileSync('/tmp/check_result.json', 'utf8'));
+            const markdown = fs.readFileSync('stellar-lend/gas-report.md', 'utf8');
+            const report = JSON.parse(
+              fs.readFileSync('stellar-lend/gas-report.json', 'utf8')
+            );
+            const { measurements, overBudget, regressions } = report.summary;
 
-            let status = '✅ No gas regressions detected';
-            if (checkResult.regressions > 0) {
-              status = `⚠️ ${checkResult.regressions} gas regression(s) detected`;
-            }
+            const header = regressions > 0 || overBudget > 0
+              ? 'Gas regressions detected'
+              : 'No gas regressions detected';
 
-            const body = `## Gas Optimization Report
-
-${status}
-
-${comparison}
-
-### Summary
-- **Functions analyzed**: ${checkResult.total}
-- **Improvements**: ${checkResult.improvements}
-- **Regressions**: ${checkResult.regressions}
-- **Average change**: ${checkResult.average_change > 0 ? '+' : ''}${checkResult.average_change.toFixed(2)}%
-`;
+            const body = [
+              '## Gas Optimization Report',
+              '',
+              `**${header}**`,
+              '',
+              `- Scenarios measured: ${measurements}`,
+              `- Over budget: ${overBudget}`,
+              `- Regressions: ${regressions}`,
+              '',
+              markdown,
+            ].join('\n');
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: body
+              body,
             });
 
-      - name: Fail if regressions exceed threshold
-        if: steps.check-regression.outputs.FAILED == 'true'
+      - name: Upload gas report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-report-${{ github.sha }}
+          path: |
+            stellar-lend/benchmark-results.json
+            stellar-lend/gas-report.json
+            stellar-lend/gas-report.md
+
+      - name: Fail if gas budget gate failed
+        if: always() && steps.gas-report.outputs.exit_code == '1'
         run: exit 1
