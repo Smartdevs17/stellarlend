@@ -1,5 +1,5 @@
 export class PriceManipulationScenario {
-    name = "Oracle Price Manipulation";
+    name = 'Oracle Price Manipulation';
     async run(protocolState) {
         const { assets, oracleConfidence } = protocolState;
         // Simulate a 30% price deviation in a major asset
@@ -15,8 +15,8 @@ export class PriceManipulationScenario {
             impactValue: potentialBadDebt,
             riskScore: Math.min(riskScore, 100),
             recommendations: [
-                "Increase oracle heartbeat frequency",
-                "Implement a price deviation circuit breaker",
+                'Increase oracle heartbeat frequency',
+                'Implement a price deviation circuit breaker',
             ],
         };
     }

@@ -18,7 +18,11 @@
     "typecheck": "tsc --noEmit",
     "test:differential": "jest --testPathPattern=\"/test/differential/\" --reporters=default --reporters=jest-junit",
     "test:differential:report": "ts-node scripts/generate-differential-report.ts",
-    "prettier": "prettier --write \"test/**/*.ts\""
+    "prettier": "prettier --write \"test/**/*.ts\"",
+    "install:all": "npm install --workspaces",
+    "build:all": "npm run build -w stellarlend-api && npm run build -w stellarlend-oracle && npm run build -w @stellarlend/sdk && npm run build -w @stellarlend/ui-lending",
+    "lint:all": "npm run lint -w stellarlend-api && npm run lint -w stellarlend-oracle",
+    "test:all": "npm test && npm run test -w stellarlend-api && npm run test -w stellarlend-oracle && npm run test -w @stellarlend/ui-lending"
   },
   "keywords": [
     "stellar",

@@ -1,4 +1,4 @@
-import { SecurityAlert } from "./types";
+import { SecurityAlert } from './types';
 export declare class MonitoringService {
     private engine;
     constructor();

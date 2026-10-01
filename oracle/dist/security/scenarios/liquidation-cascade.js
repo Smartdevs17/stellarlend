@@ -1,9 +1,9 @@
 export class LiquidationCascadeScenario {
-    name = "Liquidation Cascade";
+    name = 'Liquidation Cascade';
     async run(protocolState) {
         const { totalCollateralValue, totalDebtValue, marketVolatility } = protocolState;
         // Simulate a 20% drop in market prices leading to cascading liquidations
-        const dropPercentage = 0.20;
+        const dropPercentage = 0.2;
         const liquidatedCollateral = totalCollateralValue * dropPercentage;
         const slippage = marketVolatility * 0.5; // High volatility increases slippage
         const unrecoveredDebt = liquidatedCollateral * slippage;
@@ -14,8 +14,8 @@ export class LiquidationCascadeScenario {
             impactValue: unrecoveredDebt,
             riskScore: Math.min(insolvencyRisk * 5, 100),
             recommendations: [
-                "Increase liquidation incentives to attract more liquidators",
-                "Lower LTV for volatile assets",
+                'Increase liquidation incentives to attract more liquidators',
+                'Lower LTV for volatile assets',
             ],
         };
     }

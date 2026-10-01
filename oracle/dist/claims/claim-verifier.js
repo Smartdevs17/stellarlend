@@ -5,8 +5,8 @@
  * Checks asset support, price freshness, oracle confidence,
  * amount validity, and coverage limits.
  */
-import { VerificationErrorCode } from './types.js';
-import { logger } from '../utils/logger.js';
+import { VerificationErrorCode } from './types';
+import { logger } from '@/utils/logger';
 const DEFAULT_CONFIG = {
     maxPriceAgeSeconds: 300,
     minOracleConfidence: 80,

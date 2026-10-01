@@ -1,6 +1,6 @@
-import { RiskLevel } from "./types";
-import { PriceManipulationScenario } from "./scenarios/price-manipulation";
-import { LiquidationCascadeScenario } from "./scenarios/liquidation-cascade";
+import { RiskLevel } from './types';
+import { PriceManipulationScenario } from './scenarios/price-manipulation';
+import { LiquidationCascadeScenario } from './scenarios/liquidation-cascade';
 export class SecurityEngine {
     scenarios = [];
     constructor() {
@@ -14,9 +14,9 @@ export class SecurityEngine {
             aggregateScore,
             level: this.mapScoreToLevel(aggregateScore),
             breakdown: {
-                oracleRisk: results.find((r) => r.scenarioName === "Oracle Price Manipulation")?.riskScore || 0,
-                liquidityRisk: results.find((r) => r.scenarioName === "Liquidation Cascade")?.riskScore || 0,
-                insolvencyRisk: (aggregateScore * 0.8), // Heuristic
+                oracleRisk: results.find((r) => r.scenarioName === 'Oracle Price Manipulation')?.riskScore || 0,
+                liquidityRisk: results.find((r) => r.scenarioName === 'Liquidation Cascade')?.riskScore || 0,
+                insolvencyRisk: aggregateScore * 0.8, // Heuristic
             },
             timestamp: Date.now(),
         };

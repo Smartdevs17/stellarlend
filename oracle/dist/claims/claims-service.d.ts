@@ -16,10 +16,10 @@
  *   getClaimHistory()        — full audit trail
  *   getStats()               — aggregate metrics
  */
-import type { PriceAggregator } from '../services/price-aggregator.js';
-import type { ClaimSubmissionRequest, InsuranceClaim, ClaimHistoryEntry, DisputeRecord, ClaimsStats, ClaimsServiceConfig } from './types.js';
-import { ClaimStatus, DisputeResolution } from './types.js';
-import { DisputeError } from './dispute-manager.js';
+import type { PriceAggregator } from '@/services/price-aggregator';
+import type { ClaimSubmissionRequest, InsuranceClaim, ClaimHistoryEntry, DisputeRecord, ClaimsStats, ClaimsServiceConfig } from './types';
+import { ClaimStatus, DisputeResolution } from './types';
+import { DisputeError } from './dispute-manager';
 /**
  * Result of a claim submission.
  */

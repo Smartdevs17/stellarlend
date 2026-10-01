@@ -19,6 +19,10 @@ const DEFAULT_CONFIG = {
         binance: 0.95,
         coinmarketcap: 1.0,
     },
+    twapDeviationPercent: 5,
+    rateManipulationPercent: 10,
+    manipulationSequenceLength: 3,
+    maxHistorySamples: 120,
 };
 /**
  * Price Validator
@@ -26,6 +30,7 @@ const DEFAULT_CONFIG = {
 export class PriceValidator {
     config;
     cachedPrices = new Map();
+    priceHistory = new Map();
     constructor(config = {}) {
         this.config = { ...DEFAULT_CONFIG, ...config };
         logger.info('Price validator initialized', {
@@ -80,6 +85,15 @@ export class PriceValidator {
                 });
             }
         }
+        // Manipulation detection: watch for a run of large, direction-consistent
+        // rate moves that exceed the manipulation threshold (issue #847). Mirrors
+        // the on-chain rate guard's per-block deviation detection and attempts log.
+        if (cachedPrice !== undefined && errors.length === 0) {
+            const manipulation = this.detectManipulation(raw, cachedPrice);
+            if (manipulation) {
+                errors.push(manipulation);
+            }
+        }
         if (errors.length === 0) {
             const validatedPrice = {
                 asset: raw.asset.toUpperCase(),
@@ -89,6 +103,7 @@ export class PriceValidator {
                 confidence: this.calculateConfidence(raw, cachedPrice),
             };
             this.cachedPrices.set(raw.asset, raw.price);
+            this.recordSample(raw.asset, raw.price);
             return {
                 isValid: true,
                 price: validatedPrice,
@@ -101,11 +116,125 @@ export class PriceValidator {
             errors,
         };
     }
-    /**
-     * Validate multiple prices
-     */
+    validateWithTwap(raw, twapPrice) {
+        const result = this.validate(raw);
+        if (!result.isValid || twapPrice === undefined || twapPrice <= 0) {
+            return result;
+        }
+        const twapThreshold = this.config.twapDeviationPercent ?? 5;
+        const deviation = Math.abs((raw.price - twapPrice) / twapPrice) * 100;
+        if (deviation > twapThreshold) {
+            result.isValid = false;
+            result.errors.push({
+                code: 'PRICE_DEVIATION_TOO_HIGH',
+                message: `Spot price deviates ${deviation.toFixed(2)}% from TWAP (max ${twapThreshold}%)`,
+                details: { spotPrice: raw.price, twapPrice, deviationPercent: deviation },
+            });
+        }
+        return result;
+    }
+    validateRateChange(oldRate, newRate) {
+        const errors = [];
+        const threshold = this.config.rateManipulationPercent ?? 10;
+        if (oldRate > 0) {
+            const change = Math.abs((newRate - oldRate) / oldRate) * 100;
+            if (change > threshold) {
+                errors.push({
+                    code: 'PRICE_DEVIATION_TOO_HIGH',
+                    message: `Rate change ${change.toFixed(2)}% exceeds ${threshold}% manipulation threshold`,
+                    details: { oldRate, newRate, changePercent: change },
+                });
+            }
+        }
+        return errors.length === 0 ? { isValid: true, errors: [] } : { isValid: false, errors };
+    }
     validateMany(prices) {
         return prices.map((p) => this.validate(p));
+    }
+    /**
+     * Detect rate manipulation by looking for a sustained, direction-consistent
+     * run of price moves that each exceed the manipulation threshold (issue #847).
+     *
+     * Mirrors the on-chain rate guard which flags attempts whenever the per-block
+     * rate deviation is unusually large, and pauses once too many are logged.
+     */
+    detectManipulation(raw, previousPrice) {
+        const threshold = this.config.rateManipulationPercent ?? 10;
+        if (previousPrice <= 0) {
+            return null;
+        }
+        const step = (raw.price - previousPrice) / previousPrice;
+        if (Math.abs(step) <= threshold / 100) {
+            return null;
+        }
+        const direction = step > 0 ? 1 : -1;
+        // Walk the rolling history (newest last) backwards, counting consecutive
+        // price moves in the same direction that each exceed the threshold. The
+        // history's newest element equals `previousPrice`; the current `step` is
+        // the first move in the run.
+        const history = this.priceHistory.get(raw.asset.toUpperCase()) ?? [];
+        let run = 1;
+        let prior = previousPrice;
+        for (let i = history.length - 1; i >= 0; i -= 1) {
+            const nextPrior = history[i];
+            if (nextPrior <= 0)
+                break;
+            const priorStep = (prior - nextPrior) / nextPrior;
+            const priorDir = priorStep > 0 ? 1 : -1;
+            if (priorDir === direction && Math.abs(priorStep) > threshold / 100) {
+                run += 1;
+                prior = nextPrior;
+            }
+            else {
+                break;
+            }
+        }
+        const seqLen = this.config.manipulationSequenceLength ?? 3;
+        if (run >= seqLen) {
+            return {
+                code: 'RATE_MANIPULATION_DETECTED',
+                message: `Suspected rate manipulation: ${run} consecutive ${direction > 0 ? 'upward' : 'downward'} moves each exceeding ${threshold}%`,
+                details: {
+                    priorPrice: previousPrice,
+                    newPrice: raw.price,
+                    consecutiveMoves: run,
+                    stepPercent: Math.abs(step) * 100,
+                },
+            };
+        }
+        return null;
+    }
+    /**
+     * Record a validated price sample for manipulation scoring, keeping a bounded
+     * history for each asset.
+     */
+    recordSample(asset, price) {
+        const key = asset.toUpperCase();
+        const history = this.priceHistory.get(key) ?? [];
+        history.push(price);
+        const max = this.config.maxHistorySamples ?? 120;
+        while (history.length > max) {
+            history.shift();
+        }
+        this.priceHistory.set(key, history);
+    }
+    /**
+     * Return the retained rolling price history for an asset (newest last).
+     * Useful for off-chain manipulation audits and dashboards.
+     */
+    getPriceHistory(asset) {
+        return this.priceHistory.get(asset.toUpperCase()) ?? [];
+    }
+    /**
+     * Clear the retained price history for an asset (or all assets).
+     */
+    clearPriceHistory(asset) {
+        if (asset) {
+            this.priceHistory.delete(asset.toUpperCase());
+        }
+        else {
+            this.priceHistory.clear();
+        }
     }
     /**
      * Calculate confidence score based on various factors
@@ -148,6 +277,16 @@ export class PriceValidator {
      */
     getCacheState() {
         return Object.fromEntries(this.cachedPrices);
+    }
+    /**
+     * Maximum tolerated deviation, in percent.
+     *
+     * Exposed so the aggregator can apply the same threshold when screening a
+     * round of quotes against their consensus, before any of them is allowed to
+     * become this validator's drift reference.
+     */
+    get maxDeviationPercent() {
+        return this.config.maxDeviationPercent;
     }
 }
 /**

@@ -15,5 +15,6 @@ export var ValidationErrorCode;
     ValidationErrorCode["PRICE_DEVIATION_TOO_HIGH"] = "PRICE_DEVIATION_TOO_HIGH";
     ValidationErrorCode["INVALID_ASSET"] = "INVALID_ASSET";
     ValidationErrorCode["SOURCE_UNAVAILABLE"] = "SOURCE_UNAVAILABLE";
+    ValidationErrorCode["RATE_MANIPULATION_DETECTED"] = "RATE_MANIPULATION_DETECTED";
 })(ValidationErrorCode || (ValidationErrorCode = {}));
 //# sourceMappingURL=index.js.map

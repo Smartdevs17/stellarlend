@@ -16,13 +16,13 @@
  *   getClaimHistory()        — full audit trail
  *   getStats()               — aggregate metrics
  */
-import { ClaimStatus, RejectionReason } from './types.js';
-import { createClaimRepository, } from './claim-repository.js';
-import { createClaimVerifier, } from './claim-verifier.js';
-import { createPayoutCalculator, } from './payout-calculator.js';
-import { createFraudDetector, } from './fraud-detector.js';
-import { createDisputeManager, DisputeError, } from './dispute-manager.js';
-import { logger } from '../utils/logger.js';
+import { ClaimStatus, RejectionReason } from './types';
+import { createClaimRepository } from './claim-repository';
+import { createClaimVerifier } from './claim-verifier';
+import { createPayoutCalculator } from './payout-calculator';
+import { createFraudDetector } from './fraud-detector';
+import { createDisputeManager, DisputeError } from './dispute-manager';
+import { logger } from '@/utils/logger';
 /**
  * Default service configuration.
  */
@@ -173,7 +173,11 @@ export class ClaimsService {
         const claim = this.repository.findById(claimId);
         if (!claim)
             throw new Error(`Claim '${claimId}' not found`);
-        const allowedStatuses = [ClaimStatus.PENDING, ClaimStatus.PENDING_MANUAL, ClaimStatus.VERIFYING];
+        const allowedStatuses = [
+            ClaimStatus.PENDING,
+            ClaimStatus.PENDING_MANUAL,
+            ClaimStatus.VERIFYING,
+        ];
         if (!allowedStatuses.includes(claim.status)) {
             throw new Error(`Claim '${claimId}' cannot be re-verified in status '${claim.status}'`);
         }

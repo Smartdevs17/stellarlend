@@ -52,7 +52,11 @@ export class ClaimRepository {
             history: [initialEntry],
         };
         this.persist(id, claim);
-        logger.info('Claim created', { claimId: id, asset: claim.asset, claimant: claim.claimantAddress });
+        logger.info('Claim created', {
+            claimId: id,
+            asset: claim.asset,
+            claimant: claim.claimantAddress,
+        });
         return claim;
     }
     /**

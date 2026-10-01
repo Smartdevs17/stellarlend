@@ -5,8 +5,8 @@
  * Checks asset support, price freshness, oracle confidence,
  * amount validity, and coverage limits.
  */
-import type { PriceAggregator } from '../services/price-aggregator.js';
-import type { InsuranceClaim, ClaimVerificationResult } from './types.js';
+import type { PriceAggregator } from '@/services/price-aggregator';
+import type { InsuranceClaim, ClaimVerificationResult } from './types';
 /**
  * Verifier configuration.
  */

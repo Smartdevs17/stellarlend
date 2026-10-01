@@ -1,4 +1,4 @@
-import { RiskScore } from "./types";
+import { RiskScore } from './types';
 export declare class SecurityEngine {
     private scenarios;
     constructor();

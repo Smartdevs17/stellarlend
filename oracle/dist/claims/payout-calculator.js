@@ -39,9 +39,7 @@ export class PayoutCalculator {
         const cappedAmount = grossAmount > claim.coverageLimit ? claim.coverageLimit : grossAmount;
         // 3. Apply deductible
         const deductibleAmount = this.computeDeductible(cappedAmount);
-        const afterDeductible = cappedAmount > deductibleAmount
-            ? cappedAmount - deductibleAmount
-            : 0n;
+        const afterDeductible = cappedAmount > deductibleAmount ? cappedAmount - deductibleAmount : 0n;
         // 4. Apply confidence discount
         const confidenceDiscount = this.computeConfidenceDiscount(oracle.confidence);
         const discountFactor = BigInt(Math.round((1 - confidenceDiscount) * 1_000_000));

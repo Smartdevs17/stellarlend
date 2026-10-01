@@ -4,15 +4,16 @@
  * Fetches prices from multiple providers and aggregates them
  * using weighted median calculation.
  */
-import { PriceHistoryService } from './price-history.js';
-import { createCircuitBreaker } from './circuit-breaker.js';
-import { logger } from '../utils/logger.js';
+import { PriceHistoryService } from './price-history';
+import { createCircuitBreaker } from './circuit-breaker';
+import { logger } from '@/utils/logger';
 /**
  * Default aggregator configuration
  */
 const DEFAULT_CONFIG = {
     minSources: 1,
     useWeightedMedian: true,
+    failoverMode: false,
 };
 /**
  * Price Aggregator
@@ -68,6 +69,20 @@ export class PriceAggregator {
             return null;
         }
         const aggregated = this.aggregate(upperAsset, validPrices);
+        const twapResult = this.priceHistory.calculateTWAP(upperAsset, 1800);
+        if (twapResult) {
+            const twapSpot = Number(twapResult.twap) / 1e8;
+            const spot = Number(aggregated.price) / 1e8;
+            const deviation = Math.abs((spot - twapSpot) / twapSpot) * 100;
+            if (deviation > 5) {
+                logger.warn(`TWAP manipulation detected for ${upperAsset}`, {
+                    spot,
+                    twap: twapSpot,
+                    deviationPercent: deviation,
+                });
+                return null;
+            }
+        }
         this.cache.setPrice(upperAsset, aggregated.price);
         // Store in price history
         this.priceHistory.addAggregatedPrice(aggregated);
@@ -88,49 +103,123 @@ export class PriceAggregator {
         return results;
     }
     /**
-     * Fetch price from providers with fallback logic
+     * Fetch price from providers with fallback logic.
+     *
+     * In **failover mode** providers are tried in priority order (lowest number
+     * first).  As soon as a valid price is obtained from the highest-available
+     * provider the method returns immediately — lower-priority providers are
+     * never queried, keeping latency minimal when the primary is healthy.
+     * If the current provider fails its circuit breaker opens and the next
+     * lower-priority provider is tried automatically.  When the failed provider
+     * recovers (circuit breaker transitions back to CLOSED) it will be preferred
+     * again on the next call.
+     *
+     * In **aggregation mode** (default) all enabled providers are queried and
+     * their results are combined via weighted median.
      */
     async fetchWithFallback(asset) {
-        const validPrices = [];
-        const errors = new Map();
+        return this.config.failoverMode
+            ? this.fetchWithPriorityFailover(asset)
+            : this.fetchFromAllProviders(asset);
+    }
+    /**
+     * Priority-based failover: try providers in priority order and return as
+     * soon as the highest-available provider succeeds.  Lower-priority providers
+     * are only consulted when all higher-priority ones are unavailable or fail.
+     *
+     * Recovery is automatic: once a higher-priority provider's circuit breaker
+     * closes it will be tried first again on the next request.
+     */
+    async fetchWithPriorityFailover(asset) {
+        // Providers are already sorted by ascending priority (1 = highest)
         for (const provider of this.providers) {
+            const circuitBreaker = this.circuitBreakers.get(provider.name);
+            if (circuitBreaker && !circuitBreaker.isAllowed()) {
+                logger.warn(`[failover] Circuit breaker OPEN for ${provider.name} (priority ${provider.priority}), trying next provider`);
+                continue;
+            }
             try {
-                const circuitBreaker = this.circuitBreakers.get(provider.name);
-                // Check circuit breaker state
-                if (circuitBreaker && !circuitBreaker.isAllowed()) {
-                    logger.warn(`Circuit breaker OPEN for ${provider.name}, skipping`);
-                    continue;
-                }
                 const rawPrice = await provider.fetchPrice(asset);
                 const validation = this.validator.validate(rawPrice);
                 if (validation.isValid && validation.price) {
-                    validPrices.push(validation.price);
-                    // Record success for circuit breaker
-                    if (circuitBreaker) {
-                        circuitBreaker.recordSuccess();
-                    }
-                    logger.debug(`Got valid price from ${provider.name} for ${asset}`, {
-                        price: validation.price.price.toString(),
-                    });
+                    circuitBreaker?.recordSuccess();
+                    logger.debug(`[failover] Got valid price from ${provider.name} (priority ${provider.priority}) for ${asset}`, { price: validation.price.price.toString() });
+                    // Return immediately — do not query lower-priority providers
+                    return [validation.price];
                 }
-                else {
-                    // Record failure for circuit breaker
-                    if (circuitBreaker) {
-                        circuitBreaker.recordFailure();
-                    }
-                    logger.warn(`Invalid price from ${provider.name} for ${asset}`, {
-                        errors: validation.errors,
-                    });
-                }
+                // Invalid price counts as a failure
+                circuitBreaker?.recordFailure();
+                logger.warn(`[failover] Invalid price from ${provider.name} (priority ${provider.priority}) for ${asset}, trying next provider`, { errors: validation.errors });
+            }
+            catch (error) {
+                circuitBreaker?.recordFailure();
+                logger.warn(`[failover] Provider ${provider.name} (priority ${provider.priority}) failed for ${asset}, trying next provider`, { error });
+            }
+        }
+        logger.error(`[failover] All providers failed for ${asset}`);
+        return [];
+    }
+    /**
+     * Aggregation mode: query all providers and collect every valid price for
+     * weighted-median aggregation.
+     *
+     * Runs in three phases so that no single provider can anchor the others:
+     *
+     *   1. Fetch every available provider's quote (transport failures recorded
+     *      against that provider's circuit breaker).
+     *   2. Screen the round against its own median, dropping quotes that disagree
+     *      with the consensus by more than the validator's deviation threshold.
+     *   3. Validate the survivors, most consensus-aligned first.
+     *
+     * Phases 2 and 3 are separate on purpose. `PriceValidator` keeps a
+     * last-accepted price per asset as its drift reference, so whichever quote it
+     * sees first in a round becomes the yardstick for that quote's peers. Handing
+     * it raw quotes in provider-priority order let a single outlier — a
+     * misconfigured or compromised primary — set the reference and get an honest
+     * majority rejected as "deviating", leaving its own price as the aggregate.
+     * Screening against the median first means the reference is always a quote
+     * the round agreed on.
+     */
+    async fetchFromAllProviders(asset) {
+        const quotes = [];
+        const errors = new Map();
+        // ── Phase 1: collect quotes ───────────────────────────────────────────
+        for (const provider of this.providers) {
+            const circuitBreaker = this.circuitBreakers.get(provider.name);
+            // Check circuit breaker state
+            if (circuitBreaker && !circuitBreaker.isAllowed()) {
+                logger.warn(`Circuit breaker OPEN for ${provider.name}, skipping`);
+                continue;
+            }
+            try {
+                quotes.push({ provider, raw: await provider.fetchPrice(asset) });
             }
             catch (error) {
                 // Record failure for circuit breaker
-                const circuitBreaker = this.circuitBreakers.get(provider.name);
-                if (circuitBreaker) {
-                    circuitBreaker.recordFailure();
-                }
+                circuitBreaker?.recordFailure();
                 errors.set(provider.name, error instanceof Error ? error : new Error(String(error)));
                 logger.warn(`Provider ${provider.name} failed for ${asset}`, { error });
+            }
+        }
+        // ── Phase 2: screen against round consensus ───────────────────────────
+        const accepted = this.screenAgainstConsensus(asset, quotes);
+        // ── Phase 3: validate survivors, most consensus-aligned first ─────────
+        const validPrices = [];
+        for (const { provider, raw } of accepted) {
+            const circuitBreaker = this.circuitBreakers.get(provider.name);
+            const validation = this.validator.validate(raw);
+            if (validation.isValid && validation.price) {
+                validPrices.push(validation.price);
+                circuitBreaker?.recordSuccess();
+                logger.debug(`Got valid price from ${provider.name} for ${asset}`, {
+                    price: validation.price.price.toString(),
+                });
+            }
+            else {
+                circuitBreaker?.recordFailure();
+                logger.warn(`Invalid price from ${provider.name} for ${asset}`, {
+                    errors: validation.errors,
+                });
             }
         }
         if (validPrices.length === 0 && errors.size > 0) {
@@ -139,6 +228,53 @@ export class PriceAggregator {
             });
         }
         return validPrices;
+    }
+    /**
+     * Drop quotes that disagree with the round's median by more than the
+     * validator's deviation threshold, and order the survivors by how closely
+     * they track that median.
+     *
+     * The median is used rather than the mean because it does not move with an
+     * outlier: with three quotes, one arbitrarily wrong value cannot shift it.
+     * A rejected quote is recorded as a circuit-breaker failure, so a provider
+     * that persistently disagrees with its peers is eventually taken out of
+     * rotation rather than screened out afresh on every round.
+     *
+     * Rounds of one or two quotes are passed through untouched — with no third
+     * opinion there is no majority to appeal to, and the validator's own
+     * cross-round drift check remains the backstop.
+     */
+    screenAgainstConsensus(asset, quotes) {
+        if (quotes.length < 3) {
+            return quotes;
+        }
+        const sorted = [...quotes].sort((a, b) => a.raw.price - b.raw.price);
+        const mid = Math.floor(sorted.length / 2);
+        const median = sorted.length % 2 === 0
+            ? (sorted[mid - 1].raw.price + sorted[mid].raw.price) / 2
+            : sorted[mid].raw.price;
+        if (median <= 0) {
+            return quotes;
+        }
+        const threshold = this.validator.maxDeviationPercent;
+        const scored = quotes.map((quote) => ({
+            quote,
+            deviation: Math.abs((quote.raw.price - median) / median) * 100,
+        }));
+        const kept = scored.filter((entry) => {
+            if (entry.deviation <= threshold) {
+                return true;
+            }
+            logger.warn(`Quote from ${entry.quote.provider.name} disagrees with consensus for ${asset}`, {
+                price: entry.quote.raw.price,
+                consensusMedian: median,
+                deviationPercent: entry.deviation,
+                maxDeviationPercent: threshold,
+            });
+            this.circuitBreakers.get(entry.quote.provider.name)?.recordFailure();
+            return false;
+        });
+        return kept.sort((a, b) => a.deviation - b.deviation).map((entry) => entry.quote);
     }
     /**
      * Aggregate prices from multiple sources
@@ -228,11 +364,18 @@ export class PriceAggregator {
         return this.providers.map((p) => p.name);
     }
     /**
+     * Returns true when the aggregator is running in priority-based failover mode.
+     */
+    isFailoverMode() {
+        return this.config.failoverMode ?? false;
+    }
+    /**
      * Get aggregator statistics
      */
     getStats() {
         return {
             enabledProviders: this.providers.length,
+            failoverMode: this.isFailoverMode(),
             cacheStats: this.cache.getStats(),
             priceHistoryStats: this.priceHistory.getStats(),
             circuitBreakerMetrics: this.getCircuitBreakerMetrics(),
@@ -244,7 +387,10 @@ function isAggregatorConfig(value) {
     if (!value || typeof value !== 'object') {
         return false;
     }
-    return 'minSources' in value || 'useWeightedMedian' in value || 'circuitBreaker' in value;
+    return ('minSources' in value ||
+        'useWeightedMedian' in value ||
+        'failoverMode' in value ||
+        'circuitBreaker' in value);
 }
 function isPriceHistoryService(value) {
     return value instanceof PriceHistoryService;

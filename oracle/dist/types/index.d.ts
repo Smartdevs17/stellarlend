@@ -58,7 +58,8 @@ export declare enum ValidationErrorCode {
     PRICE_STALE = "PRICE_STALE",
     PRICE_DEVIATION_TOO_HIGH = "PRICE_DEVIATION_TOO_HIGH",
     INVALID_ASSET = "INVALID_ASSET",
-    SOURCE_UNAVAILABLE = "SOURCE_UNAVAILABLE"
+    SOURCE_UNAVAILABLE = "SOURCE_UNAVAILABLE",
+    RATE_MANIPULATION_DETECTED = "RATE_MANIPULATION_DETECTED"
 }
 /**
  * Provider configuration
@@ -117,6 +118,7 @@ export interface OracleServiceConfig {
         failureThreshold: number;
         backoffMs: number;
     };
+    metricsPort?: number;
 }
 /**
  * Supported assets for price fetching
@@ -151,5 +153,27 @@ export interface ServiceMetrics {
     cacheMisses: number;
     providerErrors: Map<string, number>;
     lastUpdateTimestamp: number;
+}
+/**
+ * Anomaly detection configuration for the oracle service
+ */
+export interface AnomalyDetectionConfig {
+    enabled: boolean;
+    zScoreWarningThreshold: number;
+    zScoreCriticalThreshold: number;
+    iqrMultiplier: number;
+    velocityBpsPerSecond: number;
+    rollingWindowSize: number;
+    adaptiveThresholds: boolean;
+}
+/**
+ * Real-time feed event payload
+ */
+export interface RealtimeFeedEvent {
+    type: string;
+    asset?: string;
+    price?: string;
+    timestamp: number;
+    metadata?: Record<string, unknown>;
 }
 //# sourceMappingURL=index.d.ts.map

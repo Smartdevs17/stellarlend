@@ -12,10 +12,12 @@ export declare class OracleService {
     private config;
     private aggregator;
     private contractUpdater;
+    private twapService;
     private providers;
     private intervalId?;
     private isRunning;
     private lastSuccessfulUpdate;
+    private metricsService;
     constructor(config: OracleServiceConfig);
     /**
      * Start the oracle service
@@ -24,7 +26,7 @@ export declare class OracleService {
     /**
      * Stop the oracle service
      */
-    stop(): void;
+    stop(): Promise<void>;
     /**
      * Fetch and update prices for specified assets
      */
@@ -52,6 +54,7 @@ export declare class OracleService {
         }[];
         aggregatorStats: {
             enabledProviders: number;
+            failoverMode: boolean;
             cacheStats: {
                 size: number;
                 hits: number;
@@ -65,19 +68,10 @@ export declare class OracleService {
                 maxEntriesPerAsset: number;
                 assets: string[];
             };
-            circuitBreakerMetrics: (import("./services/circuit-breaker.js").CircuitBreakerMetrics & {
-                providerName: string;
-                state: import("./services/circuit-breaker.js").CircuitState;
-            })[];
-            circuitBreakers: (import("./services/circuit-breaker.js").CircuitBreakerMetrics & {
-                providerName: string;
-                state: import("./services/circuit-breaker.js").CircuitState;
-            })[];
+            circuitBreakerMetrics: import("./services/circuit-breaker.js").CircuitBreakerMetrics[];
+            circuitBreakers: import("./services/circuit-breaker.js").CircuitBreakerMetrics[];
         };
-        circuitBreakers: (import("./services/circuit-breaker.js").CircuitBreakerMetrics & {
-            providerName: string;
-            state: import("./services/circuit-breaker.js").CircuitState;
-        })[];
+        circuitBreakers: import("./services/circuit-breaker.js").CircuitBreakerMetrics[];
     };
     /**
      * Manually fetch price for a single asset (for testing)

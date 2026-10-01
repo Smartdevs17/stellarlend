@@ -140,7 +140,7 @@ export class FraudDetector {
             FraudSeverity.HIGH,
             FraudSeverity.CRITICAL,
         ];
-        return signals.reduce((max, s) => order.indexOf(s.severity) > order.indexOf(max) ? s.severity : max, signals[0].severity);
+        return signals.reduce((max, s) => (order.indexOf(s.severity) > order.indexOf(max) ? s.severity : max), signals[0].severity);
     }
 }
 /**
