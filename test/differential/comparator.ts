@@ -1,9 +1,18 @@
-import { Contract } from '@stellar/stellar-sdk/contract';
-import * as fc from 'fast-check';
+import * as fc from "fast-check";
+
+/**
+ * Minimal contract handle used by the differential framework. The framework only
+ * ever invokes `call(input)`, so tests supply mocks of this shape. (The Stellar
+ * SDK's Soroban client was renamed in v14, hence this local type rather than a
+ * direct SDK import.)
+ */
+export interface MockContract {
+  call(input: any): any;
+}
 
 export interface ContractImplementation {
   name: string;
-  contract: Contract;
+  contract: MockContract;
   version: string;
 }
 
@@ -20,7 +29,7 @@ export interface Divergence {
   input: any;
   outputA: any;
   outputB: any;
-  severity: 'critical' | 'warning' | 'info';
+  severity: "critical" | "warning" | "info";
 }
 
 export class DifferentialTester {
@@ -30,10 +39,12 @@ export class DifferentialTester {
 
   constructor(
     implementations: ContractImplementation[],
-    tolerance: number = 0
+    tolerance: number = 0,
   ) {
     if (implementations.length < 2) {
-      throw new Error('At least two implementations required for differential testing');
+      throw new Error(
+        "At least two implementations required for differential testing",
+      );
     }
     this.implementations = implementations;
     this.tolerance = tolerance;
@@ -54,26 +65,30 @@ export class DifferentialTester {
 
     for (const impl of this.implementations) {
       try {
-        outputs[impl.name] = await this.executeContract(impl.contract, testCase.input);
+        outputs[impl.name] = await this.executeContract(
+          impl.contract,
+          testCase.input,
+        );
       } catch (error) {
-        outputs[impl.name] = { error: error instanceof Error ? error.message : 'Unknown error' };
+        outputs[impl.name] = {
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
       }
     }
 
-    const implNames = this.implementations.map(i => i.name);
-    for (let i = 0; i < implNames.length; i++) {
-      for (let j = i + 1; j < implNames.length; j++) {
-        const nameA = implNames[i];
-        const nameB = implNames[j];
-        const outputA = outputs[nameA];
-        const outputB = outputs[nameB];
+    for (let i = 0; i < this.implementations.length; i++) {
+      const implA = this.implementations[i];
+      if (!implA) continue;
+      for (let j = i + 1; j < this.implementations.length; j++) {
+        const implB = this.implementations[j];
+        if (!implB) continue;
 
         const divergence = this.detectDivergence(
-          nameA,
-          nameB,
+          implA.name,
+          implB.name,
           testCase,
-          outputA,
-          outputB
+          outputs[implA.name],
+          outputs[implB.name],
         );
 
         if (divergence) {
@@ -83,7 +98,10 @@ export class DifferentialTester {
     }
   }
 
-  private async executeContract(contract: Contract, input: any): Promise<any> {
+  private async executeContract(
+    contract: MockContract,
+    input: any,
+  ): Promise<any> {
     // Simplified execution - in real implementation this would call the contract
     // with the given input and return the output
     // Placeholder for actual contract execution logic
@@ -95,7 +113,7 @@ export class DifferentialTester {
     nameB: string,
     testCase: TestCase,
     outputA: any,
-    outputB: any
+    outputB: any,
   ): Divergence | null {
     // Handle error cases
     if (outputA.error && outputB.error) {
@@ -107,7 +125,7 @@ export class DifferentialTester {
           input: testCase.input,
           outputA,
           outputB,
-          severity: 'critical'
+          severity: "critical",
         };
       }
       return null;
@@ -121,7 +139,7 @@ export class DifferentialTester {
         input: testCase.input,
         outputA,
         outputB,
-        severity: 'critical'
+        severity: "critical",
       };
     }
 
@@ -137,7 +155,7 @@ export class DifferentialTester {
           input: testCase.input,
           outputA,
           outputB,
-          severity: 'critical'
+          severity: "critical",
         };
       }
       return null;
@@ -152,7 +170,7 @@ export class DifferentialTester {
         input: testCase.input,
         outputA,
         outputB,
-        severity: 'warning'
+        severity: "warning",
       };
     }
 
@@ -161,8 +179,13 @@ export class DifferentialTester {
 
   private deepCompare(a: any, b: any, tolerance: number): boolean {
     if (a === b) return true;
-    if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) {
-      if (typeof a === 'number' && typeof b === 'number') {
+    if (
+      typeof a !== "object" ||
+      typeof b !== "object" ||
+      a === null ||
+      b === null
+    ) {
+      if (typeof a === "number" && typeof b === "number") {
         return Math.abs(a - b) <= tolerance;
       }
       return false;
@@ -183,15 +206,15 @@ export class DifferentialTester {
 
   public getDivergenceReport(): string {
     if (this.divergences.length === 0) {
-      return 'No divergences detected.';
+      return "No divergences detected.";
     }
 
     let report = `# Differential Testing Report\n\n`;
     report += `## Summary\n`;
     report += `- Total divergences: ${this.divergences.length}\n`;
-    report += `- Critical: ${this.divergences.filter(d => d.severity === 'critical').length}\n`;
-    report += `- Warning: ${this.divergences.filter(d => d.severity === 'warning').length}\n`;
-    report += `- Info: ${this.divergences.filter(d => d.severity === 'info').length}\n\n`;
+    report += `- Critical: ${this.divergences.filter((d) => d.severity === "critical").length}\n`;
+    report += `- Warning: ${this.divergences.filter((d) => d.severity === "warning").length}\n`;
+    report += `- Info: ${this.divergences.filter((d) => d.severity === "info").length}\n\n`;
 
     report += `## Divergences\n\n`;
     for (const divergence of this.divergences) {
@@ -209,15 +232,15 @@ export class DifferentialTester {
 export function createPropertyBasedTests(
   implementations: ContractImplementation[],
   inputArbitraries: fc.Arbitrary<any>[],
-  maxRuns: number = 100
+  maxRuns: number = 100,
 ): TestCase[] {
   const testCases: TestCase[] = [];
 
   for (let i = 0; i < maxRuns; i++) {
-    const input = inputArbitraries.map(arb => arb.generate(fc.defaultRng).value);
+    const input = inputArbitraries.map((arb) => fc.sample(arb, 1)[0]);
     testCases.push({
       name: `Property test ${i + 1}`,
-      input: input.length === 1 ? input[0] : input
+      input: input.length === 1 ? input[0] : input,
     });
   }
 

@@ -1,5 +1,4 @@
-import { DifferentialTester, ContractImplementation, TestCase } from '../test/differential/comparator';
-import { Contract } from '@stellar/stellar-sdk/contract';
+import { DifferentialTester, ContractImplementation, MockContract, TestCase } from '../test/differential/comparator';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -7,9 +6,15 @@ import * as path from 'path';
 // Usage: npm run test:differential:report
 
 async function generateReport(): Promise<void> {
-  // In a real implementation, these would be actual contract instances
-  const oldContract = {} as Contract;
-  const newContract = {} as Contract;
+  // Reference implementations stand in for real contract clients. Replace these
+  // with live Soroban client bindings when wiring up end-to-end differential runs.
+  const oldContract: MockContract = {
+    call: async (input: any) => ({ version: 'v1', method: input?.method })
+  };
+
+  const newContract: MockContract = {
+    call: async (input: any) => ({ version: 'v2', method: input?.method })
+  };
 
   const implementations: ContractImplementation[] = [
     { name: 'v1', contract: oldContract, version: '1.0.0' },

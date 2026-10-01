@@ -17,7 +17,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
@@ -28,6 +28,10 @@ jobs:
 
       - name: Run differential tests
         run: npm run test:differential
+
+      - name: Generate differential report
+        if: always()
+        run: npm run test:differential:report
 
       - name: Upload test report
         if: always()
