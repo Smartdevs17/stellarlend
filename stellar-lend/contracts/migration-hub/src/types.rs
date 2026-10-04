@@ -1,4 +1,4 @@
-use soroban_sdk::{contracterror, contracttype, Address, String, Val, Vec};
+use soroban_sdk::{contracterror, contracttype, Address, String};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -64,7 +64,7 @@ pub struct MigrationPreview {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PartialMigrationConfig {
-    pub percentage: u32, // 0-10000 (0-100% in basis points)
+    pub percentage: u32,
     pub min_amount: i128,
 }
 
