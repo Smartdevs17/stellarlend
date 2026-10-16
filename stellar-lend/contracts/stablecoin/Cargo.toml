@@ -12,3 +12,6 @@ stellarlend-errors = { path = "../errors" }
 soroban-sdk = { workspace = true }
 soroban-token-sdk = { workspace = true }
 
+
+[lints]
+workspace = true

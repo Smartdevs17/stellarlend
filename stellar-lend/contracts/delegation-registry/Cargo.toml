@@ -11,3 +11,6 @@ crate-type = ["cdylib", "rlib"]
 stellarlend-errors = { path = "../errors" }
 soroban-sdk = { workspace = true }
 stellarlend-shared-deadline = { path = "../shared-deadline" }
+
+[lints]
+workspace = true

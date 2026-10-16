@@ -20,3 +20,6 @@ soroban-sdk = { workspace = true, features = ["testutils"] }
 testutils = ["soroban-sdk/testutils"]
 # Enable to build liquidation integration tests (requires lending crate dependency)
 liquidate_integration = []
+
+[lints]
+workspace = true

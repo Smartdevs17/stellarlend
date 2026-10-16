@@ -13,3 +13,6 @@ stellarlend-common = { path = "../common" }
 stellarlend-shared-deadline = { path = "../shared-deadline" }
 
 [dev-dependencies]
+
+[lints]
+workspace = true

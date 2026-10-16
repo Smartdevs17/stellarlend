@@ -17,3 +17,6 @@ soroban-sdk = { workspace = true, features = ["testutils"] }
 
 [features]
 default = []
+
+[lints]
+workspace = true

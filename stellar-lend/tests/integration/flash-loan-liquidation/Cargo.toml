@@ -6,3 +6,6 @@ edition = "2021"
 [dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 test-utils = { path = "../../../contracts/test-utils" }
+
+[lints]
+workspace = true

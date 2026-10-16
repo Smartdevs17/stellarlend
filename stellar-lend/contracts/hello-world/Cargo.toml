@@ -25,3 +25,6 @@ migration-hub = { package = "stellarlend-migration-hub", path = "../migration-hu
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 stellarlend-lending = { path = "../lending" }
+
+[lints]
+workspace = true

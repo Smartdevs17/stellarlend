@@ -127,6 +127,30 @@ export class PostgresMetricsRepository implements MetricsRepository {
     }));
   }
 
+  async getLatestProtocolSample(): Promise<ProtocolMetricSample | null> {
+    const result = await this.pool.query<{
+      time: Date;
+      tvl: number;
+      total_borrows: number;
+      utilization_rate: number;
+      liquidations: number;
+      total_deposits: number;
+      active_users: number;
+    }>(`SELECT time, tvl, total_borrows, utilization_rate, liquidations, total_deposits, active_users
+        FROM protocol_metrics ORDER BY time DESC LIMIT 1`);
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      time: row.time,
+      tvl: Number(row.tvl),
+      totalBorrows: Number(row.total_borrows),
+      utilizationRate: Number(row.utilization_rate),
+      liquidations: Number(row.liquidations),
+      totalDeposits: Number(row.total_deposits),
+      activeUsers: Number(row.active_users),
+    };
+  }
+
   async close(): Promise<void> {
     await this.pool.end();
   }

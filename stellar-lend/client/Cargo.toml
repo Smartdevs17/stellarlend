@@ -57,3 +57,6 @@ path = "examples/simple_transaction.rs"
 [[example]]
 name = "monitor_transaction"
 path = "examples/monitor_transaction.rs"
+
+[lints]
+workspace = true

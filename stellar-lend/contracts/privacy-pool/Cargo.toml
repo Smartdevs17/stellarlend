@@ -17,3 +17,6 @@ stealth-address = { path = "../stealth-address" }
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 stealth-address = { path = "../stealth-address" }
+
+[lints]
+workspace = true

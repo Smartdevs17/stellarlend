@@ -80,6 +80,12 @@ exclude = [
 ]
 
 [workspace.lints.rust]
+unused = "warn"
+unused_imports = "warn"
+dead_code = "warn"
+
+[workspace.lints.clippy]
+all = "warn"
 
 [workspace.dependencies]
 soroban-sdk = "27.0.2"

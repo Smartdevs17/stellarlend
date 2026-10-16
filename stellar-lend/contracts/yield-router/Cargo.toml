@@ -10,3 +10,6 @@ pool-interfaces = { path = "../pool-interfaces" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+
+[lints]
+workspace = true

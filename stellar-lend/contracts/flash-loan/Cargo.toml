@@ -14,3 +14,6 @@ stellar-lend-core = { path = "../core" }
 
 [dev-dependencies]
 soroban-sdk = { version = "20.0.0", features = ["testutils"] }
+
+[lints]
+workspace = true

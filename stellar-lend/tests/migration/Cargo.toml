@@ -14,3 +14,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 rand = "0.10"
+
+[lints]
+workspace = true
