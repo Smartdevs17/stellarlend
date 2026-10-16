@@ -210,6 +210,19 @@ impl LendingContract {
         Ok(())
     }
 
+    /// Immediately pause or resume every state-changing protocol operation.
+    ///
+    /// This is the emergency control surface. It is restricted to the
+    /// configured admin and delegates to the same guarded pause storage used
+    /// by the granular operation controls.
+    pub fn emergency_pause(
+        env: Env,
+        admin: Address,
+        paused: bool,
+    ) -> Result<(), BorrowError> {
+        Self::set_pause(env, admin, PauseType::All, paused)
+    }
+
     /// Repay borrowed assets
     pub fn repay(env: Env, user: Address, asset: Address, amount: i128) -> Result<(), BorrowError> {
         user.require_auth();

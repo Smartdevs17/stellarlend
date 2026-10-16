@@ -3,12 +3,13 @@ use crate::cache::CacheService;
 use crate::config::Config;
 use crate::error::{IndexerError, IndexerResult};
 use crate::models::{EventUpdate, UpdateType};
+use crate::metrics::IndexingMetrics;
 use crate::parser::EventParser;
 use crate::repository::EventRepository;
 use ethers::prelude::*;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::time::{sleep, Duration};
+use tokio::time::{sleep, Duration, Instant};
 use tracing::{debug, error, info, warn};
 
 /// Indexer service that monitors the blockchain and indexes events
@@ -30,6 +31,9 @@ pub struct IndexerService {
 
     /// Current indexing state
     is_running: Arc<RwLock<bool>>,
+
+    /// Throughput and backlog metrics shared with monitoring endpoints.
+    metrics: Arc<IndexingMetrics>,
 }
 
 impl IndexerService {
@@ -58,6 +62,7 @@ impl IndexerService {
             cache: Arc::new(RwLock::new(cache)),
             config,
             is_running: Arc::new(RwLock::new(false)),
+            metrics: Arc::new(IndexingMetrics::new(10_000)),
         })
     }
 
@@ -138,12 +143,17 @@ impl IndexerService {
                 while batch_start <= to_block {
                     let batch_end =
                         std::cmp::min(batch_start + self.config.indexer.batch_size - 1, to_block);
+                    let batch_started = Instant::now();
 
                     match self
                         .index_block_range(&metadata.contract_address, batch_start, batch_end)
                         .await
                     {
                         Ok(count) => {
+                            self.metrics.record_batch(
+                                count as u64,
+                                batch_started.elapsed().as_millis() as u64,
+                            );
                             info!(
                                 "Indexed {} events for {} from blocks {}-{}",
                                 count, metadata.contract_address, batch_start, batch_end
@@ -155,6 +165,7 @@ impl IndexerService {
                                 .await?;
                         }
                         Err(e) => {
+                            self.metrics.record_error();
                             error!(
                                 "Failed to index blocks {}-{} for {}: {}",
                                 batch_start, batch_end, metadata.contract_address, e
@@ -186,6 +197,17 @@ impl IndexerService {
                 }
             }
 
+            let oldest_indexed = self
+                .repository
+                .get_active_metadata()
+                .await?
+                .into_iter()
+                .map(|metadata| metadata.last_indexed_block)
+                .min()
+                .unwrap_or(current_block);
+            self.metrics
+                .update_backlog(current_block.saturating_sub(oldest_indexed));
+
             // Wait before next poll
             sleep(Duration::from_secs(self.config.indexer.poll_interval)).await;
         }
@@ -198,6 +220,11 @@ impl IndexerService {
         let mut is_running = self.is_running.write().await;
         *is_running = false;
         info!("Stopping indexer service");
+    }
+
+    /// Return a point-in-time snapshot for health and performance reporting.
+    pub fn metrics(&self) -> crate::metrics::MetricsSnapshot {
+        self.metrics.snapshot()
     }
 
     /// Index events in a specific block range for a contract

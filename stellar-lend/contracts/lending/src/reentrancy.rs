@@ -270,11 +270,24 @@ macro_rules! read_only_guard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soroban_sdk::Env;
 
     #[test]
     fn test_guard_state_transitions() {
         // Guard state should transition correctly
         assert_eq!(GuardState::NotEntered, GuardState::NotEntered);
         assert_eq!(GuardState::Entered, GuardState::Entered);
+    }
+
+    #[test]
+    fn nested_state_change_is_rejected_until_the_outer_guard_drops() {
+        let env = Env::default();
+
+        let outer = ReentrancyGuard::new_with_key(&env, ReentrancyKey::DepositLock, false)
+            .expect("first entry should be allowed");
+        assert!(ReentrancyGuard::new_with_key(&env, ReentrancyKey::DepositLock, false).is_err());
+
+        drop(outer);
+        assert!(ReentrancyGuard::new_with_key(&env, ReentrancyKey::DepositLock, false).is_ok());
     }
 }
