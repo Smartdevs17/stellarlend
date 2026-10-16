@@ -59,7 +59,10 @@ use flash_loan::{
     FlashLoanError,
 };
 use lazy::{LazyField, PoolStateView};
-use pause::{is_paused, set_pause as set_pause_logic, PauseType};
+use pause::{is_paused, set_pause as set_pause_logic};
+/// Re-exported so integrators (and the `tests/` suites) can build `set_pause`
+/// and `guardian_pause` arguments.
+pub use pause::PauseType;
 use reentrancy::ReentrancyGuard;
 use token_receiver::receive as receive_logic;
 
@@ -221,6 +224,41 @@ impl LendingContract {
         }
         admin.require_auth();
         set_pause_logic(&env, admin, pause_type, paused);
+        Ok(())
+    }
+
+    /// Set or rotate the guardian (admin only).
+    ///
+    /// The guardian is a narrowly-scoped key for incident response: it can
+    /// pause operations via `guardian_pause` but cannot unpause them or change
+    /// any other configuration, so it can be kept hot while the admin key is not.
+    pub fn set_guardian(env: Env, admin: Address, guardian: Address) -> Result<(), BorrowError> {
+        let current_admin = get_borrow_admin(&env).ok_or(BorrowError::Unauthorized)?;
+        if admin != current_admin {
+            return Err(BorrowError::Unauthorized);
+        }
+        admin.require_auth();
+        pause::set_guardian(&env, admin, guardian);
+        Ok(())
+    }
+
+    /// Current guardian, if one has been set.
+    pub fn get_guardian(env: Env) -> Option<Address> {
+        pause::get_guardian(&env)
+    }
+
+    /// Pause an operation (guardian only). Unpausing remains admin-only.
+    pub fn guardian_pause(
+        env: Env,
+        guardian: Address,
+        pause_type: PauseType,
+    ) -> Result<(), BorrowError> {
+        let current_guardian = pause::get_guardian(&env).ok_or(BorrowError::Unauthorized)?;
+        if guardian != current_guardian {
+            return Err(BorrowError::Unauthorized);
+        }
+        guardian.require_auth();
+        set_pause_logic(&env, guardian, pause_type, true);
         Ok(())
     }
 
@@ -585,11 +623,18 @@ impl LendingContract {
     // ═══════════════════════════════════════════════════════════════════
 
     /// Initialize the insurance pool (admin only, call once).
+    ///
+    /// `admin` must be the protocol admin, so the insurance admin role cannot
+    /// be claimed by whoever calls this first after deployment.
     pub fn insurance_initialize(env: Env, admin: Address) -> Result<(), InsuranceError> {
+        let current_admin = get_borrow_admin(&env).ok_or(InsuranceError::Unauthorized)?;
+        if admin != current_admin {
+            return Err(InsuranceError::Unauthorized);
+        }
         insurance_initialize(&env, &admin)
     }
 
-    /// Contribute protocol fees to the insurance pool.
+    /// Contribute protocol fees to the insurance pool (insurance admin only).
     pub fn insurance_fund_pool(env: Env, amount: i128) -> Result<(), InsuranceError> {
         insurance_fund_pool(&env, amount)
     }

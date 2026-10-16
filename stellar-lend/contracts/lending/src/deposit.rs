@@ -132,7 +132,7 @@ pub fn initialize_deposit_settings(
     deposit_cap: i128,
     min_deposit_amount: i128,
 ) -> Result<(), DepositError> {
-    if deposit_cap <= 0 || min_deposit_amount <= 0 {
+    if deposit_cap <= 0 || min_deposit_amount <= 0 || min_deposit_amount > deposit_cap {
         return Err(DepositError::InvalidAmount);
     }
 

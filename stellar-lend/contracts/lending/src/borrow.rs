@@ -927,6 +927,11 @@ pub fn initialize_borrow_settings(
     min_borrow_amount: i128,
 ) -> Result<(), BorrowError> {
     // Note: ProtocolAdmin check should be performed by the caller (lib.rs)
+    // A non-positive ceiling would block all borrowing (and zero out the
+    // utilization curve); a minimum above the ceiling makes every borrow fail.
+    if debt_ceiling <= 0 || min_borrow_amount <= 0 || min_borrow_amount > debt_ceiling {
+        return Err(BorrowError::InvalidAmount);
+    }
     crate::hot_storage::store_borrow_limits(
         env,
         &crate::hot_storage::BorrowLimits {
