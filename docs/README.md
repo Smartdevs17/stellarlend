@@ -20,8 +20,18 @@ StellarLend is a lending and borrowing protocol built on Soroban. It features cr
 - **[Borrow Function Tests](BORROW_TESTS.md)** - Comprehensive test suite documentation for the borrow functionality, covering all validation paths, edge cases, interest accrual, pause functionality, events, and security scenarios.
 - **[Event Indexing Guide](event-indexing.md)** - Catalog of contract events, indexing options for RPC, Mercury, and SubQuery, and the current status of `stellar-lend/indexing_system/`.
 - **[Upgrade Mechanism](upgrade-mechanism.md)** - Runbook for planned and emergency upgrades, rollback handling, and storage compatibility guidance.
+- **[Chaos Engineering](chaos-engineering.md)** - Network-failure experiment registry, steady-state hypotheses, halt criteria, and chaos CI reporting (Issue #689).
+- **[Recovery Procedures](recovery.md)** - Automated recovery runbook for partition, RPC outage, and oracle disruption scenarios (Issue #689).
+- **[Gas Golf Leaderboard](../scripts/gas-golf/README.md)** - Competitive gas optimization: a maintainer-owned correctness gate, a leaderboard scored on `utilizationPct`, and measurement integrity checks (Issue #1014).
+- **[Governance Lifecycle](GOVERNANCE.md)** - Proposal state machine, config knobs, invariants, E2E coverage, and gas benchmarks (Issue #690).
+- **[Lending Pool Gas Cost Estimator](../scripts/lending-gas-estimator/README.md)** - Per-entry-point storage indexing, stroop cost estimates, and storage-pattern optimization suggestions for the Soroban lending pool (Issue #1011). See [Developer Tooling](DEV_TOOLING.md) for usage.
+- **[Lending Protocol Gas Budget Planner](../scripts/gas-budget-planner/README.md)** - Plan a lender's gas budget for a pattern of deposits, borrows, repays and withdrawals: per-call costs, period and annualised totals, budget headroom, volume projections and batching savings (Issue #1012). See [Developer Tooling](DEV_TOOLING.md) for usage.
+- **[Lending Pool Position Health Simulation](../scripts/position-health-sim/README.md)** - Simulate market conditions against the contract's own health factor and liquidation threshold math: historical scenario replay, price shock grids, break-even collateral price, and a liquidation threshold sweep (Issue #1013). See [Developer Tooling](DEV_TOOLING.md) for usage.
 
 ## Modules and Features
+- **[Real-Time Price Feed with Anomaly Detection](REALTIME_PRICE_FEED.md)** - Production-ready oracle aggregation pipeline with Z-score/IQR/velocity anomaly detection, cross-feed correlation, TWAP smoothing, health monitoring, integration tests, and performance benchmarks
+- **[Transaction Simulation Cache](TRANSACTION_SIMULATION_CACHE.md)** - Short-lived cache of Soroban simulations for deposit/borrow/repay/withdraw estimates, with invalidation on submission
+- **[Offline Support and Push Notifications](OFFLINE_AND_PUSH_NOTIFICATIONS.md)** - Service worker caching for offline use and Web Push liquidation warnings
 - Interest rate model with smoothing
 - Risk config and scoring
 - Cross-asset positions and oracle support

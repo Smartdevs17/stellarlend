@@ -1,8 +1,38 @@
 #![no_std]
 extern crate alloc;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, Vec,
+    contract, contracterror, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, IntoVal, Val, Vec,
 };
+
+/// Storage key for the reentrancy guard.
+#[contracttype]
+#[derive(Clone)]
+enum GuardKey {
+    ReentrancyLock,
+}
+
+/// RAII reentrancy guard. Panics on re-entry, auto-clears on drop.
+struct ReentrancyGuard<'a> {
+    env: &'a Env,
+}
+
+impl<'a> ReentrancyGuard<'a> {
+    fn new(env: &'a Env) -> Self {
+        let key: Val = GuardKey::ReentrancyLock.into_val(env);
+        if env.storage().temporary().has(&key) {
+            panic!("reentrancy detected");
+        }
+        env.storage().temporary().set(&key, &true);
+        Self { env }
+    }
+}
+
+impl<'a> Drop for ReentrancyGuard<'a> {
+    fn drop(&mut self) {
+        let key: Val = GuardKey::ReentrancyLock.into_val(self.env);
+        self.env.storage().temporary().remove(&key);
+    }
+}
 
 use stealth_address::StealthAddressRegistryClient;
 
@@ -101,6 +131,11 @@ impl PrivacyPool {
             return Err(PrivacyPoolError::AlreadyInitialized);
         }
 
+        // Initialization chooses the authority that can pause the pool and
+        // change compliance policy. The caller must prove control of that
+        // address before any initialization state is written.
+        admin.require_auth();
+
         if !(10..=32).contains(&tree_depth) {
             return Err(PrivacyPoolError::InvalidProof);
         }
@@ -147,6 +182,7 @@ impl PrivacyPool {
         recipient: Address,
         ephemeral_public_key: BytesN<32>,
     ) -> Result<u32, PrivacyPoolError> {
+        let _guard = ReentrancyGuard::new(&env);
         let config = get_config(&env)?;
 
         if config.deposit_paused {
@@ -227,6 +263,7 @@ impl PrivacyPool {
         proof: WithdrawalProof,
         compliance_disclosure: Option<ComplianceDisclosure>,
     ) -> Result<(), PrivacyPoolError> {
+        let _guard = ReentrancyGuard::new(&env);
         let config = get_config(&env)?;
 
         if config.withdraw_paused {
@@ -592,3 +629,24 @@ pub struct PrivacyPoolInitializedEvent {
 
 #[cfg(test)]
 mod tests;
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    PrivacyPoolError => stellarlend_errors::domains::PRIVACY_POOL;
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    DepositPaused => Paused, "Deposits are paused";
+    WithdrawPaused => Paused, "Withdrawals are paused";
+    InvalidProof => InvalidInput, "Invalid proof";
+    NullifierAlreadyUsed => AlreadyExists, "Nullifier already used";
+    CommitmentNotFound => NotFound, "Commitment not found";
+    InsufficientAnonymitySet => Insufficient, "Insufficient anonymity set", RetryLater;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    MerkleTreeFull => LimitExceeded, "Merkle tree full", ReduceAmount;
+    ComplianceRequired => Unauthorized, "Compliance required";
+    DisclosureInvalid => InvalidInput, "Disclosure invalid";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    AssetNotSupported => InvalidAsset, "Asset not supported";
+}

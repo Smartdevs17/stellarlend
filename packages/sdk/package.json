@@ -9,13 +9,19 @@
   "files": [
     "dist",
     "src",
+    "examples",
+    "!examples/**/*.test.ts",
     "README.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.examples.json --noEmit",
+    "test": "npm run test:examples",
+    "test:examples": "tsc -p tsconfig.examples.json && node --test .examples-build/examples/examples.test.js"
   },
   "devDependencies": {
+    "@stellar/stellar-sdk": "^14.5.0",
+    "@types/node": "^20.10.6",
     "typescript": "^5.3.3"
   }
 }

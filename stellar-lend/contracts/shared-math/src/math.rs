@@ -34,17 +34,12 @@ pub fn accrue_interest(
         .checked_div(SECONDS_PER_YEAR)
         .ok_or(MathError::DivisionByZero)?;
 
-    principal
-        .checked_add(interest)
-        .ok_or(MathError::Overflow)
+    principal.checked_add(interest).ok_or(MathError::Overflow)
 }
 
 /// Calculate collateral ratio: (total_collateral_value * 100) / total_debt_value
 /// Returns ratio in basis points (10000 = 100%)
-pub fn collateral_ratio(
-    collateral_value: i128,
-    debt_value: i128,
-) -> Result<i128, MathError> {
+pub fn collateral_ratio(collateral_value: i128, debt_value: i128) -> Result<i128, MathError> {
     if collateral_value < 0 || debt_value < 0 {
         return Err(MathError::NegativeValue);
     }
@@ -104,10 +99,7 @@ pub fn liquidation_discount(
 
 /// Calculate utilization rate: debt / supply_cap
 /// Returns utilization in basis points (10000 = 100%)
-pub fn utilization_rate(
-    total_debt: i128,
-    supply_cap: i128,
-) -> Result<i128, MathError> {
+pub fn utilization_rate(total_debt: i128, supply_cap: i128) -> Result<i128, MathError> {
     if total_debt < 0 || supply_cap < 0 {
         return Err(MathError::NegativeValue);
     }
@@ -138,7 +130,11 @@ pub fn apr_to_apy(apr_bps: i128, compounding_periods: i128) -> Result<i128, Math
     // (1 + r/n)^n ≈ 1 + r + r^2/2 for small r
     let rate_decimal = apr_bps; // in basis points
     let one_plus_rate = BPS_SCALE
-        .checked_add(rate_decimal.checked_div(compounding_periods).ok_or(MathError::DivisionByZero)?)
+        .checked_add(
+            rate_decimal
+                .checked_div(compounding_periods)
+                .ok_or(MathError::DivisionByZero)?,
+        )
         .ok_or(MathError::Overflow)?;
 
     // Simplified: (1 + r/n)^n ≈ (1 + r/n) * compounding_periods
@@ -307,7 +303,10 @@ mod tests {
 
     #[test]
     fn test_negative_values_error() {
-        assert_eq!(accrue_interest(-100, 500, 1000), Err(MathError::NegativeValue));
+        assert_eq!(
+            accrue_interest(-100, 500, 1000),
+            Err(MathError::NegativeValue)
+        );
         assert_eq!(collateral_ratio(-100, 100), Err(MathError::NegativeValue));
         assert_eq!(utilization_rate(-100, 1000), Err(MathError::NegativeValue));
     }
@@ -320,6 +319,6 @@ mod tests {
     #[test]
     fn test_safe_divide_ceil() {
         assert_eq!(safe_divide_ceil(10, 3).unwrap(), 4); // 10/3 = 3.33 -> 4
-        assert_eq!(safe_divide_ceil(9, 3).unwrap(), 3);  // 9/3 = 3 -> 3
+        assert_eq!(safe_divide_ceil(9, 3).unwrap(), 3); // 9/3 = 3 -> 3
     }
 }

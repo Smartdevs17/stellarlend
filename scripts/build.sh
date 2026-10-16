@@ -105,6 +105,15 @@ if [ "$BUILD_PROFILE" = "release" ]; then
     printf "  Size:     %s bytes\n" "$(wc -c < "$wasm_file")"
     stellar contract inspect --wasm "$wasm_file" --output json 2>/dev/null | head -20 || true
   done
+
+  # ---------------------------------------------------------------------------
+  # Generate checksums for the optimised artefacts (reproducible builds)
+  # ---------------------------------------------------------------------------
+  echo ""
+  echo ">>> Generating checksums"
+  CHECKSUMS_FILE="$WASM_DIR/checksums.txt"
+  (cd "$WASM_DIR" && sha256sum *.optimized.wasm > "$CHECKSUMS_FILE")
+  echo "    Wrote $CHECKSUMS_FILE"
 fi
 
 # ---------------------------------------------------------------------------
@@ -120,5 +129,7 @@ echo " Build complete."
 if [ "$BUILD_PROFILE" = "release" ]; then
   echo " Optimised WASM files are in:"
   echo "   $STELLAR_LEND_DIR/target/wasm32-unknown-unknown/release/*.optimized.wasm"
+  echo " SHA-256 checksums (reproducible build verification):"
+  echo "   $STELLAR_LEND_DIR/target/wasm32-unknown-unknown/release/checksums.txt"
 fi
 echo "======================================================================"

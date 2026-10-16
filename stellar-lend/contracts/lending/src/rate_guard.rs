@@ -603,3 +603,13 @@ mod tests {
         assert!(twap.twap_bps > 0);
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    RateGuardError => stellarlend_errors::domains::LENDING_RATE_GUARD;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    RateChangeExceedsPauseThreshold => LimitExceeded, "Rate change exceeds pause threshold", ContactAdmin;
+    InvalidThresholds => InvalidInput, "Invalid thresholds";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+}

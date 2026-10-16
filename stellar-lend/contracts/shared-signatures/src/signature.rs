@@ -69,3 +69,14 @@ pub fn get_nonce(env: &Env, user: &Address) -> u64 {
     let key = (Symbol::new(env, "Nonce"), user.clone());
     env.storage().persistent().get(&key).unwrap_or(0)
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    SignatureError => stellarlend_errors::domains::SHARED_SIGNATURES;
+    InvalidSignature => InvalidInput, "Invalid signature";
+    InvalidNonce => InvalidInput, "Invalid nonce";
+    InvalidChainId => InvalidInput, "Invalid chain id";
+    InvalidContractAddress => InvalidInput, "Invalid contract address";
+    InvalidVersion => InvalidInput, "Invalid version";
+}

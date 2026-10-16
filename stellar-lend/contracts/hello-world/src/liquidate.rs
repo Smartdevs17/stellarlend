@@ -25,14 +25,22 @@ use crate::events::{
     emit_batch_liquidation, emit_liquidation, emit_liquidation_fee_collected,
     BatchLiquidationEvent, LiquidationEvent, LiquidationFeeCollectedEvent,
 };
-use soroban_sdk::{contracttype, contracterror, Address, Env, IntoVal, Map, Symbol, Val, Vec};
+use soroban_sdk::{contracterror, contracttype, Address, Env, IntoVal, Map, Symbol, Val, Vec};
+use stellarlend_math::checked::apply_bps;
+use stellarlend_math::liquidation::{
+    collateral_value_in_debt as math_collateral_value_in_debt,
+    debt_value_in_collateral as math_debt_value_in_collateral,
+    dynamic_penalty_bps as math_dynamic_penalty_bps, is_profitable as math_is_profitable,
+    priority_score as math_priority_score, seize_amount as math_seize_amount,
+};
+use stellarlend_math::MathError;
 
 use crate::deposit::{
     add_activity_log, emit_analytics_updated_event, emit_position_updated_event,
     emit_user_activity_tracked_event, update_protocol_analytics, AssetParams, DepositDataKey,
     Position, ProtocolAnalytics, UserAnalytics,
 };
-use crate::oracle::{get_price, OracleError};
+use crate::oracle::{get_liquidation_price, OracleError};
 use crate::risk_management::{
     is_emergency_paused, is_operation_paused, require_operation_not_paused, RiskManagementError,
 };
@@ -41,11 +49,25 @@ use crate::risk_params::{
     get_liquidation_incentive_amount, get_max_liquidatable_amount, get_risk_params,
 };
 
-/// Maximum liquidation penalty cap in basis points (20%)
-const MAX_PENALTY_BPS: i128 = 2_000;
+/// Maximum liquidation penalty cap in basis points (20%).
+///
+/// Re-exported from the shared math library so the cap enforced here and the cap
+/// enforced inside [`stellarlend_math::liquidation`] can never diverge.
+pub use stellarlend_math::liquidation::MAX_PENALTY_BPS;
+
+/// Maps a [`MathError`] from the shared math library onto this module's errors.
+fn map_math_error(err: MathError) -> LiquidationError {
+    match err {
+        MathError::DivisionByZero => LiquidationError::PriceNotAvailable,
+        _ => LiquidationError::Overflow,
+    }
+}
 
 /// Maximum number of positions that can be liquidated in a single batch
 pub const MAX_BATCH_SIZE: u32 = 10;
+
+/// Divisor that normalizes a repayment amount into the batch priority score.
+const PRIORITY_DEBT_SCALE: i128 = 1_000_000;
 
 /// Input item for a batch liquidation call
 #[contracttype]
@@ -55,6 +77,9 @@ pub struct BatchLiquidationRequest {
     pub debt_asset: Option<Address>,
     pub collateral_asset: Option<Address>,
     pub debt_amount: i128,
+    /// Priority score for ordering (higher = process first).
+    /// Typically based on profit potential. 0 = use default ordering.
+    pub priority_score: u64,
 }
 
 /// Per-position result within a batch liquidation
@@ -87,42 +112,39 @@ pub fn calculate_dynamic_penalty(
     total_debt: i128,
 ) -> Result<i128, LiquidationError> {
     let params = get_risk_params(env).ok_or(LiquidationError::Overflow)?;
-    let base_incentive = params.liquidation_incentive; // e.g. 1000 bps = 10%
-    let threshold = params.liquidation_threshold; // e.g. 10500 bps = 105%
+    math_dynamic_penalty_bps(
+        collateral_value,
+        total_debt,
+        params.liquidation_incentive,
+        params.liquidation_threshold,
+    )
+    .map_err(map_math_error)
+}
 
-    if total_debt == 0 {
-        return Ok(base_incentive);
+/// Minimum net profit (in bps of the debt repaid) below which a liquidation is
+/// aborted to save gas (issue #723). 20 bps = 0.2% of the repaid debt.
+const MIN_LIQUIDATOR_PROFIT_BPS: i128 = 20;
+
+/// Early-exit guard: abort a liquidation when the liquidator's net recovery
+/// (seized collateral minus the protocol fee, in debt terms) does not clear
+/// the repaid debt plus a minimum profit floor. This skips the gas-heavy
+/// token-transfer, position-mutation and event path for unprofitable
+/// positions. `batch_liquidate` records the resulting
+/// `LiquidationError::UnprofitableLiquidation` per item instead of blocking
+/// the whole batch.
+fn abort_if_unprofitable(
+    debt_repayed: i128,
+    collateral_seized: i128,
+    protocol_fee: i128,
+) -> Result<(), LiquidationError> {
+    if debt_repayed <= 0 {
+        return Err(LiquidationError::InvalidAmount);
     }
-
-    // health_factor_bps = collateral_value * 10000 / total_debt
-    let health_factor_bps = collateral_value
-        .checked_mul(10_000)
-        .ok_or(LiquidationError::Overflow)?
-        .checked_div(total_debt)
-        .ok_or(LiquidationError::Overflow)?;
-
-    // If health factor >= threshold, position is not liquidatable; return base
-    if health_factor_bps >= threshold {
-        return Ok(base_incentive);
+    let net = collateral_seized.saturating_sub(protocol_fee);
+    if !math_is_profitable(debt_repayed, net, MIN_LIQUIDATOR_PROFIT_BPS).map_err(map_math_error)? {
+        return Err(LiquidationError::UnprofitableLiquidation);
     }
-
-    // severity = (threshold - health_factor_bps) / threshold  (0..1 scaled by 10000)
-    // penalty = base_incentive + severity * (MAX_PENALTY_BPS - base_incentive)
-    let severity_numerator = threshold - health_factor_bps;
-    let penalty_range = MAX_PENALTY_BPS - base_incentive;
-
-    let extra = severity_numerator
-        .checked_mul(penalty_range)
-        .ok_or(LiquidationError::Overflow)?
-        .checked_div(threshold)
-        .ok_or(LiquidationError::Overflow)?;
-
-    let penalty = base_incentive
-        .checked_add(extra)
-        .ok_or(LiquidationError::Overflow)?;
-
-    // Cap at MAX_PENALTY_BPS
-    Ok(penalty.min(MAX_PENALTY_BPS))
+    Ok(())
 }
 
 /// Errors that can occur during liquidation operations
@@ -154,6 +176,8 @@ pub enum LiquidationError {
     InsufficientLiquidation = 11,
     /// Reentrancy detected
     Reentrancy = 12,
+    /// Liquidation is unprofitable for the liquidator (net recovery below floor)
+    UnprofitableLiquidation = 13,
 }
 
 /// Annual interest rate in basis points (e.g., 500 = 5% per year)
@@ -243,7 +267,7 @@ fn accrue_interest(
 /// Get asset price from oracle
 /// Returns price in base units (scaled by decimals)
 fn get_asset_price(env: &Env, asset: &Address) -> Result<i128, LiquidationError> {
-    get_price(env, asset).map_err(|err| match err {
+    get_liquidation_price(env, asset).map_err(|err| match err {
         OracleError::StalePrice => LiquidationError::PriceNotAvailable,
         _ => LiquidationError::PriceNotAvailable,
     })
@@ -256,16 +280,8 @@ fn calculate_collateral_value(
     collateral_price: i128,
     debt_price: i128,
 ) -> Result<i128, LiquidationError> {
-    if debt_price == 0 {
-        return Err(LiquidationError::PriceNotAvailable);
-    }
-
-    // Calculate: collateral_amount * collateral_price / debt_price
-    collateral_amount
-        .checked_mul(collateral_price)
-        .ok_or(LiquidationError::Overflow)?
-        .checked_div(debt_price)
-        .ok_or(LiquidationError::Overflow)
+    math_collateral_value_in_debt(collateral_amount, collateral_price, debt_price)
+        .map_err(map_math_error)
 }
 
 /// Calculate debt value
@@ -328,9 +344,9 @@ pub fn liquidate(
         crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| LiquidationError::Reentrancy)?;
 
     // Check circuit breaker - liquidations may be paused or restricted
-    let liquidation_allowed = crate::circuit_breaker::is_liquidation_allowed(env, &liquidator)
-        .unwrap_or(true); // Default to allowed if circuit breaker not initialized
-    
+    let liquidation_allowed =
+        crate::circuit_breaker::is_liquidation_allowed(env, &liquidator).unwrap_or(true); // Default to allowed if circuit breaker not initialized
+
     if !liquidation_allowed {
         return Err(LiquidationError::LiquidationPaused);
     }
@@ -376,10 +392,14 @@ pub fn liquidate(
     // Accrue compound interest before liquidation
     accrue_interest(env, &borrower, &mut position)?;
 
+    // Batch the multi-asset flag once instead of re-reading the same storage
+    // slot three times throughout this function (issue #835).
+    let is_multi_asset = crate::multi_collateral::has_multi_asset_collateral(env, &borrower);
+
     // Get collateral balance for the targeted collateral asset.
     // For multi-asset users, use per-asset balance; fall back to aggregate for legacy users.
     let collateral_balance = if let Some(ref collateral_addr) = collateral_asset {
-        if crate::multi_collateral::has_multi_asset_collateral(env, &borrower) {
+        if is_multi_asset {
             crate::multi_collateral::get_user_asset_collateral(env, &borrower, collateral_addr)
         } else {
             let collateral_key = DepositDataKey::CollateralBalance(borrower.clone());
@@ -396,30 +416,39 @@ pub fn liquidate(
             .unwrap_or(0)
     };
 
+    // Oracle prices for the targeted assets, resolved once and shared between
+    // the collateral-value check and the collateral-seized computation
+    // (issue #835). Multi-asset users rely on an aggregate valuation for the
+    // check, so prices are only lazily fetched here and (if still needed) in
+    // the seized computation below. `None` means "not resolved yet".
+    let mut debt_price: Option<i128> = None;
+    let mut collateral_price: Option<i128> = None;
+
     // Calculate total debt (principal + interest)
     let total_debt = calculate_debt_value(position.debt, position.borrow_interest)?;
 
     // Use oracle-priced total collateral value for multi-asset liquidation check;
     // fall back to raw collateral_balance for legacy single-asset users.
-    let collateral_value_for_check =
-        if crate::multi_collateral::has_multi_asset_collateral(env, &borrower) {
-            crate::multi_collateral::calculate_total_collateral_value(env, &borrower)
-                .map_err(|_| LiquidationError::Overflow)?
-        } else if debt_asset.is_none() && collateral_asset.is_none() {
-            collateral_balance
+    let collateral_value_for_check = if is_multi_asset {
+        crate::multi_collateral::calculate_total_collateral_value(env, &borrower)
+            .map_err(|_| LiquidationError::Overflow)?
+    } else if debt_asset.is_none() && collateral_asset.is_none() {
+        collateral_balance
+    } else {
+        let d = if let Some(ref debt_addr) = debt_asset {
+            get_asset_price(env, debt_addr)?
         } else {
-            let debt_price = if let Some(ref debt_addr) = debt_asset {
-                get_asset_price(env, debt_addr)?
-            } else {
-                1i128
-            };
-            let collateral_price = if let Some(ref collateral_addr) = collateral_asset {
-                get_asset_price(env, collateral_addr)?
-            } else {
-                1i128
-            };
-            calculate_collateral_value(collateral_balance, collateral_price, debt_price)?
+            1i128
         };
+        let c = if let Some(ref collateral_addr) = collateral_asset {
+            get_asset_price(env, collateral_addr)?
+        } else {
+            1i128
+        };
+        debt_price = Some(d);
+        collateral_price = Some(c);
+        calculate_collateral_value(collateral_balance, c, d)?
+    };
 
     // Check if position can be liquidated
     let can_liquidate = can_be_liquidated(env, collateral_value_for_check, total_debt)
@@ -447,47 +476,46 @@ pub fn liquidate(
 
     // Calculate liquidation incentive
     let incentive_bps = calculate_dynamic_penalty(env, collateral_value_for_check, total_debt)?;
-    let incentive_amount = actual_debt_liquidated
-        .checked_mul(incentive_bps)
-        .ok_or(LiquidationError::Overflow)?
-        .checked_div(10_000)
-        .ok_or(LiquidationError::Overflow)?;
+    let incentive_amount =
+        apply_bps(actual_debt_liquidated, incentive_bps).map_err(map_math_error)?;
 
     // Calculate collateral to seize
     // Liquidator repays debt_liquidated amount of debt asset
     // Liquidator receives collateral worth debt_liquidated (in debt terms) + incentive
     // collateral_seized = (debt_liquidated * debt_price / collateral_price) * (1 + incentive_bps / 10000)
-    // First, convert debt amount to collateral terms: debt_liquidated * debt_price / collateral_price
+    // Convert debt amount to collateral terms. Reuse the prices resolved in the
+    // value check when present; multi-asset users fetch them here for the first
+    // time (matching the original behaviour).
     let collateral_value_liquidated = if debt_asset.is_none() && collateral_asset.is_none() {
         // Both are native XLM - no price conversion needed
         actual_debt_liquidated
     } else {
-        // Need to convert between different assets using prices
-        let debt_price = if let Some(ref debt_addr) = debt_asset {
-            get_asset_price(env, debt_addr)?
-        } else {
-            1i128 // Native XLM
+        let d = match debt_price {
+            Some(d) => d,
+            None => {
+                if let Some(ref debt_addr) = debt_asset {
+                    get_asset_price(env, debt_addr)?
+                } else {
+                    1i128 // Native XLM
+                }
+            }
         };
-
-        let collateral_price = if let Some(ref collateral_addr) = collateral_asset {
-            get_asset_price(env, collateral_addr)?
-        } else {
-            1i128 // Native XLM
+        let c = match collateral_price {
+            Some(c) => c,
+            None => {
+                if let Some(ref collateral_addr) = collateral_asset {
+                    get_asset_price(env, collateral_addr)?
+                } else {
+                    1i128 // Native XLM
+                }
+            }
         };
-
-        actual_debt_liquidated
-            .checked_mul(debt_price)
-            .ok_or(LiquidationError::Overflow)?
-            .checked_div(collateral_price)
-            .ok_or(LiquidationError::Overflow)?
+        math_debt_value_in_collateral(actual_debt_liquidated, d, c).map_err(map_math_error)?
     };
 
     // Apply incentive: collateral_seized = collateral_value_liquidated * (1 + incentive_bps / 10000)
-    let collateral_seized = collateral_value_liquidated
-        .checked_mul(10000 + incentive_bps)
-        .ok_or(LiquidationError::Overflow)?
-        .checked_div(10000)
-        .ok_or(LiquidationError::Overflow)?;
+    let collateral_seized =
+        math_seize_amount(collateral_value_liquidated, incentive_bps).map_err(map_math_error)?;
 
     // Ensure we don't seize more than available collateral
     let actual_collateral_seized = if collateral_seized > collateral_balance {
@@ -498,20 +526,28 @@ pub fn liquidate(
 
     // Calculate protocol fee on the liquidation bonus (retained in ProtocolReserve)
     let fee_config = crate::treasury::get_fee_config(env);
-    let protocol_liquidation_fee = incentive_amount
-        .checked_mul(fee_config.liquidation_fee_bps)
-        .ok_or(LiquidationError::Overflow)?
-        .checked_div(10000)
-        .ok_or(LiquidationError::Overflow)?;
+    let protocol_liquidation_fee =
+        apply_bps(incentive_amount, fee_config.liquidation_fee_bps).map_err(map_math_error)?;
 
     // Liquidator receives seized collateral minus the protocol fee
     let liquidator_collateral = actual_collateral_seized
         .checked_sub(protocol_liquidation_fee)
         .ok_or(LiquidationError::Overflow)?;
 
+    // Early-exit: abort when the liquidation would not cover the repaid debt
+    // plus a minimum profit floor (issue #723). Saves the gas-heavy transfer,
+    // storage-mutation and event path for unprofitable positions.
+    abort_if_unprofitable(
+        actual_debt_liquidated,
+        collateral_seized,
+        protocol_liquidation_fee,
+    )?;
+
     // Check liquidator has sufficient balance to repay debt
     if let Some(ref debt_addr) = debt_asset {
-        let liquidator_balance = if let Some(cached) = crate::storage::get_temp_token_balance(env, debt_addr, &liquidator) {
+        let liquidator_balance = if let Some(cached) =
+            crate::storage::get_temp_token_balance(env, debt_addr, &liquidator)
+        {
             cached
         } else {
             let token_client = soroban_sdk::token::Client::new(env, debt_addr);
@@ -537,12 +573,21 @@ pub fn liquidate(
 
     // Check contract has sufficient collateral to transfer
     if let Some(ref collateral_addr) = collateral_asset {
-        let contract_balance = if let Some(cached) = crate::storage::get_temp_token_balance(env, collateral_addr, &env.current_contract_address()) {
+        let contract_balance = if let Some(cached) = crate::storage::get_temp_token_balance(
+            env,
+            collateral_addr,
+            &env.current_contract_address(),
+        ) {
             cached
         } else {
             let token_client = soroban_sdk::token::Client::new(env, collateral_addr);
             let balance = token_client.balance(&env.current_contract_address());
-            crate::storage::set_temp_token_balance(env, collateral_addr, &env.current_contract_address(), balance);
+            crate::storage::set_temp_token_balance(
+                env,
+                collateral_addr,
+                &env.current_contract_address(),
+                balance,
+            );
             balance
         };
         if contract_balance < actual_collateral_seized {
@@ -601,13 +646,17 @@ pub fn liquidate(
     position.debt = position.debt.checked_sub(principal_to_pay).unwrap_or(0);
     position.last_accrual_time = timestamp;
 
-    // Update borrower's aggregate collateral balance
+    // Update borrower's aggregate collateral balance (reuse the already-read
+    // aggregate for legacy single-asset users to avoid a redundant storage read).
     let aggregate_collateral_key = DepositDataKey::CollateralBalance(borrower.clone());
-    let aggregate_collateral = env
-        .storage()
-        .persistent()
-        .get::<DepositDataKey, i128>(&aggregate_collateral_key)
-        .unwrap_or(0);
+    let aggregate_collateral = if is_multi_asset {
+        env.storage()
+            .persistent()
+            .get::<DepositDataKey, i128>(&aggregate_collateral_key)
+            .unwrap_or(0)
+    } else {
+        collateral_balance
+    };
     let new_aggregate_collateral = aggregate_collateral
         .checked_sub(actual_collateral_seized)
         .unwrap_or(0);
@@ -617,7 +666,7 @@ pub fn liquidate(
 
     // Also update per-asset tracking if the borrower has multi-asset collateral
     if let Some(ref collateral_addr) = collateral_asset {
-        if crate::multi_collateral::has_multi_asset_collateral(env, &borrower) {
+        if is_multi_asset {
             crate::deposit::record_asset_withdrawal(
                 env,
                 &borrower,
@@ -791,11 +840,87 @@ fn update_liquidation_analytics(
     Ok(())
 }
 
+/// Sort batch liquidation requests by priority score (descending).
+///
+/// Uses insertion sort — efficient for small batches (MAX_BATCH_SIZE = 10).
+/// Requests with higher priority_score are processed first, maximizing
+/// profit potential per gas unit spent.
+fn sort_by_priority(
+    env: &Env,
+    requests: &Vec<BatchLiquidationRequest>,
+) -> Vec<BatchLiquidationRequest> {
+    let n = requests.len();
+    let mut sorted: Vec<BatchLiquidationRequest> = Vec::new(env);
+
+    for i in 0..n {
+        let item = requests.get(i).unwrap();
+        let mut insert_pos = sorted.len();
+
+        // Find insertion point (descending order by priority_score)
+        for j in 0..sorted.len() {
+            let existing = sorted.get(j).unwrap();
+            if item.priority_score > existing.priority_score {
+                insert_pos = j;
+                break;
+            }
+        }
+
+        // Insert at the correct position
+        sorted.insert(insert_pos, item);
+    }
+
+    sorted
+}
+
+/// Calculate the profit potential score for a liquidation request.
+///
+/// Higher scores indicate more profitable liquidations. The score is based on
+/// the ratio of debt to collateral and the incentive available.
+pub fn calculate_priority_score(
+    env: &Env,
+    request: &BatchLiquidationRequest,
+) -> Result<u64, LiquidationError> {
+    let position_key = DepositDataKey::Position(request.borrower.clone());
+    let position = env
+        .storage()
+        .persistent()
+        .get::<DepositDataKey, Position>(&position_key);
+
+    let Some(pos) = position else {
+        return Ok(0);
+    };
+
+    let total_debt = pos.debt.saturating_add(pos.borrow_interest);
+    if total_debt == 0 {
+        return Ok(0);
+    }
+
+    // Get collateral value
+    let collateral_key = DepositDataKey::CollateralBalance(request.borrower.clone());
+    let collateral: i128 = env
+        .storage()
+        .persistent()
+        .get::<DepositDataKey, i128>(&collateral_key)
+        .unwrap_or(0);
+
+    // Collateral-to-debt ratio in bps, plus the repayment size normalized by 1e6
+    // so a single large position does not swamp the ratio term.
+    Ok(math_priority_score(
+        collateral,
+        total_debt,
+        request.debt_amount,
+        PRIORITY_DEBT_SCALE,
+    ))
+}
+
 /// Liquidate multiple undercollateralized positions in a single atomic transaction.
 ///
 /// Processes up to `MAX_BATCH_SIZE` positions in one call, reducing the per-position
 /// overhead of separate transaction submissions. Per-position failures are captured in
 /// the result and do not abort the entire batch.
+///
+/// Requests are sorted by priority_score (descending) before processing,
+/// ensuring the most profitable liquidations are executed first.
 ///
 /// Authorization and rate-limiting are applied once in the contract entry point
 /// (`lib.rs`), not here.
@@ -811,6 +936,9 @@ pub fn batch_liquidate(
         return Err(LiquidationError::InvalidAmount);
     }
 
+    // Sort by priority (most profitable first)
+    let sorted_requests = sort_by_priority(env, &requests);
+
     let timestamp = env.ledger().timestamp();
     let mut results: Vec<BatchLiquidationResult> = Vec::new(env);
     let mut total_debt_liquidated: i128 = 0;
@@ -818,9 +946,9 @@ pub fn batch_liquidate(
     let mut successful: u32 = 0;
     let mut failed: u32 = 0;
 
-    let n = requests.len();
+    let n = sorted_requests.len();
     for i in 0..n {
-        let req = requests.get(i).unwrap();
+        let req = sorted_requests.get(i).unwrap();
         let outcome = liquidate(
             env,
             liquidator.clone(),

@@ -135,7 +135,23 @@ function buildConfig(): AppConfig {
       ),
       positionTtlMs: parseInt(process.env.POSITION_CACHE_TTL_MS || '15000', 10),
       poolTtlMs: parseInt(process.env.POOL_CACHE_TTL_MS || '30000', 10),
+      simulationTtlMs: parseInt(process.env.SIMULATION_CACHE_TTL_MS || '10000', 10),
       ...(envOverrides.cache || {}),
+    },
+    readCache: {
+      enabled: process.env.READ_CACHE_ENABLED !== 'false',
+      defaultTtlMs: parseInt(process.env.READ_CACHE_DEFAULT_TTL_MS || '15000', 10),
+      maxQueryLength: parseInt(process.env.READ_CACHE_MAX_KEY_LENGTH || '512', 10),
+      ...(envOverrides.readCache || {}),
+    },
+    prefetch: {
+      enabled: process.env.PREFETCH_ENABLED !== 'false',
+      intervalMs: parseInt(process.env.PREFETCH_INTERVAL_MS || '10000', 10),
+      windowMs: parseInt(process.env.PREFETCH_WINDOW_MS || '60000', 10),
+      hotThreshold: parseInt(process.env.PREFETCH_HOT_THRESHOLD || '5', 10),
+      maxTrackedKeys: parseInt(process.env.PREFETCH_MAX_TRACKED_KEYS || '1000', 10),
+      maxKeysPerRun: parseInt(process.env.PREFETCH_MAX_KEYS_PER_RUN || '50', 10),
+      ...(envOverrides.prefetch || {}),
     },
     ws: {
       priceUpdateIntervalMs: parseInt(
@@ -182,6 +198,12 @@ function buildConfig(): AppConfig {
     cors: {
       allowedOrigins: parseCorsOrigins(),
       ...(envOverrides.cors || {}),
+    },
+    push: {
+      vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
+      vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || '',
+      vapidSubject: process.env.VAPID_SUBJECT || '',
+      ...(envOverrides.push || {}),
     },
   };
 

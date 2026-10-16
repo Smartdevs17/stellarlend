@@ -1,5 +1,5 @@
 use super::*;
-use crate::borrow::calculate_interest;
+use crate::borrow::{calculate_interest, RateType};
 use soroban_sdk::{
     testutils::{storage::Persistent as _, Address as _, Ledger},
     Address, Env,

@@ -1,0 +1,12 @@
+{
+  "name": "multi-asset-rebalancer",
+  "description": "Small deposits and withdrawals spread across several assets, grouped four at a time. This is the shape `deposit_batch` was built for: one authorization, one guard, one pause lookup and one position write for the whole batch instead of one set per deposit.",
+  "periodDays": 30,
+  "batchSize": 4,
+  "operations": {
+    "deposit": 24,
+    "borrow": 2,
+    "repay": 2,
+    "withdraw": 12
+  }
+}

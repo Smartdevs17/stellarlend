@@ -842,45 +842,45 @@ fn test_price_below_minimum_bound() {
     });
     client.configure_oracle(&admin, &config);
 
-// =============================================================================
-// MANIPULATION RESISTANCE (multi-source + outlier removal)
-// =============================================================================
+    // =============================================================================
+    // MANIPULATION RESISTANCE (multi-source + outlier removal)
+    // =============================================================================
 
-#[test]
-fn test_multi_source_outlier_removed() {
-    let env = create_test_env();
-    let (_contract_id, admin, client) = setup_contract_with_admin(&env);
-    let asset = Address::generate(&env);
+    #[test]
+    fn test_multi_source_outlier_removed() {
+        let env = create_test_env();
+        let (_contract_id, admin, client) = setup_contract_with_admin(&env);
+        let asset = Address::generate(&env);
 
-    let config = OracleConfig {
-        max_deviation_bps: 10000, // let sources submit; read path protects
-        max_staleness_seconds: 3600,
-        cache_ttl_seconds: 0, // avoid cache masking aggregation
-        min_price: 1,
-        max_price: i128::MAX,
-        twap_window_seconds: 0,
-        max_observations: 64,
-        min_sources: 2,
-        outlier_deviation_bps: 1000, // 10% band around median
-        breaker_deviation_bps: 10000,
-        breaker_cooldown_seconds: 0,
-    };
-    client.configure_oracle(&admin, &config);
+        let config = OracleConfig {
+            max_deviation_bps: 10000, // let sources submit; read path protects
+            max_staleness_seconds: 3600,
+            cache_ttl_seconds: 0, // avoid cache masking aggregation
+            min_price: 1,
+            max_price: i128::MAX,
+            twap_window_seconds: 0,
+            max_observations: 64,
+            min_sources: 2,
+            outlier_deviation_bps: 1000, // 10% band around median
+            breaker_deviation_bps: 10000,
+            breaker_cooldown_seconds: 0,
+        };
+        client.configure_oracle(&admin, &config);
 
-    let s1 = Address::generate(&env);
-    let s2 = Address::generate(&env);
-    let s3 = Address::generate(&env);
-    let sources = vec![&env, s1.clone(), s2.clone(), s3.clone()];
-    client.set_oracle_sources(&admin, &asset, &sources);
+        let s1 = Address::generate(&env);
+        let s2 = Address::generate(&env);
+        let s3 = Address::generate(&env);
+        let sources = vec![&env, s1.clone(), s2.clone(), s3.clone()];
+        client.set_oracle_sources(&admin, &asset, &sources);
 
-    // Establish authorization + per-source feeds
-    client.update_price_feed(&admin, &asset, &100_000_000, &8, &s1);
-    client.update_price_feed(&admin, &asset, &101_000_000, &8, &s2);
-    client.update_price_feed(&admin, &asset, &500_000_000, &8, &s3); // outlier
+        // Establish authorization + per-source feeds
+        client.update_price_feed(&admin, &asset, &100_000_000, &8, &s1);
+        client.update_price_feed(&admin, &asset, &101_000_000, &8, &s2);
+        client.update_price_feed(&admin, &asset, &500_000_000, &8, &s3); // outlier
 
-    let p = client.get_price(&asset);
-    assert!(p >= 100_000_000 && p <= 101_000_000);
-}
+        let p = client.get_price(&asset);
+        assert!(p >= 100_000_000 && p <= 101_000_000);
+    }
 
     // Price below minimum
     let below_min_price = 100i128; // Way below $0.01

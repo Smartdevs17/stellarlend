@@ -1,0 +1,27 @@
+{
+  "network": "testnet",
+  "deployedAt": "2026-01-01T00:00:00.000Z",
+  "contracts": [
+    {
+      "name": "lending",
+      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAL",
+      "wasmArtifact": "lending.wasm",
+      "wasmHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "initialized": true
+    },
+    {
+      "name": "amm",
+      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM",
+      "wasmArtifact": "amm.wasm",
+      "wasmHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "initialized": true
+    },
+    {
+      "name": "migration_hub",
+      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAN",
+      "wasmArtifact": "migration_hub.wasm",
+      "wasmHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "initialized": true
+    }
+  ]
+}

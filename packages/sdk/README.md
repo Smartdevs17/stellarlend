@@ -22,6 +22,12 @@ try {
 }
 ```
 
+## Examples
+
+See [`examples/`](examples/README.md) for type-checked, tested examples: a Soroban RPC
+adapter, the deposit/borrow/repay/withdraw lifecycle, error handling with retries, wallet
+connection, and reading the utilization circuit breaker.
+
 ## Handling strategy
 
 1. Always branch on `code` first.

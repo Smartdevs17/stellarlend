@@ -28,6 +28,8 @@
   "scripts": {
     "extract": "../../scripts/abi-extractor/extract.sh",
     "generate": "node ../../scripts/abi-extractor/generate-types.js",
+    "compatibility:check": "node ../../scripts/abi-extractor/check-compatibility.js abi/.baseline abi",
+    "test": "node --test ../../scripts/abi-extractor/check-compatibility.test.js",
     "version:check": "../../scripts/abi-extractor/version.sh --dry-run",
     "version:bump": "../../scripts/abi-extractor/version.sh",
     "build": "tsc --project tsconfig.json",

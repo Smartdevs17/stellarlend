@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Position, LendingTheme } from '../../types';
 import { LIGHT_COLORS } from '../../utils/theme';
+import { actionButtonBase } from '../../utils/responsive';
 
 interface PositionCardProps {
   position: Position;
@@ -48,10 +49,10 @@ export function PositionCard({
   return (
     <div
       className={`position-card ${className}`}
-      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20 }}
+      style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20, minWidth: 0 }}
       data-testid="position-card"
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
         <div>
           <h3 style={{ color: colors.text, margin: 0, fontSize: 18, fontWeight: 600 }}>{position.asset}</h3>
           <span style={{ color: colors.textMuted, fontSize: 13 }}>{position.symbol}</span>
@@ -76,22 +77,22 @@ export function PositionCard({
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {onSupply && (
-          <button onClick={() => onSupply(position)} style={{ flex: 1, padding: '8px 12px', background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>
+          <button onClick={() => onSupply(position)} style={{ ...actionButtonBase, background: colors.primary, color: '#fff', border: 'none' }}>
             Supply
           </button>
         )}
         {onBorrow && (
-          <button onClick={() => onBorrow(position)} style={{ flex: 1, padding: '8px 12px', background: colors.secondary, color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>
+          <button onClick={() => onBorrow(position)} style={{ ...actionButtonBase, background: colors.secondary, color: '#fff', border: 'none' }}>
             Borrow
           </button>
         )}
         {onRepay && position.borrowed > 0 && (
-          <button onClick={() => onRepay(position)} style={{ flex: 1, padding: '8px 12px', background: colors.warning, color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>
+          <button onClick={() => onRepay(position)} style={{ ...actionButtonBase, background: colors.warning, color: '#fff', border: 'none' }}>
             Repay
           </button>
         )}
         {onWithdraw && position.supplied > 0 && (
-          <button onClick={() => onWithdraw(position)} style={{ flex: 1, padding: '8px 12px', background: colors.surface, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>
+          <button onClick={() => onWithdraw(position)} style={{ ...actionButtonBase, background: colors.surface, color: colors.text, border: `1px solid ${colors.border}` }}>
             Withdraw
           </button>
         )}

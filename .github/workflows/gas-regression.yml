@@ -1,0 +1,119 @@
+name: Gas Regression Testing (#1065)
+
+# Issue #1065 — dedicated gas regression gate in CI. Every PR touching the
+# protocol contracts (or the benchmark suite) rebuilds the benchmark binary
+# from scratch (no warm target cache) and runs it against the committed
+# baseline (stellar-lend/benchmarks/baseline.json). Any benchmark regressing
+# beyond the threshold fails the job.
+#
+#   * Cold-cache run gives a fair, comparable result (the baseline itself is
+#     produced under the same conditions).
+#   * Threshold configurable via workflow_dispatch (default 10%).
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "stellar-lend/contracts/**"
+      - "stellar-lend/benchmarks/**"
+      - "stellar-lend/packages/**"
+      - "scripts/gas-regression.sh"
+      - "scripts/gas_benchmark_report.py"
+      - "run-benchmarks.sh"
+      - ".github/workflows/gas-regression.yml"
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "stellar-lend/contracts/**"
+      - "stellar-lend/benchmarks/**"
+      - "stellar-lend/packages/**"
+      - "scripts/gas-regression.sh"
+      - "scripts/gas_benchmark_report.py"
+      - "run-benchmarks.sh"
+      - ".github/workflows/gas-regression.yml"
+  workflow_dispatch:
+    inputs:
+      threshold:
+        description: "Max allowable regression % vs baseline"
+        required: false
+        default: "10.0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gas-regression:
+    name: Gas regression gate (#1065)
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+      GAS_REG_THRESHOLD: ${{ inputs.threshold || '10.0' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # No rust cache on purpose — a cold, reproducible build keeps the
+      # measurement comparable with how the committed baseline was produced.
+      - name: Run gas regression check
+        id: regression
+        run: bash scripts/gas-regression.sh --threshold "$GAS_REG_THRESHOLD"
+
+      - name: Summarize gas regression results
+        if: always()
+        working-directory: stellar-lend
+        run: |
+          {
+            echo "## Gas Regression Results (#1065)"
+            echo
+            if [ -f benchmark-results.json ]; then
+              python3 - <<'EOF'
+          import json, os
+          with open("benchmark-results.json") as f:
+              r = json.load(f)
+          results = r.get("results", r.get("benchmarks", []))
+          total = len(results)
+          over = [x for x in results if not x.get("within_budget", True)]
+          over += [x for x in results if x.get("regression_pct", 0) > float(os.getenv("GAS_REG_THRESHOLD", "10"))]
+          print(f"Benchmarks: **{total}** | Over threshold/budget: **{len(over)}**")
+          for x in over:
+              print(f"- `{x.get('operation')}` ({x.get('contract', '?')}): {x.get('instructions', x.get('cpu_insns', '?')):,} insns")
+          EOF
+            else
+              echo "No benchmark-results.json generated."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload gas regression results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-regression-${{ github.sha }}
+          path: |
+            stellar-lend/benchmark-results.json
+            stellar-lend/benchmark-dashboard.md
+            stellar-lend/benchmark-history.jsonl
+          retention-days: 90
+
+      - name: Report regression details to the PR
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            if (context.eventName !== 'pull_request') return;
+            let body = '❌ **Gas regression detected (issue #1065)** — see artifacts `gas-regression-' + context.sha + '`.';
+            try {
+              const r = JSON.parse(fs.readFileSync('stellar-lend/benchmark-results.json', 'utf8'));
+              const items = (r.results || r.benchmarks || []).filter(x => !x.within_budget);
+              if (items.length) body += '\n\nBroken budgets:\n' + items.map(x => `- ${x.operation} (${x.contract})`).join('\n');
+            } catch { /* artifact missing */ }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number, body,
+            });

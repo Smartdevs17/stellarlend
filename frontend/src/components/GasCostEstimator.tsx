@@ -50,7 +50,7 @@ interface GasCostEstimate {
 }
 
 interface GasCostEstimatorProps {
-  operation: 'deposit' | 'withdraw' | 'borrow' | 'repay' | 'liquidation' | 'flash_loan';
+  operation: 'deposit' | 'withdraw' | 'borrow' | 'repay' | 'liquidation' | 'flash_loan' | 'emergency_withdraw';
   userAddress: string;
   assetAddress?: string;
   amount: string;

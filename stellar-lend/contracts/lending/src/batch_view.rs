@@ -1,4 +1,4 @@
-//! # Batched Multi-Pool Health Check (issue #635)
+//! # Batched Multi-Pool Health Check (issue #635, re-filed as #601)
 //!
 //! Gas-efficient batch view function that reads multiple pool positions and
 //! computes health factors in a single call, avoiding N separate cross-contract
@@ -348,4 +348,13 @@ mod tests {
     fn max_batch_size_constant() {
         assert_eq!(MAX_BATCH_SIZE, 200);
     }
+}
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    BatchViewError => stellarlend_errors::domains::LENDING_BATCH_VIEW;
+    InvalidInput => InvalidInput, "Input is malformed or out of range";
+    TooManyPositions => LimitExceeded, "Too many positions", ReduceAmount;
+    Overflow => Overflow, "Arithmetic overflow or underflow";
 }

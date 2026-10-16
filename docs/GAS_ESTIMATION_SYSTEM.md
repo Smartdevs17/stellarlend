@@ -50,10 +50,11 @@ Typical gas costs ranked from cheapest to most expensive:
 
 1. **Flash Loan** (~70,000 CPU instructions) - Most efficient
 2. **Withdraw** (~144,000 CPU instructions)
-3. **Borrow** (~245,000 CPU instructions)
-4. **Deposit** (~355,000 CPU instructions)
-5. **Liquidation** (~394,000 CPU instructions)
-6. **Repay** (~430,000 CPU instructions) - Most expensive
+3. **Emergency Withdraw** (~152,000 CPU instructions)
+4. **Borrow** (~245,000 CPU instructions)
+5. **Deposit** (~355,000 CPU instructions)
+6. **Liquidation** (~394,000 CPU instructions)
+7. **Repay** (~430,000 CPU instructions) - Most expensive
 
 ### 6. Accuracy Tracking
 - **Estimated vs Actual** comparison
@@ -196,6 +197,35 @@ Content-Type: application/json
 ### Get Timing Recommendation
 ```http
 GET /api/gas/timing/:operation
+```
+
+### Get Gas Analytics Report
+```http
+GET /api/gas/analytics?period=7d
+```
+
+**Response:**
+```json
+{
+  "period": "7d",
+  "totalEstimates": 1420,
+  "averageGasStroops": "245000",
+  "minGasStroops": "70030",
+  "maxGasStroops": "430316",
+  "estimatedVsActualAccuracy": 98.4,
+  "operationsRanked": [
+    { "operation": "flash_loan", "averageCost": "70030", "sampleCount": 120 },
+    { "operation": "withdraw", "averageCost": "144093", "sampleCount": 350 },
+    { "operation": "emergency_withdraw", "averageCost": "152000", "sampleCount": 45 },
+    { "operation": "borrow", "averageCost": "244830", "sampleCount": 410 },
+    { "operation": "deposit", "averageCost": "354765", "sampleCount": 380 },
+    { "operation": "liquidation", "averageCost": "394438", "sampleCount": 65 },
+    { "operation": "repay", "averageCost": "430316", "sampleCount": 290 }
+  ],
+  "peakHours": ["14:00-18:00 UTC", "20:00-22:00 UTC"],
+  "offPeakHours": ["02:00-06:00 UTC", "08:00-11:00 UTC"],
+  "cumulativeSavingsStroops": "1250000"
+}
 ```
 
 ## Frontend Components

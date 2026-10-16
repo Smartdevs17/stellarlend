@@ -88,6 +88,43 @@ Response:
 }
 ```
 
+### Simulate Transaction
+`POST /api/lending/simulate`
+```json
+{
+  "transactionXdr": "AAAA..."
+}
+```
+Or an operation specification (`operation`, `userAddress`, `amount`, optional `assetAddress`). Returns the Soroban simulation outcome: `status` (`success`, `restore_required`, `error`), `minResourceFee`, `resources`, decoded `result` with required `auth` entries, diagnostic `events`, `stateChanges` and any `restorePreamble`. See [docs/api/transaction-simulation.md](../docs/api/transaction-simulation.md).
+
+### Estimate Transaction Fees
+`POST /api/gas/estimate-transaction`
+```json
+{
+  "transactionXdr": "AAAA...",
+  "feeMarginPercent": 10
+}
+```
+
+Response:
+```json
+{
+  "success": true,
+  "fees": {
+    "inclusionFee": "100",
+    "resourceFee": "40100",
+    "totalFee": "40200",
+    "feeMarginPercent": 10,
+    "recommendedFee": "44220"
+  },
+  "resources": { "cpuInstructions": "250000", "readBytes": "1024", "writeBytes": "256" }
+}
+```
+Sign with `recommendedFee` as the transaction fee. A failed simulation returns `422`.
+
+### Cache and Prefetch
+`GET /api/cache/stats` reports read cache hit rates per kind, store counters and the prefetch scheduler state. `POST /api/cache/invalidate` (operator) drops cached read data. Read-heavy GET endpoints answer with an `X-Cache` header; send `Cache-Control: no-cache` to bypass. See [docs/api/read-cache-and-prefetch.md](../docs/api/read-cache-and-prefetch.md).
+
 ### Paginated List Endpoints
 All list endpoints use cursor-based pagination (Horizon style) and return the same structure:
 ```json

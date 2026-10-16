@@ -52,6 +52,25 @@ pub struct PoolFrozenEvent {
     pub timestamp: u64,
 }
 
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct SupplyCapDegradedEvent {
+    pub asset: Option<Address>,
+    pub requested_amount: i128,
+    pub accepted_amount: i128,
+    pub remaining_cap: i128,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SupplyCapStatus {
+    Normal = 0,
+    Elevated = 1,
+    Critical = 2,
+    Capped = 3,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssetConfig {
@@ -149,6 +168,14 @@ pub enum CrossAssetError {
     PriceStale = 9,
     /// Caller is not authorized (not admin)
     NotAuthorized = 10,
+    /// Correlation value is outside [-10000, 10000] bps
+    InvalidCorrelation = 11,
+    /// Volatility sample is missing or invalid
+    VolatilityUnavailable = 12,
+    /// Reentrant call detected
+    Reentrancy = 13,
+    /// Amount must be strictly positive
+    InvalidAmount = 14,
 }
 
 /// Admin address authorized for protocol management
@@ -484,7 +511,14 @@ pub fn cross_asset_deposit(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+
     user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
 
     let asset_key = AssetKey::from_option(asset.clone());
     let config = get_asset_config(env, &asset_key)?;
@@ -521,6 +555,97 @@ pub fn cross_asset_deposit(
     Ok(position)
 }
 
+/// Deposit an asset with graceful degradation when near or at the supply cap.
+///
+/// If the requested `amount` would exceed the asset's remaining supply cap headroom,
+/// instead of hard-rejecting the deposit, this gracefully accepts the remaining
+/// available headroom, emits a `SupplyCapDegradedEvent`, updates state, and returns
+/// `(position, accepted_amount, is_degraded)`.
+/// If the supply cap is already 100% exhausted, returns `CrossAssetError::SupplyCapExceeded`.
+pub fn cross_asset_deposit_graceful(
+    env: &Env,
+    user: Address,
+    asset: Option<Address>,
+    amount: i128,
+) -> Result<(AssetPosition, i128, bool), CrossAssetError> {
+    user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
+
+    let asset_key = AssetKey::from_option(asset.clone());
+    let config = get_asset_config(env, &asset_key)?;
+
+    if config.is_frozen || !config.can_collateralize {
+        return Err(CrossAssetError::AssetDisabled);
+    }
+
+    let (accepted_amount, is_degraded) = if config.max_supply > 0 {
+        let total_supply = get_total_supply(env, &asset_key);
+        if total_supply >= config.max_supply {
+            return Err(CrossAssetError::SupplyCapExceeded);
+        }
+        let headroom = config.max_supply - total_supply;
+        if amount > headroom {
+            SupplyCapDegradedEvent {
+                asset: asset.clone(),
+                requested_amount: amount,
+                accepted_amount: headroom,
+                remaining_cap: 0,
+                timestamp: env.ledger().timestamp(),
+            }
+            .publish(env);
+            (headroom, true)
+        } else {
+            (amount, false)
+        }
+    } else {
+        (amount, false)
+    };
+
+    check_per_user_supply_limit(env, &user, &asset_key, accepted_amount)?;
+
+    let mut position = get_user_asset_position(env, &user, asset.clone());
+    position.collateral += accepted_amount;
+    position.last_updated = env.ledger().timestamp();
+
+    set_user_asset_position(env, &user, asset, position.clone());
+    update_total_supply(env, &asset_key, accepted_amount);
+    update_per_user_supply(env, &user, &asset_key, accepted_amount);
+
+    Ok((position, accepted_amount, is_degraded))
+}
+
+/// Get current supply cap degradation status and metrics for an asset.
+pub fn get_supply_cap_status(
+    env: &Env,
+    asset: Option<Address>,
+) -> Result<(SupplyCapStatus, i128, i128, i128), CrossAssetError> {
+    let asset_key = AssetKey::from_option(asset);
+    let config = get_asset_config(env, &asset_key)?;
+    let current_supply = get_total_supply(env, &asset_key);
+
+    if config.max_supply <= 0 {
+        return Ok((SupplyCapStatus::Normal, current_supply, 0, i128::MAX));
+    }
+
+    let headroom = (config.max_supply - current_supply).max(0);
+    let util_bps = (current_supply.saturating_mul(10_000)) / config.max_supply.max(1);
+
+    let status = if headroom == 0 {
+        SupplyCapStatus::Capped
+    } else if util_bps >= 9_500 {
+        SupplyCapStatus::Critical
+    } else if util_bps >= 8_000 {
+        SupplyCapStatus::Elevated
+    } else {
+        SupplyCapStatus::Normal
+    };
+
+    Ok((status, current_supply, config.max_supply, headroom))
+}
+
 /// Borrow a specific asset against cross-asset collateral.
 ///
 /// Requires user authorization. Validates the asset is enabled for borrowing,
@@ -548,7 +673,14 @@ pub fn cross_asset_borrow(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+
     user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
 
     let asset_key = AssetKey::from_option(asset.clone());
     let config = get_asset_config(env, &asset_key)?;
@@ -633,7 +765,14 @@ pub fn cross_asset_withdraw(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+
     user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
 
     let asset_key = AssetKey::from_option(asset.clone());
 
@@ -695,12 +834,15 @@ pub fn cross_asset_liquidate(
     debt_to_repay: i128,
     collateral_to_receive: i128,
 ) -> Result<i128, CrossAssetError> {
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+
     liquidator.require_auth();
 
     // Get asset configurations
     let debt_asset_key = AssetKey::from_option(debt_asset.clone());
     let collateral_asset_key = AssetKey::from_option(collateral_asset.clone());
-    
+
     let debt_config = get_asset_config(env, &debt_asset_key)?;
     let collateral_config = get_asset_config(env, &collateral_asset_key)?;
 
@@ -720,7 +862,8 @@ pub fn cross_asset_liquidate(
     }
 
     // Calculate actual collateral to receive with liquidation incentive
-    let liquidation_incentive = collateral_config.liquidation_threshold - collateral_config.collateral_factor;
+    let liquidation_incentive =
+        collateral_config.liquidation_threshold - collateral_config.collateral_factor;
     let actual_collateral = (collateral_to_receive * (10_000 - liquidation_incentive)) / 10_000;
 
     // Ensure user has enough collateral
@@ -737,7 +880,7 @@ pub fn cross_asset_liquidate(
     // Update positions
     debt_position.debt_principal -= debt_to_repay;
     debt_position.last_updated = env.ledger().timestamp();
-    
+
     collateral_position.collateral -= actual_collateral;
     collateral_position.last_updated = env.ledger().timestamp();
 
@@ -771,7 +914,14 @@ pub fn cross_asset_repay(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+
     user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
 
     let asset_key = AssetKey::from_option(asset.clone());
 
@@ -952,7 +1102,11 @@ pub fn check_per_user_supply_limit(
     amount: i128,
 ) -> Result<(), CrossAssetError> {
     let user_supply_key = (PER_USER_SUPPLY_KEY, user.clone(), asset.clone());
-    let user_supply: i128 = env.storage().persistent().get(&user_supply_key).unwrap_or(0);
+    let user_supply: i128 = env
+        .storage()
+        .persistent()
+        .get(&user_supply_key)
+        .unwrap_or(0);
 
     // Per-user cap is 20% of global supply cap by default
     let config = get_asset_config(env, asset)?;
@@ -969,15 +1123,16 @@ pub fn check_per_user_supply_limit(
 }
 
 /// Update per-user supply tracking.
-pub fn update_per_user_supply(
-    env: &Env,
-    user: &Address,
-    asset: &AssetKey,
-    delta: i128,
-) {
+pub fn update_per_user_supply(env: &Env, user: &Address, asset: &AssetKey, delta: i128) {
     let user_supply_key = (PER_USER_SUPPLY_KEY, user.clone(), asset.clone());
-    let current: i128 = env.storage().persistent().get(&user_supply_key).unwrap_or(0);
-    env.storage().persistent().set(&user_supply_key, &(current + delta));
+    let current: i128 = env
+        .storage()
+        .persistent()
+        .get(&user_supply_key)
+        .unwrap_or(0);
+    env.storage()
+        .persistent()
+        .set(&user_supply_key, &(current + delta));
 }
 
 // -------------------------------------------------------------------------
@@ -1264,4 +1419,235 @@ impl AssetKey {
             AssetKey::Token(addr) => Some(addr.clone()),
         }
     }
+}
+
+// -------------------------------------------------------------------------
+// Correlation-aware risk (Issue #663)
+// -------------------------------------------------------------------------
+
+const CORRELATIONS: Symbol = symbol_short!("corr");
+const VOLATILITIES: Symbol = symbol_short!("vol");
+const CORR_BPS: i128 = 10_000;
+const MIN_DYNAMIC_CF: i128 = 2_000;
+
+/// Canonical pair key so (A,B) and (B,A) share one correlation entry.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssetPair {
+    pub a: AssetKey,
+    pub b: AssetKey,
+}
+
+/// Cross-asset arbitrage signal between a cheap-borrow and a high-supply pool.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArbitrageOpportunity {
+    pub borrow_asset: Option<Address>,
+    pub supply_asset: Option<Address>,
+    pub spread_bps: i128,
+    pub utilization_gap_bps: i128,
+}
+
+fn correlation_lookup(env: &Env, a: AssetKey, b: AssetKey) -> i128 {
+    let map: Map<AssetPair, i128> = env
+        .storage()
+        .persistent()
+        .get(&CORRELATIONS)
+        .unwrap_or(Map::new(env));
+    if let Some(v) = map.get(AssetPair {
+        a: a.clone(),
+        b: b.clone(),
+    }) {
+        return v;
+    }
+    map.get(AssetPair { a: b, b: a }).unwrap_or(0)
+}
+
+/// Admin: set pairwise price correlation in basis points (-10000..10000).
+pub fn set_asset_correlation(
+    env: &Env,
+    asset_a: Option<Address>,
+    asset_b: Option<Address>,
+    correlation_bps: i128,
+) -> Result<(), CrossAssetError> {
+    require_admin(env)?;
+    if correlation_bps < -CORR_BPS || correlation_bps > CORR_BPS {
+        return Err(CrossAssetError::InvalidCorrelation);
+    }
+    let pair = AssetPair {
+        a: AssetKey::from_option(asset_a),
+        b: AssetKey::from_option(asset_b),
+    };
+    let mut map: Map<AssetPair, i128> = env
+        .storage()
+        .persistent()
+        .get(&CORRELATIONS)
+        .unwrap_or(Map::new(env));
+    map.set(pair, correlation_bps);
+    env.storage().persistent().set(&CORRELATIONS, &map);
+    Ok(())
+}
+
+pub fn get_asset_correlation(
+    env: &Env,
+    asset_a: Option<Address>,
+    asset_b: Option<Address>,
+) -> i128 {
+    correlation_lookup(
+        env,
+        AssetKey::from_option(asset_a),
+        AssetKey::from_option(asset_b),
+    )
+}
+
+/// Admin: set realized volatility in basis points (e.g. 2000 = 20%).
+pub fn set_asset_volatility(
+    env: &Env,
+    asset: Option<Address>,
+    volatility_bps: i128,
+) -> Result<(), CrossAssetError> {
+    require_admin(env)?;
+    if volatility_bps < 0 || volatility_bps > CORR_BPS {
+        return Err(CrossAssetError::VolatilityUnavailable);
+    }
+    let key = AssetKey::from_option(asset);
+    let mut map: Map<AssetKey, i128> = env
+        .storage()
+        .persistent()
+        .get(&VOLATILITIES)
+        .unwrap_or(Map::new(env));
+    map.set(key, volatility_bps);
+    env.storage().persistent().set(&VOLATILITIES, &map);
+    Ok(())
+}
+
+pub fn get_asset_volatility(env: &Env, asset: Option<Address>) -> i128 {
+    let key = AssetKey::from_option(asset);
+    let map: Map<AssetKey, i128> = env
+        .storage()
+        .persistent()
+        .get(&VOLATILITIES)
+        .unwrap_or(Map::new(env));
+    map.get(key).unwrap_or(0)
+}
+
+/// Dynamic collateral factor: haircut base CF by a quarter of realized vol.
+pub fn get_dynamic_collateral_factor(
+    env: &Env,
+    asset: Option<Address>,
+) -> Result<i128, CrossAssetError> {
+    let config = get_asset_config(env, &AssetKey::from_option(asset.clone()))?;
+    let vol = get_asset_volatility(env, asset);
+    let haircut = vol / 4;
+    let adjusted = config
+        .collateral_factor
+        .saturating_mul(CORR_BPS.saturating_sub(haircut))
+        / CORR_BPS;
+    if adjusted < MIN_DYNAMIC_CF {
+        Ok(MIN_DYNAMIC_CF)
+    } else {
+        Ok(adjusted)
+    }
+}
+
+/// Liquidation threshold for a debt/collateral pair, tightened by correlation.
+pub fn get_pair_liquidation_threshold(
+    env: &Env,
+    debt_asset: Option<Address>,
+    collateral_asset: Option<Address>,
+) -> Result<i128, CrossAssetError> {
+    let debt_cfg = get_asset_config(env, &AssetKey::from_option(debt_asset.clone()))?;
+    let coll_cfg = get_asset_config(env, &AssetKey::from_option(collateral_asset.clone()))?;
+    let base = if debt_cfg.liquidation_threshold > coll_cfg.liquidation_threshold {
+        debt_cfg.liquidation_threshold
+    } else {
+        coll_cfg.liquidation_threshold
+    };
+    let corr = get_asset_correlation(env, debt_asset, collateral_asset).abs();
+    let boost = (corr * 500) / CORR_BPS;
+    let pair_lt = base.saturating_add(boost);
+    Ok(if pair_lt > 9_500 { 9_500 } else { pair_lt })
+}
+
+/// Unified health factor with a correlation haircut on diversified collateral.
+pub fn get_unified_health_factor(
+    env: &Env,
+    user: &Address,
+) -> Result<UserPositionSummary, CrossAssetError> {
+    let mut summary = get_user_position_summary(env, user)?;
+    let assets = get_asset_list(env);
+    if assets.len() < 2 || summary.weighted_collateral_value == 0 {
+        return Ok(summary);
+    }
+
+    let mut corr_sum: i128 = 0;
+    let mut corr_count: i128 = 0;
+    for i in 0..assets.len() {
+        for j in (i + 1)..assets.len() {
+            let a = assets.get(i).unwrap();
+            let b = assets.get(j).unwrap();
+            corr_sum += get_asset_correlation(env, a.to_option(), b.to_option()).abs();
+            corr_count += 1;
+        }
+    }
+    if corr_count > 0 {
+        let avg_corr = corr_sum / corr_count;
+        // High average correlation reduces effective collateral (less diversification).
+        let penalty = avg_corr / 10;
+        let factor = CORR_BPS.saturating_sub(penalty);
+        summary.weighted_collateral_value =
+            summary.weighted_collateral_value.saturating_mul(factor) / CORR_BPS;
+        if summary.weighted_debt_value > 0 {
+            summary.health_factor =
+                (summary.weighted_collateral_value * CORR_BPS) / summary.weighted_debt_value;
+        }
+        summary.is_liquidatable =
+            summary.health_factor < CORR_BPS && summary.weighted_debt_value > 0;
+        summary.borrow_capacity = if summary.weighted_collateral_value > summary.weighted_debt_value
+        {
+            summary.weighted_collateral_value - summary.weighted_debt_value
+        } else {
+            0
+        };
+    }
+    Ok(summary)
+}
+
+/// Detect cross-asset rate arbitrage from utilization gaps (proxy for APY spread).
+pub fn detect_cross_asset_arbitrage(env: &Env) -> Vec<ArbitrageOpportunity> {
+    let assets = get_asset_list(env);
+    let mut out = Vec::new(env);
+    for i in 0..assets.len() {
+        for j in 0..assets.len() {
+            if i == j {
+                continue;
+            }
+            let borrow_key = assets.get(i).unwrap();
+            let supply_key = assets.get(j).unwrap();
+            let borrow_supply = get_total_supply(env, &borrow_key);
+            let borrow_debt = get_total_borrow(env, &borrow_key);
+            let supply_supply = get_total_supply(env, &supply_key);
+            let supply_debt = get_total_borrow(env, &supply_key);
+            let borrow_util = if borrow_supply > 0 {
+                (borrow_debt * CORR_BPS) / borrow_supply
+            } else {
+                0
+            };
+            let supply_util = if supply_supply > 0 {
+                (supply_debt * CORR_BPS) / supply_supply
+            } else {
+                0
+            };
+            // Borrow where utilization (hence APY) is low, supply where it is high.
+            if supply_util > borrow_util + 500 {
+                out.push_back(ArbitrageOpportunity {
+                    borrow_asset: borrow_key.to_option(),
+                    supply_asset: supply_key.to_option(),
+                    spread_bps: supply_util - borrow_util,
+                    utilization_gap_bps: supply_util - borrow_util,
+                });
+            }
+        }
+    }
+    out
 }

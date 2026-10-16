@@ -88,11 +88,24 @@ impl RunConfig {
         m.insert("lending::repay".into(), 1_000_000);
         m.insert("lending::withdraw".into(), 1_000_000);
         m.insert("lending::liquidate".into(), 1_500_000);
+        m.insert("lending::liquidate_plan_optimized".into(), 250_000);
+        m.insert(
+            "lending::liquidate_plan_optimized_scale_100".into(),
+            900_000,
+        );
+        m.insert("lending::liquidate_flash_loan_plan".into(), 350_000);
+        m.insert("lending::interest_full_recompute".into(), 600_000);
+        m.insert("lending::interest_incremental_update".into(), 220_000);
+        m.insert("lending::interest_same_block_cached".into(), 80_000);
         m.insert("lending::flash_loan".into(), 1_800_000);
         m.insert("lending::get_health_factor".into(), 400_000);
         m.insert("lending::get_user_position".into(), 400_000);
         m.insert("lending::set_oracle".into(), 300_000);
         m.insert("lending::set_pause".into(), 200_000);
+        m.insert("lending::interest_rate_model_linear".into(), 300_000);
+        m.insert("lending::interest_rate_model_kink".into(), 300_000);
+        m.insert("lending::interest_rate_model_jump".into(), 300_000);
+        m.insert("lending::interest_rate_model_exponential".into(), 300_000);
         // Hello-world (core lending) contract
         m.insert("hello_world::initialize".into(), 500_000);
         m.insert("hello_world::deposit_collateral".into(), 900_000);
@@ -102,8 +115,19 @@ impl RunConfig {
         m.insert("hello_world::liquidate".into(), 1_500_000);
         m.insert("hello_world::execute_flash_loan".into(), 1_800_000);
         m.insert("hello_world::set_risk_params".into(), 400_000);
+        m.insert("hello_world::set_packed_pool_config".into(), 300_000);
+        m.insert("hello_world::get_packed_pool_config".into(), 180_000);
         m.insert("hello_world::get_health_factor".into(), 400_000);
         m.insert("hello_world::set_emergency_pause".into(), 200_000);
+        // Governance lifecycle (Issue #690)
+        m.insert("hello_world::gov_initialize".into(), 600_000);
+        m.insert("hello_world::gov_create_proposal".into(), 500_000);
+        m.insert("hello_world::gov_vote".into(), 450_000);
+        m.insert("hello_world::gov_queue_proposal".into(), 400_000);
+        m.insert("hello_world::gov_execute_proposal".into(), 700_000);
+        m.insert("hello_world::gov_cancel_proposal".into(), 300_000);
+        m.insert("hello_world::gov_get_proposal".into(), 200_000);
+        m.insert("hello_world::gov_get_governance_config".into(), 150_000);
         // AMM contract
         m.insert("amm::initialize_amm_settings".into(), 500_000);
         m.insert("amm::add_amm_protocol".into(), 600_000);

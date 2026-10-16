@@ -153,3 +153,50 @@ pub fn set_guardian_acceptance(env: &Env, guardian: Address, accepted: bool) {
         .instance()
         .set(&DataKey::GuardianAcceptances(guardian), &accepted);
 }
+
+pub fn get_rotation_proposal(env: &Env) -> Option<crate::types::RotationProposal> {
+    env.storage().instance().get(&DataKey::RotationProposal)
+}
+
+pub fn set_rotation_proposal(env: &Env, proposal: Option<crate::types::RotationProposal>) {
+    match proposal {
+        Some(p) => env.storage().instance().set(&DataKey::RotationProposal, &p),
+        None => env.storage().instance().remove(&DataKey::RotationProposal),
+    }
+}
+
+pub fn get_recovery_approvals(env: &Env) -> Vec<Address> {
+    env.storage()
+        .instance()
+        .get(&DataKey::RecoveryApprovals)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+pub fn set_recovery_approvals(env: &Env, approvals: &Vec<Address>) {
+    env.storage()
+        .instance()
+        .set(&DataKey::RecoveryApprovals, approvals);
+}
+
+pub fn clear_recovery_approvals(env: &Env) {
+    env.storage().instance().remove(&DataKey::RecoveryApprovals);
+}
+
+pub fn get_pending_guardian_threshold(env: &Env) -> Option<u32> {
+    env.storage()
+        .instance()
+        .get(&DataKey::PendingGuardianThreshold)
+}
+
+pub fn set_pending_guardian_threshold(env: &Env, threshold: Option<u32>) {
+    match threshold {
+        Some(t) => env
+            .storage()
+            .instance()
+            .set(&DataKey::PendingGuardianThreshold, &t),
+        None => env
+            .storage()
+            .instance()
+            .remove(&DataKey::PendingGuardianThreshold),
+    }
+}

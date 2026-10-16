@@ -505,7 +505,7 @@ pub fn get_detection_log(env: &Env) -> Vec<SandwichDetection> {
 // ── Premium protection: reverse sandwiched transaction ────────────────────
 
 pub fn calculate_premium_fee(env: &Env, amount: i128) -> i128 {
-    let config = get_config();
+    let config = get_config(env);
     amount
         .saturating_mul(config.premium_fee_bps)
         .saturating_div(10_000)
@@ -582,4 +582,19 @@ mod tests {
             .unwrap_or(0);
         assert_eq!(count, 0);
     }
+}
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    SandwichError => stellarlend_errors::domains::LENDING_SANDWICH;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    InvalidProtectionLevel => InvalidInput, "Invalid protection level";
+    CommitExpired => InvalidState, "Commit expired", FixInput;
+    CommitMismatch => InvalidInput, "Commit mismatch";
+    CommitNotFound => NotFound, "Commit not found";
+    DelayNotElapsed => InvalidState, "Delay not elapsed";
+    InvalidDelay => InvalidInput, "Invalid delay";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    CommitAlreadyRevealed => AlreadyExists, "Commit already revealed";
 }

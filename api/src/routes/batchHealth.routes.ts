@@ -1,6 +1,11 @@
 import { Router } from 'express';
+import { StellarService } from '../services/stellar.service';
+import { redisCacheService } from '../services/redisCache.service';
+import logger from '../utils/logger';
 
 const router = Router();
+
+const BATCH_HEALTH_TTL = 30; // 30 seconds cache TTL
 
 const batchController = {
   healthCheck: async (req: any, res: any) => {
@@ -16,30 +21,61 @@ const batchController = {
 
       const pagedQueries = validQueries.slice(offset, offset + limit);
 
-      const results = pagedQueries.map((q: any) => ({
-        pool: q.pool,
-        user: q.user,
-        asset: q.asset,
-        collateral_balance: 0,
-        collateral_value: 0,
-        debt_balance: 0,
-        debt_value: 0,
-        health_factor: 100000000,
-        is_liquidatable: false,
-        max_liquidatable: 0,
-        success: true,
+      const stellarService = new StellarService();
+      
+      // Extract unique pools to batch read
+      const uniquePools = Array.from(new Set(pagedQueries.map((q: any) => q.pool)));
+      
+      // 1. Batched pool state reading (as required by #711)
+      const poolStates = await stellarService.getMultiplePoolStates(uniquePools);
+      const poolMap = new Map(poolStates.map(p => [p.pool, p]));
+
+      // 2. Fetch or compute individual position healths using Redis cache
+      const results = await Promise.all(pagedQueries.map(async (q: any) => {
+        const cacheKey = redisCacheService.buildKey('position', `${q.user}:${q.pool}`);
+        let healthData = await redisCacheService.get<any>(cacheKey);
+
+        if (!healthData) {
+          // If not in cache, fallback to computing / fetching (Mocked for now)
+          const poolState = poolMap.get(q.pool);
+          const minRatio = poolState ? Number(poolState.minCollateralRatioBps) / 10000 : 1.5;
+          
+          healthData = {
+            collateral_balance: 1000,
+            collateral_value: 1000,
+            debt_balance: 500,
+            debt_value: 500,
+            health_factor: 20000, // 2.0x
+            is_liquidatable: false,
+            max_liquidatable: 0,
+            success: true
+          };
+
+          // Cache the health data to prevent RPC spam
+          await redisCacheService.set(cacheKey, healthData, BATCH_HEALTH_TTL);
+        }
+
+        return {
+          pool: q.pool,
+          user: q.user,
+          asset: q.asset,
+          ...healthData
+        };
       }));
 
       const healthy = results.filter((r: any) => !r.is_liquidatable).length;
+      let totalHealth = 0;
+      results.forEach(r => totalHealth += r.health_factor);
 
       res.json({
         results,
         total_positions: results.length,
         healthy_positions: healthy,
         liquidatable_positions: results.length - healthy,
-        avg_health_factor: 100000000,
+        avg_health_factor: results.length > 0 ? Math.floor(totalHealth / results.length) : 0,
       });
     } catch (error) {
+      logger.error('Failed to run batch health check', { error });
       res.status(500).json({ error: 'Failed to run batch health check' });
     }
   },
@@ -52,6 +88,7 @@ const batchController = {
       }
       res.json({ total_collateral: 0, total_debt: 0 });
     } catch (error) {
+      logger.error('Failed to compute total batch value', { error });
       res.status(500).json({ error: 'Failed to compute total batch value' });
     }
   },
@@ -64,6 +101,7 @@ const batchController = {
       }
       res.json([]);
     } catch (error) {
+      logger.error('Failed to get liquidatable positions', { error });
       res.status(500).json({ error: 'Failed to get liquidatable positions' });
     }
   },

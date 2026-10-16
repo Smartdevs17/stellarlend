@@ -8,6 +8,8 @@ interface OperationLimit {
   max: number;
   throttleAfter: number;
   blockAfter: number;
+  /** Adaptive throttle: slowdown factor applied when congestion is detected (0–1). */
+  adaptiveDecayFactor?: number;
 }
 
 interface Counter {
@@ -15,6 +17,10 @@ interface Counter {
   violations: number;
   blockedUntil?: number;
   lastViolationAt?: string;
+  /** Running average inter-request interval (ms) for adaptive detection. */
+  avgIntervalMs?: number;
+  /** Total accepted requests — used for throughput metrics. */
+  totalAccepted?: number;
 }
 
 interface AnalyticsRow {
@@ -28,15 +34,78 @@ interface AnalyticsRow {
   penalty: Penalty;
   blockedUntil?: string;
   trusted: boolean;
+  /** Effective window (ms) after adaptive scaling. */
+  effectiveWindowMs: number;
+  /** Effective max requests after adaptive scaling. */
+  effectiveMax: number;
+  /** Average inter-request interval observed for this key. */
+  avgIntervalMs: number;
+  /** Total accepted requests recorded for this key. */
+  totalAccepted: number;
+}
+
+/** Adaptive throttling state — global, updated by congestion reports. */
+interface AdaptiveState {
+  /** Congestion index in basis points (10_000 = normal). */
+  congestionBps: number;
+  /** Scaling factor derived from congestion (0–1); 1 = no throttle. */
+  scaleFactor: number;
+  /** Timestamp of last congestion update. */
+  updatedAt: number;
+  /** Who last reported congestion. */
+  reportedBy: string;
+  /** TTL for congestion reports in ms (default: 5 min). */
+  reportTtlMs: number;
 }
 
 const DEFAULT_LIMITS: Record<Operation, OperationLimit> = {
-  borrow: { windowMs: 60_000, max: 8, throttleAfter: 1, blockAfter: 3 },
-  withdraw: { windowMs: 60_000, max: 10, throttleAfter: 1, blockAfter: 3 },
-  liquidate: { windowMs: 60_000, max: 5, throttleAfter: 1, blockAfter: 2 },
+  borrow: { windowMs: 60_000, max: 8, throttleAfter: 1, blockAfter: 3, adaptiveDecayFactor: 0.5 },
+  withdraw: { windowMs: 60_000, max: 10, throttleAfter: 1, blockAfter: 3, adaptiveDecayFactor: 0.5 },
+  liquidate: { windowMs: 60_000, max: 5, throttleAfter: 1, blockAfter: 2, adaptiveDecayFactor: 0.5 },
 };
 
 const counters = new Map<string, Counter>();
+
+/** Module-level adaptive state shared across all operations. */
+let adaptiveState: AdaptiveState = {
+  congestionBps: 10_000,
+  scaleFactor: 1.0,
+  updatedAt: 0,
+  reportedBy: 'none',
+  reportTtlMs: 300_000, // 5 minutes
+};
+
+/**
+ * Derive a scaling factor from a congestion index (inverse relationship).
+ * congestion_bps=10_000 → scale=1.0 (no throttle)
+ * congestion_bps=20_000 → scale=0.5 (half throughput)
+ * Clamped to [0.25, 1.0].
+ */
+function scaleFactorFromCongestion(congestionBps: number): number {
+  if (congestionBps <= 0) return 1.0;
+  const raw = 10_000 / congestionBps;
+  return Math.max(0.25, Math.min(1.0, raw));
+}
+
+/**
+ * Apply the current adaptive scale factor to an operation limit.
+ * Returns a new limit with window and max adjusted proportionally.
+ */
+function applyAdaptiveScaling(
+  limit: OperationLimit,
+  scaleFactor: number,
+  now: number
+): OperationLimit {
+  if (scaleFactor >= 1.0) return limit;
+  // Only apply if we have a recent report (not stale).
+  if (adaptiveState.updatedAt > 0 && now - adaptiveState.updatedAt > adaptiveState.reportTtlMs) {
+    return limit;
+  }
+  return {
+    ...limit,
+    max: Math.max(1, Math.floor(limit.max * scaleFactor)),
+  };
+}
 
 function parseLimit(operation: Operation): OperationLimit {
   const envName = `SENSITIVE_RATE_LIMIT_${operation.toUpperCase()}`;
@@ -63,6 +132,7 @@ function parseLimit(operation: Operation): OperationLimit {
       b !== undefined && Number.isFinite(b) && b > 0
         ? b
         : DEFAULT_LIMITS[operation].blockAfter,
+    adaptiveDecayFactor: DEFAULT_LIMITS[operation].adaptiveDecayFactor,
   };
 }
 
@@ -129,12 +199,34 @@ function setHeaders(
   limit: OperationLimit,
   count: number,
   resetAt: number,
-  penalty: Penalty
+  penalty: Penalty,
+  effectiveMax: number
 ): void {
-  res.setHeader('RateLimit-Limit', String(limit.max));
-  res.setHeader('RateLimit-Remaining', String(Math.max(limit.max - count, 0)));
+  res.setHeader('RateLimit-Limit', String(effectiveMax));
+  res.setHeader('RateLimit-Remaining', String(Math.max(effectiveMax - count, 0)));
   res.setHeader('RateLimit-Reset', String(Math.ceil(resetAt / 1000)));
   res.setHeader('X-RateLimit-Penalty', penalty);
+  if (adaptiveState.scaleFactor < 1.0) {
+    res.setHeader('X-RateLimit-Adaptive', 'throttled');
+    res.setHeader('X-RateLimit-CongestionBps', String(adaptiveState.congestionBps));
+  }
+}
+
+/** Update the rolling average inter-request interval for a counter. */
+function updateAvgInterval(counter: Counter, now: number): void {
+  const ts = counter.timestamps;
+  if (ts.length < 2) {
+    counter.avgIntervalMs = 0;
+    return;
+  }
+  const last = ts[ts.length - 1] ?? now;
+  const prev = ts[ts.length - 2] ?? last;
+  const interval = last - prev;
+  const alpha = 0.2; // EWA smoothing
+  counter.avgIntervalMs =
+    counter.avgIntervalMs !== undefined
+      ? counter.avgIntervalMs * (1 - alpha) + interval * alpha
+      : interval;
 }
 
 export function sensitiveOperationRateLimiter(
@@ -156,15 +248,17 @@ export function sensitiveOperationRateLimiter(
   }
 
   const now = Date.now();
-  const limit = operationLimits[operation];
+  const baseLimit = operationLimits[operation];
+  const limit = applyAdaptiveScaling(baseLimit, adaptiveState.scaleFactor, now);
+
   const key = counterKey(userId, operation);
-  const counter = counters.get(key) || { timestamps: [], violations: 0 };
+  const counter = counters.get(key) || { timestamps: [], violations: 0, totalAccepted: 0 };
 
   counter.timestamps = counter.timestamps.filter((stamp) => now - stamp < limit.windowMs);
   const resetAt = (counter.timestamps[0] || now) + limit.windowMs;
 
   if (counter.blockedUntil && counter.blockedUntil > now) {
-    setHeaders(res, limit, counter.timestamps.length, resetAt, 'block');
+    setHeaders(res, limit, counter.timestamps.length, resetAt, 'block', limit.max);
     res.setHeader('Retry-After', String(Math.ceil((counter.blockedUntil - now) / 1000)));
     res.status(429).json({
       success: false,
@@ -176,6 +270,7 @@ export function sensitiveOperationRateLimiter(
   }
 
   counter.timestamps.push(now);
+  updateAvgInterval(counter, now);
 
   if (counter.timestamps.length > limit.max) {
     counter.violations += 1;
@@ -187,7 +282,7 @@ export function sensitiveOperationRateLimiter(
     }
 
     counters.set(key, counter);
-    setHeaders(res, limit, counter.timestamps.length, resetAt, penalty);
+    setHeaders(res, limit, counter.timestamps.length, resetAt, penalty, limit.max);
     res.setHeader('Retry-After', String(Math.ceil(limit.windowMs / 1000)));
     res.status(429).json({
       success: false,
@@ -197,12 +292,16 @@ export function sensitiveOperationRateLimiter(
           : 'Sensitive operation rate limit exceeded',
       operation,
       penalty,
+      adaptive: adaptiveState.scaleFactor < 1.0
+        ? { active: true, congestionBps: adaptiveState.congestionBps, scaleFactor: adaptiveState.scaleFactor }
+        : { active: false },
     });
     return;
   }
 
+  counter.totalAccepted = (counter.totalAccepted ?? 0) + 1;
   counters.set(key, counter);
-  setHeaders(res, limit, counter.timestamps.length, resetAt, currentPenalty(counter, limit, now));
+  setHeaders(res, limit, counter.timestamps.length, resetAt, currentPenalty(counter, limit, now), limit.max);
   next();
 }
 
@@ -214,7 +313,8 @@ export function getSensitiveRateLimitAnalytics(): AnalyticsRow[] {
     const [operation, ...userParts] = key.split(':');
     const op = operation as Operation;
     const userId = userParts.join(':');
-    const limit = operationLimits[op];
+    const baseLimit = operationLimits[op];
+    const limit = applyAdaptiveScaling(baseLimit, adaptiveState.scaleFactor, now);
     const activeTimestamps = counter.timestamps.filter((stamp) => now - stamp < limit.windowMs);
     const resetAt = (activeTimestamps[0] || now) + limit.windowMs;
     const penalty = currentPenalty(counter, limit, now);
@@ -230,6 +330,10 @@ export function getSensitiveRateLimitAnalytics(): AnalyticsRow[] {
       penalty,
       blockedUntil: counter.blockedUntil ? new Date(counter.blockedUntil).toISOString() : undefined,
       trusted: trusted.has(userId),
+      effectiveWindowMs: limit.windowMs,
+      effectiveMax: limit.max,
+      avgIntervalMs: counter.avgIntervalMs ?? 0,
+      totalAccepted: counter.totalAccepted ?? 0,
     };
   });
 }
@@ -240,4 +344,59 @@ export function getSensitiveRateLimitConfig(): Record<Operation, OperationLimit>
 
 export function resetSensitiveRateLimits(): void {
   counters.clear();
+}
+
+/**
+ * Report the current network congestion index in basis points.
+ *
+ * This is the API-layer counterpart to the Soroban `rl_report_congestion`
+ * entrypoint. Off-chain monitors call this to push congestion signals into
+ * the middleware's adaptive throttler without requiring an on-chain tx.
+ *
+ * @param congestionBps  Congestion index. 10_000 = normal, 20_000 = 2× congested.
+ * @param reportedBy     Identifier of the reporter (e.g. service name or address).
+ * @param ttlMs          Optional TTL override for how long this report stays active.
+ */
+export function reportAdaptiveCongestion(
+  congestionBps: number,
+  reportedBy: string,
+  ttlMs?: number
+): void {
+  const scaleFactor = scaleFactorFromCongestion(congestionBps);
+  adaptiveState = {
+    congestionBps,
+    scaleFactor,
+    updatedAt: Date.now(),
+    reportedBy,
+    reportTtlMs: ttlMs ?? adaptiveState.reportTtlMs,
+  };
+}
+
+/**
+ * Read-only: return the current adaptive throttling state.
+ *
+ * Exposed so the `/api/rate-limit/analytics` route can surface it to
+ * operators alongside per-user counter data.
+ */
+export function getAdaptiveState(): AdaptiveState & { isStale: boolean } {
+  const now = Date.now();
+  const isStale =
+    adaptiveState.updatedAt > 0 &&
+    now - adaptiveState.updatedAt > adaptiveState.reportTtlMs;
+  return { ...adaptiveState, isStale };
+}
+
+/**
+ * Reset the adaptive congestion state back to "normal" (10_000 bps, scale=1.0).
+ *
+ * Called by the `/api/rate-limit/reset-congestion` admin endpoint.
+ */
+export function resetAdaptiveCongestion(): void {
+  adaptiveState = {
+    congestionBps: 10_000,
+    scaleFactor: 1.0,
+    updatedAt: Date.now(),
+    reportedBy: 'manual-reset',
+    reportTtlMs: adaptiveState.reportTtlMs,
+  };
 }

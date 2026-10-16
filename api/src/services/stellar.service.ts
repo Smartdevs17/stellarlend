@@ -11,6 +11,7 @@ import {
 } from '@stellar/stellar-sdk';
 import { ValidationError } from '../utils/errors';
 import { Server as SorobanServer } from '@stellar/stellar-sdk/rpc';
+import type { rpc } from '@stellar/stellar-sdk';
 import axios from 'axios';
 import type { AxiosResponse } from 'axios';
 import { config } from '../config';
@@ -29,8 +30,10 @@ import {
 import { BoundedTtlCache } from '../utils/boundedTtlCache';
 import { redisCacheService } from './redisCache.service';
 import { requestCoalescingService } from './requestCoalescing.service';
+import { readCacheService } from './readCache.service';
+import type { RawContractEvent } from './eventIndex/types';
 
-const CONTRACT_METHODS: Record<LendingOperation, string> = {
+export const CONTRACT_METHODS: Record<LendingOperation, string> = {
   deposit: 'deposit_collateral',
   borrow: 'borrow_asset',
   repay: 'repay_debt',
@@ -45,6 +48,116 @@ const protocolStatsCache = new BoundedTtlCache<ProtocolStatsResponse>({
   ttlMs: config.cache.protocolStatsTtlMs,
   maxEntries: 1,
 });
+
+// ─── Lazy pool-state loading (#721) ──────────────────────────────────────────
+
+/** Sentinel cache key for the native (XLM) pool. */
+const NATIVE_POOL_KEY = 'native';
+const POOL_STATE_EPOCH_KEY = 'pool-state-epoch';
+
+/** Consolidated on-chain pool-state snapshot, mirrored from the contract. */
+export interface PoolStateSnapshot {
+  pool: string;
+  epoch: number;
+  builtAt: number;
+  lazilyInitialized: boolean;
+  borrowRateBps: string;
+  supplyRateBps: string;
+  utilizationBps: string;
+  borrowIndex: string;
+  supplyIndex: string;
+  minCollateralRatioBps: string;
+  liquidationThresholdBps: string;
+  closeFactorBps: string;
+  liquidationIncentiveBps: string;
+  totalDeposits: string;
+  totalBorrows: string;
+  totalValueLocked: string;
+  availableLiquidity: string;
+  reserveBalance: string;
+  reserveFactorBps: string;
+}
+
+interface PoolStateCacheMetrics {
+  hits: number;
+  misses: number;
+  rebuilds: number;
+  lastLoadMs: number;
+  slowestLoadMs: number;
+  maxSeenEpoch: number;
+}
+
+const poolStateCache = new BoundedTtlCache<PoolStateSnapshot>({
+  ttlMs: config.cache.poolTtlMs,
+  maxEntries: 64,
+});
+
+// Epoch is cheap to re-read but caching it briefly keeps warm reads fast.
+const poolStateEpochCache = new BoundedTtlCache<number>({
+  ttlMs: Math.min(config.cache.poolTtlMs, 5000),
+  maxEntries: 1,
+});
+
+const poolStateCacheMetrics: PoolStateCacheMetrics = {
+  hits: 0,
+  misses: 0,
+  rebuilds: 0,
+  lastLoadMs: 0,
+  slowestLoadMs: 0,
+  maxSeenEpoch: 0,
+};
+
+function pickField(source: any, ...names: string[]): unknown {
+  if (source == null) return undefined;
+  for (const name of names) {
+    if (source[name] !== undefined && source[name] !== null) return source[name];
+  }
+  return undefined;
+}
+
+/** Normalize a raw `get_pool_state` simulation result into a typed snapshot. */
+function normalizePoolStateSnapshot(raw: any, poolKey: string): PoolStateSnapshot {
+  const src = raw ?? {};
+  const poolValue = pickField(src, 'pool');
+  return {
+    pool: poolValue ? String(poolValue) : poolKey,
+    epoch: toSafeNumber(pickField(src, 'epoch') ?? 0),
+    builtAt: toSafeNumber(pickField(src, 'built_at', 'builtAt') ?? 0),
+    lazilyInitialized: Boolean(pickField(src, 'lazily_initialized', 'lazilyInitialized')),
+    borrowRateBps: toIntegerString(pickField(src, 'borrow_rate_bps', 'borrowRateBps') ?? 0),
+    supplyRateBps: toIntegerString(pickField(src, 'supply_rate_bps', 'supplyRateBps') ?? 0),
+    utilizationBps: toIntegerString(pickField(src, 'utilization_bps', 'utilizationBps') ?? 0),
+    borrowIndex: toIntegerString(pickField(src, 'borrow_index', 'borrowIndex') ?? 0),
+    supplyIndex: toIntegerString(pickField(src, 'supply_index', 'supplyIndex') ?? 0),
+    minCollateralRatioBps: toIntegerString(
+      pickField(src, 'min_collateral_ratio_bps', 'minCollateralRatioBps') ?? 0
+    ),
+    liquidationThresholdBps: toIntegerString(
+      pickField(src, 'liquidation_threshold_bps', 'liquidationThresholdBps') ?? 0
+    ),
+    closeFactorBps: toIntegerString(pickField(src, 'close_factor_bps', 'closeFactorBps') ?? 0),
+    liquidationIncentiveBps: toIntegerString(
+      pickField(src, 'liquidation_incentive_bps', 'liquidationIncentiveBps') ?? 0
+    ),
+    totalDeposits: toIntegerString(pickField(src, 'total_deposits', 'totalDeposits') ?? 0),
+    totalBorrows: toIntegerString(pickField(src, 'total_borrows', 'totalBorrows') ?? 0),
+    totalValueLocked: toIntegerString(
+      pickField(src, 'total_value_locked', 'totalValueLocked') ?? 0
+    ),
+    availableLiquidity: toIntegerString(
+      pickField(src, 'available_liquidity', 'availableLiquidity') ?? 0
+    ),
+    reserveBalance: toIntegerString(pickField(src, 'reserve_balance', 'reserveBalance') ?? 0),
+    reserveFactorBps: toIntegerString(
+      pickField(src, 'reserve_factor_bps', 'reserveFactorBps') ?? 0
+    ),
+  };
+}
+
+export function clearPoolStateCache(): void {
+  poolStateCache.clear();
+  poolStateEpochCache.clear();
+}
 
 function toIntegerString(value: unknown): string {
   if (typeof value === 'bigint') {
@@ -272,6 +385,20 @@ export class StellarService {
       amount,
     });
     return requestCoalescingService.execute(coalescingKey, async () => {
+      // Repeated simulations of the same pool operation within the TTL reuse
+      // the cached result instead of another Soroban RPC round trip. Entries
+      // are dropped after a submitted transaction (see lending.controller).
+      const simulationCacheKey = redisCacheService.buildKey(
+        'simulation',
+        `${userAddress}:${operation}:${assetAddress ?? 'native'}:${amount}`
+      );
+      const cached = await redisCacheService.get<{
+        cpuInstructions: string;
+        memoryBytes: string;
+        minResourceFee: string;
+      }>(simulationCacheKey);
+      if (cached) return cached;
+
       try {
         const account = await this.getAccount(userAddress);
         const contract = new Contract(this.contractId);
@@ -296,11 +423,17 @@ export class StellarService {
           throw new InternalServerError(`Simulation failed: ${simulation.error}`);
         }
 
-        return {
+        const estimate = {
           cpuInstructions: simulation.cost?.cpuInsns || '0',
           memoryBytes: simulation.cost?.memBytes || '0',
           minResourceFee: simulation.minResourceFee || '0',
         };
+        await redisCacheService.set(
+          simulationCacheKey,
+          estimate,
+          Math.max(1, Math.floor(config.cache.simulationTtlMs / 1000))
+        );
+        return estimate;
       } catch (error: any) {
         logger.error(`Failed to estimate gas for ${operation}:`, error);
         throw new InternalServerError(error.message || `Failed to estimate gas for ${operation}`);
@@ -319,6 +452,51 @@ export class StellarService {
       .addOperation(contract.call(methodName, ...params))
       .setTimeout(TX_TIMEOUT_SECONDS)
       .build();
+  }
+
+  public async readContract(methodName: string, ...params: any[]): Promise<any> {
+    return this.simulateContractCall(methodName, ...params);
+  }
+
+  /** Latest ledger known to Soroban RPC. */
+  public async getLatestLedger(): Promise<number> {
+    const res = await this.sorobanServer.getLatestLedger();
+    return res.sequence;
+  }
+
+  /**
+   * Fetch one page of the lending contract's events from Soroban RPC
+   * (`getEvents`), with topics and values decoded to native JS values. Used
+   * by the event indexer (`services/eventIndex`) as its event source.
+   */
+  public async fetchContractEvents(request: {
+    startLedger?: number;
+    cursor?: string;
+    limit: number;
+  }): Promise<{ events: RawContractEvent[]; cursor: string; latestLedger: number }> {
+    if (!this.contractId) {
+      throw new InternalServerError('CONTRACT_ID is not configured; cannot index events');
+    }
+    const filters: rpc.Api.EventFilter[] = [{ type: 'contract', contractIds: [this.contractId] }];
+    const page = await this.sorobanServer.getEvents(
+      request.cursor
+        ? { filters, cursor: request.cursor, limit: request.limit }
+        : { filters, startLedger: request.startLedger ?? 1, limit: request.limit }
+    );
+    return {
+      cursor: page.cursor,
+      latestLedger: page.latestLedger,
+      events: page.events.map((e) => ({
+        id: e.id,
+        ledger: e.ledger,
+        ledgerClosedAt: e.ledgerClosedAt,
+        contractId: e.contractId?.contractId() ?? this.contractId,
+        txHash: e.txHash,
+        inSuccessfulContractCall: e.inSuccessfulContractCall,
+        topic: e.topic.map((t) => scValToNative(t)),
+        value: scValToNative(e.value),
+      })),
+    };
   }
 
   private async simulateContractCall(methodName: string, ...params: any[]): Promise<any> {
@@ -349,42 +527,41 @@ export class StellarService {
   async getProtocolStats(): Promise<ProtocolStatsResponse> {
     const coalescingKey = requestCoalescingService.generateKey('getProtocolStats', {});
 
-    return requestCoalescingService.execute(coalescingKey, async () => {
-      const redisKey = redisCacheService.buildKey('protocol', 'stats');
-      const redisCached = await redisCacheService.get<ProtocolStatsResponse>(redisKey);
-      if (redisCached) return redisCached;
+    return requestCoalescingService.execute(coalescingKey, () =>
+      readCacheService.getOrLoad<ProtocolStatsResponse>(
+        'protocol',
+        'stats',
+        config.cache.protocolStatsTtlMs,
+        async () => protocolStatsCache.get(PROTOCOL_STATS_CACHE_KEY) ?? this.loadProtocolStats()
+      )
+    );
+  }
 
-      const cachedResponse = protocolStatsCache.get(PROTOCOL_STATS_CACHE_KEY);
-      if (cachedResponse) {
-        return cachedResponse;
-      }
+  /**
+   * Fetch protocol stats from the contract, bypassing every cache layer.
+   * The prefetch scheduler uses this loader to keep the cached entry warm.
+   */
+  async loadProtocolStats(): Promise<ProtocolStatsResponse> {
+    try {
+      const report = await this.simulateContractCall('get_protocol_report');
+      const metrics = report?.metrics ?? report ?? {};
 
-      try {
-        const report = await this.simulateContractCall('get_protocol_report');
-        const metrics = report?.metrics ?? report ?? {};
+      const response: ProtocolStatsResponse = {
+        totalDeposits: toIntegerString(metrics.total_deposits ?? metrics.totalDeposits ?? 0),
+        totalBorrows: toIntegerString(metrics.total_borrows ?? metrics.totalBorrows ?? 0),
+        utilizationRate: formatBpsAsRatio(
+          toIntegerString(metrics.utilization_rate ?? metrics.utilizationRate ?? 0)
+        ),
+        numberOfUsers: toSafeNumber(metrics.total_users ?? metrics.totalUsers ?? 0),
+        tvl: toIntegerString(metrics.total_value_locked ?? metrics.totalValueLocked ?? 0),
+      };
 
-        const response: ProtocolStatsResponse = {
-          totalDeposits: toIntegerString(metrics.total_deposits ?? metrics.totalDeposits ?? 0),
-          totalBorrows: toIntegerString(metrics.total_borrows ?? metrics.totalBorrows ?? 0),
-          utilizationRate: formatBpsAsRatio(
-            toIntegerString(metrics.utilization_rate ?? metrics.utilizationRate ?? 0)
-          ),
-          numberOfUsers: toSafeNumber(metrics.total_users ?? metrics.totalUsers ?? 0),
-          tvl: toIntegerString(metrics.total_value_locked ?? metrics.totalValueLocked ?? 0),
-        };
-
-        protocolStatsCache.set(PROTOCOL_STATS_CACHE_KEY, response);
-        await redisCacheService.set(
-          redisKey,
-          response,
-          Math.floor(config.cache.protocolStatsTtlMs / 1000)
-        );
-        return response;
-      } catch (error) {
-        logger.error('Failed to fetch protocol stats:', error);
-        throw new InternalServerError('Failed to fetch protocol stats');
-      }
-    });
+      protocolStatsCache.set(PROTOCOL_STATS_CACHE_KEY, response);
+      return response;
+    } catch (error) {
+      logger.error('Failed to fetch protocol stats:', error);
+      throw new InternalServerError('Failed to fetch protocol stats');
+    }
   }
 
   async submitTransaction(txXdr: string): Promise<TransactionResponse> {
@@ -776,45 +953,45 @@ export class StellarService {
 
     const coalescingKey = requestCoalescingService.generateKey('getUserPosition', { userAddress });
 
-    return requestCoalescingService.execute(coalescingKey, async () => {
-      const cacheKey = redisCacheService.buildKey('position', userAddress);
-      const cached = await redisCacheService.get<PositionResponse>(cacheKey);
-      if (cached) return cached;
+    return requestCoalescingService.execute(coalescingKey, () =>
+      readCacheService.getOrLoad<PositionResponse>(
+        'position',
+        userAddress,
+        config.cache.positionTtlMs,
+        () => this.loadUserPosition(userAddress)
+      )
+    );
+  }
 
-      try {
-        const userParam = new Address(userAddress).toScVal();
-        const raw = await this.simulateContractCall('get_user_position', userParam);
+  private async loadUserPosition(userAddress: string): Promise<PositionResponse> {
+    try {
+      const userParam = new Address(userAddress).toScVal();
+      const raw = await this.simulateContractCall('get_user_position', userParam);
 
-        const collateral = toIntegerString(raw?.collateral ?? raw?.collateral_amount ?? 0);
-        const debt = toIntegerString(raw?.debt ?? raw?.debt_amount ?? 0);
-        const borrowInterest = toIntegerString(raw?.borrow_interest ?? raw?.interest ?? 0);
-        const lastAccrualTime = toSafeNumber(raw?.last_accrual_time ?? raw?.lastAccrualTime ?? 0);
+      const collateral = toIntegerString(raw?.collateral ?? raw?.collateral_amount ?? 0);
+      const debt = toIntegerString(raw?.debt ?? raw?.debt_amount ?? 0);
+      const borrowInterest = toIntegerString(raw?.borrow_interest ?? raw?.interest ?? 0);
+      const lastAccrualTime = toSafeNumber(raw?.last_accrual_time ?? raw?.lastAccrualTime ?? 0);
 
-        const collateralBig = BigInt(collateral);
-        const debtBig = BigInt(debt);
-        const collateralRatio =
-          debtBig > 0n ? ((collateralBig * 10000n) / debtBig).toString() : 'Infinity';
+      const collateralBig = BigInt(collateral);
+      const debtBig = BigInt(debt);
+      const collateralRatio =
+        debtBig > 0n ? ((collateralBig * 10000n) / debtBig).toString() : 'Infinity';
 
-        const result: PositionResponse = {
-          userAddress,
-          collateral,
-          debt,
-          borrowInterest,
-          lastAccrualTime,
-          collateralRatio,
-        };
+      const result: PositionResponse = {
+        userAddress,
+        collateral,
+        debt,
+        borrowInterest,
+        lastAccrualTime,
+        collateralRatio,
+      };
 
-        await redisCacheService.set(
-          cacheKey,
-          result,
-          Math.floor(config.cache.positionTtlMs / 1000)
-        );
-        return result;
-      } catch (error) {
-        logger.error('Failed to fetch user position:', error);
-        throw new InternalServerError('Failed to fetch user position');
-      }
-    });
+      return result;
+    } catch (error) {
+      logger.error('Failed to fetch user position:', error);
+      throw new InternalServerError('Failed to fetch user position');
+    }
   }
 
   private isValidStellarAddress(address: string): boolean {
@@ -932,6 +1109,157 @@ export class StellarService {
         tvl: '12000000000',
       },
     ];
+  }
+
+  // ─── Lazy pool-state loading (#721) ───────────────────────────────────────
+  //
+  // The contract exposes a consolidated `get_pool_state` snapshot that is
+  // built lazily on-chain and invalidated via a global epoch. This service
+  // mirrors that: snapshots are loaded on demand, memoised per pool keyed by
+  // the on-chain epoch, and served from the local cache (well under the 50ms
+  // target) until the epoch advances or the TTL lapses.
+
+  /**
+   * Load the consolidated on-chain state for a pool on demand.
+   *
+   * @param asset Pool asset contract id, or `undefined`/`null` for the native pool.
+   * @param opts.forceRefresh Bypass the local cache for this read.
+   */
+  async getPoolState(
+    asset?: string | null,
+    opts: { forceRefresh?: boolean } = {}
+  ): Promise<PoolStateSnapshot> {
+    const startedAt = Date.now();
+    const poolKey = asset ?? NATIVE_POOL_KEY;
+
+    if (!opts.forceRefresh) {
+      const epoch = await this.getPoolStateEpoch();
+      const cached = poolStateCache.get(`${poolKey}:${epoch}`);
+      if (cached) {
+        poolStateCacheMetrics.hits += 1;
+        poolStateCacheMetrics.lastLoadMs = Date.now() - startedAt;
+        return cached;
+      }
+    }
+
+    poolStateCacheMetrics.misses += 1;
+
+    const coalescingKey = requestCoalescingService.generateKey('getPoolState', { poolKey });
+    const snapshot = await requestCoalescingService.execute(coalescingKey, async () => {
+      const assetParam = asset ? new Address(asset).toScVal() : xdr.ScVal.scvVoid();
+      const raw = await this.simulateContractCall('get_pool_state', assetParam);
+      return normalizePoolStateSnapshot(raw, poolKey);
+    });
+
+    poolStateCache.set(`${poolKey}:${snapshot.epoch}`, snapshot);
+    if (snapshot.epoch > poolStateCacheMetrics.maxSeenEpoch) {
+      poolStateCacheMetrics.maxSeenEpoch = snapshot.epoch;
+    }
+    poolStateCacheMetrics.rebuilds += 1;
+    poolStateCacheMetrics.lastLoadMs = Date.now() - startedAt;
+    if (poolStateCacheMetrics.lastLoadMs > poolStateCacheMetrics.slowestLoadMs) {
+      poolStateCacheMetrics.slowestLoadMs = poolStateCacheMetrics.lastLoadMs;
+    }
+    return snapshot;
+  }
+
+  async getMultiplePoolStates(
+    assets: (string | null)[],
+    opts: { forceRefresh?: boolean } = {}
+  ): Promise<PoolStateSnapshot[]> {
+    const startedAt = Date.now();
+    const epoch = await this.getPoolStateEpoch();
+    
+    // Check cache first if not forcing refresh
+    if (!opts.forceRefresh) {
+      let allCached = true;
+      const cachedResults: PoolStateSnapshot[] = [];
+      for (const asset of assets) {
+        const poolKey = asset ?? NATIVE_POOL_KEY;
+        const cached = poolStateCache.get(`${poolKey}:${epoch}`);
+        if (cached) {
+          cachedResults.push(cached);
+        } else {
+          allCached = false;
+          break;
+        }
+      }
+      
+      if (allCached) {
+        poolStateCacheMetrics.hits += assets.length;
+        poolStateCacheMetrics.lastLoadMs = Date.now() - startedAt;
+        return cachedResults;
+      }
+    }
+
+    poolStateCacheMetrics.misses += assets.length;
+
+    // Build the args vector
+    const assetParams = assets.map(asset => 
+      asset ? new Address(asset).toScVal() : xdr.ScVal.scvVoid()
+    );
+    const vecParam = xdr.ScVal.scvVec(assetParams);
+
+    const raw = await this.simulateContractCall('get_multiple_pool_states', vecParam);
+    
+    const results: PoolStateSnapshot[] = [];
+    if (raw && raw.value() && Array.isArray(raw.value())) {
+      const rawArray = raw.value() as any[];
+      for (let i = 0; i < rawArray.length; i++) {
+        const poolKey = assets[i] ?? NATIVE_POOL_KEY;
+        const snapshot = normalizePoolStateSnapshot(rawArray[i], poolKey);
+        poolStateCache.set(`${poolKey}:${snapshot.epoch}`, snapshot);
+        results.push(snapshot);
+      }
+    }
+
+    poolStateCacheMetrics.rebuilds += assets.length;
+    poolStateCacheMetrics.lastLoadMs = Date.now() - startedAt;
+    return results;
+  }
+
+  /**
+   * Current global pool-state cache epoch. Used as part of the cache key so a
+   * contract-side invalidation transparently drops every stale local entry.
+   * The epoch itself is cached briefly to keep cache hits cheap.
+   */
+  async getPoolStateEpoch(): Promise<number> {
+    const cached = poolStateEpochCache.get(POOL_STATE_EPOCH_KEY);
+    if (cached !== undefined) return cached;
+    try {
+      const raw = await this.simulateContractCall('get_pool_state_epoch');
+      const epoch = toSafeNumber(raw);
+      poolStateEpochCache.set(POOL_STATE_EPOCH_KEY, epoch);
+      return epoch;
+    } catch (error) {
+      logger.warn('Failed to read pool-state epoch; treating as epoch 0', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Drop this service's cached snapshots for a pool (or all pools). The
+   * authoritative invalidation still happens on-chain via `invalidate_pool_state`.
+   */
+  invalidatePoolStateCache(asset?: string | null): void {
+    poolStateEpochCache.clear();
+    if (asset === undefined) {
+      poolStateCache.clear();
+      return;
+    }
+    const poolKey = asset ?? NATIVE_POOL_KEY;
+    for (let epoch = 0; epoch <= poolStateCacheMetrics.maxSeenEpoch + 1; epoch++) {
+      poolStateCache.delete(`${poolKey}:${epoch}`);
+    }
+  }
+
+  /** Cache hit-rate and load-latency counters for lazy pool-state loading. */
+  getPoolStateCacheMetrics(): PoolStateCacheMetrics & { hitRate: number } {
+    const total = poolStateCacheMetrics.hits + poolStateCacheMetrics.misses;
+    return {
+      ...poolStateCacheMetrics,
+      hitRate: total === 0 ? 0 : poolStateCacheMetrics.hits / total,
+    };
   }
 }
 

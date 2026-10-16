@@ -19,10 +19,17 @@ pub fn print_summary(report: &TestReport) {
 
     for scenario in &report.scenarios {
         total += 1;
-        let status = if scenario.passed { "✓ PASS" } else { "✗ FAIL" };
+        let status = if scenario.passed {
+            "✓ PASS"
+        } else {
+            "✗ FAIL"
+        };
         println!("  {}  {}", status, scenario.name);
         if !scenario.integrity.all_passed() {
-            println!("        integrity: {} errors", scenario.integrity.errors.len());
+            println!(
+                "        integrity: {} errors",
+                scenario.integrity.errors.len()
+            );
         }
         if !scenario.rollback.lossless_round_trip {
             println!("        rollback not lossless");
@@ -44,7 +51,12 @@ pub fn print_summary(report: &TestReport) {
 
     println!();
     println!("  ─────────────────────────────────────────────");
-    println!("  Total: {}, Passed: {}, Failed: {}", total, passed, total - passed);
+    println!(
+        "  Total: {}, Passed: {}, Failed: {}",
+        total,
+        passed,
+        total - passed
+    );
     println!();
 
     println!("  Gas Profile:");
@@ -56,8 +68,7 @@ pub fn print_summary(report: &TestReport) {
     }
     println!(
         "    {:30} {} instructions (avg)",
-        "Average:",
-        report.overall_gas.average_instructions as u64
+        "Average:", report.overall_gas.average_instructions as u64
     );
     println!();
 }
@@ -87,7 +98,10 @@ pub fn report_to_json(report: &TestReport) -> String {
         None => String::new(),
     };
 
-    let gas_part = format!(r#","gas_profile":{}"#, gas_report_to_json(&report.overall_gas));
+    let gas_part = format!(
+        r#","gas_profile":{}"#,
+        gas_report_to_json(&report.overall_gas)
+    );
 
     format!("{{{}{}{}}}", scenarios_part, fuzz_part, gas_part)
 }

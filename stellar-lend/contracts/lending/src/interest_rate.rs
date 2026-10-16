@@ -41,7 +41,7 @@ pub struct InterestRateConfigUpdate {
 
 fn default_config(env: &Env) -> InterestRateConfig {
     InterestRateConfig {
-        base_rate_bps: 100,
+        base_rate_bps: 500,
         kink_utilization_bps: 8000,
         slope_bps: 2000,
         jump_slope_bps: 10_000,
@@ -238,4 +238,14 @@ impl From<InterestRateError> for BorrowError {
             InterestRateError::DivisionByZero => BorrowError::Overflow,
         }
     }
+}
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    InterestRateError => stellarlend_errors::domains::LENDING_INTEREST_RATE;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    InvalidParameter => InvalidInput, "Parameter is invalid or out of range";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    DivisionByZero => DivisionByZero, "Division by zero";
 }

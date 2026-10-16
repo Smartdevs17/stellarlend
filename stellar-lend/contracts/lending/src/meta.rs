@@ -350,3 +350,21 @@ pub fn execute_delegated(
 
     Ok(())
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    MetaTxError => stellarlend_errors::domains::LENDING_META_TX;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    Expired => InvalidState, "Expired", FixInput;
+    InvalidNonce => InvalidInput, "Invalid nonce";
+    DelegationMissing => NotFound, "Delegation missing";
+    DelegationExpired => InvalidState, "Delegation expired", FixInput;
+    PermissionDenied => Unauthorized, "Permission denied";
+    InvalidCapConfig => InvalidInput, "Invalid cap config";
+    UserSupplyCapExceeded => LimitExceeded, "User supply cap exceeded", ReduceAmount;
+    UserBorrowCapExceeded => LimitExceeded, "User borrow cap exceeded", ReduceAmount;
+    PoolSupplyCapExceeded => LimitExceeded, "Pool supply cap exceeded", ReduceAmount;
+    PoolBorrowCapExceeded => LimitExceeded, "Pool borrow cap exceeded", ReduceAmount;
+    ArithmeticOverflow => Overflow, "Arithmetic overflow";
+}

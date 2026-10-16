@@ -1,0 +1,9 @@
+[
+  {
+    "id": "collapsed-division",
+    "author": "@example-contributor",
+    "challenge": "lending::get_health_factor",
+    "implementation": "submissions/collapsed-division.ts",
+    "notes": "INVALID ON PURPOSE \u2014 this file is the gate's regression fixture, not a competition entry. It collapses the two truncating divisions into one, which looks like a free saving and changes the answer wherever the first division truncates. Kept out of submissions/index.json so the default board run is not permanently red; run it with --submissions submissions/invalid.json to watch the gate catch it."
+  }
+]

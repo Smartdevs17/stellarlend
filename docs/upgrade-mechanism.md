@@ -2,6 +2,12 @@
 
 This document explains the upgrade flow that exists in the repository today, what it guarantees, and what it does not yet automate.
 
+> **Operating an upgrade?** Follow the step-by-step runbook in
+> [`docs/runbooks/upgrade-and-migration.md`](runbooks/upgrade-and-migration.md). It covers
+> upgrade, migration, rollback and the devnet rehearsal (`npm run devnet:rehearse-upgrade`).
+> `LendingContract` now exposes an admin-gated `upgrade(admin, new_wasm_hash)` entrypoint
+> that performs the code swap described below as "separate deployment tooling".
+
 ## Current Reality
 
 There are two important facts to keep in view:

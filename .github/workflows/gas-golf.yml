@@ -1,0 +1,94 @@
+name: Gas Golf Leaderboard (#1014)
+
+# Issue #1014 — a competitive gas optimization leaderboard. The gate is the
+# point: an implementation must agree with a maintainer-owned reference over a
+# fixed vector set, at a tolerance of exactly 0, before it may be ranked. This
+# workflow proves the gate has teeth (the collapsed-division exploit must be
+# rejected) and that the board reports an empty leaderboard honestly rather than
+# inventing a score.
+#
+# It deliberately does NOT run the Rust benchmark suite. Instruction counts must
+# come from one comparable session, which is gas-regression.yml's job
+# (gas-regression.yml:36-40 makes the same argument about cold caches). What is
+# checked here is the harness: parsing, gating, ranking, rendering, exit codes.
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "scripts/gas-golf/**"
+      - "scripts/differential-test/**"
+      - "stellar-lend/benchmarks/public-functions.json"
+      - "stellar-lend/benchmarks/baseline.json"
+      - ".github/workflows/gas-golf.yml"
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "scripts/gas-golf/**"
+      - "scripts/differential-test/**"
+      - "stellar-lend/benchmarks/public-functions.json"
+      - "stellar-lend/benchmarks/baseline.json"
+      - ".github/workflows/gas-golf.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gas-golf:
+    name: Gas golf gate and leaderboard (#1014)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22 (type-stripping)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Unit and end-to-end suite
+        run: node --experimental-strip-types --test scripts/gas-golf/*.test.ts
+
+      - name: Every open target is listed with a budget
+        run: node --experimental-strip-types scripts/gas-golf/index.ts --list-challenges
+
+      - name: Every competition submission passes the gate
+        run: node --experimental-strip-types scripts/gas-golf/index.ts --gate all
+
+      - name: Negative gate — the collapsed-division exploit must be rejected
+        run: |
+          set -euo pipefail
+          if node --experimental-strip-types scripts/gas-golf/index.ts \
+            --submissions scripts/gas-golf/submissions/invalid.json --gate all; then
+            echo "::error::a divergent implementation passed the correctness gate"
+            exit 1
+          fi
+          echo "Rejected as expected."
+
+      - name: The board renders, and is published to the job summary
+        run: |
+          set -euo pipefail
+          # Exits 0 even with nothing to rank: an empty board is the honest state
+          # of this repository, not a failure.
+          node --experimental-strip-types scripts/gas-golf/index.ts \
+            --format markdown --out "$RUNNER_TEMP/board.md"
+          {
+            echo "## Gas golf leaderboard (#1014)"
+            echo
+            cat "$RUNNER_TEMP/board.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: The populated path ranks entries (synthetic fixture)
+        run: |
+          set -euo pipefail
+          # Invented numbers, on purpose: fixtures/README.md explains why. This
+          # proves the ranking and rendering path, which the default run cannot
+          # reach on this branch.
+          node --experimental-strip-types scripts/gas-golf/index.ts \
+            --submissions scripts/gas-golf/fixtures/submissions.json \
+            --reference scripts/gas-golf/fixtures/reference-session.json \
+            --format markdown >> "$GITHUB_STEP_SUMMARY"

@@ -343,3 +343,139 @@ fn test_is_approver_false_before_init() {
 
     assert!(!client.is_approver(&random));
 }
+
+// ─────────────────────────────────────────────
+// Storage layout validation (issue #1055)
+// ─────────────────────────────────────────────
+//
+// `UpgradeError::StorageLayoutMismatch` was declared but never constructed, so
+// an upgrade declaring an incompatible storage layout could execute silently.
+// These tests cover the guard added in `upgrade_execute`.
+//
+// Note: `setup` initialises with a single required approval, so a proposal is
+// `Approved` on creation and still has to be queued before execution.
+
+/// A proposal whose declared layout matches the recorded one executes.
+#[test]
+fn test_upgrade_executes_when_layout_matches() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env, 1);
+
+    let layout = hash(&env, 0xAA);
+    client.declare_storage_layout(&admin, &layout);
+
+    let id = client.upgrade_propose_with_layout(&admin, &hash(&env, 2), &2, &Some(layout.clone()));
+    client.upgrade_queue_timelock(&admin, &id);
+    env.ledger().with_mut(|li| {
+        li.timestamp += STANDARD_TIMELOCK_SECS + 1;
+    });
+    client.upgrade_execute(&admin, &id);
+
+    assert_eq!(client.current_version(), 2);
+}
+
+/// A proposal declaring a different layout is rejected with
+/// `StorageLayoutMismatch` even after passing multisig and timelock.
+#[test]
+fn test_upgrade_rejects_layout_mismatch() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env, 1);
+
+    client.declare_storage_layout(&admin, &hash(&env, 0xAA));
+
+    // Declared layout differs from the recorded one.
+    let id =
+        client.upgrade_propose_with_layout(&admin, &hash(&env, 2), &2, &Some(hash(&env, 0xBB)));
+    client.upgrade_queue_timelock(&admin, &id);
+    env.ledger().with_mut(|li| {
+        li.timestamp += STANDARD_TIMELOCK_SECS + 1;
+    });
+
+    let result = client.try_upgrade_execute(&admin, &id);
+    assert_failed(result);
+
+    // The upgrade must not have taken effect.
+    assert_eq!(client.current_version(), 0);
+}
+
+/// A non-admin cannot re-declare the recorded layout, so the guard cannot be
+/// silently disarmed by a compromised approver.
+#[test]
+fn test_declare_layout_requires_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _) = setup(&env, 1);
+
+    let stranger = Address::generate(&env);
+    let result = client.try_declare_storage_layout(&stranger, &hash(&env, 0xAA));
+    assert_failed(result);
+}
+
+/// Proposing without a declared fingerprint stays allowed, preserving
+/// behaviour for callers that do not participate in layout validation.
+#[test]
+fn test_upgrade_without_declared_layout_is_unaffected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env, 1);
+
+    client.declare_storage_layout(&admin, &hash(&env, 0xAA));
+
+    let id = client.upgrade_propose(&admin, &hash(&env, 3), &2);
+    client.upgrade_queue_timelock(&admin, &id);
+    env.ledger().with_mut(|li| {
+        li.timestamp += STANDARD_TIMELOCK_SECS + 1;
+    });
+    client.upgrade_execute(&admin, &id);
+
+    assert_eq!(client.current_version(), 2);
+}
+
+/// The recorded fingerprint round-trips, and is absent before declaration.
+#[test]
+fn test_storage_layout_hash_round_trips() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env, 1);
+
+    assert!(client.storage_layout_hash().is_none());
+
+    let layout = hash(&env, 0xCC);
+    client.declare_storage_layout(&admin, &layout);
+    assert_eq!(client.storage_layout_hash(), Some(layout));
+}
+
+/// Re-declaring the layout is the explicit acknowledgement of a deliberate
+/// migration, after which the new fingerprint is accepted.
+#[test]
+fn test_layout_migration_requires_explicit_redeclaration() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env, 1);
+
+    let old_layout = hash(&env, 0xAA);
+    let new_layout = hash(&env, 0xBB);
+    client.declare_storage_layout(&admin, &old_layout);
+
+    let id =
+        client.upgrade_propose_with_layout(&admin, &hash(&env, 4), &2, &Some(new_layout.clone()));
+    client.upgrade_queue_timelock(&admin, &id);
+    env.ledger().with_mut(|li| {
+        li.timestamp += STANDARD_TIMELOCK_SECS + 1;
+    });
+    assert_failed(client.try_upgrade_execute(&admin, &id));
+
+    // Admin acknowledges the migration by re-declaring.
+    client.declare_storage_layout(&admin, &new_layout);
+
+    let id2 = client.upgrade_propose_with_layout(&admin, &hash(&env, 5), &2, &Some(new_layout));
+    client.upgrade_queue_timelock(&admin, &id2);
+    env.ledger().with_mut(|li| {
+        li.timestamp += STANDARD_TIMELOCK_SECS + 1;
+    });
+    client.upgrade_execute(&admin, &id2);
+
+    assert_eq!(client.current_version(), 2);
+}

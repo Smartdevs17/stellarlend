@@ -1,0 +1,41 @@
+{
+  "index_patterns": ["stellarlend-events-*"],
+  "priority": 200,
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 1,
+      "index.lifecycle.name": "stellarlend-events",
+      "index.lifecycle.rollover_alias": "stellarlend-events",
+      "index.sort.field": ["ledger", "event_id"],
+      "index.sort.order": ["desc", "desc"]
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "@timestamp": { "type": "date" },
+        "event_id": { "type": "keyword" },
+        "type": { "type": "keyword" },
+        "envelope": { "type": "keyword" },
+        "contract": { "type": "keyword" },
+        "ledger": { "type": "long" },
+        "tx_hash": { "type": "keyword" },
+        "accounts": { "type": "keyword" },
+        "actor": { "type": "keyword" },
+        "counterparty": { "type": "keyword" },
+        "module": { "type": "keyword" },
+        "action": { "type": "keyword" },
+        "asset": { "type": "keyword" },
+        "amount": { "type": "keyword" },
+        "amount_numeric": { "type": "double" },
+        "schema_version": { "type": "integer" },
+        "schema_status": { "type": "keyword" },
+        "topic": { "type": "keyword", "index": false, "doc_values": false },
+        "data": { "type": "flattened" }
+      }
+    }
+  },
+  "_meta": {
+    "description": "Documents written by api/src/services/eventIndex/elasticsearch.ts (toElasticsearchDocument). i128 amounts are kept exactly as keyword `amount`; `amount_numeric` is a lossy copy for aggregations."
+  }
+}

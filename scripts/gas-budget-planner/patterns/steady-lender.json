@@ -1,0 +1,11 @@
+{
+  "name": "steady-lender",
+  "description": "A lender who tops up once a week, draws once a month and pays the borrow back each month. The default shape most lenders start from.",
+  "periodDays": 30,
+  "operations": {
+    "deposit": 4,
+    "borrow": 1,
+    "repay": 1,
+    "withdraw": 1
+  }
+}

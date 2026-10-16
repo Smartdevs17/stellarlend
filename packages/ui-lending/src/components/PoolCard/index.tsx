@@ -1,6 +1,7 @@
 import React from 'react';
 import type { PoolData, LendingTheme } from '../../types';
 import { LIGHT_COLORS } from '../../utils/theme';
+import { actionButtonBase } from '../../utils/responsive';
 
 interface PoolCardProps {
   pool: PoolData;
@@ -36,8 +37,8 @@ export function PoolCard({ pool, theme, onSupply, onBorrow, isLoading = false, c
   }
 
   return (
-    <div className={`pool-card ${className}`} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20 }} data-testid="pool-card">
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+    <div className={`pool-card ${className}`} style={{ background: colors.surface, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20, minWidth: 0 }} data-testid="pool-card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
         <div>
           <h3 style={{ color: colors.text, margin: 0 }}>{pool.asset}</h3>
           <span style={{ color: colors.textMuted, fontSize: 13 }}>{pool.symbol}</span>
@@ -71,12 +72,12 @@ export function PoolCard({ pool, theme, onSupply, onBorrow, isLoading = false, c
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {onSupply && (
-          <button onClick={() => onSupply(pool)} style={{ flex: 1, padding: '8px 12px', background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>Supply</button>
+          <button onClick={() => onSupply(pool)} style={{ ...actionButtonBase, background: colors.primary, color: '#fff', border: 'none' }}>Supply</button>
         )}
         {onBorrow && (
-          <button onClick={() => onBorrow(pool)} style={{ flex: 1, padding: '8px 12px', background: colors.surface, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>Borrow</button>
+          <button onClick={() => onBorrow(pool)} style={{ ...actionButtonBase, background: colors.surface, color: colors.text, border: `1px solid ${colors.border}` }}>Borrow</button>
         )}
       </div>
     </div>

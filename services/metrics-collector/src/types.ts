@@ -53,6 +53,7 @@ export interface MetricsCollectorConfig {
   rawRetentionDays: number;
   aggregatedRetentionDays: number;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
+  exporterPort: number;
 }
 
 export const PROTOCOL_METRIC_COLUMNS: Record<ProtocolMetricName, string> = {

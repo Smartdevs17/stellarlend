@@ -9,10 +9,10 @@ import {
   collateralFrequency,
   profitabilityDistribution,
 } from '../src/metrics/analytics.js';
-import { detectAnomalies } from '../src/anomaly/detect.js';
+import { detectAnomalies, detectTransactionAnomalies } from '../src/anomaly/detect.js';
 import { buildReport, writeReportFiles } from '../src/reports/generate.js';
 import { toDashboardCharts } from '../src/reports/dashboard.js';
-import type { LiquidationEvent } from '../src/types.js';
+import type { LiquidationEvent, TransactionRecord } from '../src/types.js';
 
 function liq(partial: Partial<LiquidationEvent> & Pick<LiquidationEvent, 'txHash' | 'timestamp'>): LiquidationEvent {
   return {
@@ -129,6 +129,58 @@ describe('anomaly detection', () => {
     );
     const anomalies = detectAnomalies([...base, outlier], 2.5);
     expect(anomalies.some((a) => a.txHash === 'outlier')).toBe(true);
+  });
+
+  it('does not flag a skewed normal distribution', () => {
+    const t = (i: number) => new Date(`2026-07-01T00:0${i}:00Z`);
+    const normal = Array.from({ length: 30 }, (_, i) =>
+      computeLiquidationMetrics(
+        liq({
+          txHash: `n${i}`,
+          timestamp: t(i % 9),
+          debtLiquidated: 100 + i,
+          collateralSeized: 105 + i,
+          incentiveAmount: 0,
+          gasCost: 0,
+        })
+      )
+    );
+    expect(detectAnomalies(normal, 3.5)).toEqual([]);
+  });
+});
+
+describe('transaction anomaly detection', () => {
+  const rec = (txHash: string, sender: string, recipient: string, amount: number): TransactionRecord => ({
+    txHash,
+    sender,
+    recipient,
+    amount,
+    timestamp: new Date('2026-07-01T00:00:00Z'),
+  });
+
+  it('flags a velocity burst from one sender', () => {
+    const txs = [
+      rec('s1', 'a', 'x', 5), rec('s2', 'a', 'x', 5), rec('s3', 'a', 'x', 5),
+      rec('s4', 'a', 'x', 5), rec('s5', 'a', 'x', 5), rec('s6', 'a', 'x', 5),
+      rec('s7', 'b', 'y', 5), rec('s8', 'b', 'y', 5), rec('s9', 'b', 'y', 5),
+    ];
+    const anomalies = detectTransactionAnomalies(txs);
+    expect(anomalies.some((a) => a.reason === 'velocity_burst' && a.record.sender === 'a')).toBe(true);
+  });
+
+  it('flags an amount spike relative to baseline', () => {
+    const txs = Array.from({ length: 20 }, (_, i) =>
+      rec(`spike${i}`, `s${i}`, 'pool', 1_000 + i)
+    );
+    txs.push(rec('whale', 's99', 'pool', 9_000_000));
+    const anomalies = detectTransactionAnomalies(txs, { spikeThreshold: 4 });
+    expect(anomalies.some((a) => a.txHash === 'whale' && a.reason === 'amount_spike')).toBe(true);
+  });
+
+  it('flags dusting to a single recipient', () => {
+    const txs = Array.from({ length: 15 }, (_, i) => rec(`dust${i}`, `s${i}`, 'victim', 0.01));
+    const anomalies = detectTransactionAnomalies(txs, { dustMinCount: 5 });
+    expect(anomalies.some((a) => a.reason === 'dusting' && a.record.recipient === 'victim')).toBe(true);
   });
 });
 

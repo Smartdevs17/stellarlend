@@ -1,0 +1,38 @@
+{
+  "_comment": "SYNTHETIC. Not a benchmark run \u2014 see fixtures/README.md.",
+  "version": "0.1.0",
+  "timestamp": "2026-01-01T00:00:00Z",
+  "git_commit": "0000000000000000000000000000000000000000",
+  "results": [
+    {
+      "operation": "lending::get_health_factor",
+      "scenario": "",
+      "instructions": 268412,
+      "memory_bytes": 12288,
+      "storage_reads": 3,
+      "storage_writes": 0,
+      "cold_storage": false,
+      "git_commit": "0000000000000000000000000000000000000000"
+    },
+    {
+      "operation": "lending::repay",
+      "scenario": "",
+      "instructions": 702551,
+      "memory_bytes": 20480,
+      "storage_reads": 9,
+      "storage_writes": 5,
+      "cold_storage": true,
+      "git_commit": "0000000000000000000000000000000000000000"
+    },
+    {
+      "operation": "lending::liquidate",
+      "scenario": "",
+      "instructions": 1204880,
+      "memory_bytes": 30720,
+      "storage_reads": 11,
+      "storage_writes": 7,
+      "cold_storage": true,
+      "git_commit": "0000000000000000000000000000000000000000"
+    }
+  ]
+}
