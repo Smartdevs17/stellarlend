@@ -27,13 +27,16 @@ asset may serve prices at all.
 | `heartbeat.rs` | Reporting-cadence expectations, slot liveness, expiry sweep |
 | `history.rs` | Bounded per-asset retention of resolved prices for audit |
 | `incentives.rs` | Governance-funded reward pool for accepted reports |
+| `jump.rs` | Per-update price-jump bound on push reports |
 | `upgrade.rs` | Staged/apply upgrade mechanism |
-| `tests/` | 13 focused test suites (158 tests) |
+| `tests/` | 14 focused test suites (177 tests) |
 
 ## Price production flow
 
 ```
-report_price (push) ──► PricePoint per (asset, priority)
+report_price (push) ──► jump::enforce(price, last accepted on slot)
+                          └─ beyond bound ─► revert PriceJumpExceeded
+                        ──► PricePoint per (asset, priority)
                           └─ accepted ─► heartbeat::record_beat
                                         incentives::accrue(oracle, asset)
 provider get_price  ──► fetch_provider_price ─► PricePoint per (asset, priority)
@@ -109,6 +112,8 @@ All keys live in instance storage. `DataKey` variants (see `storage.rs`):
 | `Earned(Address, Bytes)` | `i128` | Lifetime earnings of a reporter per asset |
 | `RewardedReports(Address)` | `u32` | Reports of a reporter that earned a reward |
 | `LastRewarded(Address, Bytes)` | `u64` | Start of a reporter's anti-spin window |
+| `DefaultMaxPriceJump` | `i128` | Hub-wide per-update jump bound in bps (`0` = off) |
+| `MaxPriceJump(Bytes)` | `i128` | Per-asset jump bound override |
 | `ProposedWasm` | `BytesN<32>` | Staged upgrade hash |
 
 ## Pluggable provider interface
@@ -333,6 +338,34 @@ Deviation is computed with saturating arithmetic and returns `i128::MAX` for
 non-positive operands, so a zero or negative quote can never be counted as
 agreeing with the reference.
 
+## Per-update jump bound
+
+`jump::enforce` runs inside `report_price` before the new point is stored.
+Its reference is the `LatestPrice(asset, slot)` already on disk — the slot's
+last accepted price — so the bound measures one source against its own
+history, which the cross-source check above cannot do when sources are few or
+colluding.
+
+- **Bound.** `MaxPriceJump(asset)`, else `DefaultMaxPriceJump`, else
+  `DEFAULT_MAX_PRICE_JUMP_BPS` (2_000 = 20 %). `0` disables; the setter
+  accepts `0..=10_000`.
+- **Comparison.** `|price - reference| * 10_000 > bound * reference`, with
+  saturating multiplication, so overflow only ever reads as *more* deviant.
+- **Rejection.** Reverts with `PriceJumpExceeded` (15). Nothing is written,
+  so heartbeat and reward accrual — which follow the store — never run.
+- **First report.** A slot with no stored point is unbounded; the first
+  report seeds the reference.
+- **Scope.** Push reports only. Pull quotes are produced on read and are
+  covered by the cross-source check and the provider's own controls.
+
+**Rebase path.** `rebase_price(asset, slot, price, confidence)` is
+governance-only and overwrites `LatestPrice(asset, slot)` with the given price
+at the current ledger time, bypassing the bound. It invalidates the asset's
+cache entry and publishes `PriceRebasedEvent { previous_price, price }`
+(`previous_price = 0` for a slot that never reported). It deliberately records
+no heartbeat and accrues no reward: a rebase restores the reference, not the
+reporter's liveness. The operational runbook is in the README.
+
 ## Price cache
 
 `cache.rs` memoizes the aggregated price per asset for `min(configured TTL,
@@ -369,6 +402,7 @@ All re-exported from `types.rs`: `FeedRegisteredEvent`, `FeedUpdatedEvent`,
 `FeedDisabledEvent`, `FeedEnabledEvent`, `FeedAutoDisabledEvent`,
 `PriceReportedEvent`, `PricePulledEvent`, `ProviderPriceRescaledEvent`,
 `DeviationRejectedEvent`, `FallbackActivatedEvent`,
+`MaxPriceJumpUpdatedEvent`, `PriceRebasedEvent`,
 `PriceCachedEvent`, `CacheConfigUpdatedEvent`, `PriceDecimalsUpdatedEvent`,
 `AggregationParamsUpdatedEvent`, `AssetStrategyUpdatedEvent`,
 `DefaultStrategyUpdatedEvent`, `FrozenEvent`, `UnfrozenEvent`,
@@ -386,6 +420,8 @@ All re-exported from `types.rs`: `FeedRegisteredEvent`, `FeedUpdatedEvent`,
 - `report_price` authorizes the *registered oracle address* for the slot.
 - Pull providers are untrusted inputs: prices are validated (`> 0`),
   timestamps clamped, and decimals normalized before use.
+- No push source can move its own slot further than the jump bound in one
+  report; only governance can rebase a slot past it.
 - No source can steer the aggregate by itself: a demoted leader is removed and
   reported, and a read that cannot reach `min_sources` reverting rather than
   publishing a thin consensus.

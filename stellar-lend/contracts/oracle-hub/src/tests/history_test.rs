@@ -12,12 +12,17 @@ use soroban_sdk::{Address, Bytes};
 
 /// Resolve `times` distinct prices, one per 100s ledger step, so each
 /// resolution lands in its own ledger second.
+///
+/// The price series moves in steps far larger than the jump bound, which is
+/// covered by `jump_test`, so the bound is switched off here.
 fn resolve_over_time(
     te: &super::helpers::TestEnv,
     asset: &Bytes,
     prices: &[i128],
     oracle: &Address,
 ) {
+    allow_all(te);
+    client(te).set_max_price_jump(&None, &0);
     for (i, price) in prices.iter().enumerate() {
         te.env.ledger().set_timestamp(100 * (i as u64 + 1));
         report(te, asset, oracle, *price, &FeedPriority::Primary);

@@ -24,6 +24,11 @@ reliable prices.
   trail names the source and the reference price, and the remaining sources
   publish the price. Demotion needs a quorum of three and fails closed when it
   would leave fewer sources than governance demanded.
+- **Per-update jump bound.** A push report that moves its slot more than a
+  configurable band (default 20 %) from the slot's last accepted price is
+  rejected with `PriceJumpExceeded`, so one reporter cannot reprice an asset
+  arbitrarily in a single ledger. Governance unlocks legitimate large moves
+  with `rebase_price`.
 - **Outlier rejection.** Independently of the leader check, quotes deviating
   more than the band from the median are excluded before aggregation.
 - **Decimal normalization.** Pull providers declare their own precision; the
@@ -127,6 +132,71 @@ collect quotes from every registered slot (ascending)
   than one source, the read fails closed (`InsufficientSources`) rather than
   publishing a thinner consensus than governance asked for. An asset with a
   single registered feed is always served and flagged `Sole`.
+
+## Per-update jump bound and rebase
+
+The deviation check above compares sources *with each other*. It cannot see a
+source moving *against its own history*, and with a single feed, or a quorum
+an attacker controls, there is nothing to compare against. The jump bound
+closes that gap for push feeds.
+
+```
+report_price(asset, price, slot)
+  │
+  ├─ slot has no accepted price yet ──► accepted (seeds the reference)
+  ├─ bound == 0                    ──► accepted (check disabled)
+  │
+  └─ |price - last| * 10_000 > bound * last ?
+        no  ──► stored, heartbeat, reward
+        yes ──► revert PriceJumpExceeded (#15); slot keeps `last`
+```
+
+| Call | Who | Effect |
+| ---- | --- | ------ |
+| `set_max_price_jump(None, bps)` | governance | Hub-wide bound (default `2_000` = 20 %) |
+| `set_max_price_jump(Some(asset), bps)` | governance | Per-asset override |
+| `get_max_price_jump(asset)` | anyone | Effective bound for an asset |
+| `rebase_price(asset, slot, price, confidence)` | governance | Overwrite the slot's reference, bypassing the bound |
+
+- The bound is per `(asset, slot)`: each slot is measured only against its own
+  last accepted price, never against another slot.
+- `0` disables the check; values outside `0..=10_000` are rejected
+  (`InvalidConfig`). A `10_000` band still admits a doubling per report.
+- The comparison is exact (cross-multiplied), so a move a fraction of a basis
+  point past the bound is not rounded back onto it.
+- A rejected report stores nothing, records no heartbeat and earns no reward.
+- Pull feeds are not bounded here; they remain subject to the cross-source
+  deviation check and the provider's own controls.
+
+### Rebase runbook
+
+A legitimate move larger than the bound — a depeg, a redenomination, a gap
+after a long outage — leaves the slot locked: every honest report reverts with
+`PriceJumpExceeded` against the stale reference. If the asset has a heartbeat
+configured, the slot then expires and the hub stops serving the asset, which
+fails closed. To recover:
+
+1. **Confirm the move is real.** Check the rejected price against independent
+   venues and the asset's other slots. A rejection with no corresponding
+   market move is a compromised or faulty reporter: disable the feed
+   (`disable_feed`) instead of rebasing.
+2. **Rebase every affected slot.**
+   `rebase_price(asset, slot, market_price, confidence)` writes `market_price`
+   as the slot's reference with the current ledger time, invalidates the
+   asset's cached price, and publishes
+   `PriceRebasedEvent { asset, priority, previous_price, price }`.
+3. **Re-enable the slot if it went stale.** While locked, the slot's point
+   ages past its `stale_threshold_seconds` and the next read auto-disables
+   the feed. A rebase does not re-enable it; call `enable_feed(asset, slot)`.
+4. **Let the provider resume.** Its next report is bounded against the rebased
+   price. A rebase records no heartbeat, so the provider must actually report
+   for the slot to be live again.
+5. **Optionally widen the bound instead.** For an asset expected to stay
+   volatile, `set_max_price_jump(Some(asset), bps)` instead of repeated
+   rebases. Restore the tighter bound once it settles.
+
+Rebasing is a governance action precisely because it bypasses the bound: the
+reporter whose price was rejected can never rebase its own slot.
 
 ## Decimal normalization
 
@@ -294,6 +364,7 @@ The suite lives in `src/tests/`:
 | `health_test` | feed classification, breaker trip/cooldown/self-heal, success reset |
 | `heartbeat_test` | cadence classification, arming, expiry fail-closed, breaker interaction, recovery, pull exemption, config governance, sweep idempotence |
 | `history_test` | opt-in recording, fresh-resolution-only audit trail, same-second collapse, ordering, ring wrap, range queries, retention changes, governance |
+| `jump_test` | default bound, exact boundary, up/down rejection, per-slot reference, hub/asset configuration, disabling, governance gating, rebase recovery and cache invalidation |
 | `incentives_test` | accepted-only accrual, per-asset rates, anti-spin interval, claim auth, pool shortfall, withdrawal limits, freeze interaction |
 | `freeze_test` | global and per-asset freeze/thaw, precedence, auth |
 | `upgrade_test` | staging, pending visibility, frozen/unauthorized gating, invalid-wasm rejection |

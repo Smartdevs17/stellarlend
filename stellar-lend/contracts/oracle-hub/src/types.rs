@@ -440,6 +440,27 @@ pub struct DeviationRejectedEvent {
     pub deviation_bps: i128,
 }
 
+/// Governance changed the per-update price-jump bound. `asset` is `None` for
+/// the hub-wide default.
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct MaxPriceJumpUpdatedEvent {
+    pub asset: Option<Bytes>,
+    pub max_jump_bps: i128,
+}
+
+/// Governance overwrote a slot's reference price, bypassing the jump bound.
+/// `previous_price` is `0` when the slot had never reported.
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct PriceRebasedEvent {
+    #[topic]
+    pub asset: Bytes,
+    pub priority: u32,
+    pub previous_price: i128,
+    pub price: i128,
+}
+
 #[contractevent]
 #[derive(Clone, Debug)]
 pub struct FallbackActivatedEvent {

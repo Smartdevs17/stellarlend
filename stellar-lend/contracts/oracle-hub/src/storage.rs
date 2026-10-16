@@ -115,4 +115,9 @@ pub enum DataKey {
     /// Ledger time of one reporter's last rewarded report for one asset, the
     /// start of its anti-spin window. Value: `u64`.
     LastRewarded(Address, Bytes),
+    /// Hub-wide bound on how far one push report may move its slot, in bps.
+    /// `0` disables the check. Value: `i128`.
+    DefaultMaxPriceJump,
+    /// Per-asset override of [`DataKey::DefaultMaxPriceJump`]. Value: `i128`.
+    MaxPriceJump(Bytes),
 }

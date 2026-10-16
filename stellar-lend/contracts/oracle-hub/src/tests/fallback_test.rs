@@ -192,6 +192,11 @@ fn test_demoted_source_recovers_once_it_reports_again() {
 
     assert!(client(&te).get_price(&asset).used_fallback);
 
+    // The correction is a 90 % move, beyond the per-update jump bound; this
+    // test is about demotion, so the bound is switched off.
+    allow_all(&te);
+    client(&te).set_max_price_jump(&None, &0);
+
     // The manipulated source corrects itself: the deviation check no longer
     // fires and the primary is trusted again.
     te.env.ledger().set_timestamp(10);

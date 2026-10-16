@@ -32,6 +32,7 @@ mod heartbeat;
 mod history;
 mod incentives;
 mod interface;
+mod jump;
 mod provider;
 mod storage;
 mod types;
@@ -76,6 +77,10 @@ pub enum OracleHubError {
     RewardPoolShortfall = 13,
     /// A reporter's earnings would exceed the largest representable balance.
     RewardOverflow = 14,
+    /// A push report moved its slot further from the last accepted price
+    /// than the asset's jump bound allows. Governance rebases the slot with
+    /// `rebase_price` when the move is legitimate.
+    PriceJumpExceeded = 15,
 }
 
 /// The Oracle Hub contract.
@@ -601,6 +606,10 @@ impl OracleHubContract {
             confidence,
         };
         let latest_key = storage::DataKey::LatestPrice(asset.clone(), priority as u32);
+        // Bound the move against the slot's last accepted price, so one report
+        // cannot reprice the slot arbitrarily far in a single ledger.
+        let previous: Option<PricePoint> = env.storage().instance().get(&latest_key);
+        jump::enforce(&env, &asset, price, previous.map(|point| point.price));
         env.storage().instance().set(&latest_key, &price_point);
 
         // The report is the slot's heartbeat.
@@ -615,6 +624,78 @@ impl OracleHubContract {
             priority: priority as u32,
             price,
             confidence,
+        }
+        .publish(&env);
+    }
+
+    // ── Price-jump bound ───────────────────────────────────────────────────
+
+    /// Bound how far one push report may move its slot from the last accepted
+    /// price, in basis points.
+    ///
+    /// Pass `None` for the hub-wide default, or an asset for an override. `0`
+    /// disables the check for that scope; values above 10_000 are rejected.
+    pub fn set_max_price_jump(env: Env, asset: Option<Bytes>, max_jump_bps: i128) {
+        require_not_frozen(&env);
+        require_governance(&env).require_auth();
+        jump::set_bound(&env, asset.as_ref(), max_jump_bps);
+    }
+
+    /// Effective per-update jump bound for an asset, in basis points.
+    pub fn get_max_price_jump(env: Env, asset: Bytes) -> i128 {
+        jump::bound(&env, &asset)
+    }
+
+    /// Governance overwrites a slot's reference price, bypassing the jump
+    /// bound.
+    ///
+    /// This is the recovery path for a legitimate move larger than the bound:
+    /// once rebased, the slot serves `price` and the provider's next report is
+    /// bounded against it. It records no heartbeat and earns no reward, so a
+    /// slot whose provider has stopped reporting still expires.
+    pub fn rebase_price(
+        env: Env,
+        asset: Bytes,
+        priority: FeedPriority,
+        price: i128,
+        confidence: u32,
+    ) {
+        require_not_frozen(&env);
+        require_governance(&env).require_auth();
+        if price <= 0 {
+            panic_with_error!(&env, OracleHubError::InvalidPrice);
+        }
+        if !env
+            .storage()
+            .instance()
+            .has(&storage::DataKey::Feed(asset.clone(), priority as u32))
+        {
+            panic_with_error!(&env, OracleHubError::FeedNotFound);
+        }
+
+        let latest_key = storage::DataKey::LatestPrice(asset.clone(), priority as u32);
+        let previous_price = env
+            .storage()
+            .instance()
+            .get::<_, PricePoint>(&latest_key)
+            .map(|point| point.price)
+            .unwrap_or(0);
+        env.storage().instance().set(
+            &latest_key,
+            &PricePoint {
+                asset: asset.clone(),
+                price,
+                timestamp: env.ledger().timestamp(),
+                confidence,
+            },
+        );
+        cache::invalidate_asset(&env, &asset);
+
+        types::PriceRebasedEvent {
+            asset,
+            priority: priority as u32,
+            previous_price,
+            price,
         }
         .publish(&env);
     }
@@ -1115,4 +1196,5 @@ stellarlend_errors::impl_contract_error! {
     HeartbeatExpired => PriceUnavailable, "A monitored feed slot stopped reporting past its expiry, so the hub refuses to serve a price nobody is updating";
     RewardPoolShortfall => Insufficient, "The reward pool cannot cover a claim or withdrawal reporters have already earned against", ContactAdmin;
     RewardOverflow => Overflow, "A reporter's earnings would exceed the largest representable balance";
+    PriceJumpExceeded => PriceUnavailable, "The reported price moved further from the last accepted price than the configured bound allows", ContactAdmin;
 }
