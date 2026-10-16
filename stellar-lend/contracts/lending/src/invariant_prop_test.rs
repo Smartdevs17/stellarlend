@@ -87,6 +87,10 @@ proptest! {
             for u in &users {
                 prop_assert!(client.get_collateral_balance(u) >= 0);
                 prop_assert!(client.get_debt_balance(u)       >= 0);
+                prop_assert!(
+                    client.get_health_factor(u) >= 0,
+                    "health factor must never become negative"
+                );
             }
         }
     }
