@@ -1,0 +1,30 @@
+name: Lending API load test
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Base URL of the deployed lending API
+        required: true
+        type: string
+      duration:
+        description: Test duration, for example 30s or 2m
+        required: false
+        default: 30s
+        type: string
+  schedule:
+    - cron: '17 3 * * 1'
+
+jobs:
+  load-test:
+    runs-on: ubuntu-latest
+    env:
+      LENDING_API_BASE_URL: ${{ inputs.base_url || vars.LENDING_API_BASE_URL }}
+      K6_DURATION: ${{ inputs.duration || '30s' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: grafana/setup-k6-action@v1
+      - name: Require a target URL
+        run: test -n "$LENDING_API_BASE_URL"
+      - name: Run lending API load scenario
+        run: k6 run tests/load/lending-api.k6.js
