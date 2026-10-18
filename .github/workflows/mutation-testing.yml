@@ -27,9 +27,13 @@ jobs:
       - name: Run mutation suite
         run: npm run mutation:test
 
+      - name: Record mutation score
+        if: success()
+        run: node ../scripts/track-mutation-score.js api reports/mutation/report.json
+
       - name: Upload mutation report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: api-mutation-report
-          path: api/reports/mutation/
+          path: reports/mutation/
