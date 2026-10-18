@@ -50,6 +50,8 @@ protocol terms and the fixed-point conventions used across these documents.
 - Data management: generic data store, backup/restore, migration
 - Configuration: versioned param store with backup/restore
 - **[Contract Integration Guide](CONTRACT_INTEGRATION.md)** - connect through the SDK and implement the deposit/borrow/repay/withdraw, liquidation and flash-loan flows
+- **[Examples](../examples/README.md)** - runnable, tested SDK examples (pagination, transaction builders) and an index of every example in the repo
+- **[Local Devnet](devnet.md)** - one-command devnet and the [faucet](devnet.md#faucet) for funding accounts
 
 ## Admin Operations
 Key admin entrypoints (see contract for full list):

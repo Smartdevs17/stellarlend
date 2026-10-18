@@ -120,9 +120,7 @@ ensure_identity() {
   fi
   local addr
   addr="$(capture "<${name}-address>" stellar keys address "${name}")"
-  log "Funding ${name} (${addr}) via friendbot..."
-  run curl -sf -o /dev/null "${FRIENDBOT_URL}?addr=${addr}" \
-    || log "  friendbot refused ${name} (already funded?)"
+  friendbot_fund "${addr}" "${name}"
   echo "${addr}"
 }
 

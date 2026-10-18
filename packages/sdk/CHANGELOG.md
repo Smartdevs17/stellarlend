@@ -14,3 +14,8 @@ follows [Semantic Versioning](https://semver.org/); releases are tagged
   `retry` client option; writes retry only with `retryWrites: true`.
 - Runnable examples: borrow lifecycle, error handling, Soroban RPC adapter,
   utilization breaker and wallet connection.
+- Auto-pagination: `paginate`, `paginatePages`, `offsetFetcher` and `collect`
+  async-iterator helpers, plus `client.paginate` for offset/limit entrypoints.
+- Typed transaction builders: `LendingTransactions` (exposed as `client.tx`)
+  returns validated `TypedInvocation<R>` values that `client.execute` runs.
+- `ContractValue` accepts `number`, encoded as a Soroban `u32`.

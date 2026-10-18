@@ -6,7 +6,8 @@
  * server key) to sign, submits it and waits for the result.
  *
  * Argument encoding follows the lending contract's interface: `G…`/`C…` strings become
- * `Address`, `bigint` becomes `i128`, plain objects become structs (symbol-keyed maps).
+ * `Address`, `number` becomes `u32`, `bigint` becomes `i128`, plain objects become structs
+ * (symbol-keyed maps).
  */
 import {
   Account,
@@ -55,6 +56,7 @@ export function toScVal(value: ContractValue): xdr.ScVal {
     }
     return nativeToScVal(value, { type: 'string' });
   }
+  if (typeof value === 'number') return nativeToScVal(value, { type: 'u32' });
   if (typeof value === 'bigint') return nativeToScVal(value, { type: 'i128' });
   if (typeof value === 'boolean') return xdr.ScVal.scvBool(value);
   if (value instanceof Uint8Array) return xdr.ScVal.scvBytes(Buffer.from(value));

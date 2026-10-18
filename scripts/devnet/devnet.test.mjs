@@ -6,22 +6,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const here = import.meta.dirname;
 
 function plan(script, ...args) {
+  return planIn(mkdtempSync(join(tmpdir(), 'devnet-')), script, ...args);
+}
+
+function planIn(stateDir, script, ...args) {
   const res = spawnSync('bash', [join(here, script), '--dry-run', ...args], {
     encoding: 'utf8',
-    env: { ...process.env, DEVNET_STATE_DIR: mkdtempSync(join(tmpdir(), 'devnet-')) },
+    env: { ...process.env, DEVNET_STATE_DIR: stateDir },
   });
   const commands = res.stderr
     .split('\n')
     .filter((l) => l.startsWith('+ '))
     .map((l) => l.slice(2));
-  return { status: res.status, stderr: res.stderr, commands };
+  return { status: res.status, stdout: res.stdout, stderr: res.stderr, commands };
 }
 
 /** Index of the first command containing every fragment, starting at `from`. */
@@ -42,7 +46,7 @@ function assertOrder(commands, steps) {
   }
 }
 
-for (const script of ['bootstrap.sh', 'rehearse-upgrade.sh', 'lib.sh']) {
+for (const script of ['bootstrap.sh', 'rehearse-upgrade.sh', 'faucet.sh', 'lib.sh']) {
   test(`${script} parses`, () => {
     assert.equal(spawnSync('bash', ['-n', join(here, script)]).status, 0);
   });
@@ -125,4 +129,64 @@ test('rehearse-upgrade: --candidate skips the build', () => {
   assert.equal(status, 0);
   assert.equal(find(commands, ['stellar contract build']), -1);
   assert.notEqual(find(commands, ['cp /tmp/candidate.wasm']), -1);
+});
+
+// ── faucet ──────────────────────────────────────────────────────────────────
+
+const G_ADDR = 'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7';
+const C_ADDR = 'CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526';
+
+test('faucet: an identity is created, funded with XLM, trusts USDC, then gets minted USDC', () => {
+  const { status, commands, stdout } = plan('faucet.sh', 'sl-dave');
+  assert.equal(status, 0);
+  assertOrder(commands, [
+    ['stellar keys generate sl-dave'],
+    ['curl', 'friendbot', 'sl-dave-address'],
+    ['stellar tx new change-trust', '--source sl-dave', 'USDC:'],
+    ['--source sl-admin', '-- mint', '--to', 'sl-dave-address', `--amount ${10000n * 10_000_000n}`],
+  ]);
+  assert.match(stdout, /^sl-dave <sl-dave-address>$/m);
+});
+
+test('faucet: raw addresses skip key generation and trustlines; contracts skip friendbot', () => {
+  const { status, commands } = plan('faucet.sh', G_ADDR, C_ADDR, '--usdc', '5');
+  assert.equal(status, 0);
+  assert.equal(find(commands, ['stellar keys generate']), -1);
+  assert.equal(find(commands, ['change-trust']), -1);
+  assert.notEqual(find(commands, ['friendbot', G_ADDR]), -1);
+  assert.equal(find(commands, ['friendbot', C_ADDR]), -1);
+  const mints = commands.filter((c) => c.includes('-- mint'));
+  assert.equal(mints.length, 2);
+  assert.ok(mints.every((m) => m.includes('--amount 50000000')));
+});
+
+test('faucet: --usdc 0 and --no-xlm skip their steps', () => {
+  const xlmOnly = plan('faucet.sh', G_ADDR, '--usdc', '0');
+  assert.equal(xlmOnly.status, 0);
+  assert.equal(find(xlmOnly.commands, ['-- mint']), -1);
+  assert.notEqual(find(xlmOnly.commands, ['friendbot']), -1);
+
+  const usdcOnly = plan('faucet.sh', G_ADDR, '--no-xlm');
+  assert.equal(usdcOnly.status, 0);
+  assert.equal(find(usdcOnly.commands, ['friendbot']), -1);
+  assert.notEqual(find(usdcOnly.commands, ['-- mint']), -1);
+});
+
+test('faucet: reads the USDC contract and admin from state.json', () => {
+  const stateDir = mkdtempSync(join(tmpdir(), 'devnet-'));
+  writeFileSync(join(stateDir, 'state.json'), JSON.stringify({
+    contracts: { lending: 'CLENDING', usdc: 'CUSDCFROMSTATE' },
+    accounts: { admin: { identity: 'sl-admin', address: 'GADMINFROMSTATE' } },
+  }, null, 2));
+  const { status, commands } = planIn(stateDir, 'faucet.sh', 'sl-dave');
+  assert.equal(status, 0);
+  assert.notEqual(find(commands, ['change-trust', 'USDC:GADMINFROMSTATE']), -1);
+  assert.notEqual(find(commands, ['--id CUSDCFROMSTATE', '-- mint']), -1);
+});
+
+test('faucet: rejects missing targets, unknown flags and bad amounts', () => {
+  for (const args of [[], ['--bogus', 'sl-dave'], ['sl-dave', '--usdc', '1.5'], ['sl-dave', '--usdc', '-1']]) {
+    const res = spawnSync('bash', [join(here, 'faucet.sh'), '--dry-run', ...args], { encoding: 'utf8' });
+    assert.notEqual(res.status, 0, `expected failure for ${JSON.stringify(args)}`);
+  }
 });

@@ -31,8 +31,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.examples.json --noEmit",
-    "test": "npm run test:examples",
-    "test:examples": "tsc -p tsconfig.examples.json && node --test .examples-build/examples/examples.test.js"
+    "test": "npm run test:examples && npm run test:unit",
+    "test:examples": "tsc -p tsconfig.examples.json && node --test .examples-build/examples/examples.test.js",
+    "test:unit": "tsc -p tsconfig.examples.json && node --test .examples-build/test/pagination.test.js .examples-build/test/transactions.test.js"
   },
   "devDependencies": {
     "@stellar/stellar-sdk": "^14.5.0",

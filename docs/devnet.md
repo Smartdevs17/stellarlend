@@ -57,6 +57,7 @@ Running it again against a live devnet does nothing except print the summary.
 | `npm run devnet` | Bootstrap, or print the summary if already up |
 | `npm run devnet:reset` | Stop the node, delete `.devnet/`, bootstrap from an empty ledger |
 | `npm run devnet:rehearse-upgrade` | Rehearse an upgrade and rollback ([runbook](runbooks/upgrade-and-migration.md)) |
+| `npm run devnet:faucet -- <name\|address>...` | Fund accounts with XLM and devnet USDC ([Faucet](#faucet)) |
 | `bash scripts/devnet/bootstrap.sh --dry-run` | Print every command without running anything |
 | `bash scripts/devnet/bootstrap.sh --no-node` | Use an RPC you already run (e.g. `docker/devnet` compose) |
 | `bash scripts/devnet/bootstrap.sh --skip-build` | Deploy the existing wasm |
@@ -65,6 +66,40 @@ Running it again against a live devnet does nothing except print the summary.
 Environment overrides: `DEVNET_RPC_URL`, `DEVNET_FRIENDBOT_URL`, `DEVNET_PASSPHRASE`,
 `DEVNET_CONTAINER`, `DEVNET_KEY_PREFIX`, `DEVNET_STATE_DIR`, `DEVNET_WASM`,
 `DEVNET_HEALTH_TIMEOUT`.
+
+## Faucet
+
+Fund any number of accounts with XLM and devnet USDC in one command, against the
+devnet recorded in `.devnet/state.json`:
+
+```bash
+npm run devnet:faucet -- sl-dave                  # create sl-dave if needed, 10,000 USDC
+npm run devnet:faucet -- sl-dave sl-erin --usdc 500
+npm run devnet:faucet -- GABC...                  # existing account (must trust USDC)
+npm run devnet:faucet -- CABC... --no-xlm         # contract: USDC only
+```
+
+For each target, `scripts/devnet/faucet.sh`:
+
+1. Generates the identity with `stellar keys generate` if the name doesn't exist yet.
+2. Funds accounts (`G...`) with XLM through friendbot. Contracts are skipped, and so are
+   accounts friendbot already funded.
+3. Adds a `USDC:<admin>` trustline for identities, signed with their own key.
+4. Has `sl-admin` mint the USDC through the USDC asset contract.
+
+It prints one `<target> <address>` line per target on stdout, so scripts can capture
+the new addresses.
+
+| Option | Effect |
+|---|---|
+| `--usdc <amount>` | Whole USDC per target (default 10,000; `0` skips USDC) |
+| `--no-xlm` | Skip friendbot |
+| `--dry-run` | Print every command without running anything |
+
+The faucet can't add a trustline to a raw `G...` address because it doesn't hold that
+key, so the mint fails with a hint until the account trusts `USDC:<admin>`. Create the
+account as an identity instead (`npm run devnet:faucet -- <name>`) to have it done for
+you. The same `DEVNET_*` overrides as `bootstrap.sh` apply.
 
 ## Using it
 

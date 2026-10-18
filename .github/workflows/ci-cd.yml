@@ -253,6 +253,9 @@ jobs:
       - name: SDK examples — compile and test
         run: npm run test -w @stellarlend/sdk
 
+      - name: Examples workspace — build and test
+        run: npm run test -w @stellarlend/examples
+
       - name: Devnet scripts — dry-run plan tests
         run: npm run test:devnet
 

@@ -1,6 +1,9 @@
 import { normalizeProtocolError } from './errors';
+import { paginate, offsetFetcher, type PaginateOptions } from './pagination';
+import { LendingTransactions, requireAddress, type TypedInvocation } from './transactions';
 
-export type ContractValue = string | bigint | boolean | Uint8Array | null | ContractValue[] | { [key: string]: ContractValue };
+/** Contract argument/return value. `number` is a Soroban `u32` (e.g. page offsets and limits). */
+export type ContractValue = string | number | bigint | boolean | Uint8Array | null | ContractValue[] | { [key: string]: ContractValue };
 
 export interface ContractInvocation {
   contractId: string;
@@ -80,14 +83,6 @@ export interface UserPosition {
   [key: string]: ContractValue | undefined;
 }
 
-function requireAddress(name: string, value: string): void {
-  if (!value || typeof value !== 'string') throw new TypeError(`${name} is required`);
-}
-
-function requireAmount(name: string, value: bigint): void {
-  if (typeof value !== 'bigint' || value <= 0n) throw new RangeError(`${name} must be a positive bigint`);
-}
-
 function resolveRetry(options: RetryOptions = {}): RetryPolicy {
   const policy: RetryPolicy = {
     ...DEFAULT_RETRY_OPTIONS,
@@ -122,86 +117,73 @@ export function retryDelayMs(policy: Omit<RetryPolicy, 'sleep' | 'retryWrites'>,
  */
 export class StellarLendClient {
   readonly contractId: string;
+  /** Typed builders for this client's contract and source account. */
+  readonly tx: LendingTransactions;
   private readonly adapter: ContractAdapter;
-  private readonly source?: string;
   private readonly retry: RetryPolicy;
 
   constructor(options: StellarLendClientOptions) {
-    requireAddress('contractId', options.contractId);
+    this.tx = new LendingTransactions({ contractId: options.contractId, source: options.source });
     this.contractId = options.contractId;
     this.adapter = options.adapter;
-    this.source = options.source;
     this.retry = resolveRetry(options.retry);
   }
 
   deposit(params: AssetAmount): Promise<bigint> {
-    return this.mutate('deposit', assetAmountArgs(params));
+    return this.execute(this.tx.deposit(params));
   }
 
   withdraw(params: AssetAmount): Promise<bigint> {
-    return this.mutate('withdraw', assetAmountArgs(params));
+    return this.execute(this.tx.withdraw(params));
   }
 
   repay(params: AssetAmount): Promise<void> {
-    return this.mutate('repay', assetAmountArgs(params));
+    return this.execute(this.tx.repay(params));
   }
 
   borrow(params: BorrowParams): Promise<void> {
-    validateAssetAmount(params);
-    requireAddress('collateralAsset', params.collateralAsset);
-    requireAmount('collateralAmount', params.collateralAmount);
-    return this.mutate('borrow', [
-      params.user, params.asset, params.amount,
-      params.collateralAsset, params.collateralAmount,
-    ]);
+    return this.execute(this.tx.borrow(params));
   }
 
   liquidate(params: LiquidateParams): Promise<void> {
-    requireAddress('liquidator', params.liquidator);
-    requireAddress('borrower', params.borrower);
-    requireAddress('debtAsset', params.debtAsset);
-    requireAddress('collateralAsset', params.collateralAsset);
-    requireAmount('amount', params.amount);
-    return this.mutate('liquidate', [
-      params.liquidator, params.borrower, params.debtAsset,
-      params.collateralAsset, params.amount,
-    ]);
+    return this.execute(this.tx.liquidate(params));
   }
 
   getUserPosition(user: string): Promise<UserPosition> {
-    requireAddress('user', user);
-    return this.read('get_user_position', [user]);
+    return this.execute(this.tx.getUserPosition(user));
   }
 
   getUserDebt(user: string): Promise<DebtPosition> {
-    requireAddress('user', user);
-    return this.read('get_user_debt', [user]);
+    return this.execute(this.tx.getUserDebt(user));
   }
 
   invoke<T>(method: string, args: ContractValue[] = [], readonly = false): Promise<T> {
+    return this.execute(this.tx.custom<T>(method, args, readonly));
+  }
+
+  /**
+   * Iterates a read-only `(…args, offset, limit)` list entrypoint page by page, e.g.
+   * `client.paginate<Address>('get_recipients_page')`. Offset and limit are appended as
+   * the last two arguments; a page shorter than the limit ends iteration.
+   */
+  paginate<T>(method: string, args: ContractValue[] = [], options: PaginateOptions<number> = {}): AsyncGenerator<T, void, undefined> {
     requireAddress('method', method);
-    return this.call<T>(method, args, readonly);
+    return paginate(
+      offsetFetcher((offset, limit) => this.invoke<T[]>(method, [...args, offset, limit], true)),
+      options,
+    );
   }
 
-  private read<T>(method: string, args: ContractValue[]): Promise<T> {
-    return this.call<T>(method, args, true);
-  }
-
-  private mutate<T>(method: string, args: ContractValue[]): Promise<T> {
-    return this.call<T>(method, args, false);
-  }
-
-  private async call<T>(method: string, args: ContractValue[], readonly: boolean): Promise<T> {
+  /**
+   * Runs an invocation built with `tx` (or any `TypedInvocation`), applying the retry
+   * policy. Read-only invocations are retried; writes only when `retryWrites` is set.
+   */
+  async execute<T>(invocation: TypedInvocation<T>): Promise<T> {
+    const readonly = invocation.readonly ?? false;
     const maxRetries = readonly || this.retry.retryWrites ? this.retry.maxRetries : 0;
     for (let retry = 0; ; retry++) {
       try {
-        return await this.adapter.invoke<T>({
-          contractId: this.contractId,
-          method,
-          args,
-          source: this.source,
-          readonly,
-        });
+        return await this.adapter.invoke<T>({ ...invocation, readonly });
       } catch (thrown) {
         const error = normalizeProtocolError(thrown);
         if (!error.retryable || retry >= maxRetries) throw error;
@@ -209,15 +191,4 @@ export class StellarLendClient {
       }
     }
   }
-}
-
-function validateAssetAmount(params: AssetAmount): void {
-  requireAddress('user', params.user);
-  requireAddress('asset', params.asset);
-  requireAmount('amount', params.amount);
-}
-
-function assetAmountArgs(params: AssetAmount): ContractValue[] {
-  validateAssetAmount(params);
-  return [params.user, params.asset, params.amount];
 }

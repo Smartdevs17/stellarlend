@@ -215,6 +215,7 @@ test('toScVal encodes addresses, i128, structs and vectors the way the contract 
   assert.equal(toScVal(CONTRACT).switch(), xdr.ScValType.scvAddress());
   assert.equal(toScVal('hello').switch(), xdr.ScValType.scvString());
   assert.equal(toScVal(5n).switch(), xdr.ScValType.scvI128());
+  assert.equal(toScVal(5).switch(), xdr.ScValType.scvU32());
   assert.equal(toScVal(null).switch(), xdr.ScValType.scvVoid());
   const struct = toScVal({ enabled: true, amount: 1n });
   assert.deepEqual(

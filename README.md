@@ -92,6 +92,9 @@ docker compose up -d            # boots the Soroban node, API, oracle, postgres,
 - Horizon: http://localhost:8000
 - Friendbot (free test XLM): http://localhost:8000/friendbot
 
+Fund extra devnet accounts with XLM and devnet USDC using the
+[faucet](docs/devnet.md#faucet): `npm run devnet:faucet -- <identity|address>`.
+
 See [docker/devnet/README.md](docker/devnet/README.md) for full setup, seeded
 data, liquidation scenarios, and reset instructions. The same environment is
 used by the VS Code Dev Container.
@@ -251,6 +254,7 @@ For a complete list of entrypoints including AMM, flash loans, bridge, governanc
 - **[Fuzzing Strategy](docs/fuzzing.md)**: Coverage-guided, property-based fuzzing harnesses (cargo-fuzz/libFuzzer) for contract edge cases
 - **[Contract README](stellar-lend/contracts/hello-world/README.md)**: Contract-specific documentation and entrypoint reference
 - **[CI/CD Documentation](ci-doc.md)**: Continuous integration setup and local reproduction guide
+- **[Examples](examples/README.md)**: Runnable, tested SDK examples and an index of every example in the repo
 - **[Example Reports](docs/examples/)**: Example JSON outputs for protocol and user analytics
 
 ---

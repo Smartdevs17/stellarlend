@@ -58,6 +58,18 @@ rpc_healthy() {
     -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' 2>/dev/null | grep -q '"healthy"'
 }
 
+# True for a G... account or C... contract strkey (vs. a stellar CLI identity name).
+is_address() { [[ "$1" =~ ^[GC][A-Z2-7]{55}$ ]]; }
+
+# Fund an account with XLM through friendbot. Friendbot refuses accounts that already
+# exist, which is not an error for our purposes.
+friendbot_fund() {
+  local addr="$1" label="${2:-$1}"
+  log "Funding ${label} (${addr}) via friendbot..."
+  run curl -sf -o /dev/null "${FRIENDBOT_URL}?addr=${addr}" \
+    || log "  friendbot refused ${label} (already funded?)"
+}
+
 state_field() {
   # Extract a "key": "value" string from the state file without requiring jq.
   grep -oE "\"$1\": \"[^\"]*\"" "${STATE_FILE}" | head -n1 | sed -E 's/.*: "(.*)"/\1/'

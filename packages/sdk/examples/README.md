@@ -4,6 +4,9 @@ Runnable, type-checked examples for common operations. Each file exports plain f
 so you can copy one into your app or call it directly. `examples.test.ts` covers every
 example, and CI compiles and runs it.
 
+More runnable examples (auto-pagination, typed transaction builders) and an index of
+every example in the repo live in the [examples workspace](../../../examples/README.md).
+
 | File | Shows |
 |---|---|
 | [`rpc-adapter.ts`](rpc-adapter.ts) | A production `ContractAdapter` over Soroban RPC: build, simulate, sign, submit, poll. Also `keypairSigner` for servers and bots. |
