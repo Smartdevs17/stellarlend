@@ -5,6 +5,10 @@ edition = "2021"
 authors = ["StellarLend Contributors"]
 description = "Blockchain integration layer for StellarLend protocol"
 license = "MIT"
+repository = "https://github.com/Nursca/stellarlend"
+readme = "README.md"
+keywords = ["stellar", "soroban", "defi", "lending", "client"]
+categories = ["api-bindings", "asynchronous"]
 
 [dependencies]
 # HTTP client for API calls

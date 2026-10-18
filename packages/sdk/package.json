@@ -1,8 +1,23 @@
 {
   "name": "@stellarlend/sdk",
   "version": "0.1.0",
-  "description": "Frontend and backend helpers for parsing StellarLend contract errors",
+  "description": "Typed TypeScript client and helpers for the StellarLend protocol",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Nursca/stellarlend.git",
+    "directory": "packages/sdk"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "stellar",
+    "soroban",
+    "defi",
+    "lending",
+    "sdk"
+  ],
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -10,6 +10,7 @@ These suites build against the contract's public client (`LendingContractClient`
 | `protocol_formal_specs.rs` | — | Formal specification lemmas |
 | `scenarios.rs` | #700 | JSON scenarios from `test-utils/scenarios/`, plus seeded multi-user and price-path checks against the reference health-factor model |
 | `config_auth.rs`, `admin_config_auth.rs` | — | Admin-only configuration entry points reject callers without auth |
+| `incident_regressions.rs` | #1440 | One regression test per past incident, indexed in [`docs/INCIDENT_REGRESSIONS.md`](../../../../docs/INCIDENT_REGRESSIONS.md) |
 
 Shared setup lives in `common/mod.rs` and builds on the `test-utils` framework: `snapshotless_env()`, `PriceOracle`, and `GasMeter`/`GasBudgets` for journey metering. See [`../../../TESTING.md`](../../../TESTING.md) for the unified runner (`scripts/testing/run-contract-tests.sh`), coverage and CI.
 

@@ -108,6 +108,80 @@ test('raw contract codes stay available for logging', () => {
   assert.match(messageForUser(new ProtocolError(ProtocolErrorCode.LimitExceeded)), /borrowing limit/);
 });
 
+// ── client retry defaults ───────────────────────────────────────────────────
+
+function flaky(method: string, failures: number, code = ProtocolErrorCode.CrossContractFailure) {
+  let calls = 0;
+  const adapter = new FakeAdapter().on(method, () => {
+    if (++calls <= failures) throw { code };
+    return { borrowed_amount: 1n };
+  });
+  return { adapter, calls: () => calls };
+}
+
+test('reads retry retryable errors with the default exponential backoff', async () => {
+  const { adapter, calls } = flaky('get_user_debt', 3);
+  const sleeps: number[] = [];
+  const lending = new StellarLendClient({
+    contractId: CONTRACT,
+    adapter,
+    retry: { sleep: async (ms) => void sleeps.push(ms) },
+  });
+  assert.deepEqual(await lending.getUserDebt(USER), { borrowed_amount: 1n });
+  assert.equal(calls(), 4);
+  assert.deepEqual(sleeps, [100, 200, 400]);
+});
+
+test('retry gives up after maxRetries and rethrows the normalized error', async () => {
+  const { adapter, calls } = flaky('get_user_debt', Infinity);
+  const sleeps: number[] = [];
+  const lending = new StellarLendClient({
+    contractId: CONTRACT,
+    adapter,
+    retry: { maxRetries: 4, initialDelayMs: 50, maxDelayMs: 300, multiplier: 3, sleep: async (ms) => void sleeps.push(ms) },
+  });
+  await assert.rejects(lending.getUserDebt(USER), (error: unknown) => {
+    assert.ok(error instanceof ProtocolError);
+    assert.equal(error.code, ProtocolErrorCode.CrossContractFailure);
+    return true;
+  });
+  assert.equal(calls(), 5);
+  assert.deepEqual(sleeps, [50, 150, 300, 300], 'delays grow by the multiplier and stop at maxDelayMs');
+});
+
+test('non-retryable errors and maxRetries: 0 fail on the first attempt', async () => {
+  const fatal = flaky('get_user_debt', Infinity, ProtocolErrorCode.InvalidState);
+  await assert.rejects(new StellarLendClient({ contractId: CONTRACT, adapter: fatal.adapter }).getUserDebt(USER));
+  assert.equal(fatal.calls(), 1);
+
+  const disabled = flaky('get_user_debt', Infinity);
+  const lending = new StellarLendClient({ contractId: CONTRACT, adapter: disabled.adapter, retry: { maxRetries: 0 } });
+  await assert.rejects(lending.getUserDebt(USER));
+  assert.equal(disabled.calls(), 1);
+});
+
+test('writes are not retried unless retryWrites is set', async () => {
+  const once = flaky('borrow', 1);
+  await assert.rejects(new StellarLendClient({ contractId: CONTRACT, adapter: once.adapter }).borrow(borrowParams));
+  assert.equal(once.calls(), 1);
+
+  const opted = flaky('borrow', 1);
+  const lending = new StellarLendClient({
+    contractId: CONTRACT,
+    adapter: opted.adapter,
+    retry: { retryWrites: true, sleep: async () => {} },
+  });
+  await lending.borrow(borrowParams);
+  assert.equal(opted.calls(), 2);
+});
+
+test('invalid retry options are rejected at construction', () => {
+  const adapter = new FakeAdapter();
+  for (const retry of [{ maxRetries: -1 }, { maxRetries: 1.5 }, { initialDelayMs: -1 }, { maxDelayMs: 10, initialDelayMs: 20 }, { multiplier: 0.5 }]) {
+    assert.throws(() => new StellarLendClient({ contractId: CONTRACT, adapter, retry }), RangeError);
+  }
+});
+
 // ── utilization-breaker ─────────────────────────────────────────────────────
 
 function breaker(overrides: Partial<UtilizationBreakerStatus> & { max?: bigint; enabled?: boolean }) {
