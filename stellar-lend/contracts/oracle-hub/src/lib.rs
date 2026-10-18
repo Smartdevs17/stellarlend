@@ -43,10 +43,12 @@ mod tests;
 
 use crate::types::{
     AggregatedPrice, AggregationParams, AggregationStrategy, CacheConfigUpdatedEvent, CacheStats,
-    FeedMode, FeedPriority, FeedQuote, HeartbeatConfig, IncentiveConfig, OracleHealthStatus,
+    FeedQuote, HeartbeatConfig, IncentiveConfig, OracleHealthStatus,
     PriceFeed, PriceHistoryConfig, PricePoint, PriceSource, ProviderPrice, ReporterRewards,
     VERSION,
 };
+pub use crate::types::{FeedMode, FeedPriority};
+
 use soroban_sdk::{
     contract, contracterror, contractimpl, panic_with_error, Address, Bytes, BytesN, Env, Vec,
 };
