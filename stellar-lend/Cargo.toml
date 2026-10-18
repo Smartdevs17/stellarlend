@@ -88,7 +88,7 @@ dead_code = "warn"
 all = "warn"
 
 [workspace.dependencies]
-soroban-sdk = "27.0.2"
+soroban-sdk = "28.0.0"
 stellarlend-safe-math = { path = "contracts/safe-math" }
 stellarlend-math = { path = "contracts/math" }
 stellarlend-token = { path = "contracts/token" }
