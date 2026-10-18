@@ -20,6 +20,7 @@ StellarLend is a lending and borrowing protocol built on Soroban. It features cr
 - **[Borrow Function Tests](BORROW_TESTS.md)** - Comprehensive test suite documentation for the borrow functionality, covering all validation paths, edge cases, interest accrual, pause functionality, events, and security scenarios.
 - **[Event Indexing Guide](event-indexing.md)** - Catalog of contract events, indexing options for RPC, Mercury, and SubQuery, and the current status of `stellar-lend/indexing_system/`.
 - **[Upgrade Mechanism](upgrade-mechanism.md)** - Runbook for planned and emergency upgrades, rollback handling, and storage compatibility guidance.
+- **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Common build, test, devnet and contract-error fixes, including a map of `Error(Contract, #N)` codes for the lending contract.
 - **[Chaos Engineering](chaos-engineering.md)** - Network-failure experiment registry, steady-state hypotheses, halt criteria, and chaos CI reporting (Issue #689).
 - **[Recovery Procedures](recovery.md)** - Automated recovery runbook for partition, RPC outage, and oracle disruption scenarios (Issue #689).
 - **[Gas Golf Leaderboard](../scripts/gas-golf/README.md)** - Competitive gas optimization: a maintainer-owned correctness gate, a leaderboard scored on `utilizationPct`, and measurement integrity checks (Issue #1014).
