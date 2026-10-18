@@ -5,3 +5,5 @@ pub mod bridge;
 pub mod encoding;
 pub mod governance;
 pub mod lending;
+
+pub mod oracle;
