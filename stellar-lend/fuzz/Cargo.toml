@@ -47,3 +47,9 @@ name = "governance_actions"
 path = "fuzz_targets/governance_actions.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "oracle_actions"
+path = "fuzz_targets/oracle_actions.rs"
+test = false
+doc = false
