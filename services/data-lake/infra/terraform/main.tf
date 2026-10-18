@@ -1,30 +1,123 @@
+terraform {
+  required_version = ">= 1.5.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
 variable "project" {
   type        = string
   description = "Project / name prefix"
   default     = "stellarlend"
+
+  validation {
+    condition     = can(regex("^[a-z0-9-]{1,30}$", var.project))
+    error_message = "project must contain 1-30 lowercase letters, digits, or hyphens."
+  }
 }
 
 variable "environment" {
-  type    = string
-  default = "dev"
+  type        = string
+  description = "Deployment environment used in resource names."
+  default     = "dev"
+
+  validation {
+    condition     = can(regex("^[a-z0-9-]{1,12}$", var.environment))
+    error_message = "environment must contain 1-12 lowercase letters, digits, or hyphens."
+  }
 }
 
 variable "aws_region" {
-  type    = string
-  default = "us-east-1"
+  type        = string
+  description = "AWS region for the data lake resources."
+  default     = "us-east-1"
 }
 
 variable "raw_retention_days" {
-  type    = number
-  default = 90
+  type        = number
+  description = "Number of days to retain raw lake objects."
+  default     = 90
+
+  validation {
+    condition     = var.raw_retention_days >= 1 && floor(var.raw_retention_days) == var.raw_retention_days
+    error_message = "raw_retention_days must be a positive whole number of days."
+  }
+}
+
+variable "bucket_name" {
+  type        = string
+  description = "Optional globally-unique S3 bucket name; defaults to project-environment-raw-blockchain."
+  default     = ""
+
+  validation {
+    condition     = var.bucket_name == "" || can(regex("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$", var.bucket_name))
+    error_message = "bucket_name must be a valid 3-63 character S3 bucket name."
+  }
+}
+
+variable "force_destroy" {
+  type        = bool
+  description = "Allow Terraform to delete a non-empty lake bucket. Keep false for durable environments."
+  default     = false
 }
 
 provider "aws" {
   region = var.aws_region
 }
 
+data "aws_caller_identity" "current" {}
+
+locals {
+  bucket_name = var.bucket_name != "" ? var.bucket_name : "${var.project}-${var.environment}-raw-blockchain"
+}
+
 resource "aws_s3_bucket" "raw_lake" {
-  bucket = "${var.project}-${var.environment}-raw-blockchain"
+  bucket        = local.bucket_name
+  force_destroy = var.force_destroy
+}
+
+resource "aws_s3_bucket_ownership_controls" "raw_lake" {
+  bucket = aws_s3_bucket.raw_lake.id
+
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "raw_lake" {
+  bucket = aws_s3_bucket.raw_lake.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "raw_lake_tls" {
+  bucket = aws_s3_bucket.raw_lake.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "DenyInsecureTransport"
+      Effect    = "Deny"
+      Principal = "*"
+      Action    = "s3:*"
+      Resource = [
+        aws_s3_bucket.raw_lake.arn,
+        "${aws_s3_bucket.raw_lake.arn}/*"
+      ]
+      Condition = {
+        Bool = {
+          "aws:SecureTransport" = "false"
+        }
+      }
+    }]
+  })
 }
 
 resource "aws_s3_bucket_versioning" "raw_lake" {
@@ -47,6 +140,14 @@ resource "aws_s3_bucket_lifecycle_configuration" "raw_retention" {
 
     expiration {
       days = var.raw_retention_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = var.raw_retention_days
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
     }
   }
 
@@ -177,17 +278,32 @@ resource "aws_iam_role_policy" "lake_reader" {
     Version = "2012-10-17"
     Statement = [
       {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = ["${aws_s3_bucket.raw_lake.arn}/raw/*", "${aws_s3_bucket.raw_lake.arn}/agg/*"]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = [aws_s3_bucket.raw_lake.arn]
+        Condition = {
+          StringLike = {
+            "s3:prefix" = ["raw", "raw/*", "agg", "agg/*"]
+          }
+        }
+      },
+      {
         Effect = "Allow"
-        Action = ["s3:GetObject", "s3:ListBucket"]
+        Action = ["glue:GetDatabase"]
         Resource = [
-          aws_s3_bucket.raw_lake.arn,
-          "${aws_s3_bucket.raw_lake.arn}/*"
+          "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog",
+          aws_glue_catalog_database.lake.arn
         ]
       },
       {
         Effect   = "Allow"
-        Action   = ["glue:GetDatabase", "glue:GetTable", "glue:GetPartitions"]
-        Resource = ["*"]
+        Action   = ["glue:GetTable", "glue:GetPartitions"]
+        Resource = [aws_glue_catalog_table.raw_transactions.arn]
       }
     ]
   })
@@ -217,28 +333,39 @@ resource "aws_iam_role_policy" "lake_writer" {
     Statement = [
       {
         Effect = "Allow"
-        Action = ["s3:PutObject", "s3:AbortMultipartUpload", "s3:ListBucket"]
-        Resource = [
-          aws_s3_bucket.raw_lake.arn,
-          "${aws_s3_bucket.raw_lake.arn}/*"
-        ]
+        Action   = ["s3:PutObject", "s3:AbortMultipartUpload"]
+        Resource = ["${aws_s3_bucket.raw_lake.arn}/raw/*", "${aws_s3_bucket.raw_lake.arn}/agg/*"]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = [aws_s3_bucket.raw_lake.arn]
+        Condition = {
+          StringLike = {
+            "s3:prefix" = ["raw", "raw/*", "agg", "agg/*"]
+          }
+        }
       }
     ]
   })
 }
 
 output "bucket_name" {
-  value = aws_s3_bucket.raw_lake.bucket
+  value       = aws_s3_bucket.raw_lake.bucket
+  description = "S3 bucket for raw and aggregated lake data."
 }
 
 output "glue_database" {
-  value = aws_glue_catalog_database.lake.name
+  value       = aws_glue_catalog_database.lake.name
+  description = "Glue database containing the lake tables."
 }
 
 output "reader_role_arn" {
-  value = aws_iam_role.lake_reader.arn
+  value       = aws_iam_role.lake_reader.arn
+  description = "IAM role ARN for read-only lake access."
 }
 
 output "writer_role_arn" {
-  value = aws_iam_role.lake_writer.arn
+  value       = aws_iam_role.lake_writer.arn
+  description = "IAM role ARN for lake ETL writes."
 }

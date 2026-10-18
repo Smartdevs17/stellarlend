@@ -5,6 +5,14 @@ use sqlx::postgres::PgPool;
 use sqlx::Row;
 use uuid::Uuid;
 
+fn checkpoint_before(block_number: i64) -> i64 {
+    block_number.saturating_sub(1).max(0)
+}
+
+fn backfill_checkpoint_after_reorg(from_block: i64, last_indexed: i64, rewind_to: i64) -> i64 {
+    (from_block - 1).max(last_indexed.min(rewind_to))
+}
+
 /// Repository for managing events in the database
 #[derive(Clone)]
 pub struct EventRepository {
@@ -416,6 +424,130 @@ impl EventRepository {
         Ok(result.rows_affected())
     }
 
+    /// Atomically remove events at and after a reorg boundary and rewind all
+    /// contract checkpoints so the affected range is indexed again.
+    pub async fn rollback_from_block(&self, block_number: u64) -> IndexerResult<u64> {
+        let block_number = i64::try_from(block_number).map_err(|_| {
+            crate::error::IndexerError::InvalidBlockRange {
+                from: block_number,
+                to: block_number,
+            }
+        })?;
+        let mut transaction = self.pool.begin().await?;
+        let deleted = sqlx::query("DELETE FROM events WHERE block_number >= $1")
+            .bind(block_number)
+            .execute(&mut *transaction)
+            .await?
+            .rows_affected();
+        sqlx::query(
+            "UPDATE indexing_metadata \
+             SET last_indexed_block = LEAST(last_indexed_block, $2), \
+                 last_indexed_at = NOW() \
+             WHERE last_indexed_block >= $1",
+        )
+        .bind(block_number)
+        .bind(checkpoint_before(block_number))
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "UPDATE indexing_backfill_checkpoints \
+             SET last_indexed_block = GREATEST(from_block - 1, LEAST(last_indexed_block, $2)), \
+                 updated_at = NOW() \
+             WHERE to_block >= $1 AND last_indexed_block >= $1",
+        )
+        .bind(block_number)
+        .bind(checkpoint_before(block_number))
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(deleted)
+    }
+
+    /// Create or read the durable checkpoint for a requested backfill range.
+    pub async fn get_or_create_backfill_checkpoint(
+        &self,
+        contract_address: &str,
+        from_block: u64,
+        to_block: u64,
+    ) -> IndexerResult<i64> {
+        let from_block = i64::try_from(from_block).map_err(|_| {
+            crate::error::IndexerError::InvalidBlockRange {
+                from: from_block,
+                to: to_block,
+            }
+        })?;
+        let to_block = i64::try_from(to_block).map_err(|_| {
+            crate::error::IndexerError::InvalidBlockRange {
+                from: from_block as u64,
+                to: to_block,
+            }
+        })?;
+        sqlx::query(
+            "INSERT INTO indexing_backfill_checkpoints \
+             (contract_address, from_block, to_block, last_indexed_block) \
+             VALUES ($1, $2, $3, $2 - 1) \
+             ON CONFLICT (contract_address, from_block, to_block) DO NOTHING",
+        )
+        .bind(contract_address)
+        .bind(from_block)
+        .bind(to_block)
+        .execute(&self.pool)
+        .await?;
+
+        let last_indexed = sqlx::query_scalar::<_, i64>(
+            "SELECT last_indexed_block FROM indexing_backfill_checkpoints \
+             WHERE contract_address = $1 AND from_block = $2 AND to_block = $3",
+        )
+        .bind(contract_address)
+        .bind(from_block)
+        .bind(to_block)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(last_indexed)
+    }
+
+    /// Persist the last fully indexed block of a backfill range.
+    pub async fn update_backfill_checkpoint(
+        &self,
+        contract_address: &str,
+        from_block: u64,
+        to_block: u64,
+        last_indexed_block: u64,
+    ) -> IndexerResult<()> {
+        let updated = sqlx::query(
+            "UPDATE indexing_backfill_checkpoints \
+             SET last_indexed_block = $4, updated_at = NOW() \
+             WHERE contract_address = $1 AND from_block = $2 AND to_block = $3",
+        )
+        .bind(contract_address)
+        .bind(i64::try_from(from_block).map_err(|_| {
+            crate::error::IndexerError::InvalidBlockRange {
+                from: from_block,
+                to: to_block,
+            }
+        })?)
+        .bind(i64::try_from(to_block).map_err(|_| {
+            crate::error::IndexerError::InvalidBlockRange {
+                from: from_block,
+                to: to_block,
+            }
+        })?)
+        .bind(i64::try_from(last_indexed_block).map_err(|_| {
+            crate::error::IndexerError::InvalidBlockRange {
+                from: from_block,
+                to: last_indexed_block,
+            }
+        })?)
+        .execute(&self.pool)
+        .await?;
+        if updated.rows_affected() != 1 {
+            return Err(crate::error::IndexerError::Generic(format!(
+                "Missing backfill checkpoint for {contract_address} blocks {from_block}-{to_block}"
+            )));
+        }
+        Ok(())
+    }
+
     /// Get or create indexing metadata for a contract
     ///
     /// # Arguments
@@ -495,5 +627,24 @@ impl EventRepository {
         .await?;
 
         Ok(metadata)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{backfill_checkpoint_after_reorg, checkpoint_before};
+
+    #[test]
+    fn reorg_checkpoint_is_before_the_first_replaced_block() {
+        assert_eq!(checkpoint_before(0), 0);
+        assert_eq!(checkpoint_before(1), 0);
+        assert_eq!(checkpoint_before(42), 41);
+    }
+
+    #[test]
+    fn reorg_rewinds_overlapping_backfill_checkpoints_only_to_their_range() {
+        assert_eq!(backfill_checkpoint_after_reorg(100, 200, 149), 149);
+        assert_eq!(backfill_checkpoint_after_reorg(100, 200, 49), 99);
+        assert_eq!(backfill_checkpoint_after_reorg(100, 120, 149), 120);
     }
 }

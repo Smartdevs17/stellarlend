@@ -158,6 +158,47 @@ describe('EventStore queries', () => {
     }
   );
 
+  it.each(['asc', 'desc'] as const)(
+    'keeps a cursor page boundary stable when events are added (%s)',
+    (order) => {
+      const first = store.query({ order, limit: 3 });
+      const cursor = first.nextCursor;
+      expect(cursor).not.toBeNull();
+
+      store.add([
+        normalizeEvent(typed('deposit', 41, alice, 41n)),
+        normalizeEvent(typed('deposit', 41, alice, 42n)),
+      ]);
+
+      const next = store.query({ order, limit: 3, cursor: cursor ?? undefined });
+      const firstBoundary = first.events[first.events.length - 1]!;
+      expect(next.events.some((event) => event.id === firstBoundary.id)).toBe(false);
+      expect(next.events.map((event) => event.id)).toEqual(
+        order === 'asc'
+          ? all.slice(3, 6).map((event) => event.id)
+          : all.filter((event) => event.ledger <= 37).slice(-3).reverse().map((event) => event.id)
+      );
+    }
+  );
+
+  it('uses event id to order events within the same ledger', () => {
+    const sameLedger = all.slice(0, 4).map((event) => ({ ...event, ledger: 10 }));
+    const stableStore = new EventStore();
+    stableStore.add([sameLedger[2]!, sameLedger[0]!, sameLedger[3]!, sameLedger[1]!]);
+
+    const expected = [...sameLedger].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const page = stableStore.query({ order: 'asc', limit: 2 });
+    const secondPage = stableStore.query({
+      order: 'asc',
+      limit: 2,
+      cursor: page.nextCursor ?? undefined,
+    });
+
+    expect([...page.events, ...secondPage.events].map((event) => event.id)).toEqual(
+      expected.map((event) => event.id)
+    );
+  });
+
   it('returns an empty page for unknown types', () => {
     expect(store.query({ type: 'nope' })).toMatchObject({
       events: [],

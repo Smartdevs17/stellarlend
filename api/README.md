@@ -144,6 +144,12 @@ Query parameters:
 
 Example endpoint:
 `GET /api/lending/transactions/{userAddress}?limit=10&cursor=12345`
+
+For a given filter and sort order, event-index pages use keyset cursors over
+`(ledger, event id)` rather than offsets. The returned cursor is exclusive: the
+next page continues strictly after its last event, including when several
+events share a ledger or new events arrive between requests. Keep the filters
+and sort order unchanged while following a cursor.
 All amounts in stroops (1 XLM = 10,000,000 stroops)
 
 Clients must sign the returned XDR locally. The API does not accept Stellar secret keys.

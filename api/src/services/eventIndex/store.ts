@@ -1,7 +1,7 @@
 /**
  * In-memory hot event store with secondary indexes.
  *
- * Events are kept in ledger order (`ledger`, then RPC `id`) in a primary list
+ * Events are kept in a deterministic total order (`ledger`, then RPC `id`) in a primary list
  * plus per-type and per-account lists that share the same ordering. A query
  * picks the most selective list for its filters, binary-searches the ledger /
  * time bounds and cursor position, and only scans the matching window — so
@@ -171,7 +171,8 @@ export class EventStore {
       );
     }
 
-    // Resume after the cursor position.
+    // Keyset pagination keeps page boundaries stable when newer events arrive.
+    // The ledger/id pair is a unique, deterministic ordering key.
     if (q.cursor) {
       const c = decodeCursor(q.cursor);
       if (c) {

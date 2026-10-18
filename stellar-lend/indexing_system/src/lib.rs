@@ -15,7 +15,7 @@ pub mod tests;
 pub use cache::CacheService;
 pub use config::*;
 pub use error::{IndexerError, IndexerResult};
-pub use indexer::IndexerService;
+pub use indexer::{BackfillResult, IndexerService};
 pub use metrics::{IndexingMetrics, MetricsSnapshot};
 pub use models::{
     CreateEvent, Event, EventQuery, EventStats, EventUpdate, IndexingMetadata, UpdateType,
