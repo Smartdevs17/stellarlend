@@ -57,6 +57,7 @@ Key admin entrypoints (see contract for full list):
 - `upgrade_propose/approve/execute/rollback` in the separate lending workspace upgrade manager
 - `config_set/config_backup/config_restore`
 - `ms_set_admins`, `ms_propose_set_min_cr`, `ms_approve`, `ms_execute`
+- **[Risk Parameters](RISK_PARAMETERS.md)** - every admin-configurable risk figure, its default, bounds, rationale and the safe-change procedure
 
 ## Monitoring & Analytics
 - `record_user_action(user, action)` updates risk and emits events
