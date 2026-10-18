@@ -105,3 +105,6 @@ Key admin entrypoints (see contract for full list):
 ## Social Recovery & Multisig
 - Set guardians per-user and execute timelocked recoveries
 - Multisig supports proposing and executing admin changes with threshold
+
+## Architecture
+- **[Architecture Diagrams](ARCHITECTURE.md)** - system context, contract module map, borrow lifecycle sequence, and deployment topology (Mermaid, rendered on GitHub).
