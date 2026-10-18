@@ -1,0 +1,30 @@
+name: Oracle Fuzzing
+
+on:
+  pull_request:
+    branches: ["main", "dev"]
+    paths:
+      - "stellar-lend/contracts/oracle-hub/**"
+      - "stellar-lend/fuzz/**"
+      - ".github/workflows/oracle-fuzz.yml"
+  workflow_dispatch:
+
+jobs:
+  oracle-fuzz:
+    name: Oracle Hub fuzz smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Run oracle fuzz smoke test
+        working-directory: stellar-lend
+        run: cargo +nightly fuzz run oracle_actions fuzz/corpus/oracle_actions -- -max_total_time=60 -timeout=15
