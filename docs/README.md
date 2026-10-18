@@ -15,6 +15,9 @@ Contents:
 ## Overview
 StellarLend is a lending and borrowing protocol built on Soroban. It features cross-asset accounting, risk management, governance, AMM integration, flash loans, and more.
 
+New to the terminology? See the **[Glossary](GLOSSARY.md)** for definitions of
+protocol terms and the fixed-point conventions used across these documents.
+
 ## Test Documentation
 
 - **[Borrow Function Tests](BORROW_TESTS.md)** - Comprehensive test suite documentation for the borrow functionality, covering all validation paths, edge cases, interest accrual, pause functionality, events, and security scenarios.
