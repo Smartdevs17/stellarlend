@@ -124,3 +124,22 @@ fn test_disabled_cache_never_reports_a_hit() {
     assert!(!second.from_cache);
     assert_eq!(client(&te).get_cache_stats().hits, 0);
 }
+#[test]
+fn test_cached_read_has_a_stable_regression_ceiling() {
+    let te = setup();
+    let asset = mk_asset(&te.env, "GAS-REGRESSION");
+    register_and_report(&te, &asset, &[100_000_000, 101_000_000, 99_000_000]);
+
+    allow_all(&te);
+    client(&te).set_cache_ttl(&600);
+
+    client(&te).get_price(&asset);
+    te.env.ledger().set_timestamp(10);
+    client(&te).get_price(&asset);
+
+    let cached_cost = instructions(&te.env);
+    assert!(
+        cached_cost < CACHED_READ_INSTRUCTION_BUDGET,
+        "cached read regression ({cached_cost}) exceeded the {CACHED_READ_INSTRUCTION_BUDGET} instruction ceiling"
+    );
+}
