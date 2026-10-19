@@ -82,6 +82,7 @@ import { swaggerSpec, versionListHandler, v1Spec } from './config/swagger';
 import { versionMiddleware, legacyCompatibilityMiddleware } from './middleware/versioning';
 import logger from './utils/logger';
 import { requestIdMiddleware } from './middleware/requestId';
+import { tracingMiddleware } from './middleware/tracing';
 import { requestLogger } from './middleware/requestLogger';
 import { sanitizeInput } from './middleware/sanitizeInput';
 import { fieldSelectionMiddleware } from './middleware/fieldSelection';
@@ -90,6 +91,7 @@ import cacheRoutes from './routes/cache.routes';
 
 const app: Application = express();
 app.use(requestIdMiddleware);
+app.use(tracingMiddleware);
 app.use(requestLogger);
 
 const ipRateLimitStore = new MemoryStore();
