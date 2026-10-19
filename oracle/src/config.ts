@@ -97,6 +97,8 @@ const envSchema = z
     REDIS_URL: z.string().url().optional().or(z.literal('')),
     CACHE_TTL_SECONDS: z.coerce.number().positive().default(30),
     UPDATE_INTERVAL_MS: z.coerce.number().positive().default(60000),
+    // Issue #1370 – push, pull, or both oracle update models.
+    ORACLE_MODE: z.enum(['push', 'pull', 'both']).default('push'),
     DRY_RUN: booleanFlagSchema,
     MAX_PRICE_DEVIATION_PERCENT: z.coerce.number().positive().default(10),
     PRICE_STALENESS_THRESHOLD_SECONDS: z.coerce.number().positive().default(300),
@@ -265,6 +267,7 @@ export function loadConfig(): OracleServiceConfig {
     contractId: env.CONTRACT_ID,
     adminSecretKey: env.ADMIN_SECRET_KEY,
     dryRun: envOverrides.dryRun ?? env.DRY_RUN,
+    oracleMode: envOverrides.oracleMode ?? env.ORACLE_MODE,
     updateIntervalMs: envOverrides.updateIntervalMs ?? env.UPDATE_INTERVAL_MS,
     maxPriceDeviationPercent:
       envOverrides.maxPriceDeviationPercent ?? env.MAX_PRICE_DEVIATION_PERCENT,

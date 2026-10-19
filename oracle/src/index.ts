@@ -26,7 +26,8 @@ import {
   type MetricsService,
   type TWAPService,
 } from './services/index.js';
-import type { ProviderConfig } from './types/index.js';
+import type { ProviderConfig, AggregatedPrice, OracleMode } from './types/index.js';
+import { createQueryServer, type QueryServer } from './api/query-server.js';
 
 /**
  * Default assets to fetch prices for
@@ -64,6 +65,9 @@ export class OracleService {
   private isRunning: boolean = false;
   private lastSuccessfulUpdate: number | null = null;
   private metricsService: MetricsService;
+  private priceHistory: ReturnType<typeof createPriceHistoryService>;
+  private latestPrices: Map<string, AggregatedPrice> = new Map();
+  private queryServer?: QueryServer;
 
   constructor(config: OracleServiceConfig) {
     this.validateConfig(config);
@@ -86,6 +90,7 @@ export class OracleService {
 
     const cache = createPriceCache(config.cacheTtlSeconds);
     const priceHistory = createPriceHistoryService();
+    this.priceHistory = priceHistory;
 
     this.twapService = createTWAPService(priceHistory, {
       windowSeconds: 1800, // 30-minute TWAP window
@@ -116,6 +121,7 @@ export class OracleService {
       network: config.stellarNetwork,
       contractId: config.contractId,
       dryRun: !!config.dryRun,
+      oracleMode: this.getMode(),
       updateInterval: config.updateIntervalMs,
       providers: this.providers.map((provider) => provider.name),
     });
@@ -136,16 +142,36 @@ export class OracleService {
     // Start metrics server
     this.metricsService.start();
 
-    // Run immediately on start
-    await this.updatePrices(assets);
+    const mode = this.getMode();
 
-    // Schedule periodic updates
-    this.intervalId = setInterval(async () => {
+    // Issue #1370 – pull consumers read over HTTP instead of receiving
+    // periodic on-chain pushes.
+    if (mode === 'pull' || mode === 'both') {
+      this.queryServer = createQueryServer({
+        port: Number(process.env.QUERY_PORT ?? 3002),
+        mode,
+        priceHistory: this.priceHistory,
+        getPrices: (requested) => this.getLatestPrices(requested),
+      });
+      await this.queryServer.start();
+    }
+
+    if (mode === 'push' || mode === 'both') {
+      // Run immediately on start
       await this.updatePrices(assets);
-    }, this.config.updateIntervalMs);
+
+      // Schedule periodic updates
+      this.intervalId = setInterval(async () => {
+        await this.updatePrices(assets);
+      }, this.config.updateIntervalMs);
+    } else {
+      // Pull mode: warm once so the first QUERY does not pay full latency.
+      await this.getLatestPrices(assets, { refresh: true });
+    }
 
     logger.info('Oracle service started', {
-      intervalMs: this.config.updateIntervalMs,
+      mode,
+      intervalMs: mode === 'pull' ? null : this.config.updateIntervalMs,
     });
   }
 
@@ -163,6 +189,12 @@ export class OracleService {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = undefined;
+    }
+
+    // Stop query server (pull/both modes)
+    if (this.queryServer) {
+      await this.queryServer.stop();
+      this.queryServer = undefined;
     }
 
     // Stop metrics server
@@ -203,6 +235,11 @@ export class OracleService {
       });
 
       const priceArray = Array.from(prices.values());
+
+      // Issue #1371 – keep the latest aggregated prices for pull reads.
+      for (const price of priceArray) {
+        this.latestPrices.set(price.asset.toUpperCase(), price);
+      }
 
       // Record spot-price observations for TWAP accumulation, then compute
       // TWAP-smoothed prices to send to the contract.  This resists flash-loan
@@ -292,6 +329,7 @@ export class OracleService {
     const safe = getSafeConfig(this.config);
     return {
       isRunning: this.isRunning,
+      oracleMode: this.getMode(),
       network: safe.stellarNetwork,
       contractId: safe.contractId,
       adminSecretKey: safe.adminSecretKey, // masked value
@@ -306,6 +344,39 @@ export class OracleService {
    */
   async fetchPrice(asset: string) {
     return this.aggregator.getPrice(asset);
+  }
+
+  /** Issue #1370 – configured oracle update model. */
+  getMode(): OracleMode {
+    return this.config.oracleMode ?? 'push';
+  }
+
+  /**
+   * Issue #1370 / #1371 – Latest aggregated prices for pull consumers.
+   * In pull mode (or when `refresh` is set) prices are aggregated on demand;
+   * the aggregator's own cache prevents provider hammering.
+   */
+  async getLatestPrices(
+    assets?: string[],
+    options: { refresh?: boolean } = {}
+  ): Promise<AggregatedPrice[]> {
+    const requested = (assets && assets.length > 0 ? assets : DEFAULT_ASSETS).map((asset) =>
+      asset.toUpperCase()
+    );
+    const shouldRefresh =
+      options.refresh === true ||
+      (this.getMode() === 'pull' && requested.some((asset) => !this.latestPrices.has(asset)));
+
+    if (shouldRefresh || this.latestPrices.size === 0) {
+      const prices = await this.aggregator.getPrices(requested);
+      for (const price of prices.values()) {
+        this.latestPrices.set(price.asset.toUpperCase(), price);
+      }
+    }
+
+    return requested
+      .map((asset) => this.latestPrices.get(asset))
+      .filter((price): price is AggregatedPrice => price !== undefined);
   }
 
   private validateConfig(config: OracleServiceConfig): void {

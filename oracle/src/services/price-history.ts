@@ -43,6 +43,41 @@ export interface TWAPResult {
  */
 export interface PriceHistoryConfig {
   maxEntries: number;
+  /** Issue #1371 – TTL for cached query results (ms). */
+  queryCacheTtlMs: number;
+}
+
+/**
+ * Issue #1371 / #1372 – Historical price query.
+ * `from`/`to` are unix seconds (inclusive); `cursor` is the timestamp of the
+ * last entry from the previous page. `limit` is bounded to MAX_QUERY_LIMIT.
+ */
+export interface HistoryQuery {
+  from?: number;
+  to?: number;
+  cursor?: number;
+  limit?: number;
+}
+
+export interface HistoryPage {
+  asset: string;
+  entries: PriceHistoryEntry[];
+  cached: boolean;
+  pagination: {
+    limit: number;
+    count: number;
+    total: number;
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
+}
+
+export const DEFAULT_QUERY_LIMIT = 20;
+export const MAX_QUERY_LIMIT = 100;
+
+interface CachedHistoryPage {
+  expiresAt: number;
+  value: HistoryPage;
 }
 
 /**
@@ -50,6 +85,7 @@ export interface PriceHistoryConfig {
  */
 const DEFAULT_CONFIG: PriceHistoryConfig = {
   maxEntries: 100,
+  queryCacheTtlMs: 5_000,
 };
 
 /**
@@ -58,6 +94,8 @@ const DEFAULT_CONFIG: PriceHistoryConfig = {
 export class PriceHistoryService {
   private histories: Map<string, PriceHistory>;
   private config: PriceHistoryConfig;
+  private queryCache: Map<string, CachedHistoryPage> = new Map();
+  private version = 0;
 
   constructor(config: Partial<PriceHistoryConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -74,6 +112,10 @@ export class PriceHistoryService {
   addPriceEntry(asset: string, price: bigint, timestamp: number): void {
     const upperAsset = asset.toUpperCase();
     const history = this.getOrCreateHistory(upperAsset);
+
+    // New data invalidates cached query results.
+    this.version += 1;
+    this.queryCache.clear();
 
     // Add entry at current index (circular buffer behavior)
     history.entries[history.currentIndex] = {
@@ -238,6 +280,73 @@ export class PriceHistoryService {
   }
 
   /**
+   * Issue #1371 / #1372 – Query historical prices with time-range filters,
+   * bounded page size, and cursor pagination. Results are cached for
+   * `queryCacheTtlMs`, and the cache is invalidated whenever a new entry is
+   * recorded.
+   */
+  queryHistory(asset: string, query: HistoryQuery = {}): HistoryPage {
+    const upperAsset = asset.toUpperCase();
+    const limit = Math.min(
+      MAX_QUERY_LIMIT,
+      Math.max(1, Math.floor(query.limit ?? DEFAULT_QUERY_LIMIT))
+    );
+    const cacheKey = [
+      upperAsset,
+      query.from ?? '',
+      query.to ?? '',
+      query.cursor ?? '',
+      limit,
+      this.version,
+    ].join('|');
+
+    const cached = this.queryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { ...cached.value, cached: true };
+    }
+
+    const entries = this.getPriceHistory(upperAsset).filter((entry) => {
+      if (query.from !== undefined && entry.timestamp < query.from) return false;
+      if (query.to !== undefined && entry.timestamp > query.to) return false;
+      return true;
+    });
+
+    const total = entries.length;
+    const afterCursor =
+      query.cursor === undefined
+        ? entries
+        : entries.filter((entry) => entry.timestamp > query.cursor!);
+    const pageEntries = afterCursor.slice(0, limit);
+    const hasMore = afterCursor.length > pageEntries.length;
+    const last = pageEntries[pageEntries.length - 1];
+
+    const page: HistoryPage = {
+      asset: upperAsset,
+      entries: pageEntries.map((entry) => ({ ...entry })),
+      cached: false,
+      pagination: {
+        limit,
+        count: pageEntries.length,
+        total,
+        hasMore,
+        nextCursor: hasMore && last ? String(last.timestamp) : null,
+      },
+    };
+
+    this.queryCache.set(cacheKey, {
+      expiresAt: Date.now() + this.config.queryCacheTtlMs,
+      value: page,
+    });
+
+    return page;
+  }
+
+  /** Issue #1371 – drop cached query results (exposed for tests/ops). */
+  clearQueryCache(): void {
+    this.queryCache.clear();
+  }
+
+  /**
    * Get statistics for an asset
    */
   getAssetStats(asset: string): {
@@ -273,6 +382,8 @@ export class PriceHistoryService {
   clearHistory(asset: string): void {
     const upperAsset = asset.toUpperCase();
     this.histories.delete(upperAsset);
+    this.version += 1;
+    this.queryCache.clear();
 
     logger.info(`Cleared price history for ${upperAsset}`);
   }
@@ -282,6 +393,8 @@ export class PriceHistoryService {
    */
   clearAllHistory(): void {
     this.histories.clear();
+    this.version += 1;
+    this.queryCache.clear();
 
     logger.info('Cleared all price history');
   }

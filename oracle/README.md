@@ -43,7 +43,9 @@ cp .env.example .env
 | `ADMIN_SECRET_KEY` | Secret key for signing transactions | Yes |
 | `COINGECKO_API_KEY` | CoinGecko Pro API key | No |
 | `CACHE_TTL_SECONDS` | Cache TTL in seconds (default: 30) | No |
-| `UPDATE_INTERVAL_MS` | Price update interval (default: 60000) | No |
+| `UPDATE_INTERVAL_MS` | Price update interval for push mode (default: 60000) | No |
+| `ORACLE_MODE` | `push`, `pull`, or `both` (default: `push`) | No |
+| `QUERY_PORT` | Port for the pull query API (default: 3002) | No |
 | `MAX_PRICE_DEVIATION_PERCENT` | Max price deviation % (default: 10) | No |
 | `LOG_LEVEL` | Logging: debug, info, warn, error | No |
 
@@ -196,3 +198,43 @@ oracle/
 ```
 
 ## Cheers!
+
+
+## Oracle Modes and Query API
+
+- **push** (default): periodically aggregates prices and submits them on-chain.
+- **pull**: aggregates on demand and serves reads over HTTP without pushing.
+- **both**: runs the push loop and the query API together.
+
+Start in pull mode:
+
+```bash
+ORACLE_MODE=pull npm run dev
+```
+
+### Query endpoints (pull / both)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /prices` | Latest aggregated price for every tracked asset (optional `?asset=XLM,USDC`) |
+| `GET /prices/:asset` | Latest price for one asset |
+| `GET /prices/:asset/history` | Historical prices with `from`/`to` (unix seconds), `limit` (max 100), and cursor pagination |
+| `GET /openapi.json` | Generated OpenAPI 3.0 specification |
+| `GET /health` | Liveness probe |
+
+History responses include `pagination.nextCursor`; pass it back as `?cursor=` for
+the next page. Results are cached for 5 seconds and invalidated when new price
+entries arrive.
+
+### OpenAPI
+
+The spec is generated from `src/api/openapi.ts` (the same definitions the
+server uses, so it cannot drift):
+
+```bash
+npm run openapi:generate   # writes oracle/openapi.json
+npm run openapi:check      # CI: fails if the committed spec is stale
+```
+
+The test suite (`tests/openapi.test.ts`) asserts that the committed
+`oracle/openapi.json` matches generated output, so `npm test` fails on drift.

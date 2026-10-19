@@ -109,6 +109,14 @@ export interface ContractUpdateResult {
 /**
  * Service configuration
  */
+/**
+ * Issue #1370 – Oracle update model.
+ *  push – periodically aggregate and submit prices on-chain (default)
+ *  pull – aggregate on demand; consumers read latest prices over HTTP
+ *  both – do both
+ */
+export type OracleMode = 'push' | 'pull' | 'both';
+
 export interface OracleServiceConfig {
   stellarNetwork: 'testnet' | 'mainnet';
   stellarRpcUrl: string;
@@ -117,6 +125,8 @@ export interface OracleServiceConfig {
   contractId: string;
   adminSecretKey: string;
   dryRun?: boolean;
+  /** Issue #1370 – push, pull, or both. Defaults to push. */
+  oracleMode?: OracleMode;
   updateIntervalMs: number;
   maxPriceDeviationPercent: number;
   priceStaleThresholdSeconds: number;
