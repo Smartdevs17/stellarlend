@@ -118,7 +118,12 @@ fn integration_exact_repay_then_withdraw_all() {
     let token_client = soroban_sdk::token::StellarAssetClient::new(&env, &native_asset);
 
     token_client.mint(&user, &5_000);
-    token_client.approve(&user, &contract_id, &5_000, &(env.ledger().sequence() + 100));
+    token_client.approve(
+        &user,
+        &contract_id,
+        &5_000,
+        &(env.ledger().sequence() + 100),
+    );
 
     client.deposit_collateral(&user, &None, &10_000);
     client.borrow_asset(&user, &None, &2_000);

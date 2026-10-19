@@ -51,6 +51,22 @@ export interface CacheConfig {
   protocolStatsTtlMs: number;
   positionTtlMs: number;
   poolTtlMs: number;
+  simulationTtlMs: number;
+}
+
+export interface ReadCacheConfig {
+  enabled: boolean;
+  defaultTtlMs: number;
+  maxQueryLength: number;
+}
+
+export interface PrefetchConfig {
+  enabled: boolean;
+  intervalMs: number;
+  windowMs: number;
+  hotThreshold: number;
+  maxTrackedKeys: number;
+  maxKeysPerRun: number;
 }
 
 export interface WsConfig {
@@ -78,6 +94,12 @@ export interface CorsConfig {
   allowedOrigins: string[];
 }
 
+export interface PushConfig {
+  vapidPublicKey: string;
+  vapidPrivateKey: string;
+  vapidSubject: string;
+}
+
 export interface AppConfig {
   server: ServerConfig;
   stellar: StellarConfig;
@@ -88,11 +110,14 @@ export interface AppConfig {
   bodySizeLimit: BodySizeLimitConfig;
   pagination: PaginationConfig;
   cache: CacheConfig;
+  readCache: ReadCacheConfig;
+  prefetch: PrefetchConfig;
   ws: WsConfig;
   emergency: EmergencyConfig;
   analytics: AnalyticsConfig;
   subscriptions: SubscriptionConfig;
   cors: CorsConfig;
+  push: PushConfig;
 }
 
 export interface ConfigAuditEntry {

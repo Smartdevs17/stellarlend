@@ -9,7 +9,9 @@
 //! `target_pool` — this contract focuses on plan state, schedule/threshold
 //! gating, and recording reinvestment events for cost-basis tracking.
 
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, Vec,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -27,6 +29,8 @@ pub enum ReinvestError {
     PoolPaused = 10,
     GasExceedsEarnings = 11,
     ScheduleNotDue = 12,
+    InvalidAmount = 13,
+    Overflow = 14,
 }
 
 #[contracttype]
@@ -102,6 +106,7 @@ const DAY_LEDGERS: u64 = 17_280;
 const WEEK_LEDGERS: u64 = DAY_LEDGERS * 7;
 const MAX_HISTORY_LEN: u32 = 50;
 const BPS_DENOMINATOR: u32 = 10_000;
+const MAX_WEIGHTED_TARGETS: u32 = 20;
 
 #[contractevent]
 #[derive(Clone)]
@@ -157,14 +162,25 @@ impl EarningsReinvestContract {
         }
 
         if strategy == ReinvestStrategy::Weighted {
-            if weighted_targets.is_empty() {
+            if weighted_targets.is_empty() || weighted_targets.len() > MAX_WEIGHTED_TARGETS {
                 return Err(ReinvestError::InvalidWeights);
             }
             let mut total_bps: u32 = 0;
-            for target in weighted_targets.iter() {
+            let target_count = weighted_targets.len();
+            for i in 0..target_count {
+                let target = weighted_targets.get(i).unwrap();
+                if target.weight_bps == 0 {
+                    return Err(ReinvestError::InvalidWeights);
+                }
                 total_bps = total_bps
                     .checked_add(target.weight_bps)
                     .ok_or(ReinvestError::InvalidWeights)?;
+
+                for j in (i + 1)..target_count {
+                    if target.pool == weighted_targets.get(j).unwrap().pool {
+                        return Err(ReinvestError::InvalidWeights);
+                    }
+                }
             }
             if total_bps != BPS_DENOMINATOR {
                 return Err(ReinvestError::InvalidWeights);
@@ -192,7 +208,9 @@ impl EarningsReinvestContract {
             next_eligible_ledger: 0,
         };
 
-        env.storage().persistent().set(&DataKey::Plan(plan_id), &plan);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Plan(plan_id), &plan);
 
         let mut user_plans = Self::get_user_plans_internal(&env, &owner);
         user_plans.push_back(plan_id);
@@ -234,10 +252,10 @@ impl EarningsReinvestContract {
         if pool_paused {
             return Err(ReinvestError::PoolPaused);
         }
-        if earned < plan.threshold {
+        if earned <= 0 || earned < plan.threshold {
             return Err(ReinvestError::BelowThreshold);
         }
-        if estimated_gas_cost >= earned {
+        if estimated_gas_cost < 0 || estimated_gas_cost >= earned {
             return Err(ReinvestError::GasExceedsEarnings);
         }
 
@@ -247,15 +265,25 @@ impl EarningsReinvestContract {
             return Err(ReinvestError::ScheduleNotDue);
         }
 
-        let events = Self::build_events(&env, &plan, &target_pool, earned, current_ledger);
+        let events = Self::build_events(&env, &plan, &target_pool, earned, current_ledger)?;
 
-        plan.total_reinvested += earned;
-        plan.total_sweeps += 1;
+        plan.total_reinvested = plan
+            .total_reinvested
+            .checked_add(earned)
+            .ok_or(ReinvestError::Overflow)?;
+        plan.total_sweeps = plan
+            .total_sweeps
+            .checked_add(1)
+            .ok_or(ReinvestError::Overflow)?;
         plan.last_swept_at = current_ledger;
         if schedule_gap > 0 {
-            plan.next_eligible_ledger = current_ledger + schedule_gap;
+            plan.next_eligible_ledger = current_ledger
+                .checked_add(schedule_gap)
+                .ok_or(ReinvestError::Overflow)?;
         }
-        env.storage().persistent().set(&DataKey::Plan(plan_id), &plan);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Plan(plan_id), &plan);
 
         Self::append_history(&env, plan_id, &events);
 
@@ -275,7 +303,9 @@ impl EarningsReinvestContract {
             return Err(ReinvestError::PlanPaused);
         }
         plan.paused = true;
-        env.storage().persistent().set(&DataKey::Plan(plan_id), &plan);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Plan(plan_id), &plan);
         Ok(())
     }
 
@@ -285,7 +315,9 @@ impl EarningsReinvestContract {
             return Err(ReinvestError::PlanNotPaused);
         }
         plan.paused = false;
-        env.storage().persistent().set(&DataKey::Plan(plan_id), &plan);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Plan(plan_id), &plan);
         Ok(())
     }
 
@@ -304,7 +336,11 @@ impl EarningsReinvestContract {
             .unwrap_or_else(|| Vec::new(&env))
     }
 
-    fn load_owned_plan(env: &Env, owner: &Address, plan_id: u64) -> Result<ReinvestPlan, ReinvestError> {
+    fn load_owned_plan(
+        env: &Env,
+        owner: &Address,
+        plan_id: u64,
+    ) -> Result<ReinvestPlan, ReinvestError> {
         owner.require_auth();
         let plan: ReinvestPlan = env
             .storage()
@@ -323,7 +359,7 @@ impl EarningsReinvestContract {
         target_pool: &Address,
         earned: i128,
         current_ledger: u64,
-    ) -> Vec<ReinvestEvent> {
+    ) -> Result<Vec<ReinvestEvent>, ReinvestError> {
         let mut events = Vec::new(env);
         match plan.strategy {
             ReinvestStrategy::SamePool => {
@@ -351,11 +387,19 @@ impl EarningsReinvestContract {
                     let share = if i as u32 == count - 1 {
                         // Last target absorbs any rounding remainder so the full
                         // `earned` amount is always accounted for (no dust lost).
-                        earned - allocated
+                        earned
+                            .checked_sub(allocated)
+                            .ok_or(ReinvestError::Overflow)?
                     } else {
-                        earned * (target.weight_bps as i128) / (BPS_DENOMINATOR as i128)
+                        earned
+                            .checked_mul(target.weight_bps as i128)
+                            .ok_or(ReinvestError::Overflow)?
+                            .checked_div(BPS_DENOMINATOR as i128)
+                            .ok_or(ReinvestError::Overflow)?
                     };
-                    allocated += share;
+                    allocated = allocated
+                        .checked_add(share)
+                        .ok_or(ReinvestError::Overflow)?;
                     events.push_back(ReinvestEvent {
                         plan_id: plan.id,
                         pool: target.pool.clone(),
@@ -366,7 +410,7 @@ impl EarningsReinvestContract {
                 }
             }
         }
-        events
+        Ok(events)
     }
 
     fn append_history(env: &Env, plan_id: u64, new_events: &Vec<ReinvestEvent>) {
@@ -381,7 +425,9 @@ impl EarningsReinvestContract {
             }
             history.push_back(event);
         }
-        env.storage().persistent().set(&DataKey::History(plan_id), &history);
+        env.storage()
+            .persistent()
+            .set(&DataKey::History(plan_id), &history);
     }
 
     fn require_initialized(env: &Env) -> Result<(), ReinvestError> {
@@ -415,3 +461,23 @@ impl EarningsReinvestContract {
 
 #[cfg(test)]
 mod lib_test;
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    ReinvestError => stellarlend_errors::domains::EARNINGS_REINVEST;
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    PlanNotFound => NotFound, "Plan not found";
+    InvalidThreshold => InvalidInput, "Invalid threshold";
+    InvalidWeights => InvalidInput, "Invalid weights";
+    PlanPaused => Paused, "Plan paused";
+    PlanNotPaused => InvalidState, "Plan not paused", FixInput;
+    BelowThreshold => InvalidInput, "Below threshold";
+    PoolPaused => Paused, "Pool paused";
+    GasExceedsEarnings => InvalidState, "Gas exceeds earnings", RetryLater;
+    ScheduleNotDue => InvalidState, "Schedule not due";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+}

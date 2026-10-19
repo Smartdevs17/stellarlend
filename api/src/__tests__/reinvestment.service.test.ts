@@ -150,6 +150,33 @@ describe('reinvestmentService.recordSweep()', () => {
     ).toThrow(/not economical/);
   });
 
+  it('rejects a sweep by a non-owner', () => {
+    const plan = samePoolPlan({ threshold: '0' });
+    expect(() =>
+      reinvestmentService.recordSweep(
+        plan.id,
+        {
+          earnedAmount: '500',
+          estimatedGasCost: '1',
+          poolPaused: false,
+        },
+        OTHER_USER
+      )
+    ).toThrow(/does not own/);
+  });
+
+  it('rejects a sweep with an invalid txHash format', () => {
+    const plan = samePoolPlan({ threshold: '0' });
+    expect(() =>
+      reinvestmentService.recordSweep(plan.id, {
+        earnedAmount: '500',
+        estimatedGasCost: '1',
+        poolPaused: false,
+        txHash: 'invalid-hash',
+      })
+    ).toThrow(/txHash must be a valid 64-character hex transaction hash/);
+  });
+
   it('rejects a sweep against a paused pool', () => {
     const plan = samePoolPlan({ threshold: '0' });
     expect(() =>

@@ -29,6 +29,32 @@ pub struct Position {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
+pub struct CollateralAssetConfig {
+    pub asset: Address,
+    /// Collateral factor (LTV) in basis points (e.g., 7500 = 75%)
+    pub collateral_factor: i128,
+    /// Liquidation threshold in basis points (e.g., 8000 = 80%)
+    pub liquidation_threshold: i128,
+    /// Asset price normalized to base decimals (e.g. 10_000_000 for $1.00 with 7 decimals)
+    pub price: i128,
+    /// Decimals for normalization (e.g. 7)
+    pub decimals: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CrossMarginSummary {
+    pub total_collateral_value: i128,
+    pub weighted_borrow_power: i128,
+    pub liquidation_collateral_value: i128,
+    pub total_debt_value: i128,
+    pub health_factor_bps: i128,
+    pub margin_call_level: MarginCallLevel,
+    pub is_liquidatable: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
 pub struct MarginAccount {
     pub owner: Address,
     pub mode: MarginMode,

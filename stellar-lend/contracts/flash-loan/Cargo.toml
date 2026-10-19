@@ -1,0 +1,16 @@
+[package]
+name = "flash-loan"
+version = "0.1.0"
+authors = ["Smartdevs17"]
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/Smartdevs17/stellarlend"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

@@ -439,3 +439,4 @@ For most deployments:
 2. Persist raw topics and decoded payloads to your own database.
 3. Use Mercury or SubQuery if you need easier history or richer query surfaces.
 4. Treat `indexing_system/` as deprecated until a Soroban-native replacement exists in this repo.
+5. Continuously monitor indexer lag and operational health using the built-in Prometheus metrics, alert rules, and dashboard (see [Indexer Health & Lag Monitoring Guide](INDEXER_HEALTH_MONITORING.md)).

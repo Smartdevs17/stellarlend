@@ -1,5 +1,38 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, token::StellarAssetClient, Address, Env};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, token::Client as TokenClient,
+    token::StellarAssetClient, Address, Env, Val, IntoVal,
+};
+
+/// Storage key for the reentrancy guard.
+#[contracttype]
+#[derive(Clone)]
+enum GuardKey {
+    ReentrancyLock,
+}
+
+/// RAII reentrancy guard. Panics on re-entry, auto-clears on drop.
+struct ReentrancyGuard<'a> {
+    env: &'a Env,
+}
+
+impl<'a> ReentrancyGuard<'a> {
+    fn new(env: &'a Env) -> Self {
+        let key: Val = GuardKey::ReentrancyLock.into_val(env);
+        if env.storage().temporary().has(&key) {
+            panic!("reentrancy detected");
+        }
+        env.storage().temporary().set(&key, &true);
+        Self { env }
+    }
+}
+
+impl<'a> Drop for ReentrancyGuard<'a> {
+    fn drop(&mut self) {
+        let key: Val = GuardKey::ReentrancyLock.into_val(self.env);
+        self.env.storage().temporary().remove(&key);
+    }
+}
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -173,11 +206,7 @@ impl AutoCompoundVault {
         Ok(())
     }
 
-    pub fn set_config(
-        env: Env,
-        admin: Address,
-        config: VaultConfig,
-    ) -> Result<(), VaultError> {
+    pub fn set_config(env: Env, admin: Address, config: VaultConfig) -> Result<(), VaultError> {
         let stored_admin: Address = env
             .storage()
             .instance()
@@ -200,10 +229,7 @@ impl AutoCompoundVault {
     }
 
     pub fn get_config(env: Env) -> VaultConfig {
-        env.storage()
-            .instance()
-            .get(&DataKey::Config)
-            .unwrap()
+        env.storage().instance().get(&DataKey::Config).unwrap()
     }
 
     pub fn deposit(
@@ -212,6 +238,7 @@ impl AutoCompoundVault {
         amount: i128,
         min_shares: i128,
     ) -> Result<i128, VaultError> {
+        let _guard = ReentrancyGuard::new(&env);
         user.require_auth();
 
         let config: VaultConfig = env
@@ -252,6 +279,9 @@ impl AutoCompoundVault {
             return Err(VaultError::SlippageExceeded);
         }
 
+        let underlying_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        underlying_client.transfer(&user, &env.current_contract_address(), &amount);
+
         let new_total_assets = total_assets
             .checked_add(amount)
             .ok_or(VaultError::Overflow)?;
@@ -290,9 +320,10 @@ impl AutoCompoundVault {
         env.storage()
             .persistent()
             .set(&DataKey::UserDeposits(user.clone()), &user_deposits);
-        env.storage()
-            .persistent()
-            .set(&DataKey::UserLastDepositAt(user.clone()), &env.ledger().timestamp());
+        env.storage().persistent().set(
+            &DataKey::UserLastDepositAt(user.clone()),
+            &env.ledger().timestamp(),
+        );
 
         DepositEvent {
             user,
@@ -312,6 +343,7 @@ impl AutoCompoundVault {
         shares: i128,
         min_assets: i128,
     ) -> Result<i128, VaultError> {
+        let _guard = ReentrancyGuard::new(&env);
         user.require_auth();
 
         let config: VaultConfig = env
@@ -361,6 +393,13 @@ impl AutoCompoundVault {
             return Err(VaultError::InsufficientBalance);
         }
 
+        let underlying_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        let vault_address = env.current_contract_address();
+        if underlying_client.balance(&vault_address) < assets {
+            return Err(VaultError::InsufficientBalance);
+        }
+        underlying_client.transfer(&vault_address, &user, &assets);
+
         let new_total_assets = total_assets
             .checked_sub(assets)
             .ok_or(VaultError::Overflow)?;
@@ -400,11 +439,7 @@ impl AutoCompoundVault {
         Ok(assets)
     }
 
-    pub fn harvest(
-        env: Env,
-        caller: Address,
-        min_rewards: i128,
-    ) -> Result<i128, VaultError> {
+    pub fn harvest(env: Env, caller: Address, min_rewards: i128) -> Result<i128, VaultError> {
         caller.require_auth();
 
         let config: VaultConfig = env
@@ -430,13 +465,29 @@ impl AutoCompoundVault {
             .get(&DataKey::TotalAssets)
             .unwrap_or(0);
 
-        let rewards_claimed = total_assets
-            .checked_mul(100)
-            .ok_or(VaultError::Overflow)?
-            .checked_div(10_000)
-            .ok_or(VaultError::Overflow)?;
+        if Self::get_reward_asset(&env) != Self::get_underlying_asset(&env) {
+            return Err(VaultError::NoRewardsToHarvest);
+        }
 
-        if rewards_claimed < min_rewards {
+        let accrued_perf_fees: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::AccruedPerformanceFees)
+            .unwrap_or(0);
+        let recognized_assets = total_assets
+            .checked_add(accrued_perf_fees)
+            .ok_or(VaultError::Overflow)?;
+        let underlying_client = TokenClient::new(&env, &Self::get_underlying_asset(&env));
+        let vault_balance = underlying_client.balance(&env.current_contract_address());
+        if vault_balance < recognized_assets {
+            return Err(VaultError::InsufficientBalance);
+        }
+
+        let rewards_claimed = vault_balance
+            .checked_sub(recognized_assets)
+            .ok_or(VaultError::InsufficientBalance)?;
+
+        if rewards_claimed <= 0 || rewards_claimed < min_rewards {
             return Err(VaultError::NoRewardsToHarvest);
         }
 
@@ -454,11 +505,6 @@ impl AutoCompoundVault {
             .checked_add(rewards_reinvested)
             .ok_or(VaultError::Overflow)?;
 
-        let accrued_perf_fees: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::AccruedPerformanceFees)
-            .unwrap_or(0);
         let new_accrued = accrued_perf_fees
             .checked_add(performance_fee)
             .ok_or(VaultError::Overflow)?;
@@ -618,18 +664,22 @@ impl AutoCompoundVault {
     }
 
     fn get_share_token(env: &Env) -> Address {
+        env.storage().instance().get(&DataKey::ShareToken).unwrap()
+    }
+
+    fn get_underlying_asset(env: &Env) -> Address {
         env.storage()
             .instance()
-            .get(&DataKey::ShareToken)
+            .get(&DataKey::UnderlyingAsset)
             .unwrap()
     }
 
+    fn get_reward_asset(env: &Env) -> Address {
+        env.storage().instance().get(&DataKey::RewardAsset).unwrap()
+    }
+
     fn get_share_balance(env: &Env, user: &Address) -> i128 {
-        let share_token: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::ShareToken)
-            .unwrap();
+        let share_token: Address = env.storage().instance().get(&DataKey::ShareToken).unwrap();
         let client = soroban_sdk::token::Client::new(env, &share_token);
         client.balance(user)
     }
@@ -637,3 +687,27 @@ impl AutoCompoundVault {
 
 #[cfg(test)]
 mod test;
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    VaultError => stellarlend_errors::domains::AUTO_COMPOUND_VAULT;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    InsufficientBalance => Insufficient, "Balance is too low for this operation";
+    InsufficientShares => Insufficient, "Insufficient shares";
+    SlippageExceeded => LimitExceeded, "Price moved beyond the allowed slippage", AdjustTolerance;
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    HarvestAlreadyCalled => InvalidState, "Harvest already called", RetryLater;
+    MinHarvestIntervalNotMet => LimitExceeded, "Min harvest interval not met";
+    PerformanceFeeExceedsMax => LimitExceeded, "Performance fee exceeds max", ReduceAmount;
+    ManagementFeeExceedsMax => LimitExceeded, "Management fee exceeds max", ReduceAmount;
+    DepositPaused => Paused, "Deposits are paused";
+    WithdrawPaused => Paused, "Withdrawals are paused";
+    VaultNotActive => InvalidState, "Vault not active";
+    ShareMintFailed => Internal, "Share mint failed";
+    ShareBurnFailed => Internal, "Share burn failed";
+    NoRewardsToHarvest => InvalidState, "No rewards to harvest", RetryLater;
+}

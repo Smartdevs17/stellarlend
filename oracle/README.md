@@ -8,6 +8,9 @@ Off-chain oracle integration service that fetches price data from multiple exter
 - **Price Validation**: Validates prices for staleness, deviation, and bounds
 - **Weighted Median**: Calculates weighted median from multiple sources for accuracy
 - **Efficient Caching**: In-memory caching with configurable TTL to reduce API calls
+- **Real-Time Price Feed**: Continuous price aggregation with anomaly detection, cross-feed correlation, and TWAP smoothing (see [docs/REALTIME_PRICE_FEED.md](../docs/REALTIME_PRICE_FEED.md))
+- **Anomaly Detection**: Z-score, IQR, velocity, and adaptive thresholds to flag manipulated or erroneous prices
+- **Health Monitoring**: Per-asset and system-wide health status with latency and failure tracking
 
 ## Prerequisites
 
@@ -144,6 +147,31 @@ const price = await service.fetchPrice('XLM');
 
 // Stop service
 service.stop();
+```
+
+### Real-Time Price Feed with Anomaly Detection
+
+```typescript
+import { createAggregator, createValidator, createPriceCache } from 'stellarlend-oracle';
+import { createRealtimePriceFeed, FeedEventType } from './src/services/realtime-price-feed.js';
+
+const aggregator = createAggregator(providers, validator, cache, { minSources: 1 });
+const feed = createRealtimePriceFeed(aggregator, {
+  assets: ['XLM', 'BTC', 'ETH'],
+  pollIntervalMs: 5_000,
+  enableAnomalyDetection: true,
+  enableCorrelationAnalysis: true,
+  enableTwapSmoothing: true,
+});
+
+feed.on(FeedEventType.ANOMALY_DETECTED, ({ asset, anomalies }) => {
+  // Respond to anomalous prices before they reach the contract
+});
+
+await feed.start();
+const enriched = await feed.getEnrichedPrice('BTC'); // includes healthScore, twap, anomalies
+const health = feed.getSystemHealth();
+await feed.stop();
 ```
 
 ## Project Structure

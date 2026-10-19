@@ -26,9 +26,9 @@ impl ScenarioConfig {
         ScenarioConfig {
             scenario: FlashLoanLiquidationScenario::ProfitableLiquidation,
             flash_loan_amount: 5_000_000,
-            flash_loan_fee_bps: 500,      // 5% fee
-            liquidation_incentive_bps: 1_000,  // 10% incentive
-            max_price_impact_bps: 2_000,       // 20% max impact
+            flash_loan_fee_bps: 500,          // 5% fee
+            liquidation_incentive_bps: 1_000, // 10% incentive
+            max_price_impact_bps: 2_000,      // 20% max impact
         }
     }
 
@@ -37,7 +37,7 @@ impl ScenarioConfig {
             scenario: FlashLoanLiquidationScenario::UnprofitableLiquidation,
             flash_loan_amount: 5_000_000,
             flash_loan_fee_bps: 500,
-            liquidation_incentive_bps: 500,   // 5% incentive (not profitable)
+            liquidation_incentive_bps: 500, // 5% incentive (not profitable)
             max_price_impact_bps: 2_000,
         }
     }
@@ -46,7 +46,7 @@ impl ScenarioConfig {
         ScenarioConfig {
             scenario: FlashLoanLiquidationScenario::CascadingFlashLoans,
             flash_loan_amount: 1_000_000,
-            flash_loan_fee_bps: 1_000,    // 10% fee
+            flash_loan_fee_bps: 1_000, // 10% fee
             liquidation_incentive_bps: 1_000,
             max_price_impact_bps: 3_000,
         }
@@ -65,7 +65,7 @@ impl ScenarioConfig {
     pub fn partial_liquidation() -> Self {
         ScenarioConfig {
             scenario: FlashLoanLiquidationScenario::PartialLiquidationWithFlashLoan,
-            flash_loan_amount: 2_000_000,  // Partial
+            flash_loan_amount: 2_000_000, // Partial
             flash_loan_fee_bps: 500,
             liquidation_incentive_bps: 1_000,
             max_price_impact_bps: 2_000,
@@ -78,7 +78,7 @@ impl ScenarioConfig {
             flash_loan_amount: 5_000_000,
             flash_loan_fee_bps: 500,
             liquidation_incentive_bps: 1_000,
-            max_price_impact_bps: 100,  // Very tight protection
+            max_price_impact_bps: 100, // Very tight protection
         }
     }
 

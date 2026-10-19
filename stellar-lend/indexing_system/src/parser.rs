@@ -54,6 +54,12 @@ impl EventParser {
         Ok(())
     }
 
+    /// Check whether an ABI is registered for a contract address.
+    pub fn has_contract(&self, contract_address: &str) -> bool {
+        self.contract_abis
+            .contains_key(&contract_address.to_lowercase())
+    }
+
     /// Parse a log into a structured event
     ///
     /// # Arguments

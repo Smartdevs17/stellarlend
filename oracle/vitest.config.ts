@@ -6,6 +6,9 @@ export default defineConfig({
         globals: true,
         environment: 'node',
         include: ['tests/**/*.test.ts'],
+        // The stress suite (#691) runs on its own config and schedule — see
+        // vitest.stress.config.ts. Excluded here so `npm test` stays fast.
+        exclude: ['tests/stress/**'],
         coverage: {
             provider: 'v8',
             reporter: ['text', 'html', 'lcov'],

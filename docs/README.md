@@ -3,6 +3,7 @@
 This repository contains the Soroban smart contracts and related resources for the StellarLend protocol.
 
 Contents:
+- [Supplier rewards](SUPPLIER_REWARDS.md): funded allocations, configuration, and claims
 - Overview
 - Modules and Features
 - Admin Operations
@@ -15,13 +16,27 @@ Contents:
 ## Overview
 StellarLend is a lending and borrowing protocol built on Soroban. It features cross-asset accounting, risk management, governance, AMM integration, flash loans, and more.
 
+New to the terminology? See the **[Glossary](GLOSSARY.md)** for definitions of
+protocol terms and the fixed-point conventions used across these documents.
+
 ## Test Documentation
 
 - **[Borrow Function Tests](BORROW_TESTS.md)** - Comprehensive test suite documentation for the borrow functionality, covering all validation paths, edge cases, interest accrual, pause functionality, events, and security scenarios.
 - **[Event Indexing Guide](event-indexing.md)** - Catalog of contract events, indexing options for RPC, Mercury, and SubQuery, and the current status of `stellar-lend/indexing_system/`.
 - **[Upgrade Mechanism](upgrade-mechanism.md)** - Runbook for planned and emergency upgrades, rollback handling, and storage compatibility guidance.
+- **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Common build, test, devnet and contract-error fixes, including a map of `Error(Contract, #N)` codes for the lending contract.
+- **[Chaos Engineering](chaos-engineering.md)** - Network-failure experiment registry, steady-state hypotheses, halt criteria, and chaos CI reporting (Issue #689).
+- **[Recovery Procedures](recovery.md)** - Automated recovery runbook for partition, RPC outage, and oracle disruption scenarios (Issue #689).
+- **[Gas Golf Leaderboard](../scripts/gas-golf/README.md)** - Competitive gas optimization: a maintainer-owned correctness gate, a leaderboard scored on `utilizationPct`, and measurement integrity checks (Issue #1014).
+- **[Governance Lifecycle](GOVERNANCE.md)** - Proposal state machine, config knobs, invariants, E2E coverage, and gas benchmarks (Issue #690).
+- **[Lending Pool Gas Cost Estimator](../scripts/lending-gas-estimator/README.md)** - Per-entry-point storage indexing, stroop cost estimates, and storage-pattern optimization suggestions for the Soroban lending pool (Issue #1011). See [Developer Tooling](DEV_TOOLING.md) for usage.
+- **[Lending Protocol Gas Budget Planner](../scripts/gas-budget-planner/README.md)** - Plan a lender's gas budget for a pattern of deposits, borrows, repays and withdrawals: per-call costs, period and annualised totals, budget headroom, volume projections and batching savings (Issue #1012). See [Developer Tooling](DEV_TOOLING.md) for usage.
+- **[Lending Pool Position Health Simulation](../scripts/position-health-sim/README.md)** - Simulate market conditions against the contract's own health factor and liquidation threshold math: historical scenario replay, price shock grids, break-even collateral price, and a liquidation threshold sweep (Issue #1013). See [Developer Tooling](DEV_TOOLING.md) for usage.
 
 ## Modules and Features
+- **[Real-Time Price Feed with Anomaly Detection](REALTIME_PRICE_FEED.md)** - Production-ready oracle aggregation pipeline with Z-score/IQR/velocity anomaly detection, cross-feed correlation, TWAP smoothing, health monitoring, integration tests, and performance benchmarks
+- **[Transaction Simulation Cache](TRANSACTION_SIMULATION_CACHE.md)** - Short-lived cache of Soroban simulations for deposit/borrow/repay/withdraw estimates, with invalidation on submission
+- **[Offline Support and Push Notifications](OFFLINE_AND_PUSH_NOTIFICATIONS.md)** - Service worker caching for offline use and Web Push liquidation warnings
 - Interest rate model with smoothing
 - Risk config and scoring
 - Cross-asset positions and oracle support
@@ -35,6 +50,9 @@ StellarLend is a lending and borrowing protocol built on Soroban. It features cr
 - Upgrade tracking and approval manager in `contracts/lending`; see `upgrade-mechanism.md` for current scope and limitations
 - Data management: generic data store, backup/restore, migration
 - Configuration: versioned param store with backup/restore
+- **[Contract Integration Guide](CONTRACT_INTEGRATION.md)** - connect through the SDK and implement the deposit/borrow/repay/withdraw, liquidation and flash-loan flows
+- **[Examples](../examples/README.md)** - runnable, tested SDK examples (pagination, transaction builders) and an index of every example in the repo
+- **[Local Devnet](devnet.md)** - one-command devnet and the [faucet](devnet.md#faucet) for funding accounts
 
 ## Admin Operations
 Key admin entrypoints (see contract for full list):
@@ -47,12 +65,14 @@ Key admin entrypoints (see contract for full list):
 - `upgrade_propose/approve/execute/rollback` in the separate lending workspace upgrade manager
 - `config_set/config_backup/config_restore`
 - `ms_set_admins`, `ms_propose_set_min_cr`, `ms_approve`, `ms_execute`
+- **[Risk Parameters](RISK_PARAMETERS.md)** - every admin-configurable risk figure, its default, bounds, rationale and the safe-change procedure
 
 ## Monitoring & Analytics
 - `record_user_action(user, action)` updates risk and emits events
 - Analytics auto-update on deposit/borrow/repay/withdraw
 - Monitoring entrypoints: `monitor_report_health/performance/security`, `monitor_get`
 - Event indexing details, topic layouts, and decoding examples are documented in [event-indexing.md](event-indexing.md)
+- **[Indexer Health & Lag Monitoring](INDEXER_HEALTH_MONITORING.md)** - Real-time indexer lag tracking, Prometheus & JSON metrics exposition, automated alert evaluation, and frontend monitoring dashboard (Issue #1423)
 
 ### Analytics Read APIs
 - `get_protocol_report()` & `get_user_report(address)` surface typed structs (`ProtocolReport`, `UserReport`) containing
@@ -95,3 +115,6 @@ Key admin entrypoints (see contract for full list):
 ## Social Recovery & Multisig
 - Set guardians per-user and execute timelocked recoveries
 - Multisig supports proposing and executing admin changes with threshold
+
+## Architecture
+- **[Architecture Diagrams](ARCHITECTURE.md)** - system context, contract module map, borrow lifecycle sequence, and deployment topology (Mermaid, rendered on GitHub).

@@ -15,7 +15,12 @@ use soroban_sdk::Env;
 use std::env;
 use storage::StorageContext;
 
-fn run_scenario_suite(ctx: &StorageContext) -> (Vec<scenarios::ScenarioResult>, Vec<gas_profiler::GasProfile>) {
+fn run_scenario_suite(
+    ctx: &StorageContext,
+) -> (
+    Vec<scenarios::ScenarioResult>,
+    Vec<gas_profiler::GasProfile>,
+) {
     let mut results = Vec::new();
     let mut all_gas = Vec::new();
 
@@ -85,11 +90,7 @@ fn main() {
         print_summary(&report);
     }
 
-    let failed = report
-        .scenarios
-        .iter()
-        .filter(|s| !s.passed)
-        .count()
+    let failed = report.scenarios.iter().filter(|s| !s.passed).count()
         + if report
             .fuzz_report
             .as_ref()

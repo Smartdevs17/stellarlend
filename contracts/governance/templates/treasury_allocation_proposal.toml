@@ -1,0 +1,34 @@
+# Governance Proposal Template: Treasury Allocation (#1451)
+# Use this template to propose using treasury funds
+
+title = "Treasury: [Purpose]"
+description = """
+## Purpose
+What the treasury funds will be used for.
+
+## Amount
+Total amount being requested and justification.
+
+## Timeline
+Schedule for fund distribution.
+
+## Expected Outcomes
+Deliverables and success metrics.
+"""
+
+[proposal]
+type = "treasury_allocation"
+priority = "normal"
+quorum_percentage = 45
+
+[treasury]
+amount = "0"
+currency = "USDC"
+recipient = "G..."
+purpose = "development"  # development, marketing, security, infrastructure
+
+[milestones]
+[[milestones.items]]
+name = "Milestone 1"
+amount = "0"
+due_date = "2024-12-31"

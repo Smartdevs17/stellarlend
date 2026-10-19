@@ -100,4 +100,33 @@ describe('DisputeResolutionService', () => {
     const disputes = disputeResolutionService.getDisputesByUser(disputer);
     expect(disputes.length).toBeGreaterThan(0);
   });
+
+  it('does not prematurely resolve when 3 of 5 jurors vote valid and 1 invalid, and resolves invalid if 5th votes invalid', () => {
+    const dispute2 = disputeResolutionService.fileDispute(
+      disputer, liquidator, 'tx_hash_quorum', '1000000000', 'evidence', '10000000'
+    );
+    disputeResolutionService.selectJurors(dispute2.id);
+
+    // Vote 1: valid
+    disputeResolutionService.castVote(dispute2.id, juror1, 'valid');
+    expect(disputeResolutionService.getDispute(dispute2.id)!.status).toBe('voting');
+
+    // Vote 2: valid
+    disputeResolutionService.castVote(dispute2.id, juror2, 'valid');
+    expect(disputeResolutionService.getDispute(dispute2.id)!.status).toBe('voting');
+
+    // Vote 3: valid
+    disputeResolutionService.castVote(dispute2.id, juror3, 'valid');
+    expect(disputeResolutionService.getDispute(dispute2.id)!.status).toBe('voting');
+
+    // Vote 4: invalid (3 valid, 1 invalid: 3/4=75% of cast votes, but only 3/5=60% of jury; must NOT resolve!)
+    disputeResolutionService.castVote(dispute2.id, juror4, 'invalid');
+    expect(disputeResolutionService.getDispute(dispute2.id)!.status).toBe('voting');
+
+    // Vote 5: invalid (3 valid, 2 invalid: 3/5=60% < 66%; must resolve as 'invalid')
+    disputeResolutionService.castVote(dispute2.id, juror5, 'invalid');
+    const resolved = disputeResolutionService.getDispute(dispute2.id)!;
+    expect(resolved.status).toBe('resolved');
+    expect(resolved.resolution).toBe('invalid');
+  });
 });

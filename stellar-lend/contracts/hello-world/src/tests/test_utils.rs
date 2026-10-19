@@ -18,14 +18,14 @@ pub fn setup_admin(env: &Env, admin: &Address) {
 pub fn create_test_asset_config() -> crate::cross_asset::AssetConfig {
     crate::cross_asset::AssetConfig {
         asset: Some(Address::generate(&Env::default())),
-        collateral_factor: 7500,  // 75% LTV
-        liquidation_threshold: 8000,  // 80% liquidation threshold
-        reserve_factor: 1000,  // 10% reserve
+        collateral_factor: 7500,     // 75% LTV
+        liquidation_threshold: 8000, // 80% liquidation threshold
+        reserve_factor: 1000,        // 10% reserve
         max_supply: 10000000,
         max_borrow: 5000000,
         can_collateralize: true,
         can_borrow: true,
-        price: 1000000,  // 1:1 with base asset
+        price: 1000000, // 1:1 with base asset
         price_updated_at: 0,
         is_isolated: false,
         is_frozen: false,
@@ -35,7 +35,7 @@ pub fn create_test_asset_config() -> crate::cross_asset::AssetConfig {
 /// Generate test user with some initial balance
 pub fn create_test_user_with_balance(env: &Env, initial_balance: i128) -> Address {
     let user = Address::generate(env);
-    
+
     // Mock token balance setup (in real tests, this would involve token contracts)
     // For now, we just return the user address
     user
@@ -53,9 +53,9 @@ pub fn advance_time(env: &Env, seconds: u64) {
 pub fn setup_test_env() -> (Env, Address) {
     let env = Env::default();
     let admin = Address::generate(&env);
-    
+
     // Setup admin
     setup_admin(&env, &admin);
-    
+
     (env, admin)
 }

@@ -224,9 +224,12 @@ cargo test
 
 ## Future Enhancements
 
-- Multi-asset collateral support
-- Dynamic interest rates based on utilization
-- Liquidation mechanism for under-collateralized positions
-- Oracle integration for accurate asset pricing
+Implemented since this list was written:
+
+- Multi-asset collateral and liquidation: see [liquidation.md](./liquidation.md)
+- Utilization-based, admin-configurable interest rates: see [interest_rate_models.md](./interest_rate_models.md)
+- Oracle pricing for collateral and debt values: see [views.md](./views.md)
+
+Still open:
+
 - Variable collateral ratios per asset type
-- Governance-controlled parameter updates

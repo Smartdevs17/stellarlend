@@ -1,9 +1,21 @@
 import { Request, Response, NextFunction } from 'express';
 import { reinvestmentService } from '../services/earnings/reinvestment.service';
+import { AuthRequest } from '../middleware/auth';
+import { UnauthorizedError } from '../utils/errors';
 
-export const createPlan = async (req: Request, res: Response, next: NextFunction) => {
+export const createPlan = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const plan = reinvestmentService.createPlan(req.body);
+    const userAddress = req.user?.address;
+    if (!userAddress) {
+      throw new UnauthorizedError('User authentication required');
+    }
+    if (req.body.userAddress && req.body.userAddress !== userAddress) {
+      throw new UnauthorizedError('Cannot create plan for a different user address');
+    }
+    const plan = reinvestmentService.createPlan({
+      ...req.body,
+      userAddress,
+    });
     return res.status(201).json({ success: true, plan });
   } catch (err) {
     next(err);
@@ -33,10 +45,16 @@ export const getUserPlans = async (req: Request, res: Response, next: NextFuncti
   }
 };
 
-export const pausePlan = async (req: Request, res: Response, next: NextFunction) => {
+export const pausePlan = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { planId } = req.params!;
-    const { userAddress } = req.body;
+    const userAddress = req.user?.address;
+    if (!userAddress) {
+      throw new UnauthorizedError('User authentication required');
+    }
+    if (req.body.userAddress && req.body.userAddress !== userAddress) {
+      throw new UnauthorizedError('Caller does not match specified user address');
+    }
     const plan = reinvestmentService.pause(planId!, userAddress);
     return res.status(200).json({ success: true, plan });
   } catch (err) {
@@ -45,10 +63,16 @@ export const pausePlan = async (req: Request, res: Response, next: NextFunction)
   }
 };
 
-export const resumePlan = async (req: Request, res: Response, next: NextFunction) => {
+export const resumePlan = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { planId } = req.params!;
-    const { userAddress } = req.body;
+    const userAddress = req.user?.address;
+    if (!userAddress) {
+      throw new UnauthorizedError('User authentication required');
+    }
+    if (req.body.userAddress && req.body.userAddress !== userAddress) {
+      throw new UnauthorizedError('Caller does not match specified user address');
+    }
     const plan = reinvestmentService.resume(planId!, userAddress);
     return res.status(200).json({ success: true, plan });
   } catch (err) {
@@ -57,10 +81,14 @@ export const resumePlan = async (req: Request, res: Response, next: NextFunction
   }
 };
 
-export const recordSweep = async (req: Request, res: Response, next: NextFunction) => {
+export const recordSweep = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { planId } = req.params!;
-    const events = reinvestmentService.recordSweep(planId!, req.body);
+    const userAddress = req.user?.address;
+    if (!userAddress) {
+      throw new UnauthorizedError('User authentication required');
+    }
+    const events = reinvestmentService.recordSweep(planId!, req.body, userAddress);
     return res.status(201).json({ success: true, events });
   } catch (err) {
     next(err);

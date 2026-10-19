@@ -61,7 +61,7 @@ pub struct CreateEvent {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct IndexingMetadata {
     /// Unique identifier
-    pub id: i32,
+    pub id: Uuid,
 
     /// Contract address being indexed
     pub contract_address: String,

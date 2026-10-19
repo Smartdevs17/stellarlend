@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 
 interface Policy {
   id: string;
@@ -10,10 +10,28 @@ interface Policy {
   coveredTriggers: string[];
   exclusions: string[];
 }
+
+interface PremiumQuote {
+  basePremiumBps: number;
+  riskAdjustedPremiumBps: number;
+  riskMultiplier: number;
+  estimatedPremium: number;
+}
+
+interface InsuranceAnalytics {
+  totalProviders: number;
+  activePolicies: number;
+  totalCoverages: number;
+  totalPremiumsCollected: number;
+  totalCoverageIssued: number;
+  avgPremiumBps: number;
+}
+
 interface InsuranceMarketplaceProps {
   policies: Policy[];
   lender: string;
   positionId: string;
+  riskScore?: number;
   apiBaseUrl?: string;
 }
 
@@ -42,15 +60,77 @@ export function InsuranceClaimsDashboard({ totals }: { totals: ClaimSummary }) {
   );
 }
 
+export function InsuranceAnalyticsDashboard({ apiBaseUrl = "/api" }: { apiBaseUrl?: string }) {
+  const [analytics, setAnalytics] = useState<InsuranceAnalytics | null>(null);
+
+  useEffect(() => {
+    fetch(`${apiBaseUrl}/insurance/analytics`)
+      .then((r) => r.json())
+      .then((d) => { if (d.success) setAnalytics(d.data); })
+      .catch(() => {});
+  }, [apiBaseUrl]);
+
+  if (!analytics) return null;
+
+  return (
+    <section aria-labelledby="analytics-title" className="rounded-xl border p-4">
+      <h2 id="analytics-title" className="text-xl font-semibold">Insurance Analytics</h2>
+      <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="rounded-lg bg-slate-50 p-3">
+          <dt className="text-slate-600">Providers</dt>
+          <dd className="text-2xl font-semibold">{analytics.totalProviders}</dd>
+        </div>
+        <div className="rounded-lg bg-slate-50 p-3">
+          <dt className="text-slate-600">Active Policies</dt>
+          <dd className="text-2xl font-semibold">{analytics.activePolicies}</dd>
+        </div>
+        <div className="rounded-lg bg-slate-50 p-3">
+          <dt className="text-slate-600">Coverages Issued</dt>
+          <dd className="text-2xl font-semibold">{analytics.totalCoverages}</dd>
+        </div>
+        <div className="rounded-lg bg-slate-50 p-3">
+          <dt className="text-slate-600">Premiums Collected</dt>
+          <dd className="text-2xl font-semibold">{analytics.totalPremiumsCollected.toLocaleString()}</dd>
+        </div>
+        <div className="rounded-lg bg-slate-50 p-3">
+          <dt className="text-slate-600">Coverage Issued</dt>
+          <dd className="text-2xl font-semibold">{analytics.totalCoverageIssued.toLocaleString()}</dd>
+        </div>
+        <div className="rounded-lg bg-slate-50 p-3">
+          <dt className="text-slate-600">Avg Premium</dt>
+          <dd className="text-2xl font-semibold">{(analytics.avgPremiumBps / 100).toFixed(2)}%</dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
 export function InsuranceMarketplace({
   policies,
   lender,
   positionId,
+  riskScore = 750,
   apiBaseUrl = "/api",
 }: InsuranceMarketplaceProps) {
   const [message, setMessage] = useState("");
+  const [premiums, setPremiums] = useState<Record<string, PremiumQuote>>({});
+
+  useEffect(() => {
+    for (const policy of policies) {
+      fetch(`${apiBaseUrl}/insurance/premium/calculate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ policyId: policy.id, riskScore }),
+      })
+        .then((r) => r.json())
+        .then((d) => { if (d.success) setPremiums((prev) => ({ ...prev, [policy.id]: d.data })); })
+        .catch(() => {});
+    }
+  }, [policies, riskScore, apiBaseUrl]);
+
   async function purchase(policy: Policy) {
     setMessage("Purchasing coverage…");
+    const quote = premiums[policy.id];
     const response = await fetch(`${apiBaseUrl}/insurance/coverages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -64,7 +144,7 @@ export function InsuranceMarketplace({
     const result = await response.json();
     setMessage(
       response.ok
-        ? `Coverage active. Premium: ${(policy.coverageAmount * policy.premiumBps) / 10_000}`
+        ? `Coverage active. Premium: ${quote?.estimatedPremium ?? (policy.coverageAmount * policy.premiumBps) / 10_000}`
         : (result.error ?? "Purchase failed"),
     );
   }
@@ -84,8 +164,14 @@ export function InsuranceMarketplace({
             </h3>
             <p>
               {policy.durationDays} days ·{" "}
-              {(policy.premiumBps / 100).toFixed(2)}% premium
+              {(policy.premiumBps / 100).toFixed(2)}% base premium
             </p>
+            {premiums[policy.id] && (
+              <p className="text-sm font-medium text-blue-700">
+                Risk-adjusted: {(premiums[policy.id]!.riskAdjustedPremiumBps / 100).toFixed(2)}%
+                ({premiums[policy.id]!.riskMultiplier}x) · Est. {premiums[policy.id]!.estimatedPremium.toLocaleString()}
+              </p>
+            )}
             <p className="mt-2 text-sm">
               Covered: {policy.coveredTriggers.join(", ")}
             </p>

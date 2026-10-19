@@ -6,12 +6,14 @@ This document describes the view functions for user collateral value, debt value
 
 | Function | Description |
 |----------|-------------|
-| `get_collateral_balance` | User's collateral balance (raw amount). |
+| `get_collateral_balance` | Balance of the user's largest collateral asset (raw amount). |
 | `get_debt_balance` | User's debt balance (principal + accrued interest). |
-| `get_collateral_value` | Collateral value in common unit (e.g. USD 8 decimals). |
+| `get_collateral_value` | Value of all the user's collateral assets in common unit (e.g. USD 8 decimals). |
 | `get_debt_value` | Debt value in common unit. |
 | `get_health_factor` | Health factor (scaled 10000 = 1.0). |
 | `get_user_position` | Full position summary (balances, values, health factor). |
+
+A position can hold several collateral assets (see [liquidation.md](./liquidation.md)); collateral value and the health factor sum all of them, each at its own oracle price. `get_user_collaterals(user)` lists the per-asset balances.
 
 All value and health-factor computations use the **admin-configured oracle** and **liquidation threshold**. If the oracle is not set, `get_collateral_value`, `get_debt_value`, and `get_health_factor` return `0` (and `get_user_position` returns zeros for value/HF fields).
 
@@ -37,7 +39,7 @@ All value and health-factor computations use the **admin-configured oracle** and
 
 - **Purpose:** Collateral value in a common unit (e.g. USD with 8 decimals), using the configured oracle.
 - **Read-only:** Yes. Only reads from storage and calls the oracle (read-only from the protocol’s perspective).
-- **Returns:** `collateral_amount * oracle_price / PRICE_SCALE`. `0` if oracle is not set, collateral is zero, or price is invalid.
+- **Returns:** `sum(amount * oracle_price(asset) / PRICE_SCALE)` over every collateral asset. `0` if oracle is not set or the user has no collateral; an asset without a valid price contributes `0`.
 - **Oracle:** Must be set via `set_oracle(admin, oracle_address)`. Oracle contract must implement `price(asset: Address) -> i128` with 8-decimal scale (`PRICE_SCALE = 100_000_000`).
 
 ---

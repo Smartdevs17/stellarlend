@@ -21,7 +21,8 @@
 
 #[cfg(any(test, feature = "spec"))]
 mod upgrade_verification {
-    use std::num::NonZeroU32;
+
+    use alloc::{collections::BTreeSet, vec};
 
     /// Specification: Version monotonicity invariant
     /// Contract version can only increase or stay same, never decrease
@@ -72,8 +73,8 @@ mod upgrade_verification {
 
             // Types must match
             assert_eq!(
-                std::mem::size_of::<BalanceType>(),
-                std::mem::size_of::<NewBalanceType>()
+                core::mem::size_of::<BalanceType>(),
+                core::mem::size_of::<NewBalanceType>()
             );
         }
 
@@ -104,6 +105,7 @@ mod upgrade_verification {
     /// Upgrade requires sufficient approvals before execution
     #[cfg(test)]
     mod approval_quorum {
+        use alloc::{collections::BTreeSet, vec};
         #[test]
         fn spec_requires_minimum_approvals() {
             // CLAIM: approvals >= required_approvals before execute
@@ -129,7 +131,7 @@ mod upgrade_verification {
             // CLAIM: Same approver cannot vote twice
             // PROOF: Approval list is deduplicated/checked
             let approvers = vec!["admin1", "admin2", "admin1"];
-            let unique: std::collections::HashSet<_> = approvers.into_iter().collect();
+            let unique: BTreeSet<_> = approvers.into_iter().collect();
 
             assert_eq!(unique.len(), 2); // Only 2 unique
         }

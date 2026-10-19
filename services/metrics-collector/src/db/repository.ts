@@ -15,6 +15,7 @@ export interface MetricsRepository {
   recordGaps(gaps: MetricsGap[]): Promise<void>;
   markGapsBackfilled(gaps: MetricsGap[]): Promise<void>;
   queryTimeSeries(query: TimeSeriesQuery): Promise<TimeSeriesPoint[]>;
+  getLatestProtocolSample(): Promise<ProtocolMetricSample | null>;
   close(): Promise<void>;
 }
 
@@ -104,6 +105,11 @@ export class InMemoryMetricsRepository implements MetricsRepository {
         time: new Date(time).toISOString(),
         value: values.reduce((a, b) => a + b, 0) / values.length,
       }));
+  }
+
+  async getLatestProtocolSample(): Promise<ProtocolMetricSample | null> {
+    if (this.protocol.length === 0) return null;
+    return this.protocol.reduce((latest, s) => (s.time > latest.time ? s : latest));
   }
 
   async close(): Promise<void> {

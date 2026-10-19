@@ -10,6 +10,7 @@ Implements [issue #455](https://github.com/Smartdevs17/stellarlend/issues/455).
 - Retention: raw **30 days**, 1h aggregates retained via CAgg policy (**1 year**)
 - Automated gap detection + backfill
 - API: `GET /api/metrics/timeseries?metric=&from=&to=&interval=`
+- Prometheus exporter: `GET /metrics` (see below)
 
 ## Schema
 
@@ -32,6 +33,24 @@ GET /api/metrics/timeseries?metric=tvl&from=2026-01-01T00:00:00Z&to=2026-01-02T0
 
 Supported metrics: `tvl`, `totalBorrows`, `utilizationRate`, `liquidations`, `totalDeposits`, `activeUsers`  
 Supported intervals: `1m`, `5m`, `1h`, `1d`
+
+## Prometheus Exporter
+
+The collector process also serves the latest protocol metric sample in Prometheus
+text-exposition format for scraping:
+
+```bash
+curl http://localhost:9464/metrics
+```
+
+```
+# HELP stellarlend_tvl Total value locked in the protocol.
+# TYPE stellarlend_tvl gauge
+stellarlend_tvl 1000000
+...
+```
+
+Configure the port via the `EXPORTER_PORT` environment variable (default `9464`).
 
 ## Run
 

@@ -13,7 +13,7 @@
 //! | `revoke_role` | admin | Admin | `require_admin` |
 //! | `transfer_admin` | lib | Admin | `require_admin` |
 //! | `set_reserve_factor` | reserve | Admin | `require_auth` + `require_admin` |
-//! | `set_treasury_address` | reserve | Admin | `require_auth` + `require_admin` |
+//! | `set_treasury` | reserve | Admin | `require_auth` + `require_admin` |
 //! | `withdraw_reserve_to_treasury` | reserve | Admin | `require_auth` + `require_admin` |
 //! | `initialize_reserve_config` | reserve | Admin | Called internally |
 //! | `add_supported_asset` | cross_asset | Admin | `require_auth` + admin check |
@@ -79,7 +79,7 @@ use crate::admin::{
 };
 use crate::deposit::DepositDataKey;
 use crate::reserve::{
-    get_treasury_address, initialize_reserve_config, set_reserve_factor, set_treasury_address,
+    get_treasury, initialize_reserve_config, set_reserve_factor, set_treasury,
     withdraw_reserve_to_treasury, ReserveError, MAX_RESERVE_FACTOR_BPS,
 };
 
@@ -347,7 +347,7 @@ fn test_set_reserve_factor_authorized() {
 }
 
 #[test]
-fn test_set_treasury_address_unauthorized() {
+fn test_set_treasury_unauthorized() {
     //! Tests that unauthorized users cannot set treasury address.
 
     let (env, contract_id, admin) = setup_with_admin();
@@ -355,24 +355,24 @@ fn test_set_treasury_address_unauthorized() {
     let treasury = Address::generate(&env);
 
     env.as_contract(&contract_id, || {
-        let result = set_treasury_address(&env, unauthorized.clone(), treasury);
+        let result = set_treasury(&env, unauthorized.clone(), treasury);
         assert_eq!(result, Err(ReserveError::Unauthorized));
     });
 }
 
 #[test]
-fn test_set_treasury_address_authorized() {
+fn test_set_treasury_authorized() {
     //! Tests that admin can set treasury address.
 
     let (env, contract_id, admin) = setup_with_admin();
     let treasury = Address::generate(&env);
 
     env.as_contract(&contract_id, || {
-        let result = set_treasury_address(&env, admin.clone(), treasury.clone());
+        let result = set_treasury(&env, admin.clone(), treasury.clone());
         assert!(result.is_ok());
 
         // Verify the change
-        let stored = get_treasury_address(&env).unwrap();
+        let stored = get_treasury(&env).unwrap();
         assert_eq!(stored, treasury);
     });
 }
@@ -389,7 +389,7 @@ fn test_withdraw_reserve_unauthorized() {
     // Setup reserve balance
     env.as_contract(&contract_id, || {
         initialize_reserve_config(&env, asset.clone(), 1000).unwrap();
-        set_treasury_address(&env, admin.clone(), treasury).unwrap();
+        set_treasury(&env, admin.clone(), treasury).unwrap();
         crate::reserve::accrue_reserve(&env, asset.clone(), 10000).unwrap();
     });
 
@@ -410,7 +410,7 @@ fn test_withdraw_reserve_authorized() {
 
     env.as_contract(&contract_id, || {
         initialize_reserve_config(&env, asset.clone(), 1000).unwrap();
-        set_treasury_address(&env, admin.clone(), treasury.clone()).unwrap();
+        set_treasury(&env, admin.clone(), treasury.clone()).unwrap();
         crate::reserve::accrue_reserve(&env, asset.clone(), 10000).unwrap();
 
         let result = withdraw_reserve_to_treasury(&env, admin.clone(), asset.clone(), 500);
@@ -658,10 +658,10 @@ fn test_regression_admin_cannot_bypass_reserve_limits() {
 
     env.as_contract(&contract_id, || {
         initialize_reserve_config(&env, asset.clone(), 1000).unwrap();
-        set_treasury_address(&env, admin.clone(), treasury.clone()).unwrap();
+        set_treasury(&env, admin.clone(), treasury.clone()).unwrap();
 
         // Accrue some reserves
-        crate::reserve::accrue_reserve(&env, asset.clone(), 1000).unwrap();
+        crate::treasury::accrue_reserve(&env, asset.clone(), 1000).unwrap();
 
         // Admin tries to withdraw more than available
         let result = withdraw_reserve_to_treasury(&env, admin.clone(), asset.clone(), 2000);

@@ -1,7 +1,7 @@
 use super::*;
-use crate::borrow::calculate_interest;
+use crate::borrow::{calculate_interest, RateType};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
+    testutils::{storage::Persistent as _, Address as _, Ledger},
     Address, Env,
 };
 
@@ -24,6 +24,21 @@ fn setup_test(
 
     client.initialize(&admin, &1_000_000_000, &1000);
     (client, admin, user, asset, collateral_asset)
+}
+
+#[test]
+fn new_positions_do_not_duplicate_the_legacy_storage_entry() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, user, asset, collateral_asset) = setup_test(&env);
+
+    client.borrow(&user, &asset, &10_000, &collateral_asset, &20_000);
+
+    let legacy_key = crate::borrow::BorrowDataKey::BorrowUserDebt(user);
+    let has_legacy_entry = env.as_contract(&client.address, || {
+        env.storage().persistent().has(&legacy_key)
+    });
+    assert!(!has_legacy_entry);
 }
 
 #[test]

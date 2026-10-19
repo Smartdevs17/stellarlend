@@ -4,6 +4,7 @@ import { HttpProtocolStatsSource } from './collector/stats-source.js';
 import { MetricsCollector } from './collector/collector.js';
 import { InMemoryMetricsRepository } from './db/repository.js';
 import { PostgresMetricsRepository } from './db/postgres-repository.js';
+import { startPrometheusExporter } from './exporter/prometheus-exporter.js';
 
 export { loadConfig } from './config.js';
 export { MetricsCollector } from './collector/collector.js';
@@ -11,6 +12,7 @@ export { detectGaps, backfillTimestamps } from './collector/gap-detection.js';
 export { InMemoryMetricsRepository, resolveMetricColumn, resolveBucket } from './db/repository.js';
 export { PostgresMetricsRepository } from './db/postgres-repository.js';
 export { toProtocolSample, toAssetSamples } from './collector/stats-source.js';
+export { startPrometheusExporter, formatProtocolMetricsAsPrometheus } from './exporter/prometheus-exporter.js';
 export type * from './types.js';
 
 async function main(): Promise<void> {
@@ -23,9 +25,11 @@ async function main(): Promise<void> {
       : new PostgresMetricsRepository(config.databaseUrl);
 
   const collector = new MetricsCollector(config, source, repo, logger);
+  const exporter = startPrometheusExporter(repo, config.exporterPort, logger);
 
   const shutdown = async () => {
     collector.stop();
+    exporter.close();
     await repo.close();
     process.exit(0);
   };

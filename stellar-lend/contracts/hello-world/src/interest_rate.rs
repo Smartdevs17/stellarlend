@@ -22,9 +22,18 @@
 //! bounded to ±100%.
 
 #![allow(unused)]
-use soroban_sdk::{contracterror, contracttype, Address, Env, IntoVal};
+use soroban_sdk::{contracterror, contracttype, Address, Env, IntoVal, Vec};
+use stellarlend_math::checked::checked_mul_div as math_mul_div;
+use stellarlend_math::rates::{
+    apply_rate_bounds as math_apply_rate_bounds, exponential_rate as math_exponential_rate,
+    jump_rate as math_jump_rate, kink_rate as math_kink_rate, linear_rate as math_linear_rate,
+    simple_interest as math_simple_interest, supply_rate_from_spread as math_supply_rate,
+    utilization_bps as math_utilization_bps, RateCurve, RateModelKind,
+};
+use stellarlend_math::MathError;
 
 use crate::deposit::{DepositDataKey, ProtocolAnalytics};
+use crate::storage::set_temp_lending_index;
 
 /// Errors that can occur during interest rate operations
 #[contracterror]
@@ -43,6 +52,16 @@ pub enum InterestRateError {
     DivisionByZero = 5,
     /// Contract has already been initialized
     AlreadyInitialized = 6,
+}
+
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum InterestRateModelKind {
+    Linear = 0,
+    Kink = 1,
+    Jump = 2,
+    Exponential = 3,
 }
 
 /// Storage keys for interest rate data
@@ -84,6 +103,8 @@ pub struct LendingIndex {
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct InterestRateConfig {
+    /// Active interest rate model implementation
+    pub model: InterestRateModelKind,
     /// Base interest rate (in basis points, e.g., 100 = 1% per year)
     /// This is the minimum rate when utilization is 0%
     pub base_rate_bps: i128,
@@ -117,6 +138,7 @@ const SECONDS_PER_YEAR: u64 = 365 * 86400; // 31,536,000 seconds
 /// Default interest rate configuration
 fn get_default_config() -> InterestRateConfig {
     InterestRateConfig {
+        model: InterestRateModelKind::Kink,
         base_rate_bps: 100,          // 1% base rate
         kink_utilization_bps: 8000,  // 80% kink
         multiplier_bps: 2000,        // 20% multiplier below kink
@@ -127,6 +149,73 @@ fn get_default_config() -> InterestRateConfig {
         emergency_adjustment_bps: 0, // No emergency adjustment
         last_update: 0,
     }
+}
+
+/// Maps a [`MathError`] from the shared math library onto this module's error type.
+///
+/// The library reports arithmetic failures in its own vocabulary; callers of
+/// this module only ever see `InterestRateError`.
+fn map_math_error(err: MathError) -> InterestRateError {
+    match err {
+        MathError::DivisionByZero => InterestRateError::DivisionByZero,
+        _ => InterestRateError::Overflow,
+    }
+}
+
+/// Converts this module's stored configuration into the shared curve type.
+fn to_rate_curve(config: &InterestRateConfig) -> RateCurve {
+    RateCurve {
+        kind: match config.model {
+            InterestRateModelKind::Linear => RateModelKind::Linear,
+            InterestRateModelKind::Kink => RateModelKind::Kink,
+            InterestRateModelKind::Jump => RateModelKind::Jump,
+            InterestRateModelKind::Exponential => RateModelKind::Exponential,
+        },
+        base_rate_bps: config.base_rate_bps,
+        kink_utilization_bps: config.kink_utilization_bps,
+        multiplier_bps: config.multiplier_bps,
+        jump_multiplier_bps: config.jump_multiplier_bps,
+    }
+}
+
+fn checked_mul_div(lhs: i128, rhs: i128, divisor: i128) -> Result<i128, InterestRateError> {
+    math_mul_div(lhs, rhs, divisor).map_err(map_math_error)
+}
+
+fn linear_rate(utilization: i128, config: &InterestRateConfig) -> Result<i128, InterestRateError> {
+    math_linear_rate(utilization, &to_rate_curve(config)).map_err(map_math_error)
+}
+
+fn kink_rate(utilization: i128, config: &InterestRateConfig) -> Result<i128, InterestRateError> {
+    math_kink_rate(utilization, &to_rate_curve(config)).map_err(map_math_error)
+}
+
+fn jump_rate(utilization: i128, config: &InterestRateConfig) -> Result<i128, InterestRateError> {
+    math_jump_rate(utilization, &to_rate_curve(config)).map_err(map_math_error)
+}
+
+fn exponential_rate(
+    utilization: i128,
+    config: &InterestRateConfig,
+) -> Result<i128, InterestRateError> {
+    math_exponential_rate(utilization, &to_rate_curve(config)).map_err(map_math_error)
+}
+
+/// Evaluates `model` at `utilization`, delegating to the shared rate curves in
+/// [`stellarlend_math::rates`].
+pub fn calculate_model_borrow_rate(
+    model: InterestRateModelKind,
+    utilization: i128,
+    config: &InterestRateConfig,
+) -> Result<i128, InterestRateError> {
+    let mut curve = to_rate_curve(config);
+    curve.kind = match model {
+        InterestRateModelKind::Linear => RateModelKind::Linear,
+        InterestRateModelKind::Kink => RateModelKind::Kink,
+        InterestRateModelKind::Jump => RateModelKind::Jump,
+        InterestRateModelKind::Exponential => RateModelKind::Exponential,
+    };
+    curve.borrow_rate(utilization).map_err(map_math_error)
 }
 
 /// Get interest rate configuration
@@ -176,15 +265,10 @@ pub fn calculate_utilization(env: &Env) -> Result<i128, InterestRateError> {
     }
 
     // Calculate utilization: (borrows * 10000) / deposits
-    let utilization = analytics
-        .total_borrows
-        .checked_mul(BASIS_POINTS_SCALE)
-        .ok_or(InterestRateError::Overflow)?
-        .checked_div(analytics.total_deposits)
-        .ok_or(InterestRateError::DivisionByZero)?;
-
-    // Cap at 100%
-    Ok(utilization.min(BASIS_POINTS_SCALE))
+    // Delegates to the shared math library, which caps at 100% and treats an
+    // empty pool as 0% utilization.
+    math_utilization_bps(analytics.total_borrows, analytics.total_deposits)
+        .map_err(map_math_error)
 }
 
 /// Calculate borrow interest rate based on utilization
@@ -196,57 +280,20 @@ pub fn calculate_borrow_rate(env: &Env) -> Result<i128, InterestRateError> {
     let config = get_interest_rate_config(env).ok_or(InterestRateError::InvalidParameter)?;
     let utilization = calculate_utilization(env)?;
 
-    let mut rate = config.base_rate_bps;
+    let modelled = calculate_model_borrow_rate(config.model, utilization, &config)?;
 
-    if utilization <= config.kink_utilization_bps {
-        // Below kink: linear increase
-        if config.kink_utilization_bps > 0 {
-            let rate_increase = utilization
-                .checked_mul(config.multiplier_bps)
-                .ok_or(InterestRateError::Overflow)?
-                .checked_div(config.kink_utilization_bps)
-                .ok_or(InterestRateError::DivisionByZero)?;
-            rate = rate
-                .checked_add(rate_increase)
-                .ok_or(InterestRateError::Overflow)?;
-        }
-    } else {
-        // Above kink: steeper increase
-        let rate_at_kink = config
-            .base_rate_bps
-            .checked_add(config.multiplier_bps)
-            .ok_or(InterestRateError::Overflow)?;
+    // Apply the emergency adjustment, then the floor/ceiling.
+    let rate = math_apply_rate_bounds(
+        modelled,
+        config.emergency_adjustment_bps,
+        config.rate_floor_bps,
+        config.rate_ceiling_bps,
+    )
+    .map_err(map_math_error)?;
 
-        let utilization_above_kink = utilization
-            .checked_sub(config.kink_utilization_bps)
-            .ok_or(InterestRateError::Overflow)?;
-
-        let max_utilization_above_kink = BASIS_POINTS_SCALE
-            .checked_sub(config.kink_utilization_bps)
-            .ok_or(InterestRateError::Overflow)?;
-
-        if max_utilization_above_kink > 0 {
-            let additional_rate = utilization_above_kink
-                .checked_mul(config.jump_multiplier_bps)
-                .ok_or(InterestRateError::Overflow)?
-                .checked_div(max_utilization_above_kink)
-                .ok_or(InterestRateError::DivisionByZero)?;
-
-            rate = rate_at_kink
-                .checked_add(additional_rate)
-                .ok_or(InterestRateError::Overflow)?;
-        } else {
-            rate = rate_at_kink;
-        }
-    }
-
-    // Apply emergency adjustment
-    rate = rate
-        .checked_add(config.emergency_adjustment_bps)
-        .ok_or(InterestRateError::Overflow)?;
-
-    // Apply rate limits
-    rate = rate.max(config.rate_floor_bps).min(config.rate_ceiling_bps);
+    let contract = env.current_contract_address();
+    crate::rate_guard::record_rate_change(env, rate, &contract, 0)
+        .map_err(|_| InterestRateError::ParameterChangeTooLarge)?;
 
     Ok(rate)
 }
@@ -257,13 +304,8 @@ pub fn calculate_supply_rate(env: &Env) -> Result<i128, InterestRateError> {
     let config = get_interest_rate_config(env).ok_or(InterestRateError::InvalidParameter)?;
     let borrow_rate = calculate_borrow_rate(env)?;
 
-    // Supply rate = borrow rate - spread
-    let supply_rate = borrow_rate
-        .checked_sub(config.spread_bps)
-        .ok_or(InterestRateError::Overflow)?;
-
-    // Ensure supply rate doesn't go below floor
-    Ok(supply_rate.max(config.rate_floor_bps))
+    // Supply rate = borrow rate - spread, floored at the configured minimum.
+    math_supply_rate(borrow_rate, config.spread_bps, config.rate_floor_bps).map_err(map_math_error)
 }
 
 /// Calculate accrued interest using dynamic rate
@@ -295,23 +337,9 @@ pub fn calculate_accrued_interest(
         .checked_sub(last_accrual_time)
         .ok_or(InterestRateError::Overflow)?;
 
-    // Calculate interest: principal * (rate / 10000) * (time_elapsed / seconds_per_year)
-    // To avoid precision loss: principal * rate * time_elapsed / (10000 * seconds_per_year)
-    let denominator = BASIS_POINTS_SCALE
-        .checked_mul(SECONDS_PER_YEAR as i128)
-        .ok_or(InterestRateError::Overflow)?;
-
-    let numerator = principal
-        .checked_mul(rate_bps)
-        .ok_or(InterestRateError::Overflow)?
-        .checked_mul(time_elapsed as i128)
-        .ok_or(InterestRateError::Overflow)?;
-
-    let interest = numerator
-        .checked_div(denominator)
-        .ok_or(InterestRateError::DivisionByZero)?;
-
-    Ok(interest)
+    // principal * rate * elapsed / (10000 * seconds_per_year), computed by the
+    // shared math library so interest accrual matches every other module.
+    math_simple_interest(principal, rate_bps, time_elapsed as i128).map_err(map_math_error)
 }
 
 /// Update interest rate configuration parameters
@@ -400,6 +428,22 @@ pub fn update_interest_rate_config(
         config.spread_bps = spread;
     }
 
+    config.last_update = env.ledger().timestamp();
+    env.storage().persistent().set(&config_key, &config);
+
+    Ok(())
+}
+
+pub fn switch_interest_rate_model(
+    env: &Env,
+    caller: Address,
+    model: InterestRateModelKind,
+) -> Result<(), InterestRateError> {
+    crate::admin::require_admin(env, &caller).map_err(|_| InterestRateError::Unauthorized)?;
+
+    let config_key = InterestRateDataKey::InterestRateConfig;
+    let mut config = get_interest_rate_config(env).ok_or(InterestRateError::InvalidParameter)?;
+    config.model = model;
     config.last_update = env.ledger().timestamp();
     env.storage().persistent().set(&config_key, &config);
 
@@ -530,6 +574,11 @@ pub fn update_lending_index(env: &Env) -> Result<LendingIndex, InterestRateError
         .set(&InterestRateDataKey::LendingIndex, &idx);
     set_temp_lending_index(env, idx.clone());
 
+    // Record a rolling rate snapshot so off-chain consumers and dashboards can
+    // audit for manipulation. The snapshot is bounded and only appended once per
+    // ledger advance (issue #847).
+    let _ = record_rate_snapshot(env);
+
     Ok(idx)
 }
 
@@ -543,6 +592,9 @@ pub fn get_borrow_index(env: &Env) -> i128 {
 
 /// Return the current supply index (scaled by INDEX_SCALE).
 pub fn get_supply_index(env: &Env) -> i128 {
+    if let Some(cached_index) = crate::storage::get_temp_lending_index(env) {
+        return cached_index.supply_index;
+    }
     get_lending_index(env).supply_index
 }
 
@@ -567,4 +619,321 @@ pub fn compute_index_interest(
         .checked_div(user_index)
         .ok_or(InterestRateError::DivisionByZero)?;
     Ok(interest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg(model: InterestRateModelKind) -> InterestRateConfig {
+        InterestRateConfig {
+            model,
+            base_rate_bps: 100,
+            kink_utilization_bps: 8000,
+            multiplier_bps: 2000,
+            jump_multiplier_bps: 10_000,
+            rate_floor_bps: 0,
+            rate_ceiling_bps: 10_000,
+            spread_bps: 200,
+            emergency_adjustment_bps: 0,
+            last_update: 0,
+        }
+    }
+
+    #[test]
+    fn model_formulas_cover_all_implementations() {
+        let util = 9000;
+        assert_eq!(
+            calculate_model_borrow_rate(
+                InterestRateModelKind::Linear,
+                util,
+                &cfg(InterestRateModelKind::Linear)
+            )
+            .unwrap(),
+            1900
+        );
+        assert_eq!(
+            calculate_model_borrow_rate(
+                InterestRateModelKind::Kink,
+                util,
+                &cfg(InterestRateModelKind::Kink)
+            )
+            .unwrap(),
+            7100
+        );
+        assert_eq!(
+            calculate_model_borrow_rate(
+                InterestRateModelKind::Jump,
+                util,
+                &cfg(InterestRateModelKind::Jump)
+            )
+            .unwrap(),
+            6900
+        );
+        assert_eq!(
+            calculate_model_borrow_rate(
+                InterestRateModelKind::Exponential,
+                util,
+                &cfg(InterestRateModelKind::Exponential)
+            )
+            .unwrap(),
+            9010
+        );
+    }
+}
+
+// ── Rate History & Dynamic Adjustment (#681) ───────────────────────────────
+
+/// Maximum number of rate history entries to keep per asset
+const MAX_RATE_HISTORY: u32 = 100;
+
+/// A snapshot of the interest rate at a point in time
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RateHistoryEntry {
+    /// Borrow rate at this point (bps)
+    pub borrow_rate_bps: i128,
+    /// Supply rate at this point (bps)
+    pub supply_rate_bps: i128,
+    /// Utilization at this point (bps)
+    pub utilization_bps: i128,
+    /// Timestamp of the snapshot
+    pub timestamp: u64,
+}
+
+/// Storage keys for rate history
+#[contracttype]
+#[derive(Clone)]
+pub enum RateHistoryKey {
+    /// Vec<RateHistoryEntry> — rolling window of rate snapshots
+    RateHistory,
+    /// RateHistoryEntry — the last recorded snapshot
+    LastSnapshot,
+}
+
+/// Record a rate snapshot in the history.
+///
+/// Should be called whenever interest is accrued or rates are updated.
+pub fn record_rate_snapshot(env: &Env) -> Result<(), InterestRateError> {
+    let borrow_rate = calculate_borrow_rate(env)?;
+    let supply_rate = calculate_supply_rate(env)?;
+    let utilization = calculate_utilization(env)?;
+    let now = env.ledger().timestamp();
+
+    let entry = RateHistoryEntry {
+        borrow_rate_bps: borrow_rate,
+        supply_rate_bps: supply_rate,
+        utilization_bps: utilization,
+        timestamp: now,
+    };
+
+    // Store as last snapshot
+    env.storage()
+        .persistent()
+        .set(&RateHistoryKey::LastSnapshot, &entry);
+
+    // Append to rolling history
+    let history_key = RateHistoryKey::RateHistory;
+    let mut history: Vec<RateHistoryEntry> = env
+        .storage()
+        .persistent()
+        .get::<RateHistoryKey, Vec<RateHistoryEntry>>(&history_key)
+        .unwrap_or_else(|| Vec::new(env));
+
+    history.push_back(entry);
+
+    // Trim to max size
+    let mut trimmed: Vec<RateHistoryEntry> = Vec::new(env);
+    let start = if history.len() as u32 > MAX_RATE_HISTORY {
+        history.len() - MAX_RATE_HISTORY
+    } else {
+        0
+    };
+    for i in start..history.len() {
+        trimmed.push_back(history.get(i).unwrap());
+    }
+
+    env.storage().persistent().set(&history_key, &trimmed);
+
+    Ok(())
+}
+
+/// Get the rate history.
+pub fn get_rate_history(env: &Env) -> Vec<RateHistoryEntry> {
+    let key = RateHistoryKey::RateHistory;
+    env.storage()
+        .persistent()
+        .get::<RateHistoryKey, Vec<RateHistoryEntry>>(&key)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
+/// Get the last recorded rate snapshot.
+pub fn get_last_rate_snapshot(env: &Env) -> Option<RateHistoryEntry> {
+    env.storage()
+        .persistent()
+        .get::<RateHistoryKey, RateHistoryEntry>(&RateHistoryKey::LastSnapshot)
+}
+
+/// Simulate what the borrow rate would be at a given utilization level.
+///
+/// Does not modify state — purely a read-only calculation.
+///
+/// # Arguments
+/// * `env` - The Soroban environment
+/// * `target_utilization_bps` - The utilization to simulate (0-10000)
+///
+/// # Returns
+/// The simulated borrow rate in basis points
+pub fn simulate_rate_at_utilization(
+    env: &Env,
+    target_utilization_bps: i128,
+) -> Result<i128, InterestRateError> {
+    let config = get_interest_rate_config(env).ok_or(InterestRateError::InvalidParameter)?;
+
+    if target_utilization_bps < 0 || target_utilization_bps > BASIS_POINTS_SCALE {
+        return Err(InterestRateError::InvalidParameter);
+    }
+
+    let mut rate = config.base_rate_bps;
+
+    if target_utilization_bps <= config.kink_utilization_bps {
+        if config.kink_utilization_bps > 0 {
+            let rate_increase = target_utilization_bps
+                .checked_mul(config.multiplier_bps)
+                .ok_or(InterestRateError::Overflow)?
+                .checked_div(config.kink_utilization_bps)
+                .ok_or(InterestRateError::DivisionByZero)?;
+            rate = rate
+                .checked_add(rate_increase)
+                .ok_or(InterestRateError::Overflow)?;
+        }
+    } else {
+        let rate_at_kink = config
+            .base_rate_bps
+            .checked_add(config.multiplier_bps)
+            .ok_or(InterestRateError::Overflow)?;
+
+        let above_kink = target_utilization_bps
+            .checked_sub(config.kink_utilization_bps)
+            .ok_or(InterestRateError::Overflow)?;
+
+        let max_above = BASIS_POINTS_SCALE
+            .checked_sub(config.kink_utilization_bps)
+            .ok_or(InterestRateError::Overflow)?;
+
+        if max_above > 0 {
+            let additional = above_kink
+                .checked_mul(config.jump_multiplier_bps)
+                .ok_or(InterestRateError::Overflow)?
+                .checked_div(max_above)
+                .ok_or(InterestRateError::DivisionByZero)?;
+            rate = rate_at_kink
+                .checked_add(additional)
+                .ok_or(InterestRateError::Overflow)?;
+        } else {
+            rate = rate_at_kink;
+        }
+    }
+
+    rate = rate
+        .checked_add(config.emergency_adjustment_bps)
+        .ok_or(InterestRateError::Overflow)?;
+
+    Ok(rate.max(config.rate_floor_bps).min(config.rate_ceiling_bps))
+}
+
+/// Get the average borrow rate over the recorded history.
+pub fn get_average_borrow_rate(env: &Env) -> Result<i128, InterestRateError> {
+    let history = get_rate_history(env);
+    if history.is_empty() {
+        return Ok(0);
+    }
+
+    let mut total: i128 = 0;
+    for entry in history.iter() {
+        total = total
+            .checked_add(entry.borrow_rate_bps)
+            .ok_or(InterestRateError::Overflow)?;
+    }
+
+    total
+        .checked_div(history.len() as i128)
+        .ok_or(InterestRateError::DivisionByZero)
+}
+
+/// Consolidated rate-manipulation report (issue #847).
+///
+/// Combines the bounded rate history with the rate guard's manipulation attempt
+/// log to let off-chain consumers and dashboards detect and audit suspected
+/// interest-rate manipulation. The `deviation_bps` field reports the largest
+/// consecutive-direction rate move observed across the retained history.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct RateManipulationReport {
+    /// Number of manipulation attempts logged by the rate guard.
+    pub manipulation_attempts: u32,
+    /// Number of rate snapshots retained in the rolling history.
+    pub history_samples: u32,
+    /// Largest consecutive-direction rate move (bps) across the history.
+    pub max_consecutive_deviation_bps: i128,
+    /// Whether a sustained, same-direction rate run was detected.
+    pub manipulation_suspected: bool,
+    /// Current borrow rate (bps).
+    pub current_borrow_rate_bps: i128,
+    /// Time-weighted average borrow rate (bps) if available.
+    pub twap_borrow_rate_bps: i128,
+}
+
+/// Produce a rate-manipulation report by scanning the rate history for sustained
+/// same-direction moves and combining it with the rate guard's attempt log.
+pub fn get_rate_manipulation_report(env: &Env) -> RateManipulationReport {
+    let history = get_rate_history(env);
+    let attempts = crate::rate_guard::get_attempt_log(env).len() as u32;
+    let current_rate = get_current_borrow_rate(env).unwrap_or(0);
+    let twap = crate::rate_guard::get_twap(env).twap_bps;
+
+    // Scan the history for the longest run of consecutive rate moves in the
+    // same direction, accumulating the (bps) magnitude.
+    let mut max_run_bps: i128 = 0;
+    let mut current_run_bps: i128 = 0;
+    let mut prev_rate: Option<i128> = None;
+    let mut prev_dir: i8 = 0;
+    let mut manipulation_suspected = false;
+
+    for entry in history.iter() {
+        if let Some(prev) = prev_rate {
+            let dir: i8 = if entry.borrow_rate_bps > prev {
+                1
+            } else if entry.borrow_rate_bps < prev {
+                -1
+            } else {
+                0
+            };
+            if dir != 0 && dir == prev_dir {
+                current_run_bps = current_run_bps.saturating_add((entry.borrow_rate_bps - prev).abs());
+            } else {
+                current_run_bps = (entry.borrow_rate_bps - prev).abs();
+            }
+            if current_run_bps > max_run_bps {
+                max_run_bps = current_run_bps;
+            }
+            if current_run_bps > BASIS_POINTS_SCALE / 4 {
+                manipulation_suspected = true;
+            }
+            prev_dir = dir;
+        }
+        prev_rate = Some(entry.borrow_rate_bps);
+    }
+
+    // A non-empty guard log is itself a strong manipulation signal.
+    manipulation_suspected = manipulation_suspected || attempts > 0;
+
+    RateManipulationReport {
+        manipulation_attempts: attempts,
+        history_samples: history.len() as u32,
+        max_consecutive_deviation_bps: max_run_bps,
+        manipulation_suspected,
+        current_borrow_rate_bps: current_rate,
+        twap_borrow_rate_bps: twap,
+    }
 }

@@ -41,6 +41,22 @@ pub enum ProposalType {
     GenericAction(Action),
     /// Change interest rate configuration
     InterestRateConfig(InterestRateParams),
+    /// Change governance's own voting rules. Takes effect for proposals
+    /// created after execution; in-flight proposals keep the rules they were
+    /// created under.
+    UpdateGovernanceConfig(GovernanceParams),
+}
+
+/// Partial update to [`GovernanceConfig`]; `None` fields are left unchanged.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct GovernanceParams {
+    pub voting_period: Option<u64>,
+    pub execution_delay: Option<u64>,
+    pub quorum_bps: Option<u32>,
+    pub proposal_threshold: Option<i128>,
+    pub timelock_duration: Option<u64>,
+    pub default_voting_threshold: Option<i128>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -71,7 +87,14 @@ pub struct Proposal {
     pub against_votes: i128,
     pub abstain_votes: i128,
     pub total_voting_power: i128,
+    /// Voting power is measured strictly before this timestamp.
     pub created_at: u64,
+    /// Participation (for + against + abstain) required to pass, fixed at
+    /// creation from the total locked supply and the quorum then in force.
+    pub quorum_votes: i128,
+    /// Emergency proposals skip voting and the timelock, so they execute only
+    /// once the multisig approval threshold is met.
+    pub emergency: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -93,6 +116,15 @@ pub struct VotePowerSnapshot {
     pub snapshot_time: u64,
 }
 
+/// Voting power of an account (or the total locked supply) from `timestamp`
+/// until the next checkpoint.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct VotingCheckpoint {
+    pub timestamp: u64,
+    pub votes: i128,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub struct VoteLock {
@@ -109,6 +141,21 @@ pub struct DelegationRecord {
     pub delegatee: Address,
     pub delegated_at: u64,
     pub depth: u32,
+    pub lock_until: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct PackedBatchOperation {
+    pub op_type: u32,
+    pub packed_data: soroban_sdk::Bytes,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct OptimizedBatchCall {
+    pub shared_header: soroban_sdk::Bytes,
+    pub operations: soroban_sdk::Vec<PackedBatchOperation>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -154,12 +201,34 @@ pub struct ProposalSimulationResult {
     pub note: String,
 }
 
+/// Dry-run execution preview with state diff and impact metrics (Issue #662).
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct StateDiffEntry {
+    pub field: String,
+    pub current_value: i128,
+    pub proposed_value: i128,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct ProposalDryRunResult {
+    pub proposal_id: u64,
+    pub would_succeed: bool,
+    pub tvl_delta: i128,
+    pub apy_delta_bps: i128,
+    pub risk_score_delta: i128,
+    pub gas_units_estimate: u64,
+    pub diffs: Vec<StateDiffEntry>,
+    pub simulated_at: u64,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub struct ParameterOptimizationRecommendation {
     pub generated_at: u64,
     pub suggested_quorum_bps: u32,
-    pub suggested_vote_threshold: i128,
+    pub suggested_vote_threshold_bps: i128,
     pub suggested_voting_period: u64,
     pub transparency_note: String,
 }
@@ -213,6 +282,7 @@ pub struct RecoveryRequest {
     pub initiator: Address,
     pub initiated_at: u64,
     pub expires_at: u64,
+    pub ready_at: u64,
 }
 
 // ========================================================================
@@ -240,25 +310,32 @@ pub const DEFAULT_VOTING_THRESHOLD: i128 = 5_000; // 50% default threshold
 pub const DEFAULT_TIMELOCK_DURATION: u64 = 7 * 24 * 60 * 60; // 7 days
 pub const DEFAULT_RECOVERY_PERIOD: u64 = 3 * 24 * 60 * 60; // 3 days
 pub const MIN_TIMELOCK_DELAY: u64 = 24 * 60 * 60; // 24 hours
-pub const DELEGATION_DEADLINE: u64 = 24 * 60 * 60; // 24 hours
-pub const MAX_DELEGATION_DEPTH: u32 = 3;
+pub const MIN_VOTING_PERIOD: u64 = 60 * 60; // 1 hour
+pub const MAX_VOTING_PERIOD: u64 = 30 * 24 * 60 * 60; // 30 days
+pub const MAX_EXECUTION_DELAY: u64 = 30 * 24 * 60 * 60; // 30 days
+pub const MAX_TIMELOCK_DURATION: u64 = 30 * 24 * 60 * 60; // 30 days
 pub const PROPOSAL_RATE_LIMIT: u32 = 5;
 pub const PROPOSAL_RATE_WINDOW: u64 = 24 * 60 * 60; // 24 hours
+pub const MAX_DESCRIPTION_LEN: u32 = 2_000; // Max chars for governance proposal descriptions
+pub const DEFAULT_RECOVERY_DELAY: u64 = 2 * 24 * 60 * 60; // 2 days
 
-// ========================================================================
-// Emergency Withdrawal Types
-// ========================================================================
+// ============================================================================
+// Emergency Withdrawal (issue #446)
+// ============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+/// Trigger source for an emergency state.
 #[contracttype]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
 pub enum EmergencyTrigger {
-    GovernanceVote,
-    OracleFailure,
-    AdminEmergency,
+    Admin = 0,
+    CircuitBreaker = 1,
+    OracleFailure = 2,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+/// Protocol-wide emergency state.
 #[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EmergencyState {
     pub is_active: bool,
     pub trigger: EmergencyTrigger,
@@ -270,8 +347,9 @@ pub struct EmergencyState {
     pub bad_debt: i128,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+/// Per-user withdrawal record during an emergency window.
 #[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EmergencyWithdrawal {
     pub user: Address,
     pub asset: Option<Address>,

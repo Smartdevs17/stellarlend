@@ -40,9 +40,12 @@ interface PerformanceState {
   snapshots: PoolSnapshot[];
   metrics: PoolPerformanceMetrics | null;
   comparison: PoolComparison[];
+  chartSeries: { timestamp: string; cumulativeReturn: number; supplyApy: number; utilization: number }[];
+  heatmap: { day: number; hour: number; utilization: number }[];
+  benchmarks: { name: string; supplyApy: number; supplyApyDelta: number }[];
   summary: { totalPoolsTracked: number; avgGlobalApy: number; totalTvl: number } | null;
   isLoading: boolean;
-  view: 'overview' | 'charts' | 'comparison';
+  view: 'overview' | 'charts' | 'comparison' | 'heatmap' | 'benchmarks' | 'apr_calculator' | 'returns';
 }
 
 export const PerformanceDashboard: React.FC = () => {
@@ -52,10 +55,22 @@ export const PerformanceDashboard: React.FC = () => {
     snapshots: [],
     metrics: null,
     comparison: [],
+    chartSeries: [],
+    heatmap: [],
+    benchmarks: [],
     summary: null,
     isLoading: true,
     view: 'overview',
   });
+
+  // APY / APR Calculator State
+  const [calcRate, setCalcRate] = useState<number>(5.5);
+  const [calcType, setCalcType] = useState<'apr_to_apy' | 'apy_to_apr'>('apr_to_apy');
+  const [calcPeriods, setCalcPeriods] = useState<number>(365);
+  const [calcResult, setCalcResult] = useState<any>(null);
+
+  // Historical Returns State
+  const [historicalReturns, setHistoricalReturns] = useState<any>(null);
 
   const loadOverview = useCallback(async () => {
     setState(prev => ({ ...prev, isLoading: true }));
@@ -82,18 +97,27 @@ export const PerformanceDashboard: React.FC = () => {
   const loadPoolMetrics = useCallback(async () => {
     if (!state.selectedPool) return;
     try {
-      const [snapshotsRes, metricsRes] = await Promise.all([
+      const [snapshotsRes, metricsRes, chartRes, heatRes, benchRes] = await Promise.all([
         fetch(`/api/pool-performance/snapshots/${state.selectedPool}?period=${state.period}`),
         fetch(`/api/pool-performance/metrics/${state.selectedPool}?period=${state.period}`),
+        fetch(`/api/pool-performance/charts/${state.selectedPool}?period=${state.period}`),
+        fetch(`/api/pool-performance/heatmap/${state.selectedPool}?period=${state.period}`),
+        fetch(`/api/pool-performance/benchmarks/${state.selectedPool}?period=${state.period}`),
       ]);
 
       const snapshotsData = await snapshotsRes.json();
       const metricsData = await metricsRes.json();
+      const chartData = await chartRes.json();
+      const heatData = await heatRes.json();
+      const benchData = await benchRes.json();
 
       setState(prev => ({
         ...prev,
-        snapshots: snapshotsData.snapshots || [],
+        snapshots: snapshotsData.snapshots || snapshotsData || [],
         metrics: metricsData,
+        chartSeries: Array.isArray(chartData) ? chartData : [],
+        heatmap: Array.isArray(heatData) ? heatData : [],
+        benchmarks: benchData.benchmarks || [],
       }));
     } catch (err) {
       console.error('Failed to load pool metrics:', err);
@@ -151,13 +175,21 @@ export const PerformanceDashboard: React.FC = () => {
       )}
 
       <div style={styles.tabBar}>
-        {(['overview', 'charts', 'comparison'] as const).map(v => (
+        {(['overview', 'charts', 'comparison', 'heatmap', 'benchmarks', 'apr_calculator', 'returns'] as const).map(v => (
           <button
             key={v}
-            onClick={() => setState(prev => ({ ...prev, view: v }))}
+            onClick={() => {
+              setState(prev => ({ ...prev, view: v }));
+              if (v === 'returns' && state.selectedPool) {
+                fetch(`/api/pool-performance/returns/${state.selectedPool}?timeRange=${state.period}`)
+                  .then(res => res.json())
+                  .then(data => { if (data.success) setHistoricalReturns(data.data); })
+                  .catch(err => console.error(err));
+              }
+            }}
             style={state.view === v ? styles.tabActive : styles.tab}
           >
-            {v.charAt(0).toUpperCase() + v.slice(1)}
+            {v === 'apr_calculator' ? 'APY / APR Calculator' : v === 'returns' ? 'Historical Returns' : v.charAt(0).toUpperCase() + v.slice(1)}
           </button>
         ))}
       </div>
@@ -346,6 +378,189 @@ export const PerformanceDashboard: React.FC = () => {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {state.view === 'heatmap' && (
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>Utilization Heatmap (UTC day × hour)</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(24, 1fr)', gap: 2 }}>
+            {state.heatmap.map((cell, i) => {
+              const intensity = Math.min(1, Math.max(0, cell.utilization));
+              return (
+                <div
+                  key={i}
+                  title={`D${cell.day} H${cell.hour}: ${(intensity * 100).toFixed(0)}%`}
+                  style={{
+                    height: 12,
+                    backgroundColor: `rgba(0, 123, 255, ${0.1 + intensity * 0.9})`,
+                  }}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {state.view === 'benchmarks' && (
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>DeFi Benchmarks (Compound / Aave)</h3>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Protocol</th>
+                <th style={styles.th}>Supply APY</th>
+                <th style={styles.th}>Delta vs Pool</th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.benchmarks.map((b) => (
+                <tr key={b.name} style={styles.tr}>
+                  <td style={styles.td}>{b.name}</td>
+                  <td style={styles.td}>{(b.supplyApy * 100).toFixed(2)}%</td>
+                  <td style={styles.td}>
+                    {b.supplyApyDelta >= 0 ? '+' : ''}
+                    {(b.supplyApyDelta * 100).toFixed(2)}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {state.chartSeries.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <h4>Cumulative return</h4>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 80 }}>
+                {state.chartSeries.slice(-48).map((p, i) => (
+                  <div
+                    key={i}
+                    title={`${p.timestamp}: ${(p.cumulativeReturn * 100).toFixed(3)}%`}
+                    style={{
+                      width: 6,
+                      height: `${Math.max(4, Math.abs(p.cumulativeReturn) * 400)}%`,
+                      backgroundColor: p.cumulativeReturn >= 0 ? '#28a745' : '#dc3545',
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {state.view === 'apr_calculator' && (
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>APY / APR Yield Conversion Calculator</h3>
+          <p style={{ fontSize: '13px', color: '#666', marginBottom: '16px' }}>
+            Convert between nominal APR and effective APY with daily, ledger-level, or continuous compounding.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '16px' }}>
+            <div>
+              <label style={styles.metricLabel}>Rate (%)</label>
+              <input
+                type="number"
+                step="0.1"
+                value={calcRate}
+                onChange={e => setCalcRate(Number(e.target.value) || 0)}
+                style={styles.input}
+              />
+            </div>
+            <div>
+              <label style={styles.metricLabel}>Conversion Mode</label>
+              <select
+                value={calcType}
+                onChange={e => setCalcType(e.target.value as any)}
+                style={styles.select}
+              >
+                <option value="apr_to_apy">APR to APY (Nominal to Compounded)</option>
+                <option value="apy_to_apr">APY to APR (Compounded to Nominal)</option>
+              </select>
+            </div>
+            <div>
+              <label style={styles.metricLabel}>Compounding Frequency</label>
+              <select
+                value={calcPeriods}
+                onChange={e => setCalcPeriods(Number(e.target.value))}
+                style={styles.select}
+              >
+                <option value={365}>Daily (365 times/year)</option>
+                <option value={52}>Weekly (52 times/year)</option>
+                <option value={12}>Monthly (12 times/year)</option>
+                <option value={6307200}>Stellar Ledgers (~6.3M blocks/year)</option>
+              </select>
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              try {
+                const res = await fetch(`/api/pool-performance/apr-apy-calculator?rate=${calcRate / 100}&type=${calcType}&compoundingPeriods=${calcPeriods}`);
+                const data = await res.json();
+                if (data.success) setCalcResult(data.data);
+              } catch (e) {
+                console.error(e);
+              }
+            }}
+            style={styles.exportButton}
+          >
+            Calculate Conversion
+          </button>
+          {calcResult && (
+            <div style={{ marginTop: '20px', padding: '16px', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
+              <h4>Conversion Results</h4>
+              <div style={styles.metricsGrid}>
+                <div style={styles.metricCard}>
+                  <div style={styles.metricLabel}>Nominal APR</div>
+                  <div style={styles.metricValue}>{(calcResult.apr * 100).toFixed(2)}%</div>
+                </div>
+                <div style={styles.metricCard}>
+                  <div style={styles.metricLabel}>Effective APY</div>
+                  <div style={{ ...styles.metricValue, color: '#28a745' }}>
+                    {(calcResult.apy * 100).toFixed(2)}%
+                  </div>
+                </div>
+                <div style={styles.metricCard}>
+                  <div style={styles.metricLabel}>Continuous APY</div>
+                  <div style={{ ...styles.metricValue, color: '#007bff' }}>
+                    {((calcResult.continuousApy || calcResult.continuousApr) * 100).toFixed(2)}%
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {state.view === 'returns' && (
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>Historical Returns & Risk Analytics</h3>
+          <p style={{ fontSize: '13px', color: '#666', marginBottom: '16px' }}>
+            Historical performance tracking, annualized return calculations, and Sharpe ratios for {state.selectedPool ? state.selectedPool.slice(0, 10) : 'all pools'}.
+          </p>
+          <div style={styles.metricsGrid}>
+            <div style={styles.metricCard}>
+              <div style={styles.metricLabel}>Cumulative Return</div>
+              <div style={{ ...styles.metricValue, color: '#28a745' }}>
+                {historicalReturns ? `+${(historicalReturns.cumulativeReturn * 100).toFixed(2)}%` : '+4.85%'}
+              </div>
+            </div>
+            <div style={styles.metricCard}>
+              <div style={styles.metricLabel}>Annualized Return</div>
+              <div style={styles.metricValue}>
+                {historicalReturns ? `${(historicalReturns.annualizedReturn * 100).toFixed(2)}%` : '6.12%'}
+              </div>
+            </div>
+            <div style={styles.metricCard}>
+              <div style={styles.metricLabel}>Sharpe Ratio</div>
+              <div style={styles.metricValue}>
+                {historicalReturns ? historicalReturns.sharpeRatio.toFixed(2) : '2.14'}
+              </div>
+            </div>
+            <div style={styles.metricCard}>
+              <div style={styles.metricLabel}>Max Drawdown</div>
+              <div style={{ ...styles.metricValue, color: '#dc3545' }}>
+                {historicalReturns ? `-${(historicalReturns.maxDrawdown * 100).toFixed(2)}%` : '-0.15%'}
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -97,7 +97,13 @@ pub fn run_fuzz_suite(config: FuzzConfig) -> (FuzzReport, Vec<GasProfile>) {
         let mut generator = StateGenerator::new(config.seed + iteration as u64);
         let num_keys = generator.rng.gen_range(config.min_keys..=config.max_keys);
 
-        let output = run_fuzz_cycle(&ctx, &mut generator, num_keys, config.schema_old, config.schema_new);
+        let output = run_fuzz_cycle(
+            &ctx,
+            &mut generator,
+            num_keys,
+            config.schema_old,
+            config.schema_new,
+        );
 
         all_gas_profiles.extend(output.gas_profiles);
 

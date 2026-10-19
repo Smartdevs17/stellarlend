@@ -1,0 +1,33 @@
+name: Publish Contract ABIs
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish-abis:
+    name: Extract and Publish ABIs
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Extract ABIs and generate types
+        run: ./scripts/abi-extractor/ci-check.sh --generate-types --generate-rust
+
+      - name: Upload ABI artifacts to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.event.release.tag_name }}" packages/contract-abis/abi/*.json --clobber

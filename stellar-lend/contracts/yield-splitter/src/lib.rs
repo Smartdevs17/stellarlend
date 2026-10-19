@@ -1,5 +1,9 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, token::StellarAssetClient, Address, Env, Vec};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype,
+    token::{Client, StellarAssetClient},
+    Address, Env, Vec,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -22,6 +26,7 @@ pub enum YieldSplitterError {
     SplitAlreadyExists = 15,
     NoYieldAccrued = 16,
     LossExceedsPrincipal = 17,
+    InvalidPenalty = 18,
 }
 
 #[contracttype]
@@ -95,18 +100,13 @@ pub struct YieldSplitter;
 
 #[contractimpl]
 impl YieldSplitter {
-    pub fn initialize(
-        env: Env,
-        admin: Address,
-    ) -> Result<(), YieldSplitterError> {
+    pub fn initialize(env: Env, admin: Address) -> Result<(), YieldSplitterError> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(YieldSplitterError::AlreadyInitialized);
         }
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::SplitCounter, &0u64);
+        env.storage().instance().set(&DataKey::SplitCounter, &0u64);
         Ok(())
     }
 
@@ -168,6 +168,16 @@ impl YieldSplitter {
         if !is_pt_registered || !is_yt_registered {
             return Err(YieldSplitterError::Unauthorized);
         }
+
+        // Take custody of the underlying before issuing claims. Without this
+        // transfer, callers could mint unbacked PT/YT balances by supplying a
+        // user-controlled amount only in the call arguments.
+        let underlying_client = Client::new(&env, &underlying_asset);
+        underlying_client.transfer(
+            &owner,
+            &env.current_contract_address(),
+            &amount,
+        );
 
         let mut counter: u64 = env
             .storage()
@@ -277,11 +287,18 @@ impl YieldSplitter {
                 .ok_or(YieldSplitterError::LossExceedsPrincipal)?;
         }
 
+        let underlying_client = Client::new(&env, &split.underlying_asset);
+        let contract_address = env.current_contract_address();
+        if underlying_client.balance(&contract_address) < total_return {
+            return Err(YieldSplitterError::InsufficientBalance);
+        }
+
         let pyth_client = StellarAssetClient::new(&env, &split.principal_token);
         let yth_client = StellarAssetClient::new(&env, &split.yield_token);
 
         pyth_client.burn(&owner, &split.pt_amount);
         yth_client.burn(&owner, &split.yt_amount);
+        underlying_client.transfer(&contract_address, &owner, &total_return);
 
         env.storage()
             .persistent()
@@ -330,6 +347,10 @@ impl YieldSplitter {
             return Err(YieldSplitterError::MaturityPassed);
         }
 
+        if !(0..=BPS_DENOMINATOR).contains(&penalty_bps) {
+            return Err(YieldSplitterError::InvalidPenalty);
+        }
+
         split.redeemed = true;
 
         let penalty = split
@@ -344,11 +365,18 @@ impl YieldSplitter {
             .checked_sub(penalty)
             .ok_or(YieldSplitterError::LossExceedsPrincipal)?;
 
+        let underlying_client = Client::new(&env, &split.underlying_asset);
+        let contract_address = env.current_contract_address();
+        if underlying_client.balance(&contract_address) < total_return {
+            return Err(YieldSplitterError::InsufficientBalance);
+        }
+
         let pyth_client = StellarAssetClient::new(&env, &split.principal_token);
         let yth_client = StellarAssetClient::new(&env, &split.yield_token);
 
         pyth_client.burn(&owner, &split.pt_amount);
         yth_client.burn(&owner, &split.yt_amount);
+        underlying_client.transfer(&contract_address, &owner, &total_return);
 
         env.storage()
             .persistent()
@@ -432,35 +460,41 @@ impl YieldSplitter {
     }
 
     fn calculate_yield_accrued(
-        amount: i128,
-        created_at: u64,
-        maturity_date: u64,
-        current_time: u64,
+        _amount: i128,
+        _created_at: u64,
+        _maturity_date: u64,
+        _current_time: u64,
     ) -> Result<i128, YieldSplitterError> {
-        let time_elapsed = if current_time >= maturity_date {
-            (maturity_date - created_at) as i128
-        } else {
-            (current_time - created_at) as i128
-        };
-
-        if time_elapsed <= 0 {
-            return Ok(0);
-        }
-
-        let yield_rate_bps = 500;
-        let accrued = amount
-            .checked_mul(yield_rate_bps)
-            .ok_or(YieldSplitterError::Overflow)?
-            .checked_mul(time_elapsed)
-            .ok_or(YieldSplitterError::Overflow)?
-            .checked_div(SECONDS_PER_YEAR)
-            .ok_or(YieldSplitterError::Overflow)?
-            .checked_div(BPS_DENOMINATOR)
-            .ok_or(YieldSplitterError::Overflow)?;
-
-        Ok(accrued)
+        // Yield can only be paid from realized, verified external earnings.
+        // Paying synthetic yield from pooled balances leads to principal insolvency
+        // where early redeemers consume other users' deposited capital.
+        Ok(0)
     }
 }
 
 #[cfg(test)]
 mod test;
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    YieldSplitterError => stellarlend_errors::domains::YIELD_SPLITTER;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    InvalidMaturity => InvalidInput, "Invalid maturity";
+    MaturityNotReached => InvalidState, "Maturity not reached", RetryLater;
+    MaturityPassed => InvalidState, "Maturity passed", FixInput;
+    PTBurnFailed => Internal, "PT burn failed";
+    YTBurnFailed => Internal, "YT burn failed";
+    PTMintFailed => Internal, "PT mint failed";
+    YTMintFailed => Internal, "YT mint failed";
+    InsufficientBalance => Insufficient, "Balance is too low for this operation";
+    PositionNotFound => NotFound, "Position not found";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    SplitAlreadyExists => AlreadyExists, "Split already exists";
+    NoYieldAccrued => InvalidState, "No yield accrued", RetryLater;
+    LossExceedsPrincipal => Insufficient, "Loss exceeds principal";
+    InvalidPenalty => InvalidInput, "Invalid penalty";
+}

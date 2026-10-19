@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, Vec, contracttype};
+use soroban_sdk::{contracttype, Address, Env, Vec};
 
 use crate::errors::LendingError;
 use crate::storage;
@@ -57,7 +57,7 @@ pub enum CreditScoreChangeReason {
 /// Initialize credit score for a new user
 pub fn initialize_credit_score(env: &Env, user: &Address) -> Result<(), LendingError> {
     let key = storage::DataKey::CreditScore(user.clone());
-    
+
     if env.storage().persistent().has(&key) {
         return Ok(()); // Already initialized
     }
@@ -102,7 +102,7 @@ pub fn update_score_on_repayment(
     is_on_time: bool,
 ) -> Result<(), LendingError> {
     initialize_credit_score(env, user)?;
-    
+
     let key = storage::DataKey::CreditScore(user.clone());
     let mut credit_score: CreditScore = env
         .storage()
@@ -114,10 +114,16 @@ pub fn update_score_on_repayment(
 
     let (score_change, reason) = if is_on_time {
         credit_score.on_time_repayments += 1;
-        (ON_TIME_REPAYMENT_BONUS, CreditScoreChangeReason::OnTimeRepayment)
+        (
+            ON_TIME_REPAYMENT_BONUS,
+            CreditScoreChangeReason::OnTimeRepayment,
+        )
     } else {
         credit_score.late_repayments += 1;
-        (-LATE_REPAYMENT_PENALTY, CreditScoreChangeReason::LateRepayment)
+        (
+            -LATE_REPAYMENT_PENALTY,
+            CreditScoreChangeReason::LateRepayment,
+        )
     };
 
     credit_score.score = (credit_score.score + score_change)
@@ -139,7 +145,7 @@ pub fn update_score_on_repayment(
 /// Update credit score after liquidation
 pub fn update_score_on_liquidation(env: &Env, user: &Address) -> Result<(), LendingError> {
     initialize_credit_score(env, user)?;
-    
+
     let key = storage::DataKey::CreditScore(user.clone());
     let mut credit_score: CreditScore = env
         .storage()
@@ -148,8 +154,7 @@ pub fn update_score_on_liquidation(env: &Env, user: &Address) -> Result<(), Lend
         .ok_or(LendingError::NotFound)?;
 
     credit_score.liquidations += 1;
-    credit_score.score = (credit_score.score - LIQUIDATION_PENALTY)
-        .max(MIN_CREDIT_SCORE);
+    credit_score.score = (credit_score.score - LIQUIDATION_PENALTY).max(MIN_CREDIT_SCORE);
     credit_score.last_updated = env.ledger().timestamp();
 
     credit_score.history.push_back(CreditScoreSnapshot {
@@ -165,7 +170,7 @@ pub fn update_score_on_liquidation(env: &Env, user: &Address) -> Result<(), Lend
 /// Update credit score for maintaining healthy position
 pub fn update_score_on_healthy_position(env: &Env, user: &Address) -> Result<(), LendingError> {
     initialize_credit_score(env, user)?;
-    
+
     let key = storage::DataKey::CreditScore(user.clone());
     let mut credit_score: CreditScore = env
         .storage()
@@ -173,8 +178,7 @@ pub fn update_score_on_healthy_position(env: &Env, user: &Address) -> Result<(),
         .get(&key)
         .ok_or(LendingError::NotFound)?;
 
-    credit_score.score = (credit_score.score + HEALTHY_POSITION_BONUS)
-        .min(MAX_CREDIT_SCORE);
+    credit_score.score = (credit_score.score + HEALTHY_POSITION_BONUS).min(MAX_CREDIT_SCORE);
     credit_score.last_updated = env.ledger().timestamp();
 
     credit_score.history.push_back(CreditScoreSnapshot {
@@ -247,7 +251,7 @@ pub fn calculate_adjusted_interest_rate(
 /// Record borrow for credit tracking
 pub fn record_borrow(env: &Env, user: &Address, amount: i128) -> Result<(), LendingError> {
     initialize_credit_score(env, user)?;
-    
+
     let key = storage::DataKey::CreditScore(user.clone());
     let mut credit_score: CreditScore = env
         .storage()

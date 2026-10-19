@@ -855,3 +855,43 @@ fn test_edge_case_min_swap_amount() {
     let result = contract.try_execute_swap(&user, &params);
     assert!(result.is_err());
 }
+
+#[test]
+fn test_admin_authorization_enforced() {
+    let env = Env::default();
+    let contract = create_amm_contract(&env);
+    let admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let protocol_addr = Address::generate(&env);
+
+    // Initializing with admin auth succeeds
+    env.mock_all_auths();
+    contract.initialize_amm_settings(&admin, &100, &1000, &10000);
+
+    // Attacker attempting to pass their own address as admin fails with Unauthorized
+    let protocol_config = create_test_protocol_config(&env, &protocol_addr);
+    let res = contract.try_add_amm_protocol(&attacker, &protocol_config);
+    assert_eq!(res, Err(Ok(AmmError::Unauthorized)));
+
+    let new_settings = AmmSettings {
+        default_slippage: 200,
+        max_slippage: 2000,
+        swap_enabled: true,
+        liquidity_enabled: true,
+        auto_swap_threshold: 20000,
+    };
+    let res = contract.try_update_amm_settings(&attacker, &new_settings);
+    assert_eq!(res, Err(Ok(AmmError::Unauthorized)));
+}
+
+#[test]
+#[should_panic]
+fn test_unauthorized_caller_cannot_spoof_admin() {
+    let env = Env::default();
+    // Without mock_all_auths, calling initialize_amm_settings requires genuine admin auth signature
+    let contract = create_amm_contract(&env);
+    let admin = Address::generate(&env);
+
+    contract.initialize_amm_settings(&admin, &100, &1000, &10000);
+}
+

@@ -1,21 +1,43 @@
 {
   "name": "@stellarlend/sdk",
   "version": "0.1.0",
-  "description": "Frontend and backend helpers for parsing StellarLend contract errors",
+  "description": "Typed TypeScript client and helpers for the StellarLend protocol",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Nursca/stellarlend.git",
+    "directory": "packages/sdk"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "stellar",
+    "soroban",
+    "defi",
+    "lending",
+    "sdk"
+  ],
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
     "src",
+    "examples",
+    "!examples/**/*.test.ts",
     "README.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.examples.json --noEmit",
+    "test": "npm run test:examples && npm run test:unit",
+    "test:examples": "tsc -p tsconfig.examples.json && node --test .examples-build/examples/examples.test.js",
+    "test:unit": "tsc -p tsconfig.examples.json && node --test .examples-build/test/pagination.test.js .examples-build/test/transactions.test.js"
   },
   "devDependencies": {
+    "@stellar/stellar-sdk": "^14.5.0",
+    "@types/node": "^20.10.6",
     "typescript": "^5.3.3"
   }
 }

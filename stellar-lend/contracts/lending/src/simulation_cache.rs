@@ -602,3 +602,12 @@ mod tests {
         assert!(result.is_none());
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    SimCacheError => stellarlend_errors::domains::LENDING_SIM_CACHE;
+    CacheFull => LimitExceeded, "Cache full", ReduceAmount;
+    InvalidOperation => InvalidInput, "Invalid operation";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+}

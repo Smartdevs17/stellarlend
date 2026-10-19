@@ -7,9 +7,12 @@ publish = false
 [lib]
 
 [dependencies]
-soroban-sdk = { version = "20.5.0", features = ["contracttype"] }
+soroban-sdk = { workspace = true, features = ["alloc"] }
 
 [profile.release]
 opt-level = "z"
 lto = true
 codegen-units = 1
+
+[lints]
+workspace = true

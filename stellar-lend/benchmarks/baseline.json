@@ -47,5 +47,14 @@
     "bridge::transfer_admin": 300000,
     "bridge::list_bridges": 200000,
     "bridge::compute_fee": 100000
+  },
+  "operation_type_budgets_description": "Fallback CPU-instruction budget per operation type (see api/src/services/gasReport/report.ts classifyOperation). Applies to functions without an entry in gas_budgets, and caps every function of that type in the gas report.",
+  "operation_type_budgets": {
+    "read": 400000,
+    "admin": 500000,
+    "user_write": 1200000,
+    "liquidation": 1500000,
+    "flash_loan": 1800000,
+    "batch": 3000000
   }
 }

@@ -2,6 +2,8 @@ import { Router } from 'express';
 import * as lendingController from '../controllers/lending.controller';
 import { protocolHealthController } from '../controllers/protocolHealth.controller';
 import { requireRole } from '../middleware/rbac';
+import { cacheReadResponse } from '../middleware/readCache.middleware';
+import { config } from '../config';
 
 const router: Router = Router();
 
@@ -27,7 +29,11 @@ const router: Router = Router();
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.get('/stats', lendingController.protocolStats);
+router.get(
+  '/stats',
+  cacheReadResponse({ ttlMs: config.cache.protocolStatsTtlMs }),
+  lendingController.protocolStats
+);
 router.get('/pause-status', requireRole('operator'), lendingController.getPauseStatus);
 router.post('/pause', requireRole('admin'), lendingController.setManualPause);
 router.post('/resume', requireRole('admin'), lendingController.resumeProtocol);

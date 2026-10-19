@@ -1,6 +1,8 @@
 import express, { Application, Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
+import { metricsMiddleware, metricsHandler } from './observability/metrics';
+import { tracingMiddleware } from './observability/tracing';
 import rateLimit, { MemoryStore } from 'express-rate-limit';
 import { config } from './config';
 import { bodySizeLimitMiddleware } from './middleware/bodySizeLimit';
@@ -10,6 +12,7 @@ import v1Routes from './routes/v1';
 // Legacy route imports for backward compatibility
 import lendingRoutes from './routes/lending.routes';
 import healthRoutes from './routes/health.routes';
+import healthScoreRoutes from './routes/health';
 import protocolRoutes from './routes/protocol.routes';
 import subscriptionRoutes from './routes/subscription.routes';
 import portfolioRoutes from './routes/portfolio.routes';
@@ -22,7 +25,10 @@ import verificationRoutes from './routes/verification.routes';
 import configRoutes from './routes/config.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import gasUsageAnalyticsRoutes from './routes/gasUsageAnalytics.routes';
+import gasReportRoutes from './routes/gasReport.routes';
 import poolPerformanceRoutes from './routes/poolPerformance.routes';
+import flashLoanRoutes from './routes/flashLoan.routes';
+import governanceSimulationRoutes from './routes/governanceSimulation.routes';
 import migrationRoutes from './routes/migration.routes';
 import ratesRoutes from './routes/rates.routes';
 import crossProtocolRoutes from './routes/crossProtocol.routes';
@@ -58,6 +64,17 @@ import insuranceRoutes from './routes/insurance.routes';
 import plannerRoutes from './routes/planner.routes';
 import feeTierRoutes from './routes/fee-tiers.routes';
 import reinvestmentRoutes from './routes/reinvestment.routes';
+import dutchAuctionRoutes from './routes/dutchAuction.routes';
+import autoCompoundVaultRoutes from './routes/autoCompoundVault.routes';
+import riskScoringRoutes from './routes/riskScoring.routes';
+import collateralRatioRoutes from './routes/collateralRatio.routes';
+import rateLimitRoutes from './routes/rateLimit.routes';
+import debtTokenRoutes from './routes/debtToken.routes';
+import bridgeRoutes from './routes/bridge.routes';
+import complianceRoutes from './routes/v1/compliance';
+import interestRoutes from './routes/interest';
+import eventsRoutes from './routes/events';
+import parametersRoutes from './routes/parameters';
 
 import compression from 'compression';
 import { errorHandler } from './middleware/errorHandler';
@@ -67,14 +84,21 @@ import { swaggerSpec, versionListHandler, v1Spec } from './config/swagger';
 import { versionMiddleware, legacyCompatibilityMiddleware } from './middleware/versioning';
 import logger from './utils/logger';
 import { requestIdMiddleware } from './middleware/requestId';
+// NOTE: requestLogger must not contain numeric-literal-followed-by-identifier (e.g. `100ms`); use quoted strings.
+import { tracingMiddleware } from './middleware/tracing';
 import { requestLogger } from './middleware/requestLogger';
 import { sanitizeInput } from './middleware/sanitizeInput';
 import { fieldSelectionMiddleware } from './middleware/fieldSelection';
 import { redisCacheService } from './services/redisCache.service';
+import cacheRoutes from './routes/cache.routes';
 
 const app: Application = express();
 app.use(requestIdMiddleware);
+app.use(tracingMiddleware);
 app.use(requestLogger);
+// Observability: HTTP metrics + distributed tracing (no-op unless configured)
+app.use(metricsMiddleware);
+app.use(tracingMiddleware);
 
 const ipRateLimitStore = new MemoryStore();
 const userRateLimitStore = new MemoryStore();
@@ -132,6 +156,10 @@ const corsOptions: cors.CorsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json({ limit: config.bodySizeLimit.limit }));
 app.use(express.urlencoded({ extended: true, limit: config.bodySizeLimit.limit }));
+
+// Prometheus scrape endpoint (unauthenticated, excluded from rate limiting)
+app.get('/metrics', metricsHandler);
+
 app.use(sanitizeInput);
 app.use(bodySizeLimitMiddleware);
 app.use(fieldSelectionMiddleware);
@@ -151,9 +179,17 @@ const userRateLimiter = rateLimit({
   max: 10, // 10 requests per minute per user
   store: userRateLimitStore,
   keyGenerator: (req) => {
-    // Try to get userAddress from request body first, then query params, then fall back to IP
-    const userAddress = req.body?.userAddress || req.query?.userAddress || req.ip;
-    return userAddress;
+    // Prioritize verified authenticated principal from JWT or API key
+    const authUser = (req as { user?: { address?: string } }).user?.address;
+    if (authUser) {
+      return `auth:${authUser}`;
+    }
+    // For unauthenticated callers, bind to IP so rotating userAddress does not yield fresh buckets
+    const claimedAddress = req.body?.userAddress || req.query?.userAddress || req.headers?.['x-user-address'];
+    if (claimedAddress && typeof claimedAddress === 'string') {
+      return `ip-claim:${req.ip}:${claimedAddress}`;
+    }
+    return `ip:${req.ip}`;
   },
   message: { success: false, error: 'Too many requests for this account' },
   standardHeaders: true,
@@ -205,6 +241,7 @@ const legacySecurityCompat = legacyCompatibilityMiddleware('/api/v1/security');
 
 app.use('/api/developer', legacySystemCompat, developerRoutes);
 app.use('/api/health', legacySystemCompat, healthRoutes);
+app.use('/api/health', legacySystemCompat, healthScoreRoutes);
 app.use('/api/protocol', legacyProtocolCompat, protocolRoutes);
 app.use(
   '/api/lending',
@@ -224,8 +261,11 @@ app.use('/api/zk', legacySecurityCompat, zkProofRoutes);
 app.use('/api/verification', legacySecurityCompat, verificationRoutes);
 app.use('/api/config', legacySystemCompat, configRoutes);
 app.use('/api/analytics', legacySystemCompat, analyticsRoutes);
+app.use('/api/analytics/gas/contract', legacySystemCompat, gasReportRoutes);
 app.use('/api/analytics/gas', legacySystemCompat, gasUsageAnalyticsRoutes);
 app.use('/api/pool-performance', legacySystemCompat, poolPerformanceRoutes);
+app.use('/api/flash-loan', legacyLendingCompat, flashLoanRoutes);
+app.use('/api/governance/simulate', legacyGovernanceCompat, governanceSimulationRoutes);
 app.use('/api/migration', legacySystemCompat, migrationRoutes);
 app.use('/api/rates', legacySystemCompat, ratesRoutes);
 app.use('/api/cross-protocol', legacySystemCompat, crossProtocolRoutes);
@@ -244,7 +284,6 @@ app.use('/api/liquidations', opportunityExplorerRoutes);
 app.use('/api/treasury', treasuryRoutes);
 app.use('/api/audit-findings', auditFindingsRoutes);
 app.use('/api/security-reports', securityRoutes);
-app.use('/api/metrics', legacySystemCompat, metricsRoutes);
 app.use('/api/referral', referralRoutes);
 app.use('/api/sns', snsRoutes);
 app.use('/api/simulator', simulatorRoutes);
@@ -257,14 +296,29 @@ app.use('/api/insurance', insuranceRoutes);
 app.use('/api/planner', plannerRoutes);
 app.use('/api/fee-tiers', feeTierRoutes);
 app.use('/api/reinvestment', reinvestmentRoutes);
+app.use('/api/auctions', dutchAuctionRoutes);
+app.use('/api/vault', autoCompoundVaultRoutes);
+app.use('/api/risk-scoring', riskScoringRoutes);
+app.use('/api/collateral-ratio', collateralRatioRoutes);
+app.use('/api/compliance', complianceRoutes);
+app.use('/api/rate-limit', rateLimitRoutes);
+app.use('/api/debt-token', debtTokenRoutes);
+app.use('/api/bridge', bridgeRoutes);
+app.use('/api/interest', interestRoutes);
+app.use('/api/events', eventsRoutes);
+app.use('/api/parameters', legacyGovernanceCompat, parametersRoutes);
+app.use('/api/cache', legacySystemCompat, cacheRoutes);
 
 app.use(errorHandler);
+
+// Graceful shutdown for the tracing exporter
+process.on('SIGTERM', () => void import('./observability/tracing').then((m) => m.shutdownTracing()));
 
 void redisCacheService.warmup(async () => {
   const { StellarService } = await import('./services/stellar.service.js');
   const svc = new StellarService();
   await svc.getProtocolStats();
-  
+
   // Initialize invariant monitor
   invariantMonitorService.registerCheck(new SupplyCheck());
   invariantMonitorService.registerCheck(new HealthCheck());

@@ -195,6 +195,25 @@ mod tests {
     }
 
     #[test]
+    fn test_default_and_configured_backoff_are_exponential_and_capped() {
+        let defaults = RetryStrategy::from_config(&BlockchainConfig::testnet());
+        assert_eq!(defaults.max_retries, 3);
+        assert_eq!(defaults.delay_for_retry(1), Duration::from_millis(100));
+        assert_eq!(defaults.delay_for_retry(2), Duration::from_millis(200));
+        assert_eq!(defaults.delay_for_retry(3), Duration::from_millis(400));
+
+        let configured = RetryStrategy {
+            max_retries: 5,
+            initial_delay: Duration::from_millis(250),
+            max_delay: Duration::from_millis(500),
+            multiplier: 3.0,
+        };
+        assert_eq!(configured.delay_for_retry(1), Duration::from_millis(250));
+        assert_eq!(configured.delay_for_retry(2), Duration::from_millis(500));
+        assert_eq!(configured.delay_for_retry(5), Duration::from_millis(500));
+    }
+
+    #[test]
     fn test_is_retryable() {
         // Rate limit is retryable
         assert!(RetryStrategy::is_retryable(

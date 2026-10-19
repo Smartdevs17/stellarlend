@@ -4,6 +4,7 @@
 //! querying account information, submitting transactions, and retrieving transaction details.
 
 use crate::config::BlockchainConfig;
+use crate::dedup::{make_dedup_key, RequestDedup};
 use crate::error::{BlockchainError, Result};
 use crate::retry::RetryStrategy;
 #[allow(unused_imports)]
@@ -16,6 +17,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, error, info};
 
 /// Horizon API client
@@ -30,6 +32,8 @@ pub struct HorizonClient {
     /// Configuration
     #[allow(dead_code)]
     config: Arc<BlockchainConfig>,
+    /// Request deduplication for concurrent reads
+    dedup: RequestDedup,
 }
 
 impl HorizonClient {
@@ -37,6 +41,8 @@ impl HorizonClient {
     pub fn new(config: Arc<BlockchainConfig>) -> Result<Self> {
         let client = Client::builder()
             .timeout(config.request_timeout)
+            .pool_max_idle_per_host(config.pool_max_idle_per_host)
+            .pool_idle_timeout(Duration::from_secs(config.pool_idle_timeout_secs))
             .build()
             .map_err(BlockchainError::NetworkError)?;
 
@@ -47,46 +53,64 @@ impl HorizonClient {
             base_url: config.horizon_url.clone(),
             retry_strategy,
             config,
+            dedup: RequestDedup::new(),
         })
     }
 
-    /// Get account information
+    /// Get account information (deduplicated for concurrent callers)
     pub async fn get_account(&self, account_id: &str) -> Result<AccountResponse> {
         info!("Fetching account info for: {}", account_id);
 
-        let url = format!("{}/accounts/{}", self.base_url, account_id);
+        let key = make_dedup_key("get_account", account_id);
+        let client = self.clone();
+        let acct_id = account_id.to_string();
+        let raw = self
+            .dedup
+            .deduplicated_request(key, || async move {
+                let url = format!("{}/accounts/{}", client.base_url, acct_id);
+                let result = client
+                    .retry_strategy
+                    .retry(|| async {
+                        let response = client
+                            .client
+                            .get(&url)
+                            .send()
+                            .await
+                            .map_err(BlockchainError::NetworkError)?;
 
-        self.retry_strategy
-            .retry(|| async {
-                let response = self
-                    .client
-                    .get(&url)
-                    .send()
-                    .await
-                    .map_err(BlockchainError::NetworkError)?;
-
-                if response.status().is_success() {
-                    let account: AccountResponse = response
-                        .json()
-                        .await
-                        .map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
-                    debug!("Account retrieved: {:?}", account);
-                    Ok(account)
-                } else if response.status() == 404 {
-                    Err(BlockchainError::AccountNotFound(account_id.to_string()))
-                } else {
-                    let status = response.status();
-                    let error_text = response
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "Unknown error".to_string());
-                    Err(BlockchainError::HorizonError(format!(
-                        "Status {}: {}",
-                        status, error_text
-                    )))
+                        if response.status().is_success() {
+                            let body: serde_json::Value = response
+                                .json()
+                                .await
+                                .map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
+                            Ok(body.to_string())
+                        } else if response.status() == 404 {
+                            Err(BlockchainError::AccountNotFound(acct_id.clone()))
+                        } else {
+                            let status = response.status();
+                            let error_text = response
+                                .text()
+                                .await
+                                .unwrap_or_else(|_| "Unknown error".to_string());
+                            Err(BlockchainError::HorizonError(format!(
+                                "Status {}: {}",
+                                status, error_text
+                            )))
+                        }
+                    })
+                    .await;
+                match result {
+                    Ok(v) => Ok(v),
+                    Err(e) => Err(e.to_string()),
                 }
             })
             .await
+            .map_err(|e| BlockchainError::HorizonError(e))?;
+
+        let account: AccountResponse =
+            serde_json::from_str(&raw).map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
+        debug!("Account retrieved: {:?}", account);
+        Ok(account)
     }
 
     /// Submit a transaction
@@ -195,52 +219,68 @@ impl HorizonClient {
             .await
     }
 
-    /// Get network information
+    /// Get network information (deduplicated for concurrent callers)
     pub async fn get_network_info(&self) -> Result<NetworkInfo> {
         debug!("Fetching network info");
 
-        let url = format!("{}/", self.base_url);
+        let key = make_dedup_key("get_network_info", "");
+        let client = self.clone();
+        let raw = self
+            .dedup
+            .deduplicated_request(key, || async move {
+                let url = format!("{}/", client.base_url);
+                let result = client
+                    .retry_strategy
+                    .retry(|| async {
+                        let response = client
+                            .client
+                            .get(&url)
+                            .send()
+                            .await
+                            .map_err(BlockchainError::NetworkError)?;
 
-        self.retry_strategy
-            .retry(|| async {
-                let response = self
-                    .client
-                    .get(&url)
-                    .send()
-                    .await
-                    .map_err(BlockchainError::NetworkError)?;
-
-                if response.status().is_success() {
-                    let body: Value = response
-                        .json()
-                        .await
-                        .map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
-
-                    let network_info = NetworkInfo {
-                        network_passphrase: body["network_passphrase"]
-                            .as_str()
-                            .unwrap_or("")
-                            .to_string(),
-                        current_ledger: body["history_latest_ledger"].as_u64().unwrap_or(0),
-                        horizon_version: body["horizon_version"].as_str().map(|s| s.to_string()),
-                        core_version: body["core_version"].as_str().map(|s| s.to_string()),
-                    };
-
-                    debug!("Network info retrieved: {:?}", network_info);
-                    Ok(network_info)
-                } else {
-                    let status = response.status();
-                    let error_text = response
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "Unknown error".to_string());
-                    Err(BlockchainError::HorizonError(format!(
-                        "Status {}: {}",
-                        status, error_text
-                    )))
+                        if response.status().is_success() {
+                            let body: Value = response
+                                .json()
+                                .await
+                                .map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
+                            Ok(body.to_string())
+                        } else {
+                            let status = response.status();
+                            let error_text = response
+                                .text()
+                                .await
+                                .unwrap_or_else(|_| "Unknown error".to_string());
+                            Err(BlockchainError::HorizonError(format!(
+                                "Status {}: {}",
+                                status, error_text
+                            )))
+                        }
+                    })
+                    .await;
+                match result {
+                    Ok(v) => Ok(v),
+                    Err(e) => Err(e.to_string()),
                 }
             })
             .await
+            .map_err(|e| BlockchainError::HorizonError(e))?;
+
+        let body: Value =
+            serde_json::from_str(&raw).map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
+
+        let network_info = NetworkInfo {
+            network_passphrase: body["network_passphrase"]
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
+            current_ledger: body["history_latest_ledger"].as_u64().unwrap_or(0),
+            horizon_version: body["horizon_version"].as_str().map(|s| s.to_string()),
+            core_version: body["core_version"].as_str().map(|s| s.to_string()),
+        };
+
+        debug!("Network info retrieved: {:?}", network_info);
+        Ok(network_info)
     }
 
     /// Get ledger details

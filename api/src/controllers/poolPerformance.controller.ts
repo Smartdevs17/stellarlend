@@ -90,3 +90,119 @@ export const getPerformanceSummary = async (
     return;
   }
 };
+
+export const getChartSeries = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { poolAddress } = req.params;
+    const period = (req.query.period as string) || '30d';
+    const series = await poolPerformanceService.getChartSeries(poolAddress, period);
+    res.status(200).json(series);
+  } catch (error) {
+    next(error);
+    return;
+  }
+};
+
+export const getUtilizationHeatmap = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { poolAddress } = req.params;
+    const period = (req.query.period as string) || '30d';
+    const heatmap = await poolPerformanceService.getUtilizationHeatmap(poolAddress, period);
+    res.status(200).json(heatmap);
+  } catch (error) {
+    next(error);
+    return;
+  }
+};
+
+export const getBenchmarks = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { poolAddress } = req.params;
+    const period = (req.query.period as string) || '30d';
+    const benchmarks = await poolPerformanceService.getBenchmarks(poolAddress, period);
+    res.status(200).json(benchmarks);
+  } catch (error) {
+    next(error);
+    return;
+  }
+};
+
+export const getPerformanceEvents = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const poolAddress = req.query.poolAddress as string | undefined;
+    const events = poolPerformanceService.getPerformanceEvents(poolAddress);
+    res.status(200).json(events);
+  } catch (error) {
+    next(error);
+    return;
+  }
+};
+
+export const captureSnapshot = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { poolAddress } = req.body as { poolAddress?: string };
+    if (!poolAddress) {
+      res.status(400).json({ success: false, error: 'poolAddress required' });
+      return;
+    }
+    const snapshot = await poolPerformanceService.capturePoolSnapshot(poolAddress);
+    res.status(201).json(snapshot);
+  } catch (error) {
+    next(error);
+    return;
+  }
+};
+
+export const calculateAprApy = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const rate = Number(req.query.rate ?? req.body.rate ?? 0.05);
+    const type = ((req.query.type ?? req.body.type ?? 'apr_to_apy') as string) as 'apr_to_apy' | 'apy_to_apr';
+    const compoundingPeriods = Number(req.query.compoundingPeriods ?? req.body.compoundingPeriods ?? 365);
+
+    const result = poolPerformanceService.calculateAprApy(rate, type, compoundingPeriods);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getHistoricalReturns = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { poolAddress } = req.params;
+    const timeRange = (req.query.timeRange as string) || '30d';
+
+    const result = await poolPerformanceService.getPoolHistoricalReturns(poolAddress, timeRange);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+};
+

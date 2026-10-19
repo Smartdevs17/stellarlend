@@ -1,0 +1,22 @@
+{
+  "name": "@stellarlend/examples",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runnable, tested examples for building on StellarLend with @stellarlend/sdk",
+  "license": "MIT",
+  "main": "./dist/src/main.js",
+  "scripts": {
+    "prebuild": "npm run build --prefix ../packages/sdk",
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/test/examples.test.js",
+    "start": "node dist/src/main.js"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^14.5.0",
+    "@stellarlend/sdk": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "typescript": "^5.3.3"
+  }
+}
