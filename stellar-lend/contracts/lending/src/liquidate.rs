@@ -28,12 +28,13 @@
 //! position to the liquidator's. No tokens move, because borrow positions
 //! hold no tokens in custody.
 
-use soroban_sdk::{contracttype, Address, Env, I256};
+use soroban_sdk::{contracttype, Address, Env, Map, I256};
 
 use crate::borrow::{
-    add_collateral, calculate_interest, get_asset_liquidation_incentive_bps, get_close_factor_bps,
-    get_collateral_balances, get_debt_ceiling, get_debt_position, get_oracle, get_total_debt,
-    get_user_debt, remove_collateral, save_debt_position, set_total_debt, BorrowError, RateType,
+    add_collateral, calculate_interest, debit_collateral_balances,
+    get_asset_liquidation_incentive_bps, get_close_factor_bps, get_collateral_balances,
+    get_debt_ceiling, get_debt_position, get_oracle, get_total_debt, save_debt_position,
+    set_total_debt, BorrowError, RateType,
 };
 use crate::events::LiquidationEvent;
 use crate::reentrancy::ReentrancyGuard;
@@ -75,15 +76,15 @@ fn mul_div(env: &Env, a: i128, b: i128, c: i128) -> Result<i128, BorrowError> {
         .ok_or(BorrowError::Overflow)
 }
 
-/// Value of every collateral asset `borrower` holds. Fails on any asset the
-/// oracle cannot price.
+/// Value of every asset in `balances`. Fails on any asset the oracle cannot
+/// price.
 fn strict_collateral_value(
     env: &Env,
     oracle: &Address,
-    borrower: &Address,
+    balances: &Map<Address, i128>,
 ) -> Result<i128, BorrowError> {
     let mut total: i128 = 0;
-    for (asset, amount) in get_collateral_balances(env, borrower).iter() {
+    for (asset, amount) in balances.iter() {
         let value = mul_div(env, amount, price(env, oracle, &asset)?, PRICE_SCALE)?;
         total = total.checked_add(value).ok_or(BorrowError::Overflow)?;
     }
@@ -111,13 +112,13 @@ pub fn liquidate(
     let oracle = get_oracle(env).ok_or(BorrowError::PriceUnavailable)?;
 
     // Debt in the requested asset: variable bucket first, then stable, as `repay` does.
+    // The variable record is read once and reused when it is the selected bucket.
     let variable = get_debt_position(env, &borrower, Some(&debt_asset), RateType::Variable);
-    let rate_type = if variable.borrowed_amount > 0 || variable.interest_accrued > 0 {
-        RateType::Variable
+    let mut debt = if variable.borrowed_amount > 0 || variable.interest_accrued > 0 {
+        variable
     } else {
-        RateType::Stable
+        get_debt_position(env, &borrower, Some(&debt_asset), RateType::Stable)
     };
-    let mut debt = get_debt_position(env, &borrower, Some(&debt_asset), rate_type);
     if debt.borrowed_amount == 0 && debt.interest_accrued == 0 {
         return Err(BorrowError::PositionHealthy);
     }
@@ -125,9 +126,27 @@ pub fn liquidate(
         return Err(BorrowError::AssetNotSupported);
     }
 
-    // Health factor over the whole position, matching `get_health_factor`.
-    let collateral_value = strict_collateral_value(env, &oracle, &borrower)?;
-    let position_debt_value = debt_value(env, &get_user_debt(env, &borrower));
+    // One read of the collateral record serves the health check, the
+    // availability check and the seizure below.
+    let mut balances = get_collateral_balances(env, &borrower);
+
+    // Interest on the selected position, computed once. An error is only
+    // reported after the health and availability checks, as it always was.
+    let accrued = calculate_interest(env, &debt);
+
+    // Health factor over the whole position, matching `get_health_factor`. The
+    // debt side is the view `get_user_debt` reports: it saturates on overflow
+    // and ignores any other interest error.
+    let collateral_value = strict_collateral_value(env, &oracle, &balances)?;
+    let mut debt_view = debt.clone();
+    match accrued {
+        Ok(interest) => {
+            debt_view.interest_accrued = debt_view.interest_accrued.saturating_add(interest);
+        }
+        Err(BorrowError::Overflow) => debt_view.interest_accrued = i128::MAX,
+        Err(_) => {}
+    }
+    let position_debt_value = debt_value(env, &debt_view);
     if position_debt_value <= 0 {
         return Err(BorrowError::PriceUnavailable);
     }
@@ -136,15 +155,13 @@ pub fn liquidate(
         return Err(BorrowError::PositionHealthy);
     }
 
-    let available = get_collateral_balances(env, &borrower)
-        .get(collateral_asset.clone())
-        .unwrap_or(0);
+    let available = balances.get(collateral_asset.clone()).unwrap_or(0);
     if available <= 0 {
         return Err(BorrowError::InsufficientCollateral);
     }
 
     // Bring interest up to date before sizing the repayment.
-    let accrued = calculate_interest(env, &debt)?;
+    let accrued = accrued?;
     debt.interest_accrued = debt
         .interest_accrued
         .checked_add(accrued)
@@ -195,7 +212,7 @@ pub fn liquidate(
         crate::utilization_breaker::on_debt_changed(env, new_total, get_debt_ceiling(env));
     }
 
-    remove_collateral(env, &borrower, &collateral_asset, seize)?;
+    debit_collateral_balances(env, &borrower, &mut balances, &collateral_asset, seize)?;
     add_collateral(env, &liquidator, &collateral_asset, seize)?;
 
     // The part of the seizure above the repaid value, in collateral units.

@@ -931,6 +931,19 @@ pub(crate) fn remove_collateral(
     amount: i128,
 ) -> Result<i128, BorrowError> {
     let mut balances = get_collateral_balances(env, user);
+    debit_collateral_balances(env, user, &mut balances, asset, amount)
+}
+
+/// Same as [`remove_collateral`] for a balance map the caller already loaded
+/// with [`get_collateral_balances`], so the record is not read twice in one
+/// call. `balances` must be the current state of `user`'s collateral.
+pub(crate) fn debit_collateral_balances(
+    env: &Env,
+    user: &Address,
+    balances: &mut Map<Address, i128>,
+    asset: &Address,
+    amount: i128,
+) -> Result<i128, BorrowError> {
     let current = balances.get(asset.clone()).unwrap_or(0);
     if amount > current {
         return Err(BorrowError::InsufficientCollateral);
@@ -941,7 +954,7 @@ pub(crate) fn remove_collateral(
     } else {
         balances.set(asset.clone(), updated);
     }
-    save_collateral_balances(env, user, &balances);
+    save_collateral_balances(env, user, balances);
     Ok(updated)
 }
 
