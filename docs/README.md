@@ -3,6 +3,7 @@
 This repository contains the Soroban smart contracts and related resources for the StellarLend protocol.
 
 Contents:
+- [Supplier rewards](SUPPLIER_REWARDS.md): funded allocations, configuration, and claims
 - Overview
 - Modules and Features
 - Admin Operations

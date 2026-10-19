@@ -8,6 +8,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+- Admin-funded, claimable supplier rewards in the lending contract, with an immutable reward token, budget-limited cumulative allocations, and retry-safe supplier claims (#1409).
+
 ### Added
 - Utilization circuit breaker in the lending contract: admin-configured trip/reset thresholds (with hysteresis) and a per-borrow allowance throttle new borrows once `total_debt / debt_ceiling` passes the trip level; fully reversible (disable, retune, manual reset), emits configured/tripped/reset events, and rejects throttled borrows with `BorrowError::UtilizationThrottled` (#13). See `docs/UTILIZATION_CIRCUIT_BREAKER.md`
 - Admin-gated `upgrade(admin, new_wasm_hash)` entrypoint on `LendingContract` (emits `contract_upgraded_event`), plus the operator runbook `docs/runbooks/upgrade-and-migration.md` covering upgrade, storage migration, rollback and redeploy-and-migrate

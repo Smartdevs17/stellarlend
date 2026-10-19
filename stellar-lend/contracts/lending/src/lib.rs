@@ -24,6 +24,10 @@ mod liquidate;
 mod pause;
 mod reentrancy;
 mod risk_monitor;
+mod supplier_rewards;
+pub use supplier_rewards::{
+    SupplierReward, SupplierRewardPool, SupplierRewardsConfig, SupplierRewardsError,
+};
 mod token_receiver;
 mod utilization_breaker;
 mod withdraw;
@@ -158,6 +162,57 @@ pub struct LendingContract;
 
 #[contractimpl]
 impl LendingContract {
+    /// Admin selects an immutable reward token and enables/disables new allocations.
+    pub fn configure_supplier_rewards(
+        env: Env,
+        admin: Address,
+        token: Address,
+        enabled: bool,
+    ) -> Result<(), SupplierRewardsError> {
+        supplier_rewards::configure(&env, admin, token, enabled)
+    }
+
+    /// Deposit actual reward tokens; only these funds can back new entitlements.
+    pub fn fund_supplier_rewards(
+        env: Env,
+        funder: Address,
+        amount: i128,
+    ) -> Result<(), SupplierRewardsError> {
+        supplier_rewards::fund(&env, funder, amount)
+    }
+
+    /// Admin sets a supplier's cumulative entitlement, after verifying eligibility.
+    /// Repeating the same total never allocates or pays twice.
+    pub fn set_supplier_reward(
+        env: Env,
+        admin: Address,
+        user: Address,
+        total: i128,
+    ) -> Result<(), SupplierRewardsError> {
+        supplier_rewards::allocate(&env, admin, user, total)
+    }
+
+    /// Claim vested tokens to the authorizing supplier, including after withdrawal
+    /// or disabling new allocations. A repeated claim returns zero.
+    pub fn claim_supplier_rewards(
+        env: Env,
+        user: Address,
+    ) -> Result<i128, SupplierRewardsError> {
+        supplier_rewards::claim(&env, user)
+    }
+
+    pub fn get_supplier_reward(env: Env, user: Address) -> SupplierReward {
+        supplier_rewards::reward(&env, &user)
+    }
+
+    pub fn get_supplier_reward_pool(env: Env) -> SupplierRewardPool {
+        supplier_rewards::pool(&env)
+    }
+
+    pub fn get_supplier_rewards_config(env: Env) -> Option<SupplierRewardsConfig> {
+        supplier_rewards::config(&env)
+    }
+
     /// Initialize the protocol with admin and settings
     pub fn initialize(
         env: Env,
