@@ -65,7 +65,12 @@ use deposit::{
 use deposit_batch::{deposit_batch as deposit_batch_logic, BatchDepositResult, DepositRequest};
 use flash_loan::{
     flash_loan as flash_loan_logic, set_flash_loan_fee_bps as set_flash_loan_fee_logic,
-    FlashLoanError,
+    get_flash_loan_fee_bps as get_flash_loan_fee_bps_logic,
+    set_flash_loan_security_config as set_flash_loan_security_config_logic,
+    get_flash_loan_security_config as get_flash_loan_security_config_logic,
+    get_flash_loan_security_snapshot as get_flash_loan_security_snapshot_logic,
+    is_asset_flash_loan_active as is_asset_flash_loan_active_logic,
+    FlashLoanError, FlashLoanSecurityConfig, FlashLoanSecuritySnapshot,
 };
 pub use interest_rate::{InterestRateConfig, InterestRateConfigUpdate};
 use lazy::{LazyField, PoolStateView};
@@ -145,6 +150,8 @@ mod utilization_breaker_test;
 mod views_test;
 #[cfg(test)]
 mod withdraw_test;
+#[cfg(test)]
+mod liquidation_boundary_test;
 
 #[contract]
 pub struct LendingContract;
@@ -643,6 +650,102 @@ impl LendingContract {
         let current_admin = get_borrow_admin(&env).ok_or(FlashLoanError::Unauthorized)?;
         current_admin.require_auth();
         set_flash_loan_fee_logic(&env, fee_bps)
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // Issue #1400: Flash loan query & configuration API
+    // ───────────────────────────────────────────────────────────────────
+
+    /// Get the current flash loan fee in basis points.
+    ///
+    /// Default is 9 bps (0.09%). Bots and integrators can read this before
+    /// estimating profit on a flash loan opportunity.
+    pub fn get_flash_loan_fee_bps(env: Env) -> i128 {
+        get_flash_loan_fee_bps_logic(&env)
+    }
+
+    /// Configure anti-manipulation security parameters for flash loans.
+    ///
+    /// Controls maximum loan-to-liquidity ratio, price impact cap, and TWAP
+    /// deviation window (admin only).
+    pub fn set_flash_loan_security_config(
+        env: Env,
+        config: FlashLoanSecurityConfig,
+    ) -> Result<(), FlashLoanError> {
+        let current_admin = get_borrow_admin(&env).ok_or(FlashLoanError::Unauthorized)?;
+        current_admin.require_auth();
+        set_flash_loan_security_config_logic(&env, config)
+    }
+
+    /// Get the current flash loan security configuration.
+    pub fn get_flash_loan_security_config(env: Env) -> FlashLoanSecurityConfig {
+        get_flash_loan_security_config_logic(&env)
+    }
+
+    /// Get the security snapshot recorded for the last flash loan on `asset`.
+    ///
+    /// Returns `None` if no flash loan has been executed for this asset yet.
+    /// Useful for bots and monitoring tools to audit recent loan activity.
+    pub fn get_flash_loan_security_snapshot(
+        env: Env,
+        asset: Address,
+    ) -> Option<FlashLoanSecuritySnapshot> {
+        get_flash_loan_security_snapshot_logic(&env, &asset)
+    }
+
+    /// Returns `true` while a flash loan for `asset` is in-progress.
+    ///
+    /// Designed for re-entrancy detection in callbacks and external monitors.
+    pub fn is_asset_flash_loan_active(env: Env, asset: Address) -> bool {
+        is_asset_flash_loan_active_logic(&env, &asset)
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // Issue #1403: Partial liquidation dedicated entry point
+    // ───────────────────────────────────────────────────────────────────
+
+    /// Partially liquidate an unhealthy position.
+    ///
+    /// This is a convenience wrapper around `liquidate` that makes the intent
+    /// explicit: the caller provides `repay_amount`, which is automatically
+    /// capped to `total_debt * close_factor` so the call will not revert due
+    /// to an exceeded close factor. Health is verified post-liquidation and
+    /// the function succeeds as long as at least 1 unit of debt is repaid.
+    ///
+    /// # Arguments
+    /// * `liquidator`        – the liquidator's address (must sign)
+    /// * `borrower`          – the position to liquidate
+    /// * `debt_asset`        – the debt token the liquidator will repay
+    /// * `collateral_asset`  – the collateral token to seize as reward
+    /// * `repay_amount`      – desired repayment (capped to close-factor max)
+    ///
+    /// # Returns
+    /// `(debt_repaid, collateral_seized)` — actual amounts settled.
+    ///
+    /// Closes issue #1403.
+    pub fn partial_liquidate(
+        env: Env,
+        liquidator: Address,
+        borrower: Address,
+        debt_asset: Address,
+        collateral_asset: Address,
+        repay_amount: i128,
+    ) -> Result<LiquidationResult, BorrowError> {
+        liquidator.require_auth();
+        if is_paused(&env, PauseType::Liquidation) {
+            return Err(BorrowError::ProtocolPaused);
+        }
+        // Delegate to the same core implementation as `liquidate`; the close
+        // factor enforcement inside `liquidate::liquidate` already clamps the
+        // amount, making partial liquidation safe by construction.
+        liquidate::liquidate(
+            &env,
+            liquidator,
+            borrower,
+            debt_asset,
+            collateral_asset,
+            repay_amount,
+        )
     }
 
     /// Withdraw collateral from the protocol
