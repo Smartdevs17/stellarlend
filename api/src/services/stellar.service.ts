@@ -4,6 +4,7 @@ import {
   xdr,
   Address,
   Keypair,
+  StrKey,
   nativeToScVal,
   Account,
   BASE_FEE,
@@ -978,8 +979,7 @@ export class StellarService {
     isLiquidatable: boolean;
     borrowCapacity: string;
   }> {
-    // Stellar account IDs are 56 characters total: G followed by 55 base32 chars.
-    if (!/^G[A-Z2-7]{55}$/.test(userAddress)) {
+    if (!StrKey.isValidEd25519PublicKey(userAddress)) {
       throw new ValidationError('Invalid Stellar address format');
     }
 
