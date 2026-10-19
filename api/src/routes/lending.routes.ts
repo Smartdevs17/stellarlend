@@ -120,6 +120,31 @@ router.get('/prepare/:operation', prepareValidation, lendingController.prepare);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
+/**
+ * @openapi
+ * /lending/positions/{userAddress}/health:
+ *   get:
+ *     summary: Query a user's on-chain position health
+ *     description: Returns the contract-calculated, oracle-priced health summary. Health factor is scaled by 10,000; values are returned as integer strings.
+ *     tags:
+ *       - Lending
+ *     parameters:
+ *       - in: path
+ *         name: userAddress
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Stellar public account address
+ *     responses:
+ *       200:
+ *         description: Position health summary
+ *       400:
+ *         description: Invalid Stellar address
+ *       500:
+ *         description: Unable to read or decode the on-chain summary
+ */
+router.get('/positions/:userAddress/health', lendingController.getPositionHealth);
+
 router.post('/submit', submitValidation, lendingController.submit);
 
 router.post(
