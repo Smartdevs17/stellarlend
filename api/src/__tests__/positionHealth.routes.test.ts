@@ -1,10 +1,11 @@
+import { Keypair } from '@stellar/stellar-sdk';
 import request from 'supertest';
 import app from '../app';
 import { StellarService } from '../services/stellar.service';
 import { redisCacheService } from '../services/redisCache.service';
 import { readCacheService } from '../services/readCache.service';
 
-const address = 'G' + 'A'.repeat(55);
+const address = Keypair.fromRawEd25519Seed(Buffer.alloc(32, 1)).publicKey();
 const route = `/api/v1/lending/positions/${address}/health`;
 const summary = {
   total_collateral_value: 1250000n,
