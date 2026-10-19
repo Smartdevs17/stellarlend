@@ -106,3 +106,10 @@ mimo_*.log
 
 issue.md
 pr.md
+
+# additional ignores
+*.snap
+**/*.snap
+__snapshots__/
+**/__snapshots__/
+
