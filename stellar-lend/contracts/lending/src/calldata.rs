@@ -326,9 +326,11 @@ fn flush_deposits(
     if pending.is_empty() {
         return Ok(());
     }
-    deposit_batch_with_auth(env, user.clone(), pending.clone(), false)
+    // Move the batch out rather than cloning it. On failure the error aborts
+    // the whole payload, so the drained vector is never read again.
+    let batch = core::mem::replace(pending, Vec::new(env));
+    deposit_batch_with_auth(env, user.clone(), batch, false)
         .map_err(|_| CalldataError::DepositFailed)?;
-    *pending = Vec::new(env);
     Ok(())
 }
 
