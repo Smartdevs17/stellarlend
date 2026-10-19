@@ -963,6 +963,74 @@ export class StellarService {
     );
   }
 
+  /**
+   * Read the contract's oracle-priced, liquidation-threshold-weighted position
+   * summary. Raw collateral/debt ratios are NOT health factors.
+   * The position read cache is invalidated after successful submissions.
+   */
+  async getPositionHealth(userAddress: string): Promise<{
+    userAddress: string;
+    totalCollateralValue: string;
+    weightedCollateralValue: string;
+    totalDebtValue: string;
+    weightedDebtValue: string;
+    healthFactor: string;
+    isLiquidatable: boolean;
+    borrowCapacity: string;
+  }> {
+    if (!this.isValidStellarAddress(userAddress)) {
+      throw new ValidationError('Invalid Stellar address format');
+    }
+
+    return requestCoalescingService.execute(
+      requestCoalescingService.generateKey('getPositionHealth', { userAddress }),
+      () => readCacheService.getOrLoad(
+        'position',
+        `health:${userAddress}`,
+        config.cache.positionTtlMs,
+        async () => {
+          // The contract applies asset-specific oracle prices, liquidation
+          // thresholds and accrued interest. Never derive these from nominal
+          // collateral/debt balances or substitute a fabricated health score.
+          const raw = await this.simulateContractCall(
+            'get_user_position_summary',
+            new Address(userAddress).toScVal()
+          );
+          if (!raw || typeof raw !== 'object') {
+            throw new InternalServerError('Invalid position health response');
+          }
+          const fields = [
+            'total_collateral_value',
+            'weighted_collateral_value',
+            'total_debt_value',
+            'weighted_debt_value',
+            'health_factor',
+            'is_liquidatable',
+            'borrow_capacity',
+          ] as const;
+          for (const field of fields) {
+            if (raw[field] === undefined || raw[field] === null) {
+              throw new InternalServerError('Incomplete position health response');
+            }
+          }
+          if (typeof raw.is_liquidatable !== 'boolean') {
+            throw new InternalServerError('Invalid position liquidation status');
+          }
+          return {
+            userAddress,
+            totalCollateralValue: toIntegerString(raw.total_collateral_value),
+            weightedCollateralValue: toIntegerString(raw.weighted_collateral_value),
+            totalDebtValue: toIntegerString(raw.total_debt_value),
+            weightedDebtValue: toIntegerString(raw.weighted_debt_value),
+            healthFactor: toIntegerString(raw.health_factor),
+            isLiquidatable: raw.is_liquidatable,
+            borrowCapacity: toIntegerString(raw.borrow_capacity),
+          };
+        }
+      )
+    );
+  }
+
   private async loadUserPosition(userAddress: string): Promise<PositionResponse> {
     try {
       const userParam = new Address(userAddress).toScVal();
