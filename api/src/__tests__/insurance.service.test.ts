@@ -112,6 +112,18 @@ describe('InsuranceService', () => {
       const claim = insuranceService.submitClaim(coverageId, 'oracle_failure', 'proof', 99_999);
       expect(claim.amount).toBeLessThanOrEqual(5_000);
     });
+
+    it('rejects claim by a non-owner claimant', () => {
+      expect(() =>
+        insuranceService.submitClaim(coverageId, 'oracle_failure', 'proof', 1_000, 'GOTHER_CLAIMANT')
+      ).toThrow(/Claimant does not own this coverage/);
+    });
+
+    it('rejects claim with empty evidence', () => {
+      expect(() =>
+        insuranceService.submitClaim(coverageId, 'oracle_failure', '', 1_000)
+      ).toThrow(/Valid evidence is required/);
+    });
   });
 
   describe('disputeClaim', () => {

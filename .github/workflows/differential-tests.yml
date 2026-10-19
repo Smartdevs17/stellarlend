@@ -1,0 +1,59 @@
+name: Differential Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  differential-tests:
+    name: Run differential tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Run differential tests
+        run: npm run test:differential
+
+      - name: Generate differential report
+        if: always()
+        run: npm run test:differential:report
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: differential-test-report
+          path: test-results/differential-report.md
+
+  regression-check:
+    name: Regression detection
+    needs: differential-tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Download test report
+        uses: actions/download-artifact@v4
+        with:
+          name: differential-test-report
+
+      - name: Check for critical divergences
+        run: |
+          if grep -q "Critical" differential-report.md; then
+            echo "Critical divergences detected - failing build"
+            exit 1
+          fi

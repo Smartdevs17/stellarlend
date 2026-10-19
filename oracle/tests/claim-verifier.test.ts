@@ -13,8 +13,8 @@ describe('ClaimVerifier', () => {
       getPrice: vi.fn(),
     };
     verifier = createClaimVerifier(mockAggregator as unknown as PriceAggregator, {
-        maxPriceAgeSeconds: 300,
-        minOracleConfidence: 80,
+      maxPriceAgeSeconds: 300,
+      minOracleConfidence: 80,
     });
   });
 
@@ -70,7 +70,11 @@ describe('ClaimVerifier', () => {
   });
 
   it('should reject if loss occurred before coverage purchase', async () => {
-    const invalidClaim = { ...validClaim, lossTimestamp: now - 1000, coveragePurchasedAt: now - 500 };
+    const invalidClaim = {
+      ...validClaim,
+      lossTimestamp: now - 1000,
+      coveragePurchasedAt: now - 500,
+    };
     const result = await verifier.verify(invalidClaim);
 
     expect(result.isValid).toBe(false);
@@ -116,8 +120,8 @@ describe('ClaimVerifier', () => {
 
   it('should reject low oracle confidence if configured to do so', async () => {
     verifier = createClaimVerifier(mockAggregator, {
-        rejectOnLowConfidence: true,
-        minOracleConfidence: 80,
+      rejectOnLowConfidence: true,
+      minOracleConfidence: 80,
     });
 
     mockAggregator.getPrice.mockResolvedValue({

@@ -4,10 +4,10 @@
 //! attack prevention as specified in the security requirements.
 //!
 //! ## Acceptance Criteria Covered:
-//! 1. ✅ Vote locking mechanism (tokens locked during vote period)
-//! 2. ✅ Delegation deadline before proposal submission
+//! 1. ✅ Vote locking mechanism (locked tokens cannot be withdrawn during vote period)
+//! 2. ✅ Delegation only counts if made before proposal submission
 //! 3. ✅ Quorum requirements prevent low-vote passage
-//! 4. ✅ Vote power snapshot before proposal
+//! 4. ✅ Vote power snapshot before proposal (checkpointed lock-to-vote power)
 //! 5. ✅ Proposal execution delay
 //! 6. ✅ Governance analytics for attack detection
 //! 7. ✅ Tests verify attack resistance
@@ -77,6 +77,14 @@ fn mint(env: &Env, token: &Address, to: &Address, amount: i128) {
     StellarAssetClient::new(env, token).mint(to, &amount);
 }
 
+/// Mint vote tokens and lock them in governance, then advance one second so
+/// the lock predates (and therefore counts on) proposals created afterwards.
+fn lock(env: &Env, client: &HelloContractClient, token: &Address, to: &Address, amount: i128) {
+    mint(env, token, to, amount);
+    client.gov_lock_tokens(to, &amount);
+    env.ledger().with_mut(|l| l.timestamp += 1);
+}
+
 // ============================================================================
 // AC1: Vote Locking Mechanism
 // ============================================================================
@@ -89,7 +97,7 @@ fn test_vote_locking_prevents_token_transfer_during_active_vote() {
     let (admin, token, client) = setup(&env);
 
     let voter = Address::generate(&env);
-    mint(&env, &token, &voter, 10_000);
+    lock(&env, &client, &token, &voter, 10_000);
 
     let proposal_id = client.gov_create_proposal(
         &voter,
@@ -117,6 +125,9 @@ fn test_vote_locking_prevents_token_transfer_during_active_vote() {
     assert_eq!(lock.proposal_id, proposal_id);
     assert_eq!(lock.locked_amount, 10_000);
     assert!(lock.locked_until > env.ledger().timestamp());
+
+    // Locked tokens cannot be withdrawn until the voting period ends.
+    assert!(client.try_gov_unlock_tokens(&voter, &10_000).is_err());
 }
 
 #[test]
@@ -127,7 +138,7 @@ fn test_vote_lock_extends_for_multiple_active_proposals() {
     let (admin, token, client) = setup(&env);
 
     let voter = Address::generate(&env);
-    mint(&env, &token, &voter, 10_000);
+    lock(&env, &client, &token, &voter, 10_000);
 
     // Create first proposal
     let proposal_id_1 = client.gov_create_proposal(
@@ -171,7 +182,7 @@ fn test_vote_lock_expires_after_voting_period_ends() {
     let (admin, token, client) = setup(&env);
 
     let voter = Address::generate(&env);
-    mint(&env, &token, &voter, 5_000);
+    lock(&env, &client, &token, &voter, 5_000);
 
     let proposal_id = client.gov_create_proposal(
         &voter,
@@ -199,7 +210,7 @@ fn test_vote_lock_expires_after_voting_period_ends() {
 // ============================================================================
 
 #[test]
-fn test_delegation_must_be_established_24h_before_proposal() {
+fn test_delegation_after_proposal_creation_does_not_count() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -209,16 +220,9 @@ fn test_delegation_must_be_established_24h_before_proposal() {
     let delegator = Address::generate(&env);
     let delegatee = Address::generate(&env);
 
-    mint(&env, &token, &proposer, 1_000);
-    mint(&env, &token, &delegator, 10_000);
-    mint(&env, &token, &delegatee, 500);
-
-    // Delegation established at t=10000
-    env.ledger().with_mut(|l| l.timestamp = 10_000);
-    client.gov_delegate_vote(&delegator, &delegatee);
-
-    // Proposal created only 1 hour later (< 24h deadline)
-    env.ledger().with_mut(|l| l.timestamp = 10_000 + 3600);
+    lock(&env, &client, &token, &proposer, 1_000);
+    lock(&env, &client, &token, &delegator, 10_000);
+    lock(&env, &client, &token, &delegatee, 500);
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -226,6 +230,10 @@ fn test_delegation_must_be_established_24h_before_proposal() {
         &String::from_str(&env, "Test"),
         &None,
     );
+
+    // Delegating in the proposal's own ledger is too late: power is measured
+    // strictly before creation.
+    client.gov_delegate_vote(&delegator, &delegatee);
 
     env.ledger().with_mut(|l| l.timestamp += 1);
 
@@ -235,8 +243,14 @@ fn test_delegation_must_be_established_24h_before_proposal() {
     let proposal = client.gov_get_proposal(&proposal_id).unwrap();
     assert_eq!(
         proposal.for_votes, 500,
-        "Delegation within 24h deadline must not count"
+        "Delegation made at or after proposal creation must not count"
     );
+
+    // As of the snapshot the power was still the delegator's, so they vote
+    // with it themselves: the tokens count exactly once.
+    client.gov_vote(&delegator, &proposal_id, &VoteType::For);
+    let proposal = client.gov_get_proposal(&proposal_id).unwrap();
+    assert_eq!(proposal.for_votes, 10_500);
 }
 
 #[test]
@@ -250,9 +264,9 @@ fn test_delegation_established_before_deadline_counts() {
     let delegator = Address::generate(&env);
     let delegatee = Address::generate(&env);
 
-    mint(&env, &token, &proposer, 1_000);
-    mint(&env, &token, &delegator, 10_000);
-    mint(&env, &token, &delegatee, 500);
+    lock(&env, &client, &token, &proposer, 1_000);
+    lock(&env, &client, &token, &delegator, 10_000);
+    lock(&env, &client, &token, &delegatee, 500);
 
     // Delegation established at t=10000
     env.ledger().with_mut(|l| l.timestamp = 10_000);
@@ -267,9 +281,6 @@ fn test_delegation_established_before_deadline_counts() {
         &String::from_str(&env, "Test"),
         &None,
     );
-
-    // Take snapshot for delegator
-    client.gov_get_vote_power_snapshot(&proposal_id, &delegator);
 
     env.ledger().with_mut(|l| l.timestamp += 1);
 
@@ -299,9 +310,9 @@ fn test_quorum_requirement_blocks_low_participation_proposal() {
     let small_voter = Address::generate(&env);
     let large_holder = Address::generate(&env);
 
-    mint(&env, &token, &proposer, 1_000);
-    mint(&env, &token, &small_voter, 100);
-    mint(&env, &token, &large_holder, 100_000); // Holds tokens but doesn't vote
+    lock(&env, &client, &token, &proposer, 1_000);
+    lock(&env, &client, &token, &small_voter, 100);
+    lock(&env, &client, &token, &large_holder, 100_000); // Holds tokens but doesn't vote
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -339,9 +350,9 @@ fn test_quorum_requirement_allows_sufficient_participation() {
     let voter1 = Address::generate(&env);
     let voter2 = Address::generate(&env);
 
-    mint(&env, &token, &proposer, 1_000);
-    mint(&env, &token, &voter1, 50_000);
-    mint(&env, &token, &voter2, 50_000);
+    lock(&env, &client, &token, &proposer, 1_000);
+    lock(&env, &client, &token, &voter1, 50_000);
+    lock(&env, &client, &token, &voter2, 50_000);
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -376,7 +387,7 @@ fn test_snapshot_taken_at_proposal_creation() {
     let (admin, token, client) = setup(&env);
 
     let proposer = Address::generate(&env);
-    mint(&env, &token, &proposer, 5_000);
+    lock(&env, &client, &token, &proposer, 5_000);
 
     let creation_time = env.ledger().timestamp();
 
@@ -408,7 +419,7 @@ fn test_tokens_acquired_after_snapshot_have_no_voting_power() {
     let proposer = Address::generate(&env);
     let attacker = Address::generate(&env);
 
-    mint(&env, &token, &proposer, 1_000);
+    lock(&env, &client, &token, &proposer, 1_000);
     // Attacker has NO tokens at proposal creation
 
     let proposal_id = client.gov_create_proposal(
@@ -419,7 +430,7 @@ fn test_tokens_acquired_after_snapshot_have_no_voting_power() {
     );
 
     // Attacker acquires tokens AFTER proposal (flash loan simulation)
-    mint(&env, &token, &attacker, 1_000_000);
+    lock(&env, &client, &token, &attacker, 1_000_000);
 
     env.ledger().with_mut(|l| l.timestamp += 1);
 
@@ -446,8 +457,8 @@ fn test_execution_delay_enforced() {
     let proposer = Address::generate(&env);
     let voter = Address::generate(&env);
 
-    mint(&env, &token, &proposer, 1_000);
-    mint(&env, &token, &voter, 100_000);
+    lock(&env, &client, &token, &proposer, 1_000);
+    lock(&env, &client, &token, &voter, 100_000);
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -487,8 +498,8 @@ fn test_execution_delay_provides_cancellation_window() {
     let proposer = Address::generate(&env);
     let voter = Address::generate(&env);
 
-    mint(&env, &token, &proposer, 1_000);
-    mint(&env, &token, &voter, 100_000);
+    lock(&env, &client, &token, &proposer, 1_000);
+    lock(&env, &client, &token, &voter, 100_000);
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -531,8 +542,8 @@ fn test_analytics_track_suspicious_large_voter() {
     let proposer = Address::generate(&env);
     let whale = Address::generate(&env);
 
-    mint(&env, &token, &proposer, 100);
-    mint(&env, &token, &whale, 999_900); // ~99.99% of supply
+    lock(&env, &client, &token, &proposer, 100);
+    lock(&env, &client, &token, &whale, 999_900); // ~99.99% of supply
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -565,9 +576,9 @@ fn test_analytics_count_total_proposals_and_votes() {
     let voter1 = Address::generate(&env);
     let voter2 = Address::generate(&env);
 
-    mint(&env, &token, &proposer, 1_000);
-    mint(&env, &token, &voter1, 5_000);
-    mint(&env, &token, &voter2, 3_000);
+    lock(&env, &client, &token, &proposer, 1_000);
+    lock(&env, &client, &token, &voter1, 5_000);
+    lock(&env, &client, &token, &voter2, 3_000);
 
     // Create multiple proposals
     let proposal_id_1 = client.gov_create_proposal(
@@ -612,8 +623,8 @@ fn test_legitimate_large_voter_not_blocked() {
     let large_holder = Address::generate(&env);
 
     // Large holder has tokens BEFORE proposal
-    mint(&env, &token, &proposer, 1_000);
-    mint(&env, &token, &large_holder, 100_000);
+    lock(&env, &client, &token, &proposer, 1_000);
+    lock(&env, &client, &token, &large_holder, 100_000);
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -648,8 +659,8 @@ fn test_cannot_delegate_while_vote_locked() {
     let voter = Address::generate(&env);
     let delegatee = Address::generate(&env);
 
-    mint(&env, &token, &voter, 10_000);
-    mint(&env, &token, &delegatee, 1_000);
+    lock(&env, &client, &token, &voter, 10_000);
+    lock(&env, &client, &token, &delegatee, 1_000);
 
     let proposal_id = client.gov_create_proposal(
         &voter,
@@ -686,7 +697,7 @@ fn test_proposer_can_cancel_own_proposal() {
     let (admin, token, client) = setup(&env);
 
     let proposer = Address::generate(&env);
-    mint(&env, &token, &proposer, 1_000);
+    lock(&env, &client, &token, &proposer, 1_000);
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -709,7 +720,7 @@ fn test_admin_can_cancel_any_proposal() {
     let (admin, token, client) = setup(&env);
 
     let proposer = Address::generate(&env);
-    mint(&env, &token, &proposer, 1_000);
+    lock(&env, &client, &token, &proposer, 1_000);
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -735,8 +746,8 @@ fn test_cannot_cancel_executed_proposal() {
     let proposer = Address::generate(&env);
     let voter = Address::generate(&env);
 
-    mint(&env, &token, &proposer, 1_000);
-    mint(&env, &token, &voter, 100_000);
+    lock(&env, &client, &token, &proposer, 1_000);
+    lock(&env, &client, &token, &voter, 100_000);
 
     let proposal_id = client.gov_create_proposal(
         &proposer,
@@ -791,7 +802,7 @@ fn test_proposal_rate_limiting_prevents_spam() {
     let (admin, token, client) = setup(&env);
 
     let proposer = Address::generate(&env);
-    mint(&env, &token, &proposer, 100_000);
+    lock(&env, &client, &token, &proposer, 100_000);
 
     // Create 5 proposals (rate limit)
     for i in 0..5 {
@@ -815,7 +826,7 @@ fn test_proposal_rate_limiting_prevents_spam() {
 }
 
 #[test]
-fn test_delegation_depth_limit_prevents_chain_attacks() {
+fn test_delegated_power_is_not_transitive() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -824,23 +835,25 @@ fn test_delegation_depth_limit_prevents_chain_attacks() {
     let a = Address::generate(&env);
     let b = Address::generate(&env);
     let c = Address::generate(&env);
-    let d = Address::generate(&env);
-    let e = Address::generate(&env);
 
-    for addr in [&a, &b, &c, &d, &e] {
-        mint(&env, &token, addr, 1_000);
+    for addr in [&a, &b, &c] {
+        lock(&env, &client, &token, addr, 1_000);
     }
 
-    // Build chain: a → b → c → d (depth 3, max allowed)
+    // a → b → c: b re-delegates only its own locked tokens, not a's.
     client.gov_delegate_vote(&a, &b);
     client.gov_delegate_vote(&b, &c);
-    client.gov_delegate_vote(&c, &d);
 
-    // d → e would exceed max depth
-    let result = client.try_gov_delegate_vote(&d, &e);
-
-    assert!(
-        result.is_err(),
-        "Delegation chain exceeding max depth must be rejected"
+    assert_eq!(client.gov_get_votes(&a), 0);
+    assert_eq!(
+        client.gov_get_votes(&b),
+        1_000,
+        "b keeps a's delegated power"
     );
+    assert_eq!(
+        client.gov_get_votes(&c),
+        2_000,
+        "c gets b's own tokens only"
+    );
+    assert_eq!(client.gov_get_total_locked(), 3_000);
 }

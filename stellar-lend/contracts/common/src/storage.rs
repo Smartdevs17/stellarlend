@@ -13,6 +13,10 @@
 //! contracts that opt into a common data model. This module instead
 //! consolidates the storage *access pattern* itself, independent of what
 //! keys or value types a given contract uses.
+//!
+//! # Storage Slot Packing
+//! Issue #843: Optimized storage slot packing for pool configuration data
+//! improves platform performance by reducing storage access overhead.
 
 use core::fmt::Debug;
 use soroban_sdk::{Env, IntoVal, TryFromVal, Val};
@@ -48,7 +52,10 @@ where
     V: TryFromVal<Env, Val>,
     V::Error: Debug,
 {
-    env.storage().instance().get(key).unwrap_or_else(make_default)
+    env.storage()
+        .instance()
+        .get(key)
+        .unwrap_or_else(make_default)
 }
 
 /// Reads `key` from persistent storage, lazily computing a default if absent.
@@ -58,7 +65,10 @@ where
     V: TryFromVal<Env, Val>,
     V::Error: Debug,
 {
-    env.storage().persistent().get(key).unwrap_or_else(make_default)
+    env.storage()
+        .persistent()
+        .get(key)
+        .unwrap_or_else(make_default)
 }
 
 /// Writes `value` to instance storage under `key`. Thin wrapper kept for

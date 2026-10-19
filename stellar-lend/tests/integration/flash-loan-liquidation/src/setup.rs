@@ -1,4 +1,5 @@
 use soroban_sdk::Address;
+use test_utils::health_factor_bps;
 
 pub struct TestEnvironment {
     pub flash_loan_contract: Address,
@@ -40,11 +41,11 @@ pub struct PositionSetup {
 impl PositionSetup {
     pub fn create_profitable_liquidation() -> Self {
         PositionSetup {
-            collateral_amount: 10_000_000,      // 10M of collateral
-            collateral_price: 1_000_000,        // $1 each
-            borrowed_amount: 8_000_000,         // 8M borrowed
-            borrowed_price: 1_000_000,          // $1 each
-            min_health_factor: 15_000,          // 1.5x minimum
+            collateral_amount: 10_000_000, // 10M of collateral
+            collateral_price: 1_000_000,   // $1 each
+            borrowed_amount: 8_000_000,    // 8M borrowed
+            borrowed_price: 1_000_000,     // $1 each
+            min_health_factor: 15_000,     // 1.5x minimum
         }
     }
 
@@ -52,7 +53,7 @@ impl PositionSetup {
         PositionSetup {
             collateral_amount: 10_000_000,
             collateral_price: 1_000_000,
-            borrowed_amount: 6_666_667,         // Just at boundary
+            borrowed_amount: 6_666_667, // Just at boundary
             borrowed_price: 1_000_000,
             min_health_factor: 15_000,
         }
@@ -68,14 +69,14 @@ impl PositionSetup {
         }
     }
 
+    /// Unweighted health factor in bps (10_000 = 1.0), computed with the
+    /// shared reference model so it matches the other contract suites.
     pub fn health_factor(&self) -> i128 {
-        if self.borrowed_amount == 0 {
-            i128::MAX
-        } else {
-            let collateral_value = self.collateral_amount * self.collateral_price;
-            let debt_value = self.borrowed_amount * self.borrowed_price;
-            (collateral_value * 10_000) / debt_value
-        }
+        health_factor_bps(
+            self.collateral_amount * self.collateral_price,
+            self.borrowed_amount * self.borrowed_price,
+            10_000,
+        )
     }
 
     pub fn is_liquidatable(&self) -> bool {

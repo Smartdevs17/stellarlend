@@ -98,7 +98,11 @@ export class TWAPService {
    * Implements gas-efficient single-update-per-period: if a TWAP was
    * already computed within the staleness window, returns the cached value.
    */
-  computeTWAP(asset: string, spotPrice: bigint, now: number = Math.floor(Date.now() / 1000)): TWAPStatus | null {
+  computeTWAP(
+    asset: string,
+    spotPrice: bigint,
+    now: number = Math.floor(Date.now() / 1000)
+  ): TWAPStatus | null {
     const upperAsset = asset.toUpperCase();
 
     // Check cache for recent computation (gas-efficient path)
@@ -190,7 +194,11 @@ export class TWAPService {
    * In single-update-per-period mode, observations are recorded at most
    * once per period to save gas on-chain.
    */
-  recordObservation(asset: string, price: bigint, now: number = Math.floor(Date.now() / 1000)): void {
+  recordObservation(
+    asset: string,
+    price: bigint,
+    now: number = Math.floor(Date.now() / 1000)
+  ): void {
     const upperAsset = asset.toUpperCase();
 
     if (this.config.singleUpdatePerPeriod) {
@@ -228,7 +236,7 @@ export class TWAPService {
     if (status.manipulationDetected) {
       logger.warn(
         `TWAP manipulation detected for ${asset} (deviation: ${status.deviationBps} bps), ` +
-        `using fallback price for liquidation`
+          `using fallback price for liquidation`
       );
     }
 

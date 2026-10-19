@@ -1,40 +1,72 @@
 {
-  "name": "StellarLend Devnet",
+  "name": "StellarLend Development",
   "dockerComposeFile": "../docker/devnet/docker-compose.yml",
   "service": "api",
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
   "shutdownAction": "stopCompose",
+  "remoteEnv": {
+    "PATH": "/usr/local/cargo/bin:${PATH}"
+  },
 
   "features": {
     "ghcr.io/devcontainers/features/rust:1": {
-      "version": "latest",
+      "version": "1.75.0",
       "targets": "wasm32-unknown-unknown"
     },
     "ghcr.io/devcontainers/features/node:1": {
-      "version": "20"
+      "version": "20.10.0"
     },
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
-    "ghcr.io/devcontainers/features/git:1": {}
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/git:1": {
+      "version": "2.42.0"
+    }
   },
 
   "customizations": {
     "vscode": {
       "extensions": [
-        "rust-lang.rust-analyzer",
-        "ms-azuretools.vscode-docker",
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
-        "bradlc.vscode-tailwindcss",
-        "ms-vscode.vscode-typescript-next"
+        "rust-lang.rust-analyzer@0.4.1626",
+        "ms-azuretools.vscode-docker@1.26.1",
+        "dbaeumer.vscode-eslint@2.4.4",
+        "esbenp.prettier-vscode@10.1.0",
+        "bradlc.vscode-tailwindcss@0.11.19",
+        "ms-vscode.vscode-typescript-next@5.1.20231025",
+        "GitHub.copilot@1.119.0",
+        "ms-vscode.makefile-tools@0.9.5"
       ],
       "settings": {
         "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.defaultProfile.osx": "bash",
         "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
+        "rust-analyzer.procMacro.enable": true,
+        "rust-analyzer.checkOnSave.command": "clippy",
+        "rust-analyzer.checkOnSave.extraArgs": [
+          "--target", "wasm32-unknown-unknown",
+          "--", "-D", "warnings"
+        ],
         "editor.formatOnSave": true,
         "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "editor.codeActionsOnSave": {
+          "source.fixAll.eslint": "explicit"
+        },
         "[rust]": {
-          "editor.defaultFormatter": "rust-lang.rust-analyzer"
+          "editor.defaultFormatter": "rust-lang.rust-analyzer",
+          "editor.formatOnSave": true
+        },
+        "[json]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        },
+        "files.watcherExclude": {
+          "**/target": true,
+          "**/node_modules": true,
+          "**/.git": true
+        },
+        "search.exclude": {
+          "**/target": true,
+          "**/node_modules": true
         }
       }
     }
@@ -48,24 +80,32 @@
     8000
   ],
   "portsAttributes": {
-    "3000": { "label": "API", "onAutoForward": "notify" },
-    "4000": { "label": "Oracle", "onAutoForward": "notify" },
-    "5432": { "label": "PostgreSQL", "onAutoForward": "silent" },
-    "6379": { "label": "Redis", "onAutoForward": "silent" },
-    "8000": { "label": "Soroban RPC / Horizon", "onAutoForward": "notify" }
+    "3000": {
+      "label": "Frontend",
+      "onAutoForward": "notify"
+    },
+    "4000": {
+      "label": "API",
+      "onAutoForward": "notify"
+    },
+    "5432": {
+      "label": "PostgreSQL",
+      "onAutoForward": "silent"
+    },
+    "6379": {
+      "label": "Redis",
+      "onAutoForward": "silent"
+    },
+    "8000": {
+      "label": "Soroban RPC",
+      "onAutoForward": "notify"
+    }
   },
 
-  "postCreateCommand": "bash -c 'echo \"StellarLend Devnet ready. Run: cd docker/devnet && ./healthcheck.sh\" && which stellar > /dev/null 2>&1 || (curl -sf https://raw.githubusercontent.com/nicholasgasior/stellar-cli-install/main/install.sh | bash || echo \"Stellar CLI install skipped\")'",
-
-  "remoteUser": "node",
-
-  "remoteEnv": {
-    "STELLAR_NETWORK": "local",
-    "SOROBAN_RPC_URL": "http://soroban-devnet:8000/soroban/rpc",
-    "HORIZON_URL": "http://soroban-devnet:8000",
-    "FRIENDBOT_URL": "http://soroban-devnet:8000/friendbot",
-    "NETWORK_PASSPHRASE": "Standalone Network ; February 2017",
-    "DATABASE_URL": "postgres://stellarlend:stellarlend@postgres:5432/stellarlend",
-    "REDIS_URL": "redis://redis:6379"
-  }
+  "postCreateCommand": "bash bootstrap.sh",
+  "postStartCommand": "npm run dev",
+  "mounts": [
+    "source=${localEnv:HOME}/.cargo/registry,target=/usr/local/cargo/registry,type=bind",
+    "source=${localEnv:HOME}/.cargo/git,target=/usr/local/cargo/git,type=bind"
+  ]
 }

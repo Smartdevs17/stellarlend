@@ -65,7 +65,10 @@ impl StateGenerator {
         let env = ctx.env.clone();
         let configs: Vec<(&str, u32)> = vec![
             ("config_ltv", self.rng.gen_range(5000..8000)),
-            ("config_liquidation_threshold", self.rng.gen_range(8000..9500)),
+            (
+                "config_liquidation_threshold",
+                self.rng.gen_range(8000..9500),
+            ),
             ("config_interest_rate", self.rng.gen_range(100..2000)),
             ("config_reserve_factor", self.rng.gen_range(500..2000)),
         ];

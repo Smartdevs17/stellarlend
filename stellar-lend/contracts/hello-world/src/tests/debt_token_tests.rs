@@ -6,9 +6,9 @@
 use soroban_sdk::{Address, Env, Symbol};
 
 use crate::debt_token::{
-    burn_debt_token, get_debt_position, get_debt_token_total_supply,
-    get_user_debt_tokens, mint_debt_token, set_address_blocked,
-    set_transfer_pause, transfer_debt_token, DebtPosition, DebtTokenError,
+    burn_debt_token, get_debt_position, get_debt_token_total_supply, get_user_debt_tokens,
+    mint_debt_token, set_address_blocked, set_transfer_pause, transfer_debt_token, DebtPosition,
+    DebtTokenError,
 };
 use crate::deposit::DepositDataKey;
 use crate::test_utils::*;
@@ -25,12 +25,18 @@ fn test_mint_debt_token_success() {
     // Test successful minting
     let principal = 1000000;
     let interest_rate = 500; // 5% interest rate
-    let result = mint_debt_token(&env, user.clone(), collateral_asset, principal, interest_rate);
-    
+    let result = mint_debt_token(
+        &env,
+        user.clone(),
+        collateral_asset,
+        principal,
+        interest_rate,
+    );
+
     assert!(result.is_ok());
     let token_id = result.unwrap();
     assert!(token_id > 0);
-    
+
     // Verify position data
     let position = get_debt_position(&env, token_id).unwrap();
     assert_eq!(position.borrower, user);
@@ -38,11 +44,11 @@ fn test_mint_debt_token_success() {
     assert_eq!(position.interest_rate_bps, interest_rate);
     assert_eq!(position.collateral_asset, collateral_asset);
     assert!(!position.is_liquidatable);
-    
+
     // Verify user owns the token
     let user_tokens = get_user_debt_tokens(&env, &user);
     assert!(user_tokens.contains(&token_id));
-    
+
     // Verify total supply
     let total_supply = get_debt_token_total_supply(&env);
     assert_eq!(total_supply, 1);
@@ -61,7 +67,7 @@ fn test_mint_debt_token_unauthorized() {
     // Test unauthorized minting (different user)
     let principal = 1000000;
     let result = mint_debt_token(&env, other_user, collateral_asset, principal, 500);
-    
+
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), DebtTokenError::Unauthorized);
 }
@@ -76,14 +82,15 @@ fn test_mint_debt_token_already_tokenized() {
     setup_admin(&env);
 
     // Mint first token
-    let token_id = mint_debt_token(&env, user.clone(), collateral_asset.clone(), 1000000, 500).unwrap();
-    
+    let token_id =
+        mint_debt_token(&env, user.clone(), collateral_asset.clone(), 1000000, 500).unwrap();
+
     // Try to mint second token for same position
     let result = mint_debt_token(&env, user.clone(), collateral_asset, 2000000, 500);
-    
+
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), DebtTokenError::AlreadyTokenized);
-    
+
     // Verify only one token exists
     let total_supply = get_debt_token_total_supply(&env);
     assert_eq!(total_supply, 1);
@@ -99,19 +106,19 @@ fn test_transfer_debt_token_success() {
     // Setup admin and mint token
     setup_admin(&env);
     let token_id = mint_debt_token(&env, user.clone(), collateral_asset, 1000000, 500).unwrap();
-    
+
     // Test successful transfer
     let result = transfer_debt_token(&env, user.clone(), recipient.clone(), token_id);
-    
+
     assert!(result.is_ok());
-    
+
     // Verify ownership transfer
     let user_tokens = get_user_debt_tokens(&env, &user);
     assert!(!user_tokens.contains(&token_id));
-    
+
     let recipient_tokens = get_user_debt_tokens(&env, &recipient);
     assert!(recipient_tokens.contains(&token_id));
-    
+
     // Verify position was updated
     let position = get_debt_position(&env, token_id).unwrap();
     assert!(position.updated_at > 0);
@@ -128,10 +135,10 @@ fn test_transfer_debt_token_unauthorized() {
     // Setup admin and mint token
     setup_admin(&env);
     let token_id = mint_debt_token(&env, user, collateral_asset, 1000000, 500).unwrap();
-    
+
     // Test unauthorized transfer
     let result = transfer_debt_token(&env, other_user, recipient, token_id);
-    
+
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), DebtTokenError::Unauthorized);
 }
@@ -145,10 +152,10 @@ fn test_transfer_debt_token_to_zero_address() {
     // Setup admin and mint token
     setup_admin(&env);
     let token_id = mint_debt_token(&env, user.clone(), collateral_asset, 1000000, 500).unwrap();
-    
+
     // Test transfer to zero address
     let result = transfer_debt_token(&env, user, Address::zero(), token_id);
-    
+
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), DebtTokenError::ZeroAddress);
 }
@@ -163,13 +170,13 @@ fn test_transfer_debt_token_paused() {
     // Setup admin and mint token
     setup_admin(&env);
     let token_id = mint_debt_token(&env, user.clone(), collateral_asset, 1000000, 500).unwrap();
-    
+
     // Pause transfers
     set_transfer_pause(&env, user.clone(), true).unwrap();
-    
+
     // Test transfer while paused
     let result = transfer_debt_token(&env, user, recipient, token_id);
-    
+
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), DebtTokenError::TransferPaused);
 }
@@ -183,20 +190,20 @@ fn test_burn_debt_token_success() {
     // Setup admin and mint token
     setup_admin(&env);
     let token_id = mint_debt_token(&env, user.clone(), collateral_asset, 1000000, 500).unwrap();
-    
+
     // Test successful burn
     let result = burn_debt_token(&env, user.clone(), token_id, Symbol::new(&env, "repayment"));
-    
+
     assert!(result.is_ok());
-    
+
     // Verify token is burned
     let position = get_debt_position(&env, token_id);
     assert!(position.is_none());
-    
+
     // Verify user no longer owns token
     let user_tokens = get_user_debt_tokens(&env, &user);
     assert!(!user_tokens.contains(&token_id));
-    
+
     // Verify total supply decreased
     let total_supply = get_debt_token_total_supply(&env);
     assert_eq!(total_supply, 0);
@@ -212,10 +219,10 @@ fn test_burn_debt_token_unauthorized() {
     // Setup admin and mint token
     setup_admin(&env);
     let token_id = mint_debt_token(&env, user, collateral_asset, 1000000, 500).unwrap();
-    
+
     // Test unauthorized burn
     let result = burn_debt_token(&env, other_user, token_id, Symbol::new(&env, "repayment"));
-    
+
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), DebtTokenError::Unauthorized);
 }
@@ -230,9 +237,9 @@ fn test_set_transfer_pause_success() {
 
     // Test successful pause
     let result = set_transfer_pause(&env, admin.clone(), true);
-    
+
     assert!(result.is_ok());
-    
+
     // Verify pause is active
     assert!(is_transfer_paused(&env));
 }
@@ -248,7 +255,7 @@ fn test_set_transfer_pause_unauthorized() {
 
     // Test unauthorized pause
     let result = set_transfer_pause(&env, unauthorized_user, true);
-    
+
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), DebtTokenError::Unauthorized);
 }
@@ -264,9 +271,9 @@ fn test_set_address_blocked_success() {
 
     // Test successful address blocking
     let result = set_address_blocked(&env, admin.clone(), blocked_address.clone(), true);
-    
+
     assert!(result.is_ok());
-    
+
     // Verify address is blocked
     assert!(is_address_blocked(&env, &blocked_address));
 }
@@ -283,7 +290,7 @@ fn test_set_address_blocked_unauthorized() {
 
     // Test unauthorized address blocking
     let result = set_address_blocked(&env, unauthorized_user, address, true);
-    
+
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), DebtTokenError::Unauthorized);
 }
@@ -296,11 +303,12 @@ fn test_debt_token_position_metadata() {
 
     // Setup admin and mint token
     setup_admin(&env);
-    let token_id = mint_debt_token(&env, user.clone(), collateral_asset.clone(), 1000000, 500).unwrap();
-    
+    let token_id =
+        mint_debt_token(&env, user.clone(), collateral_asset.clone(), 1000000, 500).unwrap();
+
     // Test position metadata retrieval
     let position = get_debt_position(&env, token_id).unwrap();
-    
+
     assert_eq!(position.borrower, user);
     assert_eq!(position.principal, 1000000);
     assert_eq!(position.interest_rate_bps, 500);
@@ -319,7 +327,7 @@ fn test_get_user_debt_tokens_empty() {
 
     // Test getting tokens for user with no tokens
     let tokens = get_user_debt_tokens(&env, &user);
-    
+
     assert_eq!(tokens.len(), 0);
 }
 
@@ -332,16 +340,17 @@ fn test_get_debt_token_total_supply() {
 
     // Setup admin and mint multiple tokens
     setup_admin(&env);
-    let token1 = mint_debt_token(&env, user1.clone(), collateral_asset.clone(), 1000000, 500).unwrap();
+    let token1 =
+        mint_debt_token(&env, user1.clone(), collateral_asset.clone(), 1000000, 500).unwrap();
     let token2 = mint_debt_token(&env, user2.clone(), collateral_asset, 2000000, 500).unwrap();
-    
+
     // Test total supply
     let total_supply = get_debt_token_total_supply(&env);
     assert_eq!(total_supply, 2);
-    
+
     // Burn one token
     burn_debt_token(&env, user1, token1, Symbol::new(&env, "repayment")).unwrap();
-    
+
     // Verify total supply decreased
     let new_total_supply = get_debt_token_total_supply(&env);
     assert_eq!(new_total_supply, 1);
@@ -366,7 +375,9 @@ fn is_transfer_paused(env: &Env) -> bool {
 fn is_address_blocked(env: &Env, address: &Address) -> bool {
     env.storage()
         .persistent()
-        .get(&crate::debt_token::DebtTokenDataKey::BlockedAddress(address.clone()))
+        .get(&crate::debt_token::DebtTokenDataKey::BlockedAddress(
+            address.clone(),
+        ))
         .unwrap_or(false)
 }
 
@@ -396,7 +407,14 @@ fn test_list_and_buy_debt_token() {
     let payment_client = soroban_sdk::token::StellarAssetClient::new(&env, &payment_token);
     payment_client.mint(&buyer, &500_000i128);
 
-    list_debt_token(&env, seller.clone(), token_id, 500_000i128, payment_token.clone()).unwrap();
+    list_debt_token(
+        &env,
+        seller.clone(),
+        token_id,
+        500_000i128,
+        payment_token.clone(),
+    )
+    .unwrap();
     let listing = get_listing(&env, token_id).unwrap();
     assert_eq!(listing.seller, seller);
     assert_eq!(listing.price, 500_000i128);
@@ -463,7 +481,14 @@ fn test_cannot_double_list_same_token() {
     let token_id = mint_debt_token(&env, seller.clone(), collateral_asset, 1_000_000, 500).unwrap();
     let payment_token = setup_payment_token(&env, &admin);
 
-    list_debt_token(&env, seller.clone(), token_id, 100i128, payment_token.clone()).unwrap();
+    list_debt_token(
+        &env,
+        seller.clone(),
+        token_id,
+        100i128,
+        payment_token.clone(),
+    )
+    .unwrap();
     let result = list_debt_token(&env, seller, token_id, 200i128, payment_token);
     assert_eq!(result.unwrap_err(), DebtTokenError::AlreadyListed);
 }

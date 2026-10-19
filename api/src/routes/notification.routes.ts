@@ -23,6 +23,9 @@ const router: Router = Router();
  *                 enum: [email, telegram, discord, push]
  *               recipient:
  *                 type: string
+ *                 description: >-
+ *                   Delivery address for the channel. For `push`, the JSON-encoded
+ *                   browser PushSubscription (`JSON.stringify(subscription)`).
  *               alertTypes:
  *                 type: array
  *                 items:
@@ -32,6 +35,21 @@ const router: Router = Router();
  *         description: Subscription created
  */
 router.post('/subscribe', notificationController.subscribe);
+
+/**
+ * @openapi
+ * /notifications/push/public-key:
+ *   get:
+ *     summary: VAPID public key browsers use to create a push subscription
+ *     tags:
+ *       - Notifications
+ *     responses:
+ *       200:
+ *         description: VAPID public key
+ *       503:
+ *         description: Push notifications are not configured
+ */
+router.get('/push/public-key', notificationController.getPushPublicKey);
 
 /**
  * @openapi

@@ -78,3 +78,12 @@ impl SwapRouterContract {
         Ok(current_amount)
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    SwapRouterError => stellarlend_errors::domains::SWAP_ROUTER;
+    NoSwapRoutes => NotFound, "No swap routes";
+    SlippageToleranceExceeded => LimitExceeded, "Slippage tolerance exceeded", AdjustTolerance;
+    SwapFailed => Internal, "Swap failed";
+}

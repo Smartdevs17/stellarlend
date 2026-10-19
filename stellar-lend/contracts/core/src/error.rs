@@ -249,3 +249,29 @@ mod tests {
         assert_eq!(ProtocolError::from_code(42), ProtocolError::Unknown);
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    ProtocolError => stellarlend_errors::domains::CORE;
+    Unauthorized => Unauthorized, "Unauthorized action";
+    AlreadyInitialized => AlreadyInitialized, "Contract has already been initialized";
+    NotInitialized => NotInitialized, "Contract state is not initialized";
+    InvalidAddress => InvalidInput, "Address is invalid or missing";
+    InvalidAmount => InvalidInput, "Amount is invalid";
+    InvalidConfiguration => InvalidInput, "Configuration value is invalid";
+    InvalidState => InvalidState, "Operation is not valid for the current state";
+    InsufficientBalance => Insufficient, "Insufficient balance";
+    InsufficientCollateral => Insufficient, "Insufficient collateral", AddCollateral;
+    LimitExceeded => LimitExceeded, "Requested value exceeds an allowed limit";
+    ReentrancyDetected => Reentrancy, "Reentrancy was detected and blocked";
+    CrossContractFailure => Internal, "Cross-contract invocation failed", RetryLater;
+    SerializationFailure => Internal, "Failed to serialize or deserialize contract data";
+    Overflow => Overflow, "Arithmetic overflow occurred";
+    Underflow => Overflow, "Arithmetic underflow occurred";
+    UnsupportedOperation => InvalidInput, "Operation is not supported";
+    NotFound => NotFound, "Requested item was not found";
+    DeadlineExpired => InvalidState, "Deadline has expired", AdjustTolerance;
+    DuplicateRequest => AlreadyExists, "Duplicate request was rejected";
+    Unknown => Internal, "An unknown contract error occurred", ReportBug;
+}

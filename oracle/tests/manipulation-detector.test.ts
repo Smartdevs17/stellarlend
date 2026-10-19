@@ -39,10 +39,7 @@ describe('ManipulationDetector', () => {
 
   describe('checkSourceDeviations', () => {
     it('should return empty when sources are aligned', () => {
-      const prices: PriceData[] = [
-        makePriceData('cg', 50000n),
-        makePriceData('binance', 50100n),
-      ];
+      const prices: PriceData[] = [makePriceData('cg', 50000n), makePriceData('binance', 50100n)];
       const median = 50050n;
       const alerts = detector.checkSourceDeviations('BTC', prices, median);
       expect(alerts).toHaveLength(0);
@@ -72,29 +69,20 @@ describe('ManipulationDetector', () => {
     });
 
     it('should skip zero or negative prices', () => {
-      const prices: PriceData[] = [
-        makePriceData('cg', 0n),
-        makePriceData('binance', 50100n),
-      ];
+      const prices: PriceData[] = [makePriceData('cg', 0n), makePriceData('binance', 50100n)];
       const median = 50000n;
       const alerts = detector.checkSourceDeviations('BTC', prices, median);
       expect(alerts).toHaveLength(0);
     });
 
     it('should skip when median is zero', () => {
-      const prices: PriceData[] = [
-        makePriceData('cg', 50000n),
-        makePriceData('binance', 50100n),
-      ];
+      const prices: PriceData[] = [makePriceData('cg', 50000n), makePriceData('binance', 50100n)];
       const alerts = detector.checkSourceDeviations('BTC', prices, 0n);
       expect(alerts).toHaveLength(0);
     });
 
     it('should track consecutive deviations and flag suspicious sources', () => {
-      const prices: PriceData[] = [
-        makePriceData('cg', 50000n),
-        makePriceData('binance', 51100n),
-      ];
+      const prices: PriceData[] = [makePriceData('cg', 50000n), makePriceData('binance', 51100n)];
       const median = 50000n;
 
       // First deviation
@@ -217,9 +205,7 @@ describe('ManipulationDetector', () => {
 
     it('should ignore historical prices with zero price', () => {
       const now = Math.floor(Date.now() / 1000);
-      const historical = [
-        { price: 0n, timestamp: now - 10 },
-      ];
+      const historical = [{ price: 0n, timestamp: now - 10 }];
       const result = detector.checkVolatilitySpike('BTC', 50000n, historical);
       expect(result).toBeNull();
     });

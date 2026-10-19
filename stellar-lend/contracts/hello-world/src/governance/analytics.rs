@@ -1,11 +1,11 @@
-use soroban_sdk::{token::TokenClient, Address, Env, Symbol};
+use soroban_sdk::{Address, Env, Symbol};
 
 use crate::errors::GovernanceError;
+use crate::events::SuspiciousGovActivityEvent;
 use crate::storage::GovernanceDataKey;
 use crate::types::{
     GovernanceAnalytics, BASIS_POINTS_SCALE, PROPOSAL_RATE_LIMIT, PROPOSAL_RATE_WINDOW,
 };
-use crate::events::SuspiciousGovActivityEvent;
 
 /// Query governance analytics.
 pub fn get_governance_analytics(env: &Env) -> GovernanceAnalytics {
@@ -23,19 +23,19 @@ pub fn get_governance_analytics(env: &Env) -> GovernanceAnalytics {
 }
 
 /// Enforce proposal rate limiting.
-pub fn enforce_proposal_rate_limit(
-    env: &Env,
-    proposer: &Address,
-) -> Result<(), GovernanceError> {
+pub fn enforce_proposal_rate_limit(env: &Env, proposer: &Address) -> Result<(), GovernanceError> {
     let now = env.ledger().timestamp();
 
     let window_key = GovernanceDataKey::ProposalWindowStart(proposer.clone());
     let count_key = GovernanceDataKey::ProposalCreationCount(proposer.clone());
 
-    let window_start: u64 = env.storage().persistent().get(&window_key).unwrap_or(0);
+    let window_start: Option<u64> = env.storage().persistent().get(&window_key);
     let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
 
-    if now - window_start > PROPOSAL_RATE_WINDOW {
+    let window_elapsed = window_start
+        .map(|start| now.saturating_sub(start) > PROPOSAL_RATE_WINDOW)
+        .unwrap_or(true);
+    if window_elapsed {
         env.storage().persistent().set(&window_key, &now);
         env.storage().persistent().set(&count_key, &1u32);
     } else {
@@ -48,17 +48,17 @@ pub fn enforce_proposal_rate_limit(
     Ok(())
 }
 
-/// Detect suspicious voting patterns that may indicate a flash loan attack.
+/// Flag a single voter holding more than a third of the voting power that
+/// counts on a proposal. This is informational: snapshots already stop
+/// flash-loaned power from voting, so a large voter is legitimate but worth
+/// surfacing to monitoring.
 pub fn detect_suspicious_voting(
     env: &Env,
     proposal_id: u64,
     voter: &Address,
     voter_power: i128,
-    vote_token: &Address,
+    total_supply_estimate: i128,
 ) {
-    let token_client = TokenClient::new(env, vote_token);
-    let total_supply_estimate = token_client.balance(voter) + voter_power;
-
     let threshold_bps: i128 = 3333;
     if total_supply_estimate > 0
         && (voter_power * BASIS_POINTS_SCALE) / total_supply_estimate > threshold_bps

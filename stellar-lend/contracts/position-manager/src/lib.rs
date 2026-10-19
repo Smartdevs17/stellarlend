@@ -67,7 +67,9 @@ impl PositionManager {
         }
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::CurrentPositionId, &0u64);
+        env.storage()
+            .instance()
+            .set(&DataKey::CurrentPositionId, &0u64);
         Ok(())
     }
 
@@ -148,12 +150,18 @@ impl PositionManager {
             .get(&DataKey::Position(position_id))
             .ok_or(PositionError::PositionNotFound)?;
 
+        position.owner.require_auth();
+
         if !position.active {
             return Err(PositionError::PositionNotActive);
         }
 
         if leverage_bps < 10_000 || leverage_bps > 50_000 {
             return Err(PositionError::InvalidLeverage);
+        }
+
+        if collateral_amount <= 0 || borrowed_amount < 0 {
+            return Err(PositionError::InvalidAmount);
         }
 
         position.collateral_amount = collateral_amount;
@@ -207,4 +215,27 @@ impl PositionManager {
     pub fn get_admin(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::Admin)
     }
+}
+
+#[cfg(test)]
+mod test;
+
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    PositionError => stellarlend_errors::domains::POSITION_MANAGER;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    PositionNotFound => NotFound, "Position not found";
+    PositionAlreadyOpen => AlreadyExists, "Position already open";
+    InvalidLeverage => InvalidInput, "Invalid leverage";
+    InsufficientCollateral => Insufficient, "Collateral is insufficient for this position", AddCollateral;
+    HealthFactorTooLow => GuaranteeViolated, "Health factor too low";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    MaxPositionsReached => LimitExceeded, "Max positions reached", ReduceAmount;
+    PositionNotActive => InvalidState, "Position not active";
+    DeleverageBelowMinimum => InvalidInput, "Deleverage below minimum";
 }

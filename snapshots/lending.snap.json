@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "kind": "contract-state",
+  "recordedAt": "2026-09-25T01:05:26.712Z",
+  "state": {
+    "positions": [
+      {
+        "address": "C_ALICE",
+        "collateral": "10000",
+        "debt": "4000",
+        "healthFactor": "1.9"
+      },
+      {
+        "address": "C_BOB",
+        "collateral": "25000",
+        "debt": "15000",
+        "healthFactor": "1.25"
+      },
+      {
+        "address": "C_CAROL",
+        "collateral": "5000",
+        "debt": "0",
+        "healthFactor": "99"
+      }
+    ],
+    "pools": [
+      {
+        "asset": "USDC",
+        "collateralFactorBps": 8000,
+        "interestRateBps": 450,
+        "supplyCap": "10000000"
+      },
+      {
+        "asset": "XLM",
+        "collateralFactorBps": 7000,
+        "interestRateBps": 380,
+        "supplyCap": "50000000"
+      }
+    ],
+    "governance": [
+      {
+        "executed": true,
+        "proposalId": 1,
+        "status": "executed",
+        "votesAgainst": "3",
+        "votesFor": "120"
+      },
+      {
+        "executed": false,
+        "proposalId": 2,
+        "status": "active",
+        "votesAgainst": "5",
+        "votesFor": "40"
+      }
+    ]
+  }
+}

@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS indexing_metadata (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     contract_address VARCHAR(64) NOT NULL UNIQUE,
     last_indexed_block BIGINT NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     last_indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

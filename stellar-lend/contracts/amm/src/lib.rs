@@ -15,6 +15,8 @@
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Map};
 
 pub mod amm;
+mod reentrancy;
+use crate::reentrancy::ReentrancyGuard;
 pub use crate::amm::{
     add_amm_protocol, add_liquidity, auto_swap_for_collateral, execute_swap,
     initialize_amm_settings, remove_liquidity, update_amm_settings, validate_amm_callback,
@@ -163,6 +165,7 @@ impl AmmContract {
     /// - `swap_executed`: Swap transaction details
     /// - `amm_operation`: AMM operation tracking
     pub fn execute_swap(env: Env, user: Address, params: SwapParams) -> Result<i128, AmmError> {
+        let _guard = ReentrancyGuard::enter(&env)?;
         execute_swap(&env, user, params)
     }
 
@@ -186,6 +189,7 @@ impl AmmContract {
         user: Address,
         params: LiquidityParams,
     ) -> Result<i128, AmmError> {
+        let _guard = ReentrancyGuard::enter(&env)?;
         add_liquidity(&env, user, params)
     }
 
@@ -222,6 +226,7 @@ impl AmmContract {
         min_amount_b: i128,
         deadline: u64,
     ) -> Result<(i128, i128), AmmError> {
+        let _guard = ReentrancyGuard::enter(&env)?;
         remove_liquidity(
             &env,
             user,
@@ -278,6 +283,7 @@ impl AmmContract {
         target_token: Option<Address>,
         amount: i128,
     ) -> Result<i128, AmmError> {
+        let _guard = ReentrancyGuard::enter(&env)?;
         auto_swap_for_collateral(&env, user, target_token, amount)
     }
 

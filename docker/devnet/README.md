@@ -1,5 +1,10 @@
 # StellarLend Local Devnet
 
+> **Just need contracts on a local network?** Run `npm run devnet` from the repo root. It
+> starts a node, deploys and seeds the lending contract in one command. See
+> [docs/devnet.md](../../docs/devnet.md). This compose setup adds the full stack (API, oracle,
+> Postgres, Redis) on top.
+
 Full local Soroban development environment with preconfigured accounts, deployed contracts, and seeded test data.
 
 ## Prerequisites

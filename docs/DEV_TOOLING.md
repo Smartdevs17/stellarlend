@@ -102,6 +102,141 @@ The analyzer returns:
 - aggregated state-change summaries
 - overhead warnings when tracing materially changes runtime characteristics
 
+## Lending Pool Gas Cost Estimator
+
+Estimate what each lending pool operation costs on Soroban, and get optimization
+suggestions derived from the contract's storage patterns.
+
+```bash
+# Every entry point
+node --experimental-strip-types scripts/lending-gas-estimator/index.ts
+
+# The user-facing hot path, priced with 5-item batches, as markdown
+node --experimental-strip-types scripts/lending-gas-estimator/index.ts \
+  --operations deposit,withdraw,borrow,repay,flash_loan \
+  --iterations 5 --format markdown
+```
+
+The tool indexes the contract source rather than reading a hand-maintained table,
+so the storage counts it reports are the ones the contract actually performs —
+including accesses made several call levels down, writes performed by an RAII
+guard's `Drop` body, and storage written inside a loop. It prices the resulting
+transaction footprint using the stroop constants from
+`api/src/services/gas/estimator.ts`, and then diffs that API's
+`OPERATION_COMPLEXITY` table against the source so the two cannot drift apart
+silently.
+
+Suggestions come from nine storage-pattern rules (packable key namespaces,
+redundant existence probes, loop-amplified writes, legacy migration fallbacks,
+and so on). Each one names the operations it affects, cites the `file.rs:line`
+that triggered it, and estimates the saving in stroops.
+
+```bash
+# The available rules
+node --experimental-strip-types scripts/lending-gas-estimator/index.ts --list-rules
+
+# Gate CI on a severity band (exit 0 ok, 1 findings, 2 usage error)
+node --experimental-strip-types scripts/lending-gas-estimator/index.ts --fail-on high
+```
+
+See `scripts/lending-gas-estimator/README.md` for the cost model, the full rule
+list and the caveats that say where the estimate is an upper bound.
+
+## Lending Protocol Gas Budget Planner
+
+Plan what a lender's gas costs will be for a pattern of operations, before any
+transaction is submitted.
+
+```bash
+# A built-in pattern
+node --experimental-strip-types scripts/gas-budget-planner/index.ts --preset steady_lender
+
+# Your own pattern, against a budget
+node --experimental-strip-types scripts/gas-budget-planner/index.ts \
+  --plan scripts/gas-budget-planner/patterns/multi-asset-rebalancer.json \
+  --budget-xlm 0.5 --xlm-price 0.11
+
+# Just the per-call price table
+node --experimental-strip-types scripts/gas-budget-planner/index.ts --operation-costs
+```
+
+A plan file declares how many deposits, borrows, repays and withdrawals happen
+per period, an optional `batchSize` for deposits that go through
+`deposit_batch`, and optionally a budget. The tool multiplies the per-call costs
+by those counts, reports the period and annualised totals in stroops, XLM and
+optionally USD, compares them against the budget, projects the plan forward at
+higher volume to show where it breaks, and suggests levers derived from the
+plan's own shape.
+
+Per-call costs are read from `api/src/services/gas/estimator.ts` — the same
+constants and formula `POST /api/gas/estimate` uses — and the committed
+CPU-instruction budgets from `stellar-lend/benchmarks/baseline.json`, so a plan
+agrees with the API and with the gas budget gate CI enforces. Where a measured
+count exists in `stellar-lend/benchmarks/gas-baseline.json` it is preferred over
+the API's baseline.
+
+Four example plans ship in `scripts/gas-budget-planner/patterns/`, and
+`--list-presets` prints the built-in pattern names. Exit codes are `0` ok, `1`
+over budget, `2` usage error, so `--fail-over-budget` is usable as a gate.
+
+Note this is the **gas** budget, distinct from the capital-allocation and yield
+planner in `api/src/services/planner/budget-planner.ts` (documented in
+[BUDGET_PLANNER.md](BUDGET_PLANNER.md)) — same name, different question.
+
+See `scripts/gas-budget-planner/README.md` for the plan file format, the cost
+sources and the full suggestion rule list.
+
+## Lending Pool Position Health Simulation
+
+Simulate market conditions against the lending pool's own health factor and
+liquidation threshold math, before a price move happens on-chain.
+
+```bash
+# A shipped example position, through a flash crash
+node --experimental-strip-types scripts/position-health-sim/index.ts \
+  --position leveraged-xlm-borrow --grid flash_crash
+
+# One historical scenario, at an explicit threshold
+node --experimental-strip-types scripts/position-health-sim/index.ts \
+  --position healthy-xlm-borrow --scenario luna-ust-collapse --threshold-bps 8500
+
+# What scenarios and shock grids exist?
+node --experimental-strip-types scripts/position-health-sim/index.ts --list-scenarios
+
+# Gate: fail if any market condition liquidates the position
+node --experimental-strip-types scripts/position-health-sim/index.ts \
+  --position leveraged-xlm-borrow --grid flash_crash --fail-on liquidatable
+```
+
+The health factor is a port of `views.rs::compute_health_factor`, and the
+constants it depends on (`HEALTH_FACTOR_SCALE`, `PRICE_SCALE`,
+`HEALTH_FACTOR_NO_DEBT`, `COLLATERAL_RATIO_MIN` and the `borrow.rs` admin
+defaults) are **parsed out of the contract source** rather than copied — so
+renaming one on-chain makes the tool fail loudly instead of simulating against a
+stale number. Use `--contract-src` to point it at a different checkout or
+revision.
+
+This matters because the off-chain health-factor surfaces disagree with the
+contract: `risk-engine/stress-tester/engine.ts`, `services/risk-simulation.service.ts`,
+`services/position-simulator.ts` and `controllers/simulation.controller.ts` all
+compute a raw `collateralValue / debtValue` with **no liquidation threshold**, and
+`portfolio.service.ts` hardcodes 1.2 where the contract's default is 0.8. At the
+default 80% threshold the contract's health factor is 0.8× the raw ratio, so those
+surfaces call positions healthy that the contract would liquidate. This tool is
+the reference to check them against.
+
+It also answers the threshold question the repo could not: `liquidation_threshold_bps`
+is admin-settable across 1..10000 bps, and `--thresholds` (or the default grid)
+shows what a change does to the liquidation boundary.
+
+Note that `liquidate` in the lending pool is still a stub (`lib.rs:298`), and
+neither `close_factor_bps` nor `liquidation_incentive_bps` is exposed in the
+`#[contractimpl]`, so the tool prices what a liquidation *would* cost from the
+view functions rather than from a liquidation path.
+
+See `scripts/position-health-sim/README.md` for the position file format, the
+fidelity details, and the tests transcribed from the contract's own suite.
+
 ## Deployment Verification
 
 After deployment and initialization, run:
@@ -171,3 +306,44 @@ Mutation reports are written to `api/reports/mutation/`.
 ### CI strategy
 
 The repository includes a dedicated GitHub Actions workflow for scheduled or manually triggered mutation runs so regular PR validation remains fast while mutation testing still has a persistent quality gate.
+
+## Gas Golf Leaderboard
+
+`scripts/gas-golf` is a competition harness for gas optimization. It is a plain
+Node script with no dependencies, so it runs on its own rather than through the
+API package:
+
+```bash
+node --experimental-strip-types scripts/gas-golf/index.ts --list-challenges
+node --experimental-strip-types scripts/gas-golf/index.ts --gate all
+node --experimental-strip-types scripts/gas-golf/index.ts
+node --experimental-strip-types --test scripts/gas-golf/*.test.ts
+```
+
+Two rules make its output worth anything, and both are enforced rather than
+documented:
+
+- **Correctness gates the score.** Every submission is compared against a
+  maintainer-owned reference over a fixed vector set at a tolerance of exactly
+  `0`, with the tolerance and allow-list read from the course definition so a
+  submitter cannot widen their own pass mark. This is the `scripts/differential-test`
+  comparison with competitive rules attached.
+- **Only a same-session delta is a score.** Instruction counts are
+  build-dependent, so a figure is reported only against the reference's figure
+  from the same run; `--require-fresh` refuses a report that cannot be shown to
+  come from one session — rows from several commits, or rows naming no commit.
+
+The score is `instructions / budget` — the same `FunctionRow.utilizationPct`
+the gas report uses, so the two can never disagree about what "over budget"
+means. Storage read/write counts are deliberately excluded: they are
+hand-declared literals, not measurements.
+
+The board does **not** run the Rust benchmark suite. Today `baseline.json` has
+`"results": []` and `gas-baseline.json` holds only `hello-world` measurements, so
+the default run reports no rankable entries and explains why instead of printing
+a table of zeroes. Producing real comparable measurements is
+`gas-regression.yml`'s job. See `scripts/gas-golf/README.md` for the full
+description, and `scripts/gas-golf/fixtures/README.md` for the clearly-labelled
+synthetic session used to exercise the populated path.
+
+CI: `.github/workflows/gas-golf.yml`.

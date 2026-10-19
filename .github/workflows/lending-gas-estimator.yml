@@ -1,0 +1,121 @@
+name: Lending Pool Gas Cost Estimator (#1011)
+
+# Static gas-cost estimation and storage-pattern optimization suggestions for
+# the Soroban lending pool.
+#
+#   - Runs the estimator unit suites.
+#   - Prices every entry point in the contract and writes the report to the job
+#     summary.
+#   - Confirms a deliberate storage regression is caught (negative test), so the
+#     gate cannot silently pass.
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "scripts/lending-gas-estimator/**"
+      - "stellar-lend/contracts/lending/**"
+      - "api/src/services/gas/estimator.ts"
+      - ".github/workflows/lending-gas-estimator.yml"
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "scripts/lending-gas-estimator/**"
+      - "stellar-lend/contracts/lending/**"
+      - "api/src/services/gas/estimator.ts"
+      - ".github/workflows/lending-gas-estimator.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lending-gas-estimator:
+    name: Lending gas estimator (#1011)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22 (type-stripping)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run estimator unit suites
+        run: node --experimental-strip-types --test scripts/lending-gas-estimator/*.test.ts
+
+      - name: Estimate the hot-path operations
+        run: |
+          node --experimental-strip-types scripts/lending-gas-estimator/index.ts \
+            --operations deposit,deposit_batch,deposit_collateral,withdraw,borrow,borrow_with_rate,repay,emergency_withdraw,flash_loan,execute_compressed \
+            --iterations 5 \
+            --format markdown
+
+      - name: Publish the report to the job summary
+        if: always()
+        run: |
+          set -euo pipefail
+          REPORT="$(mktemp)"
+          node --experimental-strip-types scripts/lending-gas-estimator/index.ts \
+            --iterations 5 --min-severity medium \
+            --format markdown --out "$REPORT"
+          {
+            echo "## Lending pool gas estimate"
+            echo
+            cat "$REPORT"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Diff the API complexity table against the contract source
+        if: always()
+        run: |
+          node --experimental-strip-types scripts/lending-gas-estimator/index.ts \
+            --compare-source api/src/services/gas/estimator.ts \
+            --format markdown --out /tmp/drift.md
+          if [ -s /tmp/drift.md ]; then
+            sed -n '/### Complexity table drift/,$p' /tmp/drift.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Negative test — a new packed write cluster must be reported
+        run: |
+          set -euo pipefail
+          TMP=$(mktemp -d)
+          cp -r stellar-lend/contracts/lending/src "$TMP/src"
+          # Split a packed key namespace back into two per-field writes: the
+          # packing rule must notice and the gate must fire.
+          node --experimental-strip-types -e "
+            const fs = require('fs');
+            const file = '$TMP/src/hot_storage.rs';
+            let src = fs.readFileSync(file, 'utf8');
+            src = src.replace(
+              'storage.set(&HotStorageKey::DepositState, &self.state);',
+              [
+                'storage.set(&DepositDataKey::TotalAmount, &self.state.total);',
+                'storage.set(&DepositDataKey::CapAmount, &self.state.cap);',
+                'storage.set(&DepositDataKey::MinAmount, &self.state.min);',
+              ].join('\n'),
+            );
+            fs.writeFileSync(file, src);
+          "
+          if node --experimental-strip-types scripts/lending-gas-estimator/index.ts \
+            --contract-dir "$TMP" \
+            --operations deposit --fail-on medium >/dev/null 2>&1; then
+            echo "::error::Estimator passed for a contract with an extra write cluster — expected failure."
+            exit 1
+          fi
+          echo "Negative test passed (a widened deposit footprint failed the gate)."
+
+      - name: Gate — no critical storage-pattern finding
+        run: |
+          # Findings are reported, not enforced: the existing tree already carries
+          # high-severity patterns (packed writes that are already optimal,
+          # legacy migration fallbacks) and blocking on them would turn a
+          # measurement tool into a freeze. `--fail-on critical` is a tripwire for
+          # genuinely catastrophic patterns, which no rule emits today. Raise it
+          # per-operation with `--fail-on` once the current findings are cleared.
+          node --experimental-strip-types scripts/lending-gas-estimator/index.ts \
+            --fail-on critical --format json --out /dev/null
+          echo "No critical storage-pattern finding."

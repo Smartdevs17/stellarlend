@@ -10,8 +10,8 @@
 //!     (no regression to existing `emit_*` helpers).
 
 use crate::events::{
-    emit_deposit, emit_structured, EventAction, EventModule, StructuredEvent, StructuredEventField,
-    StructuredEventV1, DepositEvent, EVENT_SCHEMA_VERSION,
+    emit_deposit, emit_structured, DepositEvent, EventAction, EventModule, StructuredEvent,
+    StructuredEventField, StructuredEventV1, EVENT_SCHEMA_VERSION,
 };
 use crate::HelloContract;
 
@@ -61,13 +61,22 @@ fn schema_version_is_one() {
 #[test]
 fn action_symbols_are_stable_snake_case() {
     let env = Env::default();
-    assert_eq!(EventAction::Deposit.as_symbol(&env), Symbol::new(&env, "deposit"));
-    assert_eq!(EventAction::PriceUpdate.as_symbol(&env), Symbol::new(&env, "price_update"));
+    assert_eq!(
+        EventAction::Deposit.as_symbol(&env),
+        Symbol::new(&env, "deposit")
+    );
+    assert_eq!(
+        EventAction::PriceUpdate.as_symbol(&env),
+        Symbol::new(&env, "price_update")
+    );
     assert_eq!(
         EventAction::ProposalCreated.as_symbol(&env),
         Symbol::new(&env, "proposal_created")
     );
-    assert_eq!(EventAction::Other.as_symbol(&env), Symbol::new(&env, "other"));
+    assert_eq!(
+        EventAction::Other.as_symbol(&env),
+        Symbol::new(&env, "other")
+    );
 }
 
 #[test]
@@ -77,8 +86,13 @@ fn builder_emits_envelope_with_defaults() {
 
     env.as_contract(&contract_id, || {
         let user = Address::generate(&env);
-        StructuredEvent::new(&env, EventModule::Lending, EventAction::Deposit, user.clone())
-            .emit(&env);
+        StructuredEvent::new(
+            &env,
+            EventModule::Lending,
+            EventAction::Deposit,
+            user.clone(),
+        )
+        .emit(&env);
 
         let (topics, decoded) = decode(&env);
 
@@ -95,8 +109,8 @@ fn builder_emits_envelope_with_defaults() {
 
         // Topic layout: ("proto_evt", module, action, actor)
         assert!(topics.len() >= 4, "expected at least 4 topics");
-        let prefix = Symbol::try_from_val(&env, &topics.get_unchecked(0))
-            .expect("first topic is a Symbol");
+        let prefix =
+            Symbol::try_from_val(&env, &topics.get_unchecked(0)).expect("first topic is a Symbol");
         assert_eq!(prefix, Symbol::new(&env, "proto_evt"));
     });
 }
@@ -196,7 +210,12 @@ fn structured_envelope_is_independent_of_typed_emitters() {
         // A typed emitter still produces exactly one event on its own.
         emit_deposit(
             &env,
-            DepositEvent { user: user.clone(), asset: None, amount: 10, timestamp: 1 },
+            DepositEvent {
+                user: user.clone(),
+                asset: None,
+                amount: 10,
+                timestamp: 1,
+            },
         );
         assert_eq!(env.events().all().len(), 1);
 

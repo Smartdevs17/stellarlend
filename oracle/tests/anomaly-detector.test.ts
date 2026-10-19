@@ -31,7 +31,11 @@ describe('AnomalyDetector', () => {
   describe('ingestPrice', () => {
     it('should return empty array when below minimum samples', () => {
       for (let i = 0; i < 5; i++) {
-        const anomalies = detector.ingestPrice('BTC', BigInt(50000 + i * 10), Date.now() / 1000 + i);
+        const anomalies = detector.ingestPrice(
+          'BTC',
+          BigInt(50000 + i * 10),
+          Date.now() / 1000 + i
+        );
         expect(anomalies).toHaveLength(0);
       }
     });

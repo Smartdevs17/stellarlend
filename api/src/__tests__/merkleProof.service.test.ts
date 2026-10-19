@@ -47,7 +47,7 @@ describe('MerkleProofService', () => {
     expect(service.listAccounts()).toHaveLength(2);
   });
 
-  it('rejects missing accounts and detects tampered proofs', () => {
+  it('rejects missing accounts, detects tampered proofs, and invalidates stale roots', () => {
     const service = new MerkleProofService();
 
     service.upsertAccount({
@@ -61,6 +61,24 @@ describe('MerkleProofService', () => {
     expect(() => service.getAccount('UNKNOWN')).toThrow('Account not found');
 
     const proof = service.generateProof('GA789THIRD');
+    const oldRoot = proof.root;
+
+    // Mutate state to change the canonical root
+    service.upsertAccount({
+      userAddress: 'GA999FOURTH',
+      collateral: '100',
+      debt: '10',
+      lastUpdated: 1_710_000_300,
+    });
+
+    const newRoot = service.getTreeInfo().root;
+    expect(newRoot).not.toBe(oldRoot);
+
+    // Stale proof from old root should now be invalid against the current canonical tree
+    const verificationResult = service.verifyProof(proof);
+    expect(verificationResult.valid).toBe(false);
+    expect(verificationResult.root).toBe(newRoot);
+
     const tampered = {
       ...proof,
       leaf: proof.leaf.replace(/^./, proof.leaf[0] === 'a' ? 'b' : 'a'),

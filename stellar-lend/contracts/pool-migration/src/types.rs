@@ -131,3 +131,30 @@ pub enum DataKey {
     PoolStats(Address),
     Paused,
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    MigrationError => stellarlend_errors::domains::POOL_MIGRATION;
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    SourcePoolNotFound => NotFound, "Source pool not found";
+    DestinationPoolNotFound => NotFound, "Destination pool not found";
+    SourcePoolFrozen => Paused, "Source pool frozen";
+    DestinationPoolFrozen => Paused, "Destination pool frozen";
+    InsufficientBalance => Insufficient, "Balance is too low for this operation";
+    InsufficientDestinationLiquidity => Insufficient, "Insufficient destination liquidity";
+    HealthFactorViolation => GuaranteeViolated, "Health factor violation";
+    SlippageExceeded => LimitExceeded, "Price moved beyond the allowed slippage", AdjustTolerance;
+    MigrationTooSmall => InvalidInput, "Migration too small";
+    MigrationTooLarge => LimitExceeded, "Migration too large", ReduceAmount;
+    CooldownNotElapsed => LimitExceeded, "Cooldown not elapsed";
+    DeadlineExceeded => InvalidState, "Deadline exceeded", AdjustTolerance;
+    SamePool => InvalidInput, "Same pool";
+    InvalidPercentage => InvalidInput, "Invalid percentage";
+    BatchSizeExceeded => LimitExceeded, "Batch size exceeded", ReduceAmount;
+    MigrationNotFound => NotFound, "Migration not found";
+    AlreadyCompleted => AlreadyExists, "Already completed";
+    SafetyCheckFailed => GuaranteeViolated, "Safety check failed", ReduceAmount;
+}

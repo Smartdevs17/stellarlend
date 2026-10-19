@@ -12,8 +12,9 @@
 use soroban_sdk::{contracttype, Address, Env, IntoVal, Symbol, Vec, I256};
 
 use crate::borrow::{
-    get_close_factor_bps, get_liquidation_incentive_bps, get_liquidation_threshold_bps, get_oracle,
-    get_stablecoin_config, get_user_collateral, get_user_debt, BorrowCollateral, DebtPosition,
+    get_close_factor_bps, get_collateral_balances, get_liquidation_incentive_bps,
+    get_liquidation_threshold_bps, get_oracle, get_stablecoin_config, get_user_collateral,
+    get_user_debt, BorrowCollateral, DebtPosition,
 };
 
 /// Scale for oracle price (1e8 = one unit). Value = amount * price / PRICE_SCALE.
@@ -109,6 +110,22 @@ pub(crate) fn collateral_value(env: &Env, collateral: &BorrowCollateral) -> i128
     let scale_256 = I256::from_i128(env, PRICE_SCALE);
     let val_256 = amount_256.mul(&price_256).div(&scale_256);
     val_256.to_i128().unwrap_or(0)
+}
+
+/// Total value of every collateral asset `user` holds, each priced by the
+/// oracle (sum of `amount * price / PRICE_SCALE`). Assets without a usable
+/// price contribute nothing, so a missing price can only lower the value.
+/// Returns 0 if the oracle is not set.
+pub(crate) fn total_collateral_value(env: &Env, user: &Address) -> i128 {
+    if get_oracle(env).is_none() {
+        return 0;
+    }
+    let mut total: i128 = 0;
+    for (asset, amount) in get_collateral_balances(env, user).iter() {
+        let value = collateral_value(env, &BorrowCollateral { amount, asset });
+        total = total.saturating_add(value);
+    }
+    total
 }
 
 /// Computes debt value in common unit (total debt * price / PRICE_SCALE).
@@ -217,8 +234,7 @@ pub fn get_debt_balance(env: &Env, user: &Address) -> i128 {
 /// # Security
 /// Read-only; no state change. Oracle is trusted (admin-configured).
 pub fn get_collateral_value(env: &Env, user: &Address) -> i128 {
-    let collateral = get_user_collateral(env, user);
-    collateral_value(env, &collateral)
+    total_collateral_value(env, user)
 }
 
 /// Returns the user's debt value in the common unit (e.g. USD 8 decimals).
@@ -243,13 +259,12 @@ pub fn get_debt_value(env: &Env, user: &Address) -> i128 {
 /// # Security
 /// Read-only; no state change. Correct oracle and liquidation threshold usage.
 pub fn get_health_factor(env: &Env, user: &Address) -> i128 {
-    let collateral = get_user_collateral(env, user);
     let position = get_user_debt(env, user);
     let debt_balance = position
         .borrowed_amount
         .checked_add(position.interest_accrued)
         .unwrap_or(0);
-    let cv = collateral_value(env, &collateral);
+    let cv = total_collateral_value(env, user);
     let dv = debt_value(env, &position);
     compute_health_factor(env, cv, dv, debt_balance > 0)
 }
@@ -275,8 +290,7 @@ pub fn get_max_liquidatable_amount(env: &Env, user: &Address) -> i128 {
     if total_debt <= 0 {
         return 0;
     }
-    let collateral = get_user_collateral(env, user);
-    let cv = collateral_value(env, &collateral);
+    let cv = total_collateral_value(env, user);
     let dv = debt_value(env, &position);
     let hf = compute_health_factor(env, cv, dv, true);
     // hf == 0 means oracle is missing; healthy or unknown → not liquidatable
@@ -323,7 +337,7 @@ pub fn get_user_position(env: &Env, user: &Address) -> UserPositionSummary {
         .borrowed_amount
         .checked_add(position.interest_accrued)
         .unwrap_or(0);
-    let collateral_value_usd = collateral_value(env, &collateral);
+    let collateral_value_usd = total_collateral_value(env, user);
     let debt_value_usd = debt_value(env, &position);
     let health_factor =
         compute_health_factor(env, collateral_value_usd, debt_value_usd, debt_balance > 0);
@@ -383,4 +397,28 @@ pub fn get_protocol_report(env: &Env, stablecoin_assets: Vec<Address>) -> Protoc
         stablecoin_stats,
         timestamp: env.ledger().timestamp(),
     }
+}
+
+// ─────────────────────────────────────────────
+// Protocol-state accessors (invariant testing)
+// ─────────────────────────────────────────────
+//
+// `data_store.rs` carries a verbatim copy of the standalone `data-store`
+// contract (`pub struct DataStore` + `#[contractimpl]`), so its
+// `get_total_assets` / `get_protocol_reserves` are inherent methods on
+// `DataStore` rather than free functions and cannot be reached as
+// `crate::data_store::get_total_assets`. The invariant and state-machine
+// harnesses need these as plain read functions, so they are exposed here.
+
+use crate::data_store::StoreKey;
+use stellarlend_storage_layer::{Storage, StorageTier};
+
+/// Total assets tracked by the protocol.
+pub fn get_total_assets(env: &Env) -> i128 {
+    Storage::new(env).get_or(StorageTier::Persistent, &StoreKey::TotalAssets, 0i128)
+}
+
+/// Protocol reserves (interest accrued but not yet withdrawn).
+pub fn get_protocol_reserves(env: &Env) -> i128 {
+    Storage::new(env).get_or(StorageTier::Persistent, &StoreKey::ProtocolReserves, 0i128)
 }

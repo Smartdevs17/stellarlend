@@ -8,7 +8,7 @@ use crate::borrow::{
     validate_collateral_ratio,
 };
 use crate::events::{
-    BorrowCommitmentCancelledEvent, BorrowCommitmentCreatedEvent, BorrowCommitmentExecutedEvent,
+    BorrowCommitmentCreatedEvent, BorrowCommitmentExecutedEvent, CommitmentCancelledEvent,
 };
 
 pub const MAX_TRIGGERS: u32 = 4;
@@ -231,9 +231,10 @@ pub fn cancel_borrow_commitment(
         .persistent()
         .set(&CommitmentStorageKey::Commitment(commitment_id), &c);
 
-    BorrowCommitmentCancelledEvent {
+    CommitmentCancelledEvent {
         commitment_id,
         owner,
+        timestamp: env.ledger().timestamp(),
     }
     .publish(env);
 
@@ -326,4 +327,20 @@ pub fn get_borrow_commitment(env: &Env, commitment_id: u64) -> Option<BorrowComm
     env.storage()
         .persistent()
         .get(&CommitmentStorageKey::Commitment(commitment_id))
+}
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    CommitmentError => stellarlend_errors::domains::LENDING_COMMITMENTS;
+    NotFound => NotFound, "Requested item was not found";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    BadConfig => InvalidInput, "Configuration values are invalid";
+    Expired => InvalidState, "Expired", FixInput;
+    NotExecutable => InvalidState, "Not executable";
+    OracleNotConfigured => NotInitialized, "Oracle not configured";
+    TriggerNotMet => InvalidState, "Trigger not met";
+    BelowMinPartialFill => InvalidInput, "Below min partial fill";
+    BorrowFailed => Internal, "Borrow failed";
+    TooManyTriggers => LimitExceeded, "Too many triggers", ReduceAmount;
 }

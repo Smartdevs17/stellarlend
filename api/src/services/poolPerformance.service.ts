@@ -178,3 +178,35 @@ export function recordPerformanceEvent(
 export function getPerformanceEvents(poolAddress?: string): PoolPerformanceEvent[] {
   return analytics.listEvents(poolAddress);
 }
+
+export function calculateAprApy(
+  rate: number,
+  type: 'apr_to_apy' | 'apy_to_apr',
+  compoundingPeriods: number = 365
+) {
+  if (type === 'apr_to_apy') {
+    const apy = analytics.aprToApy(rate, compoundingPeriods);
+    const continuousApy = analytics.aprToContinuousApy(rate);
+    return {
+      apr: rate,
+      apy: Math.round(apy * 10000) / 10000,
+      continuousApy: Math.round(continuousApy * 10000) / 10000,
+      compoundingPeriods,
+    };
+  } else {
+    const apr = analytics.apyToApr(rate, compoundingPeriods);
+    const continuousApr = analytics.apyToContinuousApr(rate);
+    return {
+      apy: rate,
+      apr: Math.round(apr * 10000) / 10000,
+      continuousApr: Math.round(continuousApr * 10000) / 10000,
+      compoundingPeriods,
+    };
+  }
+}
+
+export async function getPoolHistoricalReturns(poolAddress: string, timeRange: string = '30d') {
+  const snapshots = await getPoolSnapshots(poolAddress, timeRange);
+  return analytics.computeHistoricalReturns(poolAddress, snapshots);
+}
+

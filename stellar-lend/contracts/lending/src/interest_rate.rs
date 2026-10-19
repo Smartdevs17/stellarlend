@@ -226,6 +226,19 @@ pub fn update_config(
         .persistent()
         .set(&BorrowDataKey::BorrowInterestRate, &next);
 
+    crate::events::RateConfigUpdatedEvent {
+        caller: caller.clone(),
+        base_rate_bps: next.base_rate_bps,
+        kink_utilization_bps: next.kink_utilization_bps,
+        slope_bps: next.slope_bps,
+        jump_slope_bps: next.jump_slope_bps,
+        rate_floor_bps: next.rate_floor_bps,
+        rate_ceiling_bps: next.rate_ceiling_bps,
+        spread_bps: next.spread_bps,
+        timestamp: next.last_update,
+    }
+    .publish(env);
+
     Ok((prev, next))
 }
 
@@ -238,4 +251,14 @@ impl From<InterestRateError> for BorrowError {
             InterestRateError::DivisionByZero => BorrowError::Overflow,
         }
     }
+}
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    InterestRateError => stellarlend_errors::domains::LENDING_INTEREST_RATE;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    InvalidParameter => InvalidInput, "Parameter is invalid or out of range";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    DivisionByZero => DivisionByZero, "Division by zero";
 }

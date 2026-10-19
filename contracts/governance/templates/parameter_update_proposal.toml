@@ -1,0 +1,37 @@
+# Governance Proposal Template: Parameter Update (#1451)
+# Use this template to propose changes to protocol parameters
+
+title = "Update [Parameter Name]"
+description = """
+## Summary
+Brief description of the proposed change.
+
+## Rationale
+Why this change is beneficial to the protocol.
+
+## Specification
+Detailed technical specification of the change.
+
+## Risk Assessment
+Potential risks and mitigation strategies.
+
+## Timeline
+- Voting Period: 7 days
+- Execution Delay: 2 days after passing
+"""
+
+[proposal]
+type = "parameter_update"
+priority = "normal"  # normal, high, critical
+quorum_percentage = 40
+
+[[proposal.parameters]]
+name = "parameter_name"
+current_value = "current_value"
+proposed_value = "proposed_value"
+rationale = "Why this change improves the protocol"
+
+[voting]
+voting_period_blocks = 50400  # ~7 days on Stellar
+yes_threshold_percentage = 50
+no_threshold_percentage = 0

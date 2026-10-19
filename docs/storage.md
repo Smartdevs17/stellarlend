@@ -132,3 +132,53 @@ If a storage layout change is unavoidable (e.g., merging two maps into one), fol
 - [ ] No `temporary()` or `instance()` storage is used for critical state.
 - [ ] `AssetKey` correctly handles both Native (XLM) and Token assets.
 - [ ] Key collisions between modules are avoided by using unique Enum types for keys.
+
+---
+
+## Packed Pool Configuration (issue #722)
+
+The pool risk configuration stored by `hello-world` (`risk_params.rs`) used to
+live as one spread struct:
+
+```
+RiskParamsDataKey::RiskParamsConfig → RiskParams {
+    min_collateral_ratio:  i128,   // 16 bytes
+    liquidation_threshold: i128,   // 16 bytes
+    close_factor:          i128,   // 16 bytes
+    liquidation_incentive: i128,   // 16 bytes
+    last_update:           u64,    //  8 bytes
+}
+// ≈ 72 bytes payload per read/write
+```
+
+All four bps fields are validated to `0..=50_000` — well inside `u16` — so the
+whole record packs into a single `u128`:
+
+```
+RiskParamsDataKey::PackedRiskParamsConfig → u128
+  bits  0..16   min_collateral_ratio   (u16 bps)
+  bits 16..32   liquidation_threshold  (u16 bps)
+  bits 32..48   close_factor           (u16 bps)
+  bits 48..64   liquidation_incentive  (u16 bps)
+  bits 64..128  last_update            (u64 timestamp)
+// 16 bytes payload — ~4.5× smaller than the spread layout
+```
+
+Implemented as pure helpers in `risk_params.rs` (`pack_risk_params` /
+`unpack_risk_params`). The public interface is unchanged: readers still receive
+a `RiskParams` via `get_risk_params`.
+
+### Migration
+
+- **Lazy**: `get_risk_params` falls back to the legacy slot and migrates on
+  first read after upgrade.
+- **Idempotent + explicit**: `risk_params::migrate_from_legacy` returns `false`
+  when unnecessary; exposed as the entrypoint `migrate_pool_config_packed`.
+
+### Packing guidelines
+
+1. Pack small validated integers (16 bits is enough for any bps field).
+2. Keep the unpacked struct as the public view; packing is a representation detail.
+3. Migrate lazily rather than forcing a migration transaction on users.
+4. Bound persistent `Vec` logs (e.g. `MAX_SANDWICH_LOG` in the MEV module).
+5. Document the bit layout next to the key variant and in this document.

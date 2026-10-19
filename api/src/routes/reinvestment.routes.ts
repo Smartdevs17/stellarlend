@@ -2,11 +2,12 @@ import { Router } from 'express';
 import { body, param, query } from 'express-validator';
 import * as reinvestmentController from '../controllers/reinvestment.controller';
 import { validateRequest } from '../middleware/validation';
+import { authenticateToken } from '../middleware/auth';
 
 const router: Router = Router();
 
 const createPlanValidation = [
-  body('userAddress').isString().notEmpty().withMessage('userAddress is required'),
+  body('userAddress').optional().isString().withMessage('userAddress must be a string'),
   body('sourcePool').isString().notEmpty().withMessage('sourcePool is required'),
   body('strategy')
     .isIn(['same_pool', 'best_apy', 'weighted'])
@@ -26,7 +27,7 @@ const userAddressParamValidation = [
 
 const pauseResumeValidation = [
   ...planIdParamValidation,
-  body('userAddress').isString().notEmpty().withMessage('userAddress is required'),
+  body('userAddress').optional().isString().withMessage('userAddress must be a string'),
 ];
 
 const sweepValidation = [
@@ -35,7 +36,12 @@ const sweepValidation = [
   body('estimatedGasCost').isString().notEmpty().withMessage('estimatedGasCost is required'),
   body('poolPaused').isBoolean().withMessage('poolPaused must be a boolean'),
   body('targetPool').optional().isString(),
-  body('txHash').optional().isString(),
+  body('txHash')
+    .isString()
+    .notEmpty()
+    .withMessage('txHash is required')
+    .matches(/^[0-9a-fA-F]{64}$/)
+    .withMessage('txHash must be a valid 64-character hex transaction hash'),
 ];
 
 const analyticsValidation = [
@@ -43,7 +49,7 @@ const analyticsValidation = [
   query('assumedApyBps').optional().isInt({ min: 0, max: 10_000 }),
 ];
 
-router.post('/plan', createPlanValidation, validateRequest, reinvestmentController.createPlan);
+router.post('/plan', authenticateToken, createPlanValidation, validateRequest, reinvestmentController.createPlan);
 router.get('/plan/:planId', planIdParamValidation, validateRequest, reinvestmentController.getPlan);
 router.get(
   '/plans/:userAddress',
@@ -51,9 +57,9 @@ router.get(
   validateRequest,
   reinvestmentController.getUserPlans
 );
-router.post('/plan/:planId/pause', pauseResumeValidation, validateRequest, reinvestmentController.pausePlan);
-router.post('/plan/:planId/resume', pauseResumeValidation, validateRequest, reinvestmentController.resumePlan);
-router.post('/plan/:planId/sweep', sweepValidation, validateRequest, reinvestmentController.recordSweep);
+router.post('/plan/:planId/pause', authenticateToken, pauseResumeValidation, validateRequest, reinvestmentController.pausePlan);
+router.post('/plan/:planId/resume', authenticateToken, pauseResumeValidation, validateRequest, reinvestmentController.resumePlan);
+router.post('/plan/:planId/sweep', authenticateToken, sweepValidation, validateRequest, reinvestmentController.recordSweep);
 router.get('/plan/:planId/history', planIdParamValidation, validateRequest, reinvestmentController.getHistory);
 router.get(
   '/plan/:planId/analytics',

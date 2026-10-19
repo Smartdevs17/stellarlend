@@ -71,7 +71,7 @@ REPORT_ARGS=(
     --dashboard "$DASHBOARD"
     --history "$HISTORY"
     --history-out "$HISTORY_OUT"
-    --max-regression-pct 10
+    --max-regression-pct "${GAS_REG_MAX_PCT:-10}"
 )
 
 if $COMPARE; then

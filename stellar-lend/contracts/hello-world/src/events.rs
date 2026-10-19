@@ -19,138 +19,125 @@
 //! existing typed emission, so consumers of the typed events are unaffected.
 //! See `api/src/routes/events.ts` for the machine-readable catalog served to
 //! off-chain consumers.
+//!
+//! # Indexing contract
+//!
+//! The off-chain indexer (`api/src/services/eventIndex`, docs in
+//! `backend/elasticsearch/README.md`) relies on this layout:
+//!
+//! - the first topic is the event name — the struct's snake_case name
+//!   (`DepositEvent` → `deposit_event`) or `proto_evt` for the envelope;
+//! - address `#[topic]` fields come next, primary actor first;
+//! - payloads are maps, so fields are read by name (`asset`, `amount`, …);
+//! - the envelope carries [`EVENT_SCHEMA_VERSION`]; the indexer upcasts older
+//!   versions and flags newer ones rather than dropping them.
+//!
+//! Renaming an event struct or reordering its topics is a breaking change for
+//! indexed history. `stellar-lend/contracts/lending/tests/event_topics.rs`
+//! pins the lending contract's layout.
 
 pub use shared_events::*;
 
 use soroban_sdk::{contractevent, contracttype, Address, Env, String, Symbol, Vec};
 
-use crate::types::{AssetStatus, ProposalType, VoteType};
+use crate::types::{AssetStatus, EmergencyTrigger, ProposalType, VoteType};
+
+/// Convert a local [`ProposalType`] into its shared-events representation.
+pub fn to_shared_proposal_type(proposal_type: &ProposalType) -> shared_events::ProposalType {
+    match proposal_type {
+        ProposalType::EmergencyPause(_) => shared_events::ProposalType::Emergency,
+        ProposalType::GenericAction(_) | ProposalType::PauseSwitch(..) => {
+            shared_events::ProposalType::Standard
+        }
+        _ => shared_events::ProposalType::ParameterChange,
+    }
+}
+
+/// Convert a local [`VoteType`] into its shared-events representation.
+pub fn to_shared_vote_type(vote_type: &VoteType) -> shared_events::VoteType {
+    match vote_type {
+        VoteType::For => shared_events::VoteType::For,
+        VoteType::Against => shared_events::VoteType::Against,
+        VoteType::Abstain => shared_events::VoteType::Abstain,
+    }
+}
+
+/// Convert a local [`EmergencyTrigger`] into its shared-events representation.
+pub fn to_shared_emergency_trigger(trigger: EmergencyTrigger) -> shared_events::EmergencyTrigger {
+    match trigger {
+        EmergencyTrigger::Admin => shared_events::EmergencyTrigger::Admin,
+        EmergencyTrigger::CircuitBreaker => shared_events::EmergencyTrigger::CircuitBreaker,
+        EmergencyTrigger::OracleFailure => shared_events::EmergencyTrigger::OracleFailure,
+    }
+}
+
+// ============================================================================
+// Governance Voting Power Events
+// ============================================================================
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct GovTokensLockedEvent {
+    #[topic]
+    pub owner: Address,
+    pub amount: i128,
+    pub locked_balance: i128,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct GovTokensUnlockedEvent {
+    #[topic]
+    pub owner: Address,
+    pub amount: i128,
+    pub locked_balance: i128,
+    pub timestamp: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct GovernanceConfigUpdatedEvent {
+    pub voting_period: u64,
+    pub execution_delay: u64,
+    pub quorum_bps: u32,
+    pub proposal_threshold: i128,
+    pub timelock_duration: u64,
+    pub default_voting_threshold: i128,
+    pub timestamp: u64,
+}
 
 // ============================================================================
 // Core Lending Events (Existing)
 // ============================================================================
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ============================================================================
 // Asset-Specific Events (Carbon Asset Style)
 // ============================================================================
 
 #[allow(dead_code)]
-
-
 #[allow(dead_code)]
-
-
 #[allow(dead_code)]
-
-
 #[allow(dead_code)]
-
-
 #[allow(dead_code)]
-
-
 #[allow(dead_code)]
-
-
 #[allow(dead_code)]
-
-
 // ============================================================================
 // Governance Events
 // ============================================================================
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #[allow(dead_code)]
-
-
 // ============================================================================
 // Multisig Events
 // ============================================================================
-
 #[allow(dead_code)]
-
-
 // ============================================================================
 // Guardian & Recovery Events
 // ============================================================================
-
-
-
-
-
 #[allow(dead_code)]
-
-
-
-
-
-
-
 
 // ============================================================================
 // Treasury Events
 // ============================================================================
-
-
-
-
-
-
-
-
 
 // ============================================================================
 // Core Lending Emitter Helpers
@@ -364,7 +351,7 @@ pub fn emit_liquidation_fee_collected(e: &Env, event: LiquidationFeeCollectedEve
 }
 
 /// Combo flash-loan + liquidation execution (Issue #661).
-#[contractevent]
+#[contractevent(topics = ["flash_liq_combo"])]
 #[derive(Clone, Debug)]
 pub struct FlashLoanLiquidationComboEvent {
     #[topic]
@@ -387,55 +374,25 @@ pub fn emit_flash_loan_liquidation_combo(e: &Env, event: FlashLoanLiquidationCom
 // Credit Scoring Events (from origin/main)
 // ============================================================================
 
-
-
 // ============================================================================
 // Timelock Events (from origin/main)
 // ============================================================================
-
-
-
-
-
-
 
 // ============================================================================
 // Circuit Breaker Events (from origin/main)
 // ============================================================================
 
-
-
-
-
-
-
-
-
 // ============================================================================
 // Liquidation Queue Events (from HEAD)
 // ============================================================================
-
-
-
-
-
-
-
-
 
 // ============================================================================
 // Emergency Withdrawal Events
 // ============================================================================
 
-
-
-
-
-
-
 pub fn emit_emergency_triggered(e: &Env, state: crate::types::EmergencyState) {
     EmergencyTriggeredEvent {
-        trigger: state.trigger,
+        trigger: to_shared_emergency_trigger(state.trigger),
         started_at: state.started_at,
         window_opens_at: state.window_opens_at,
         window_closes_at: state.window_closes_at,

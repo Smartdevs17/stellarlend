@@ -80,10 +80,7 @@ export class DisputeManager {
     }
 
     if (this.disputes.has(claimId)) {
-      throw new DisputeError(
-        `A dispute is already open for claim '${claimId}'`,
-        'INVALID_STATUS'
-      );
+      throw new DisputeError(`A dispute is already open for claim '${claimId}'`, 'INVALID_STATUS');
     }
 
     const now = Math.floor(Date.now() / 1000);
@@ -144,10 +141,7 @@ export class DisputeManager {
     }
 
     if (claim.status !== ClaimStatus.DISPUTED) {
-      throw new DisputeError(
-        `Claim '${claimId}' is not in DISPUTED status`,
-        'INVALID_STATUS'
-      );
+      throw new DisputeError(`Claim '${claimId}' is not in DISPUTED status`, 'INVALID_STATUS');
     }
 
     const now = Math.floor(Date.now() / 1000);

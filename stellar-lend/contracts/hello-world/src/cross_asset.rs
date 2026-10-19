@@ -52,6 +52,25 @@ pub struct PoolFrozenEvent {
     pub timestamp: u64,
 }
 
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct SupplyCapDegradedEvent {
+    pub asset: Option<Address>,
+    pub requested_amount: i128,
+    pub accepted_amount: i128,
+    pub remaining_cap: i128,
+    pub timestamp: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SupplyCapStatus {
+    Normal = 0,
+    Elevated = 1,
+    Critical = 2,
+    Capped = 3,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssetConfig {
@@ -155,6 +174,8 @@ pub enum CrossAssetError {
     VolatilityUnavailable = 12,
     /// Reentrant call detected
     Reentrancy = 13,
+    /// Amount must be strictly positive
+    InvalidAmount = 14,
 }
 
 /// Admin address authorized for protocol management
@@ -490,9 +511,14 @@ pub fn cross_asset_deposit(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
-    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
 
     let asset_key = AssetKey::from_option(asset.clone());
     let config = get_asset_config(env, &asset_key)?;
@@ -529,6 +555,97 @@ pub fn cross_asset_deposit(
     Ok(position)
 }
 
+/// Deposit an asset with graceful degradation when near or at the supply cap.
+///
+/// If the requested `amount` would exceed the asset's remaining supply cap headroom,
+/// instead of hard-rejecting the deposit, this gracefully accepts the remaining
+/// available headroom, emits a `SupplyCapDegradedEvent`, updates state, and returns
+/// `(position, accepted_amount, is_degraded)`.
+/// If the supply cap is already 100% exhausted, returns `CrossAssetError::SupplyCapExceeded`.
+pub fn cross_asset_deposit_graceful(
+    env: &Env,
+    user: Address,
+    asset: Option<Address>,
+    amount: i128,
+) -> Result<(AssetPosition, i128, bool), CrossAssetError> {
+    user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
+
+    let asset_key = AssetKey::from_option(asset.clone());
+    let config = get_asset_config(env, &asset_key)?;
+
+    if config.is_frozen || !config.can_collateralize {
+        return Err(CrossAssetError::AssetDisabled);
+    }
+
+    let (accepted_amount, is_degraded) = if config.max_supply > 0 {
+        let total_supply = get_total_supply(env, &asset_key);
+        if total_supply >= config.max_supply {
+            return Err(CrossAssetError::SupplyCapExceeded);
+        }
+        let headroom = config.max_supply - total_supply;
+        if amount > headroom {
+            SupplyCapDegradedEvent {
+                asset: asset.clone(),
+                requested_amount: amount,
+                accepted_amount: headroom,
+                remaining_cap: 0,
+                timestamp: env.ledger().timestamp(),
+            }
+            .publish(env);
+            (headroom, true)
+        } else {
+            (amount, false)
+        }
+    } else {
+        (amount, false)
+    };
+
+    check_per_user_supply_limit(env, &user, &asset_key, accepted_amount)?;
+
+    let mut position = get_user_asset_position(env, &user, asset.clone());
+    position.collateral += accepted_amount;
+    position.last_updated = env.ledger().timestamp();
+
+    set_user_asset_position(env, &user, asset, position.clone());
+    update_total_supply(env, &asset_key, accepted_amount);
+    update_per_user_supply(env, &user, &asset_key, accepted_amount);
+
+    Ok((position, accepted_amount, is_degraded))
+}
+
+/// Get current supply cap degradation status and metrics for an asset.
+pub fn get_supply_cap_status(
+    env: &Env,
+    asset: Option<Address>,
+) -> Result<(SupplyCapStatus, i128, i128, i128), CrossAssetError> {
+    let asset_key = AssetKey::from_option(asset);
+    let config = get_asset_config(env, &asset_key)?;
+    let current_supply = get_total_supply(env, &asset_key);
+
+    if config.max_supply <= 0 {
+        return Ok((SupplyCapStatus::Normal, current_supply, 0, i128::MAX));
+    }
+
+    let headroom = (config.max_supply - current_supply).max(0);
+    let util_bps = (current_supply.saturating_mul(10_000)) / config.max_supply.max(1);
+
+    let status = if headroom == 0 {
+        SupplyCapStatus::Capped
+    } else if util_bps >= 9_500 {
+        SupplyCapStatus::Critical
+    } else if util_bps >= 8_000 {
+        SupplyCapStatus::Elevated
+    } else {
+        SupplyCapStatus::Normal
+    };
+
+    Ok((status, current_supply, config.max_supply, headroom))
+}
+
 /// Borrow a specific asset against cross-asset collateral.
 ///
 /// Requires user authorization. Validates the asset is enabled for borrowing,
@@ -556,9 +673,14 @@ pub fn cross_asset_borrow(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
-    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
 
     let asset_key = AssetKey::from_option(asset.clone());
     let config = get_asset_config(env, &asset_key)?;
@@ -643,9 +765,14 @@ pub fn cross_asset_withdraw(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
-    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
 
     let asset_key = AssetKey::from_option(asset.clone());
 
@@ -707,14 +834,15 @@ pub fn cross_asset_liquidate(
     debt_to_repay: i128,
     collateral_to_receive: i128,
 ) -> Result<i128, CrossAssetError> {
-    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     liquidator.require_auth();
 
     // Get asset configurations
     let debt_asset_key = AssetKey::from_option(debt_asset.clone());
     let collateral_asset_key = AssetKey::from_option(collateral_asset.clone());
-    
+
     let debt_config = get_asset_config(env, &debt_asset_key)?;
     let collateral_config = get_asset_config(env, &collateral_asset_key)?;
 
@@ -734,7 +862,8 @@ pub fn cross_asset_liquidate(
     }
 
     // Calculate actual collateral to receive with liquidation incentive
-    let liquidation_incentive = collateral_config.liquidation_threshold - collateral_config.collateral_factor;
+    let liquidation_incentive =
+        collateral_config.liquidation_threshold - collateral_config.collateral_factor;
     let actual_collateral = (collateral_to_receive * (10_000 - liquidation_incentive)) / 10_000;
 
     // Ensure user has enough collateral
@@ -751,7 +880,7 @@ pub fn cross_asset_liquidate(
     // Update positions
     debt_position.debt_principal -= debt_to_repay;
     debt_position.last_updated = env.ledger().timestamp();
-    
+
     collateral_position.collateral -= actual_collateral;
     collateral_position.last_updated = env.ledger().timestamp();
 
@@ -785,9 +914,14 @@ pub fn cross_asset_repay(
     asset: Option<Address>,
     amount: i128,
 ) -> Result<AssetPosition, CrossAssetError> {
-    let _guard = crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| CrossAssetError::Reentrancy)?;
 
     user.require_auth();
+
+    if amount <= 0 {
+        return Err(CrossAssetError::InvalidAmount);
+    }
 
     let asset_key = AssetKey::from_option(asset.clone());
 
@@ -968,7 +1102,11 @@ pub fn check_per_user_supply_limit(
     amount: i128,
 ) -> Result<(), CrossAssetError> {
     let user_supply_key = (PER_USER_SUPPLY_KEY, user.clone(), asset.clone());
-    let user_supply: i128 = env.storage().persistent().get(&user_supply_key).unwrap_or(0);
+    let user_supply: i128 = env
+        .storage()
+        .persistent()
+        .get(&user_supply_key)
+        .unwrap_or(0);
 
     // Per-user cap is 20% of global supply cap by default
     let config = get_asset_config(env, asset)?;
@@ -985,15 +1123,16 @@ pub fn check_per_user_supply_limit(
 }
 
 /// Update per-user supply tracking.
-pub fn update_per_user_supply(
-    env: &Env,
-    user: &Address,
-    asset: &AssetKey,
-    delta: i128,
-) {
+pub fn update_per_user_supply(env: &Env, user: &Address, asset: &AssetKey, delta: i128) {
     let user_supply_key = (PER_USER_SUPPLY_KEY, user.clone(), asset.clone());
-    let current: i128 = env.storage().persistent().get(&user_supply_key).unwrap_or(0);
-    env.storage().persistent().set(&user_supply_key, &(current + delta));
+    let current: i128 = env
+        .storage()
+        .persistent()
+        .get(&user_supply_key)
+        .unwrap_or(0);
+    env.storage()
+        .persistent()
+        .set(&user_supply_key, &(current + delta));
 }
 
 // -------------------------------------------------------------------------
@@ -1462,7 +1601,8 @@ pub fn get_unified_health_factor(
             summary.health_factor =
                 (summary.weighted_collateral_value * CORR_BPS) / summary.weighted_debt_value;
         }
-        summary.is_liquidatable = summary.health_factor < CORR_BPS && summary.weighted_debt_value > 0;
+        summary.is_liquidatable =
+            summary.health_factor < CORR_BPS && summary.weighted_debt_value > 0;
         summary.borrow_capacity = if summary.weighted_collateral_value > summary.weighted_debt_value
         {
             summary.weighted_collateral_value - summary.weighted_debt_value

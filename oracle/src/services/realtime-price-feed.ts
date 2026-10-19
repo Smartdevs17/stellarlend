@@ -132,10 +132,7 @@ export class RealtimePriceFeed extends EventEmitter {
   private latencies: Map<string, number[]> = new Map();
   private cycleCount: number = 0;
 
-  constructor(
-    aggregator: PriceAggregator,
-    config: Partial<RealtimeFeedConfig> = {}
-  ) {
+  constructor(aggregator: PriceAggregator, config: Partial<RealtimeFeedConfig> = {}) {
     super();
     this.config = { ...DEFAULT_FEED_CONFIG, ...config };
 
@@ -259,8 +256,7 @@ export class RealtimePriceFeed extends EventEmitter {
         if (result.status === 'fulfilled' && result.value) {
           results.set(asset.toUpperCase(), result.value);
         } else {
-          const error =
-            result.status === 'rejected' ? result.reason : new Error('No result');
+          const error = result.status === 'rejected' ? result.reason : new Error('No result');
           this.handleAssetError(asset, error);
         }
       }
@@ -347,19 +343,11 @@ export class RealtimePriceFeed extends EventEmitter {
       // Run manipulation detection across sources
       if (aggregated.sources.length > 1) {
         const median = aggregated.price;
-        this.manipulationDetector.checkSourceDeviations(
-          upperAsset,
-          aggregated.sources,
-          median
-        );
+        this.manipulationDetector.checkSourceDeviations(upperAsset, aggregated.sources, median);
       }
 
       // Compute health score
-      const healthScore = this.computeHealthScore(
-        upperAsset,
-        aggregated,
-        anomalies
-      );
+      const healthScore = this.computeHealthScore(upperAsset, aggregated, anomalies);
 
       const processingLatencyMs = Date.now() - processStart;
 
@@ -377,9 +365,7 @@ export class RealtimePriceFeed extends EventEmitter {
         aggregated,
         twapPrice,
         anomalies,
-        hasCriticalAnomaly: anomalies.some(
-          (a) => a.severity === AnomalySeverity.CRITICAL
-        ),
+        hasCriticalAnomaly: anomalies.some((a) => a.severity === AnomalySeverity.CRITICAL),
         healthScore,
         processingLatencyMs,
       };
@@ -447,9 +433,8 @@ export class RealtimePriceFeed extends EventEmitter {
         isHealthy: !isStale && consecutiveFails < 3,
         lastUpdateAge,
         anomalyCount: anomalyEvents.length,
-        criticalAnomalyCount: anomalyEvents.filter(
-          (e) => e.severity === AnomalySeverity.CRITICAL
-        ).length,
+        criticalAnomalyCount: anomalyEvents.filter((e) => e.severity === AnomalySeverity.CRITICAL)
+          .length,
         consecutiveFailures: consecutiveFails,
         averageLatencyMs: avgLatency,
       };
@@ -532,10 +517,7 @@ export class RealtimePriceFeed extends EventEmitter {
 
   // ── Private: Price Processing ───────────────────────────────────────
 
-  private async fetchWithTimeout<T>(
-    fn: () => Promise<T>,
-    timeoutMs: number
-  ): Promise<T> {
+  private async fetchWithTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         reject(new Error(`Price fetch timed out after ${timeoutMs}ms`));

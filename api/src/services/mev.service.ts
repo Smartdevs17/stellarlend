@@ -118,6 +118,24 @@ export interface GasBidAnalysis {
   timestamp: string;
 }
 
+export interface SandwichAttackRecord {
+  id: string;
+  timestamp: number;
+  frontActor: string;
+  operation: string;
+  assetAddress?: string;
+  amount: string;
+  sequenceLength: number;
+}
+
+export interface SandwichAttackReport {
+  totalAttacks: number;
+  attacksLast24h: number;
+  lastAttackTimestamp: number;
+  sandwichAlerts: number;
+  lastAlertTimestamp: number;
+}
+
 export interface PrivateMempoolRoute {
   hint: TxOrderingHint;
   guidance: string;
@@ -313,16 +331,16 @@ export class MevService {
    */
   async getAuctionResult(slotId: string): Promise<AuctionResult | null> {
     try {
-      const raw = await this.simulateCall('get_auction_result', [
+      const raw = await this.simulateCall('get_mev_liquidation_auction', [
         nativeToScVal(BigInt(slotId), { type: 'u64' }),
       ]);
       if (!raw) return null;
       return {
-        slotId: raw.slot_id?.toString() ?? slotId,
-        bidCount: Number(raw.bid_count ?? 0),
-        clearingFeeBps: Number(raw.clearing_fee_bps ?? 0),
-        totalDebtLiquidated: raw.total_debt_liquidated?.toString() ?? '0',
-        settledAt: Number(raw.settled_at ?? 0),
+        slotId: raw.slot_id ?? String(raw.id ?? slotId),
+        bidCount: raw.best_bid_id ? 1 : 0,
+        clearingFeeBps: Number(raw.min_rebate_bps ?? 0),
+        totalDebtLiquidated: raw.debt_amount?.toString() ?? '0',
+        settledAt: Number(raw.bidding_deadline ?? 0),
       };
     } catch {
       return null;
@@ -330,12 +348,13 @@ export class MevService {
   }
 
   /**
-   * Return the current open auction slot ID.
+   * Return the most recent liquidation auction ID (used as the "current slot").
+   * Surface: contract method `get_mev_auction_stats`.
    */
   async getCurrentAuctionSlot(): Promise<number> {
     try {
-      const raw = await this.simulateCall('get_current_auction_slot', []);
-      return Number(raw ?? 0);
+      const raw = await this.simulateCall('get_mev_auction_stats', []);
+      return Number(raw?.last_auction_id ?? 0);
     } catch {
       return 0;
     }
@@ -389,6 +408,57 @@ export class MevService {
     return data;
   }
 
+  // ── Sandwich Attack Reporting (issue #725) ────────────────────────────────
+
+  /**
+   * Return the persisted, bounded sandwich-attack log recorded on-chain.
+   * Surface: contract method `get_mev_sandwich_attack_log`.
+   */
+  async getSandwichLog(): Promise<SandwichAttackRecord[]> {
+    try {
+      const raw = await this.simulateCall('get_mev_sandwich_attack_log', []);
+      if (!Array.isArray(raw)) return [];
+      return raw.map((r: any) => ({
+        id: String(r?.id ?? 0),
+        timestamp: Number(r?.timestamp ?? 0),
+        frontActor: r?.front_actor?.address ?? '',
+        operation: String(r?.operation?.symbol ?? ''),
+        assetAddress: r?.asset?.address ?? undefined,
+        amount: r?.amount?.toString() ?? '0',
+        sequenceLength: Number(r?.sequence_length ?? 0),
+      }));
+    } catch (err) {
+      logger.warn('Sandwich log simulation failed', { err });
+      return [];
+    }
+  }
+
+  /**
+   * Return the on-chain sandwich-attack summary for dashboards and incident
+   * detection. Surface: contract method `get_mev_sandwich_report`.
+   */
+  async getSandwichReport(): Promise<SandwichAttackReport> {
+    try {
+      const raw = await this.simulateCall('get_mev_sandwich_report', []);
+      return {
+        totalAttacks: Number(raw?.total_attacks ?? 0),
+        attacksLast24h: Number(raw?.attacks_last_24h ?? 0),
+        lastAttackTimestamp: Number(raw?.last_attack_timestamp ?? 0),
+        sandwichAlerts: Number(raw?.sandwich_alerts ?? 0),
+        lastAlertTimestamp: Number(raw?.last_alert_timestamp ?? 0),
+      };
+    } catch (err) {
+      logger.warn('Sandwich report simulation failed', { err });
+      return {
+        totalAttacks: 0,
+        attacksLast24h: 0,
+        lastAttackTimestamp: 0,
+        sandwichAlerts: 0,
+        lastAlertTimestamp: 0,
+      };
+    }
+  }
+
   // ── Gas Bidding Analysis ───────────────────────────────────────────────────
 
   /**
@@ -411,17 +481,16 @@ export class MevService {
       const params = [
         xdr.ScVal.scvVec([xdr.ScVal.scvSymbol(operation)]),
         assetAddress ? new Address(assetAddress).toScVal() : xdr.ScVal.scvVoid(),
-        nativeToScVal(BigInt(amount), { type: 'i128' }),
       ];
-      const raw = await this.simulateCall('get_gas_bid_analysis', params);
+      const raw = await this.simulateCall('get_mev_gas_bid_stats', params);
 
       const result: GasBidAnalysis = {
-        smoothedBaseFeeBps: Number(raw?.smoothed_base_fee_bps ?? 10),
-        currentSurgeFeeBps: Number(raw?.current_surge_fee_bps ?? 0),
-        recommendedBidBps: Number(raw?.recommended_bid_bps ?? 10),
-        highCongestionBidBps: Number(raw?.high_congestion_bid_bps ?? 30),
-        inSuspiciousWindow: Boolean(raw?.in_suspicious_window ?? false),
-        recentSandwichAlerts: Number(raw?.recent_sandwich_alerts ?? 0),
+        smoothedBaseFeeBps: Number(raw?.avg_bid_microlumens ?? 10),
+        currentSurgeFeeBps: Number(raw?.last_bid_microlumens ?? 0),
+        recommendedBidBps: Number(raw?.avg_bid_microlumens ?? 10),
+        highCongestionBidBps: Number(raw?.max_bid_microlumens ?? 30),
+        inSuspiciousWindow: false,
+        recentSandwichAlerts: Number(raw?.samples ?? 0),
         operation,
         assetAddress,
         timestamp: new Date().toISOString(),

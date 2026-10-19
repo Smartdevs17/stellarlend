@@ -17,6 +17,8 @@ export interface PoolSnapshot {
   utilizationRate: number;
   borrowApy: number;
   supplyApy: number;
+  borrowApr?: number;
+  supplyApr?: number;
   badDebt: number;
   totalDeposits: number;
   totalBorrows: number;
@@ -75,6 +77,8 @@ export interface ChartSeries {
   cumulativeReturn: number;
   supplyApy: number;
   borrowApy: number;
+  supplyApr?: number;
+  borrowApr?: number;
   utilization: number;
   tvl: number;
 }
@@ -404,6 +408,8 @@ export function snapshotFromPoolState(
     utilizationRate,
     borrowApy,
     supplyApy,
+    borrowApr: apyToApr(borrowApy),
+    supplyApr: apyToApr(supplyApy),
     badDebt: parseNumeric(state.badDebt),
     totalDeposits,
     totalBorrows,
@@ -413,3 +419,137 @@ export function snapshotFromPoolState(
 export function getAllSnapshots(poolAddress?: string): PoolSnapshot[] {
   return snapshotStore.filter((s) => !poolAddress || s.poolAddress === poolAddress);
 }
+
+// -------------------------------------------------------------------------
+// APY / APR Calculations and Historical Return Metrics (Issue #735)
+// -------------------------------------------------------------------------
+
+/**
+ * Convert Annual Percentage Rate (APR) to Annual Percentage Yield (APY).
+ * APY = (1 + apr / n)^n - 1
+ * @param apr Nominal annual rate (e.g. 0.05 for 5%)
+ * @param compoundingFrequency Compounding periods per year (default: 365 daily compounding)
+ */
+export function aprToApy(apr: number, compoundingFrequency: number = 365): number {
+  if (compoundingFrequency <= 0) return apr;
+  return Math.pow(1 + apr / compoundingFrequency, compoundingFrequency) - 1;
+}
+
+/**
+ * Convert Annual Percentage Yield (APY) to Annual Percentage Rate (APR).
+ * APR = n * ((1 + APY)^(1/n) - 1)
+ * @param apy Effective annual yield (e.g. 0.0512 for 5.12%)
+ * @param compoundingFrequency Compounding periods per year (default: 365 daily compounding)
+ */
+export function apyToApr(apy: number, compoundingFrequency: number = 365): number {
+  if (compoundingFrequency <= 0) return apy;
+  return compoundingFrequency * (Math.pow(1 + apy, 1 / compoundingFrequency) - 1);
+}
+
+/**
+ * Continuous compounding conversion: APY = e^APR - 1
+ */
+export function aprToContinuousApy(apr: number): number {
+  return Math.exp(apr) - 1;
+}
+
+/**
+ * Continuous compounding inverse: APR = ln(1 + APY)
+ */
+export function apyToContinuousApr(apy: number): number {
+  return Math.log(1 + apy);
+}
+
+/**
+ * Calculate ledger-level discrete rate conversion for Stellar ledger time (~5 seconds).
+ * Ledgers per year ~ 6,307,200 (365.25 * 24 * 3600 / 5)
+ */
+export function ratePerLedgerToAnnual(
+  ratePerLedger: number,
+  ledgersPerYear: number = 6_307_200
+): { apr: number; apy: number } {
+  const apr = ratePerLedger * ledgersPerYear;
+  const apy = aprToApy(apr, ledgersPerYear);
+  return { apr, apy };
+}
+
+export interface HistoricalReturnAnalysis {
+  poolAddress: string;
+  period: string;
+  sampleCount: number;
+  cumulativeReturn: number;
+  annualizedReturn: number;
+  dailyApyAverage: number;
+  dailyAprAverage: number;
+  volatility: number;
+  sharpeRatio: number;
+  maxDrawdown: number;
+  bestDayReturn: number;
+  worstDayReturn: number;
+}
+
+export function computeHistoricalReturns(
+  poolAddress: string,
+  snapshots: PoolSnapshot[]
+): HistoricalReturnAnalysis {
+  if (snapshots.length === 0) {
+    return {
+      poolAddress,
+      period: '0 samples',
+      sampleCount: 0,
+      cumulativeReturn: 0,
+      annualizedReturn: 0,
+      dailyApyAverage: 0,
+      dailyAprAverage: 0,
+      volatility: 0,
+      sharpeRatio: 0,
+      maxDrawdown: 0,
+      bestDayReturn: 0,
+      worstDayReturn: 0,
+    };
+  }
+
+  const dailyReturns = snapshots.map((s) => s.supplyApy / 365);
+  const totalReturn = dailyReturns.reduce((acc, r) => (1 + acc) * (1 + r) - 1, 0);
+  const avgDailyApy = snapshots.reduce((s, x) => s + x.supplyApy, 0) / snapshots.length;
+  const avgDailyApr =
+    snapshots.reduce((s, x) => s + (x.supplyApr ?? apyToApr(x.supplyApy)), 0) / snapshots.length;
+
+  const meanDaily = dailyReturns.reduce((s, r) => s + r, 0) / dailyReturns.length;
+  const variance =
+    dailyReturns.reduce((s, r) => s + Math.pow(r - meanDaily, 2), 0) /
+    Math.max(1, dailyReturns.length - 1);
+  const dailyStdDev = Math.sqrt(variance);
+  const annualizedVol = dailyStdDev * Math.sqrt(365);
+
+  const riskFreeRate = 0.02; // 2% benchmark risk-free rate
+  const annualizedReturn = Math.pow(1 + totalReturn, 365 / Math.max(1, snapshots.length)) - 1;
+  const sharpeRatio = annualizedVol > 0 ? (annualizedReturn - riskFreeRate) / annualizedVol : 0;
+
+  // Max drawdown computation
+  let peak = 1;
+  let maxDrawdown = 0;
+  let currentVal = 1;
+  for (const r of dailyReturns) {
+    currentVal *= 1 + r;
+    if (currentVal > peak) peak = currentVal;
+    const dd = (peak - currentVal) / peak;
+    if (dd > maxDrawdown) maxDrawdown = dd;
+  }
+
+  return {
+    poolAddress,
+    period: `${snapshots.length} samples`,
+    sampleCount: snapshots.length,
+    cumulativeReturn: Math.round(totalReturn * 10000) / 10000,
+    annualizedReturn: Math.round(annualizedReturn * 10000) / 10000,
+    dailyApyAverage: Math.round(avgDailyApy * 10000) / 10000,
+    dailyAprAverage: Math.round(avgDailyApr * 10000) / 10000,
+    volatility: Math.round(annualizedVol * 10000) / 10000,
+    sharpeRatio: Math.round(sharpeRatio * 100) / 100,
+    maxDrawdown: Math.round(maxDrawdown * 10000) / 10000,
+    bestDayReturn: Math.round(Math.max(...dailyReturns) * 10000) / 10000,
+    worstDayReturn: Math.round(Math.min(...dailyReturns) * 10000) / 10000,
+  };
+}
+

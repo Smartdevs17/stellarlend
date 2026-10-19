@@ -199,3 +199,15 @@ fn next_commit_id(env: &Env) -> u64 {
         .set(&MevGuardKey::NextCommitId, &id.saturating_add(1));
     id
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    MevGuardError => stellarlend_errors::domains::LENDING_MEV_GUARD;
+    BadConfig => InvalidInput, "Configuration values are invalid";
+    NotFound => NotFound, "Requested item was not found";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    NotReady => InvalidState, "Not ready";
+    Expired => InvalidState, "Expired", FixInput;
+    SlippageExceeded => LimitExceeded, "Price moved beyond the allowed slippage", AdjustTolerance;
+}

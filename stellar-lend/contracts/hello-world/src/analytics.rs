@@ -68,6 +68,18 @@ pub enum AnalyticsDataKey {
     /// Cached composite protocol health score
     /// Value type: ProtocolHealthScore
     ProtocolHealthScore,
+    /// Bounded snapshot history of protocol metrics: Vec<MetricsSnapshot>
+    MetricsHistory,
+    /// Configured metric alert thresholds: Vec<MetricAlertThreshold>
+    AlertThresholds,
+    /// Bounded log of previously triggered alerts: Vec<TriggeredAlert>
+    TriggeredAlerts,
+    /// Bounded historical collateral ratio trends: Vec<CollateralRatioTrend>
+    CollateralRatioHistory,
+    /// Current collateral ratio snapshots by asset: Vec<CollateralRatioSnapshot>
+    CollateralRatioSnapshots,
+    /// Collateral risk thresholds: CollateralRiskThresholds
+    CollateralRiskThresholds,
 }
 
 /// Snapshot of protocol-wide metrics.
@@ -383,7 +395,10 @@ fn score_rate_stability(average_borrow_rate_bps: i128) -> i128 {
 
 /// Computes and caches the composite protocol health score from the given
 /// (already up-to-date) `ProtocolMetrics`.
-pub fn calculate_protocol_health_score(env: &Env, metrics: &ProtocolMetrics) -> ProtocolHealthScore {
+pub fn calculate_protocol_health_score(
+    env: &Env,
+    metrics: &ProtocolMetrics,
+) -> ProtocolHealthScore {
     let capital_efficiency_score = score_capital_efficiency(metrics.utilization_rate);
     let rate_stability_score = score_rate_stability(metrics.average_borrow_rate);
 
@@ -466,7 +481,10 @@ pub fn calculate_health_factor(env: &Env, user: &Address) -> Result<i128, Analyt
 
 /// Batch calculate health factors for multiple users in a single storage read pass.
 /// This reduces the number of persistent storage reads when checking health for many users.
-pub fn calculate_multi_health_factors(env: &Env, users: &[Address]) -> Vec<Result<i128, AnalyticsError>> {
+pub fn calculate_multi_health_factors(
+    env: &Env,
+    users: &[Address],
+) -> Vec<Result<i128, AnalyticsError>> {
     let mut results = Vec::new(env);
     for user in users {
         results.push_back(calculate_health_factor(env, user));
@@ -878,8 +896,11 @@ pub fn record_metrics_snapshot(env: &Env) -> Result<MetricsSnapshot, AnalyticsEr
     };
 
     let key = AnalyticsDataKey::MetricsHistory;
-    let mut history: Vec<MetricsSnapshot> =
-        env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
+    let mut history: Vec<MetricsSnapshot> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env));
     history.push_back(snapshot.clone());
     while history.len() > MAX_METRICS_HISTORY {
         history.remove(0);
@@ -939,7 +960,9 @@ pub fn forecast_tvl(env: &Env, periods_ahead: u32) -> Result<i128, AnalyticsErro
     // Least-squares slope: slope = (n*Sigma_xy - Sigma_x*Sigma_y) / (n*Sigma_xx - (Sigma_x)^2)
     let n_sum_xx = n.checked_mul(sum_xx).ok_or(AnalyticsError::Overflow)?;
     let sum_x_sq = sum_x.checked_mul(sum_x).ok_or(AnalyticsError::Overflow)?;
-    let denom = n_sum_xx.checked_sub(sum_x_sq).ok_or(AnalyticsError::Overflow)?;
+    let denom = n_sum_xx
+        .checked_sub(sum_x_sq)
+        .ok_or(AnalyticsError::Overflow)?;
 
     if denom == 0 {
         // All snapshots at the same x (shouldn't happen with real timestamps,
@@ -949,7 +972,9 @@ pub fn forecast_tvl(env: &Env, periods_ahead: u32) -> Result<i128, AnalyticsErro
 
     let n_sum_xy = n.checked_mul(sum_xy).ok_or(AnalyticsError::Overflow)?;
     let sum_x_sum_y = sum_x.checked_mul(sum_y).ok_or(AnalyticsError::Overflow)?;
-    let slope_num = n_sum_xy.checked_sub(sum_x_sum_y).ok_or(AnalyticsError::Overflow)?;
+    let slope_num = n_sum_xy
+        .checked_sub(sum_x_sum_y)
+        .ok_or(AnalyticsError::Overflow)?;
 
     let last_x = (history.len() - 1) as i128;
     let target_x = last_x
@@ -959,9 +984,13 @@ pub fn forecast_tvl(env: &Env, periods_ahead: u32) -> Result<i128, AnalyticsErro
     // intercept = (Sigma_y - slope*Sigma_x) / n, forecast = slope*target_x + intercept
     // Rearranged over a common denominator to avoid intermediate precision loss:
     // forecast = (slope_num * target_x + (sum_y * denom - slope_num * sum_x)) / (denom * n)
-    let slope_times_target = slope_num.checked_mul(target_x).ok_or(AnalyticsError::Overflow)?;
+    let slope_times_target = slope_num
+        .checked_mul(target_x)
+        .ok_or(AnalyticsError::Overflow)?;
     let sum_y_times_denom = sum_y.checked_mul(denom).ok_or(AnalyticsError::Overflow)?;
-    let slope_num_times_sum_x = slope_num.checked_mul(sum_x).ok_or(AnalyticsError::Overflow)?;
+    let slope_num_times_sum_x = slope_num
+        .checked_mul(sum_x)
+        .ok_or(AnalyticsError::Overflow)?;
     let intercept_num = sum_y_times_denom
         .checked_sub(slope_num_times_sum_x)
         .ok_or(AnalyticsError::Overflow)?;
@@ -983,19 +1012,29 @@ pub fn set_metric_alert_threshold(
     threshold: i128,
 ) -> Result<(), AnalyticsError> {
     admin.require_auth();
-    let configured_admin = crate::governance::get_admin(env).ok_or(AnalyticsError::NotInitialized)?;
+    let configured_admin =
+        crate::governance::get_admin(env).ok_or(AnalyticsError::NotInitialized)?;
     if admin != configured_admin {
         return Err(AnalyticsError::Unauthorized);
     }
 
     let key = AnalyticsDataKey::AlertThresholds;
-    let mut thresholds: Vec<MetricAlertThreshold> =
-        env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
+    let mut thresholds: Vec<MetricAlertThreshold> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env));
 
     let mut updated = false;
     for i in 0..thresholds.len() {
         if thresholds.get(i).unwrap().metric == metric {
-            thresholds.set(i, MetricAlertThreshold { metric: metric.clone(), threshold });
+            thresholds.set(
+                i,
+                MetricAlertThreshold {
+                    metric: metric.clone(),
+                    threshold,
+                },
+            );
             updated = true;
             break;
         }
@@ -1059,10 +1098,10 @@ const MAX_COLLATERAL_HISTORY: u32 = 90;
 #[derive(Clone, Debug, PartialEq)]
 pub struct CollateralRatioSnapshot {
     pub asset: Symbol,
-    pub current_ratio: i128,      // basis points
-    pub required_ratio: i128,     // basis points
+    pub current_ratio: i128,  // basis points
+    pub required_ratio: i128, // basis points
     pub health_factor: i128,
-    pub risk_level: Symbol,       // "safe", "warning", "danger", "critical"
+    pub risk_level: Symbol, // "safe", "warning", "danger", "critical"
     pub collateral_value: i128,
     pub debt_value: i128,
     pub timestamp: u64,
@@ -1086,16 +1125,16 @@ pub struct CollateralRatioTrend {
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct CollateralRiskThresholds {
-    pub safe_threshold: i128,      // health factor >= this
-    pub warning_threshold: i128,   // health factor >= this
-    pub danger_threshold: i128,    // health factor >= this
+    pub safe_threshold: i128,    // health factor >= this
+    pub warning_threshold: i128, // health factor >= this
+    pub danger_threshold: i128,  // health factor >= this
 }
 
 /// Default risk thresholds
 const DEFAULT_THRESHOLDS: CollateralRiskThresholds = CollateralRiskThresholds {
-    safe_threshold: 20_000,      // 2.0x
-    warning_threshold: 15_000,   // 1.5x
-    danger_threshold: 11_000,    // 1.1x
+    safe_threshold: 20_000,    // 2.0x
+    warning_threshold: 15_000, // 1.5x
+    danger_threshold: 11_000,  // 1.1x
 };
 
 /// Record a new collateral ratio snapshot for an asset
@@ -1129,9 +1168,12 @@ pub fn record_collateral_ratio_snapshot(
     };
 
     let key = AnalyticsDataKey::CollateralRatioSnapshots;
-    let mut snapshots: Vec<CollateralRatioSnapshot> =
-        env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
-    
+    let mut snapshots: Vec<CollateralRatioSnapshot> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env));
+
     // Update existing snapshot for this asset or add new one
     let mut found = false;
     for i in 0..snapshots.len() {
@@ -1178,7 +1220,7 @@ pub fn get_collateral_ratio_snapshot(env: &Env, asset: Symbol) -> Option<Collate
 /// Classify collateral risk level based on health factor
 pub fn classify_collateral_risk_level(env: &Env, health_factor: i128) -> Symbol {
     let thresholds = get_collateral_risk_thresholds(env);
-    
+
     if health_factor >= thresholds.safe_threshold {
         Symbol::new(env, "safe")
     } else if health_factor >= thresholds.warning_threshold {
@@ -1205,7 +1247,8 @@ pub fn set_collateral_risk_thresholds(
     thresholds: CollateralRiskThresholds,
 ) -> Result<(), AnalyticsError> {
     admin.require_auth();
-    let configured_admin = crate::governance::get_admin(env).ok_or(AnalyticsError::NotInitialized)?;
+    let configured_admin =
+        crate::governance::get_admin(env).ok_or(AnalyticsError::NotInitialized)?;
     if admin != configured_admin {
         return Err(AnalyticsError::Unauthorized);
     }
@@ -1213,7 +1256,7 @@ pub fn set_collateral_risk_thresholds(
     env.storage()
         .persistent()
         .set(&AnalyticsDataKey::CollateralRiskThresholds, &thresholds);
-    
+
     Ok(())
 }
 
@@ -1240,11 +1283,14 @@ pub fn record_collateral_ratio_trend(
     };
 
     let key = AnalyticsDataKey::CollateralRatioHistory;
-    let mut history: Vec<CollateralRatioTrend> =
-        env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
-    
+    let mut history: Vec<CollateralRatioTrend> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env));
+
     history.push_back(trend.clone());
-    
+
     while history.len() > MAX_COLLATERAL_HISTORY {
         history.remove(0);
     }
@@ -1261,7 +1307,7 @@ pub fn get_collateral_ratio_history(env: &Env, asset: Symbol) -> Vec<CollateralR
         .persistent()
         .get(&AnalyticsDataKey::CollateralRatioHistory)
         .unwrap_or_else(|| Vec::new(env));
-    
+
     let mut filtered = Vec::new(env);
     for i in 0..history.len() {
         let trend = history.get(i).unwrap();
@@ -1372,8 +1418,8 @@ pub fn get_dashboard_snapshot(env: &Env) -> Result<DashboardSnapshot, AnalyticsE
     let protocol = get_protocol_stats(env)?;
     let collateral_ratios = get_collateral_ratio_snapshots(env);
     let active_alerts = check_metric_alerts(env).unwrap_or_else(|_| Vec::new(env));
-    let recent_activity = get_recent_activity(env, DASHBOARD_ACTIVITY_LIMIT, 0)
-        .unwrap_or_else(|_| Vec::new(env));
+    let recent_activity =
+        get_recent_activity(env, DASHBOARD_ACTIVITY_LIMIT, 0).unwrap_or_else(|_| Vec::new(env));
 
     Ok(DashboardSnapshot {
         protocol,
@@ -1498,8 +1544,7 @@ pub fn get_volume_summary(env: &Env) -> VolumeSummary {
             summary.total_deposit_volume =
                 summary.total_deposit_volume.saturating_add(entry.amount);
         } else if name == "borrow" {
-            summary.total_borrow_volume =
-                summary.total_borrow_volume.saturating_add(entry.amount);
+            summary.total_borrow_volume = summary.total_borrow_volume.saturating_add(entry.amount);
         } else if name == "withdraw" {
             summary.total_withdrawal_volume =
                 summary.total_withdrawal_volume.saturating_add(entry.amount);
@@ -1507,8 +1552,9 @@ pub fn get_volume_summary(env: &Env) -> VolumeSummary {
             summary.total_repayment_volume =
                 summary.total_repayment_volume.saturating_add(entry.amount);
         } else if name == "liquidate" {
-            summary.total_liquidation_volume =
-                summary.total_liquidation_volume.saturating_add(entry.amount);
+            summary.total_liquidation_volume = summary
+                .total_liquidation_volume
+                .saturating_add(entry.amount);
         }
     }
 
@@ -1536,4 +1582,132 @@ pub fn portfolio_risk_score(env: &Env, user: &Address) -> Result<i128, Analytics
         ((15_000 - hf) * 10_000) / 10_000
     };
     Ok(if hf_risk > 10_000 { 10_000 } else { hf_risk })
+}
+
+// -------------------------------------------------------------------------
+// Position Health Simulation & Scenario Modeling (Issue #731)
+// -------------------------------------------------------------------------
+
+/// Scenario parameters for what-if position health simulation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PositionSimulationScenario {
+    /// Percentage change in collateral price in basis points (-2000 = -20%, 1500 = +15%).
+    pub price_change_bps: i128,
+    /// Hypothetical collateral deposit amount.
+    pub deposit_amount: i128,
+    /// Hypothetical collateral withdrawal amount.
+    pub withdraw_amount: i128,
+    /// Hypothetical new borrow amount.
+    pub borrow_amount: i128,
+    /// Hypothetical debt repayment amount.
+    pub repay_amount: i128,
+}
+
+/// Comprehensive result of a position health simulation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PositionSimulationResult {
+    pub initial_collateral: i128,
+    pub initial_debt: i128,
+    pub simulated_collateral: i128,
+    pub simulated_debt: i128,
+    pub initial_health_factor: i128,
+    pub simulated_health_factor: i128,
+    pub initial_risk_level: i128,
+    pub simulated_risk_level: i128,
+    pub is_liquidatable: bool,
+    pub liquidation_price_drop_bps: i128,
+    pub max_withdrawable_amount: i128,
+    pub max_borrowable_amount: i128,
+}
+
+/// Simulate position health for an existing user account under a hypothetical scenario.
+pub fn simulate_position_health(
+    env: &Env,
+    user: &Address,
+    scenario: PositionSimulationScenario,
+) -> Result<PositionSimulationResult, AnalyticsError> {
+    let position = get_user_position_summary(env, user)?;
+    simulate_what_if(env, position.collateral, position.debt, scenario)
+}
+
+/// Pure what-if analysis simulating health changes given arbitrary collateral and debt.
+pub fn simulate_what_if(
+    _env: &Env,
+    collateral: i128,
+    debt: i128,
+    scenario: PositionSimulationScenario,
+) -> Result<PositionSimulationResult, AnalyticsError> {
+    let initial_health_factor = if debt == 0 {
+        i128::MAX
+    } else {
+        (collateral.saturating_mul(BASIS_POINTS))
+            .checked_div(debt)
+            .ok_or(AnalyticsError::Overflow)?
+    };
+    let initial_risk_level = calculate_user_risk_level(initial_health_factor);
+
+    // Apply deposit and withdrawal operations to collateral
+    let collateral_after_ops = collateral
+        .saturating_add(scenario.deposit_amount)
+        .saturating_sub(scenario.withdraw_amount);
+
+    // Apply price change (in bps, e.g. -2000 = -20%, so price factor is 10000 - 2000 = 8000)
+    let price_factor = (BASIS_POINTS.saturating_add(scenario.price_change_bps)).max(0);
+    let simulated_collateral = (collateral_after_ops.saturating_mul(price_factor)) / BASIS_POINTS;
+
+    // Apply borrow and repay operations to debt
+    let simulated_debt = debt
+        .saturating_add(scenario.borrow_amount)
+        .saturating_sub(scenario.repay_amount)
+        .max(0);
+
+    let simulated_health_factor = if simulated_debt == 0 {
+        i128::MAX
+    } else {
+        (simulated_collateral.saturating_mul(BASIS_POINTS))
+            .checked_div(simulated_debt)
+            .unwrap_or(0)
+    };
+    let simulated_risk_level = calculate_user_risk_level(simulated_health_factor);
+
+    // Liquidation occurs if simulated health factor drops below 10,000 bps (1.0x)
+    let is_liquidatable = simulated_health_factor < BASIS_POINTS;
+
+    // Calculate the price drop percentage (bps) that would cause liquidation
+    let liquidation_price_drop_bps = if collateral == 0 || debt == 0 || collateral <= debt {
+        0
+    } else {
+        ((collateral - debt).saturating_mul(BASIS_POINTS)) / collateral
+    };
+
+    // Calculate maximum safe withdrawal amount before liquidation threshold
+    let max_withdrawable_amount = if collateral <= debt {
+        0
+    } else {
+        collateral - debt
+    };
+
+    // Calculate maximum safe borrow amount before liquidation threshold
+    let max_borrowable_amount = if collateral <= debt {
+        0
+    } else {
+        collateral - debt
+    };
+
+    Ok(PositionSimulationResult {
+        initial_collateral: collateral,
+        initial_debt: debt,
+        simulated_collateral,
+        simulated_debt,
+        initial_health_factor,
+        simulated_health_factor,
+        initial_risk_level,
+        simulated_risk_level,
+        is_liquidatable,
+        liquidation_price_drop_bps,
+        max_withdrawable_amount,
+        max_borrowable_amount,
+    })
 }

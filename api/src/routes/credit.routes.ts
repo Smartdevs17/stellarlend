@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import * as creditController from '../controllers/credit.controller';
+import { requireStellarAuth } from '../middleware/stellar-auth';
 
 const router: Router = Router();
+
+router.use(requireStellarAuth);
 
 /**
  * @openapi

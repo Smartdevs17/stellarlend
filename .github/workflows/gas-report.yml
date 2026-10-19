@@ -3,14 +3,24 @@ name: Gas Optimization Report
 on:
   pull_request:
     branches: [main]
+    paths:
+      - "stellar-lend/contracts/**"
+      - "stellar-lend/benchmarks/**"
+      - "stellar-lend/src/benchmarking/**"
+      - "scripts/gas_benchmark_report.py"
+      - "run-benchmarks.sh"
+      - "api/src/scripts/generate-gas-report.ts"
+      - "api/src/services/gasReport/**"
+      - ".github/workflows/gas-report.yml"
+  workflow_dispatch:
+
+permissions:
+  pull-requests: write
+  contents: read
 
 jobs:
   gas-report:
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      contents: read
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,88 +30,91 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
-          path: ~/.cargo/registry
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            stellar-lend/target
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v3
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo build
-        uses: actions/cache@v3
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           cache: 'npm'
+          cache-dependency-path: api/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        working-directory: api
+        run: npm ci --ignore-scripts
 
-      - name: Build contracts
+      - name: Run gas benchmarks
         run: |
           cd stellar-lend
-          ./scripts/build.sh
+          cargo run -p stellarlend-benchmarks --bin run_benchmarks --release -- \
+            --output benchmark-results.json
 
-      - name: Get base branch baseline
+      - name: Generate gas report
+        id: gas-report
+        working-directory: api
         run: |
-          git fetch origin main:main
-          npm run gas:baseline main > /tmp/baseline.json || echo '{}' > /tmp/baseline.json
-
-      - name: Generate current gas report
-        run: npm run gas:report > /tmp/current.json
-
-      - name: Compare gas costs
-        run: npm run gas:compare /tmp/baseline.json /tmp/current.json > /tmp/comparison.md
-
-      - name: Check for regressions
-        id: check-regression
-        run: |
-          npm run gas:check /tmp/comparison.json > /tmp/check_result.json
-          FAILED=$(jq '.regressions > 0' /tmp/check_result.json)
-          echo "FAILED=$FAILED" >> $GITHUB_OUTPUT
+          set +e
+          npx ts-node --transpile-only src/scripts/generate-gas-report.ts \
+            --stellar-lend-dir ../stellar-lend \
+            --results ../stellar-lend/benchmark-results.json \
+            --out-json ../stellar-lend/gas-report.json \
+            --out-md ../stellar-lend/gas-report.md
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          test -f ../stellar-lend/gas-report.json
 
       - name: Post report to PR
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const comparison = fs.readFileSync('/tmp/comparison.md', 'utf8');
-            const checkResult = JSON.parse(fs.readFileSync('/tmp/check_result.json', 'utf8'));
+            const markdown = fs.readFileSync('stellar-lend/gas-report.md', 'utf8');
+            const report = JSON.parse(
+              fs.readFileSync('stellar-lend/gas-report.json', 'utf8')
+            );
+            const { measurements, overBudget, regressions } = report.summary;
 
-            let status = '✅ No gas regressions detected';
-            if (checkResult.regressions > 0) {
-              status = `⚠️ ${checkResult.regressions} gas regression(s) detected`;
-            }
+            const header = regressions > 0 || overBudget > 0
+              ? 'Gas regressions detected'
+              : 'No gas regressions detected';
 
-            const body = `## Gas Optimization Report
-
-${status}
-
-${comparison}
-
-### Summary
-- **Functions analyzed**: ${checkResult.total}
-- **Improvements**: ${checkResult.improvements}
-- **Regressions**: ${checkResult.regressions}
-- **Average change**: ${checkResult.average_change > 0 ? '+' : ''}${checkResult.average_change.toFixed(2)}%
-`;
+            const body = [
+              '## Gas Optimization Report',
+              '',
+              `**${header}**`,
+              '',
+              `- Scenarios measured: ${measurements}`,
+              `- Over budget: ${overBudget}`,
+              `- Regressions: ${regressions}`,
+              '',
+              markdown,
+            ].join('\n');
 
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: body
+              body,
             });
 
-      - name: Fail if regressions exceed threshold
-        if: steps.check-regression.outputs.FAILED == 'true'
+      - name: Upload gas report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-report-${{ github.sha }}
+          path: |
+            stellar-lend/benchmark-results.json
+            stellar-lend/gas-report.json
+            stellar-lend/gas-report.md
+
+      - name: Fail if gas budget gate failed
+        if: always() && steps.gas-report.outputs.exit_code == '1'
         run: exit 1

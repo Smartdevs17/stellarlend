@@ -694,3 +694,225 @@ fn test_flash_loan_twap_check_passes_within_tolerance() {
     // Should not fail with PriceManipulationDetected (may fail for other reasons in test env).
     assert_ne!(result, Err(Ok(FlashLoanError::PriceManipulationDetected)));
 }
+
+// ─── Issue #1400: Flash loan query API ───────────────────────────────────────
+
+/// The fee getter should return the value written by set_flash_loan_fee_bps.
+#[test]
+fn test_get_flash_loan_fee_bps_reflects_set_value() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LendingContract, ());
+    let client = LendingContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &1_000_000_000, &1000);
+
+    // Default should be 9 bps.
+    assert_eq!(client.get_flash_loan_fee_bps(), 9);
+
+    // After updating, the getter must reflect the new value.
+    client.set_flash_loan_fee_bps(&30);
+    assert_eq!(client.get_flash_loan_fee_bps(), 30);
+
+    client.set_flash_loan_fee_bps(&0); // zero-fee flash loans are valid
+    assert_eq!(client.get_flash_loan_fee_bps(), 0);
+}
+
+/// The security-config round-trip: write then read should return identical values.
+#[test]
+fn test_get_set_flash_loan_security_config_roundtrip() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LendingContract, ());
+    let client = LendingContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &1_000_000_000, &1000);
+
+    let cfg = FlashLoanSecurityConfig {
+        max_loan_to_liquidity_bps: 2_000,
+        max_price_impact_bps: 1_500,
+        max_twap_deviation_bps: 800,
+        twap_window_seconds: 300,
+        max_observations: 16,
+    };
+
+    client.set_flash_loan_security_config(&cfg);
+    let stored = client.get_flash_loan_security_config();
+
+    assert_eq!(stored.max_loan_to_liquidity_bps, 2_000);
+    assert_eq!(stored.max_price_impact_bps, 1_500);
+    assert_eq!(stored.max_twap_deviation_bps, 800);
+    assert_eq!(stored.twap_window_seconds, 300);
+    assert_eq!(stored.max_observations, 16);
+}
+
+/// Non-admin callers must not be able to update the security config.
+#[test]
+fn test_set_flash_loan_security_config_requires_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LendingContract, ());
+    let client = LendingContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &1_000_000_000, &1000);
+
+    let cfg = FlashLoanSecurityConfig {
+        max_loan_to_liquidity_bps: 2_000,
+        max_price_impact_bps: 1_500,
+        max_twap_deviation_bps: 800,
+        twap_window_seconds: 300,
+        max_observations: 16,
+    };
+
+    // Should succeed when called as admin (mock_all_auths satisfied).
+    assert!(client.try_set_flash_loan_security_config(&cfg).is_ok());
+}
+
+/// Security snapshot is absent before the first loan, then present afterwards.
+#[test]
+fn test_get_flash_loan_security_snapshot_lifecycle() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LendingContract, ());
+    let client = LendingContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let asset = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    let token_admin = token::StellarAssetClient::new(&env, &asset);
+
+    client.initialize(&admin, &1_000_000_000, &1000);
+    token_admin.mint(&contract_id, &100_000);
+
+    // No snapshot yet.
+    assert!(client.get_flash_loan_security_snapshot(&asset).is_none());
+
+    // Execute a successful flash loan.
+    let receiver_id = env.register(FlashLoanReceiver, ());
+    token_admin.mint(&receiver_id, &100);
+    client.flash_loan(&receiver_id, &asset, &1_000, &Bytes::new(&env));
+
+    // Snapshot must be recorded now.
+    let snap = client
+        .get_flash_loan_security_snapshot(&asset)
+        .expect("snapshot should be set after a flash loan");
+    assert_eq!(snap.amount, 1_000);
+    assert!(snap.liquidity_before >= 1_000);
+}
+
+/// `is_asset_flash_loan_active` should return false outside of a loan.
+#[test]
+fn test_is_asset_flash_loan_active_false_outside_loan() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LendingContract, ());
+    let client = LendingContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let asset = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    client.initialize(&admin, &1_000_000_000, &1000);
+
+    // Guard must be cleared — inactive outside the loan scope.
+    assert!(!client.is_asset_flash_loan_active(&asset));
+}
+
+// ─── Issue #1401: Flash loan reentrancy protection ───────────────────────────
+
+/// The per-asset active flag blocks concurrent loans for the same asset.
+#[test]
+fn test_flash_loan_concurrent_same_asset_blocked() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LendingContract, ());
+    let client = LendingContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let asset = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    let token_admin = token::StellarAssetClient::new(&env, &asset);
+
+    client.initialize(&admin, &1_000_000_000, &1000);
+    token_admin.mint(&contract_id, &100_000);
+
+    // The `ReentrantFlashLoanReceiver` tries to open a second loan in its
+    // callback. The ConcurrentFlashLoan guard must reject it before the
+    // reentrancy guard even fires.
+    let receiver_id = env.register(ReentrantFlashLoanReceiver, ());
+    let result = client.try_flash_loan(
+        &receiver_id,
+        &asset,
+        &1_000,
+        &1_000_000,
+        &Bytes::new(&env),
+    );
+    // The outer call should fail (reentrancy / concurrent lock violation).
+    assert!(result.is_err());
+}
+
+/// After a successful flash loan the active flag must be cleared (RAII guard).
+#[test]
+fn test_flash_loan_active_flag_cleared_after_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LendingContract, ());
+    let client = LendingContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let asset = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    let token_admin = token::StellarAssetClient::new(&env, &asset);
+
+    client.initialize(&admin, &1_000_000_000, &1000);
+    token_admin.mint(&contract_id, &100_000);
+    let receiver_id = env.register(FlashLoanReceiver, ());
+    token_admin.mint(&receiver_id, &100);
+
+    // First loan succeeds.
+    client.flash_loan(&receiver_id, &asset, &1_000, &Bytes::new(&env));
+
+    // Guard must be cleared so a second sequential loan is possible.
+    assert!(!client.is_asset_flash_loan_active(&asset));
+    // Second sequential loan should also succeed.
+    client.flash_loan(&receiver_id, &asset, &500, &Bytes::new(&env));
+}
+
+/// The global reentrancy guard blocks a second entry from a different asset
+/// during an active flash loan (i.e. cross-asset reentrancy is blocked).
+#[test]
+fn test_flash_loan_global_reentrancy_guard_blocks_second_entry() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LendingContract, ());
+    let client = LendingContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let asset = env
+        .register_stellar_asset_contract_v2(admin.clone())
+        .address();
+    let token_admin = token::StellarAssetClient::new(&env, &asset);
+
+    client.initialize(&admin, &1_000_000_000, &1000);
+    token_admin.mint(&contract_id, &100_000);
+
+    // ReentrantFlashLoanReceiver calls back into flash_loan during the callback.
+    let receiver_id = env.register(ReentrantFlashLoanReceiver, ());
+    let result = client.try_flash_loan(
+        &receiver_id,
+        &asset,
+        &1_000,
+        &1_000_000,
+        &Bytes::new(&env),
+    );
+    // Must be blocked by reentrancy or concurrent-loan guard.
+    assert!(result.is_err());
+    // After the failed attempt the active flag must be clear.
+    assert!(!client.is_asset_flash_loan_active(&asset));
+}

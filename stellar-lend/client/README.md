@@ -1,6 +1,15 @@
-# StellarLend Blockchain Integration Layer
+# StellarLend Rust Client
 
-A comprehensive Rust library for interacting with the Stellar blockchain and Soroban smart contracts. This integration layer provides clients for both Horizon API and Soroban RPC, with transaction submission, monitoring, error handling, and retry logic.
+A typed, versioned Rust client for interacting with the Stellar blockchain and
+Soroban smart contracts. It provides clients for both Horizon API and Soroban
+RPC, with transaction submission, monitoring, error handling, and retry logic.
+
+The crate is published as `stellarlend-client` and includes runnable examples
+for transaction submission and transaction monitoring.
+
+Add it with `cargo add stellarlend-client`. Releases follow semver, are
+tagged `client-v<version>`, and are listed in [CHANGELOG.md](CHANGELOG.md).
+Run the examples with `cargo run -p stellarlend-client --example simple_transaction`.
 
 ## Features
 
@@ -93,6 +102,10 @@ let config = BlockchainConfig::testnet()
     .with_retry_config(200, 10000, 2.5)
     .with_tx_config(2000, 120);
 ```
+
+Retry defaults are three retries with 100ms initial delay, exponential
+backoff, and a 5-second cap. Use `with_max_retries` and `with_retry_config`
+to configure the policy for a client.
 
 ## Usage Examples
 

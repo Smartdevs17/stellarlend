@@ -12,6 +12,8 @@ router.get('/charts/:poolAddress', controller.getChartSeries);
 router.get('/heatmap/:poolAddress', controller.getUtilizationHeatmap);
 router.get('/benchmarks/:poolAddress', controller.getBenchmarks);
 router.get('/events', controller.getPerformanceEvents);
+router.get('/apr-apy-calculator', controller.calculateAprApy);
+router.get('/returns/:poolAddress', controller.getHistoricalReturns);
 router.post('/snapshots', controller.captureSnapshot);
 
 export default router;

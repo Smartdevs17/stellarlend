@@ -389,3 +389,13 @@ mod tests {
         assert_eq!(opt.optimal_kink_bps, 7500);
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    YieldCurveError => stellarlend_errors::domains::LENDING_YIELD_CURVE;
+    InvalidParameter => InvalidInput, "Parameter is invalid or out of range";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    DivisionByZero => DivisionByZero, "Division by zero";
+    OptimizationFailed => Internal, "Optimization failed", FixInput;
+}

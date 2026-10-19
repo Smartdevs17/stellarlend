@@ -1,3 +1,4 @@
+import { StrKey } from '@stellar/stellar-sdk';
 import { Request, Response, NextFunction } from 'express';
 import { StellarService } from '../services/stellar.service';
 import {
@@ -147,6 +148,8 @@ export const submit = async (req: Request, res: Response, next: NextFunction) =>
       await redisCacheService.delByPrefix('stellarlend:position:');
       await redisCacheService.delByPrefix('stellarlend:pool:');
       await redisCacheService.delByPrefix('stellarlend:protocol:');
+      await redisCacheService.delByPrefix('stellarlend:simulation:');
+      await redisCacheService.delByPrefix('stellarlend:http:');
 
       return res.status(200).json(monitorResult);
     }
@@ -296,6 +299,22 @@ export const coalescingMetrics = async (_req: Request, res: Response, next: Next
       timestamp: new Date().toISOString(),
       metrics,
     });
+  } catch (error) {
+    next(error);
+    return;
+  }
+};
+
+export const getPositionHealth = async (req: Request, res: Response, next: NextFunction) => {
+  const userAddress = req.params.userAddress;
+  if (!userAddress || !StrKey.isValidEd25519PublicKey(userAddress)) {
+    return res.status(400).json({ success: false, error: 'Invalid Stellar account address' });
+  }
+
+  try {
+    const health = await new StellarService().getPositionHealth(userAddress);
+    res.setHeader('Cache-Control', 'private, no-cache');
+    return res.status(200).json({ success: true, data: health });
   } catch (error) {
     next(error);
     return;

@@ -295,7 +295,15 @@ mod tests {
     #[test]
     fn property_add_matches_checked() {
         let samples: &[i128] = &[
-            0, 1, -1, i128::MAX, i128::MIN, i128::MAX / 2, i128::MIN / 2, 42, -42,
+            0,
+            1,
+            -1,
+            i128::MAX,
+            i128::MIN,
+            i128::MAX / 2,
+            i128::MIN / 2,
+            42,
+            -42,
         ];
         for &a in samples {
             for &b in samples {
@@ -308,7 +316,15 @@ mod tests {
     #[test]
     fn property_mul_matches_checked() {
         let samples: &[i128] = &[
-            0, 1, -1, 2, -2, i128::MAX, i128::MIN, i128::MAX / 2, i128::MIN / 2,
+            0,
+            1,
+            -1,
+            2,
+            -2,
+            i128::MAX,
+            i128::MIN,
+            i128::MAX / 2,
+            i128::MIN / 2,
         ];
         for &a in samples {
             for &b in samples {

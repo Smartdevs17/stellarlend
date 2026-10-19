@@ -39,9 +39,9 @@ use crate::events::{
 };
 use crate::reentrancy::{ReentrancyGuard, ReentrancyKey};
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Bytes, Env,
-    String, Vec,
+    contract, contracterror, contracttype, panic_with_error, Address, Bytes, Env, String, Vec,
 };
+use stellarlend_storage_layer::{Storage, StorageTier};
 
 // ═══════════════════════════════════════════════════════
 // Constants
@@ -131,7 +131,10 @@ pub enum StoreKey {
 #[contract]
 pub struct DataStore;
 
-#[contractimpl]
+// The standalone `data-store` contract is deployed from its own crate. Exporting its
+// entrypoints here as well collides with `LendingContract`'s (`get_admin`, ...) in the
+// lending wasm, so they are only generated for the in-crate tests.
+#[cfg_attr(test, soroban_sdk::contractimpl)]
 impl DataStore {
     // ───────────────────────────────────────────────────
     // Initialisation
@@ -688,31 +691,41 @@ impl DataStore {
     pub fn get_total_assets(env: &Env) -> i128 {
         // This is a simplified implementation for invariant testing
         // In a real implementation, this would sum all tracked assets
-        env.storage()
-            .persistent()
-            .get(&StoreKey::TotalAssets)
-            .unwrap_or(0)
+        //
+        // Data access goes through the shared storage abstraction layer (#707).
+        Storage::new(env)
+            .get_or(StorageTier::Persistent, &StoreKey::TotalAssets, 0i128)
     }
 
     /// Set total assets (internal use)
     pub fn set_total_assets(env: &Env, assets: i128) {
-        env.storage()
-            .persistent()
-            .set(&StoreKey::TotalAssets, &assets);
+        Storage::new(env).set(StorageTier::Persistent, &StoreKey::TotalAssets, &assets);
     }
 
     /// Get protocol reserves (for invariant testing)
     pub fn get_protocol_reserves(env: &Env) -> i128 {
-        env.storage()
-            .persistent()
-            .get(&StoreKey::ProtocolReserves)
-            .unwrap_or(0)
+        Storage::new(env)
+            .get_or(StorageTier::Persistent, &StoreKey::ProtocolReserves, 0i128)
     }
 
     /// Set protocol reserves (internal use)
     pub fn set_protocol_reserves(env: &Env, reserves: i128) {
-        env.storage()
-            .persistent()
-            .set(&StoreKey::ProtocolReserves, &reserves);
+        Storage::new(env).set(StorageTier::Persistent, &StoreKey::ProtocolReserves, &reserves);
     }
+}
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    DataStoreError => stellarlend_errors::domains::LENDING_DATA_STORE;
+    AlreadyInitialized => AlreadyInitialized, "Contract has already been initialised; `init` cannot be called again";
+    NotAuthorized => Unauthorized, "Caller is neither the admin nor a granted writer";
+    KeyTooLong => LimitExceeded, "Key exceeds `MAX_KEY_LEN` bytes", ReduceAmount;
+    ValueTooLarge => LimitExceeded, "Value exceeds `MAX_VALUE_LEN` bytes", ReduceAmount;
+    KeyNotFound => NotFound, "The requested key does not exist in the store";
+    BackupNotFound => NotFound, "The requested backup snapshot does not exist";
+    StoreFull => LimitExceeded, "Adding another entry would exceed `MAX_ENTRIES`", ReduceAmount;
+    BackupNameTooLong => LimitExceeded, "Backup name exceeds `MAX_BACKUP_NAME` bytes", ReduceAmount;
+    NotInitialized => NotInitialized, "Contract has not been initialised yet";
+    InvalidVersion => InvalidInput, "New schema version must be strictly greater than the current one";
 }

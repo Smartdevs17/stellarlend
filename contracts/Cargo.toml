@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "timelock",
+    "proposal"
+]
+resolver = "2"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true

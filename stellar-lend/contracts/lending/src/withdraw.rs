@@ -2,6 +2,7 @@ use soroban_sdk::{contracterror, contracttype, Address, Env};
 
 use crate::deposit::{DepositCollateral, DepositDataKey};
 use crate::dust::is_dust_amount;
+use crate::hot_storage::DepositHotSlot;
 use crate::reentrancy::ReentrancyGuard;
 
 pub use crate::events::WithdrawEvent;
@@ -102,9 +103,9 @@ pub(crate) fn withdraw_with_auth(
 
     save_collateral_position(env, &user, &updated_position);
 
-    let total_deposits = get_total_deposits(env);
-    let new_total = total_deposits.checked_sub(amount).unwrap_or(0);
-    set_total_deposits(env, new_total);
+    let mut hot = DepositHotSlot::load(env);
+    hot.state.total = hot.state.total.checked_sub(amount).unwrap_or(0);
+    hot.commit(env);
 
     WithdrawEvent {
         user,
@@ -191,11 +192,13 @@ pub fn sweep_deposit_dust(env: &Env, user: Address, asset: Address) -> Result<i1
     };
     save_collateral_position(env, &user, &updated_position);
 
-    let total_deposits = get_total_deposits(env);
-    let new_total = total_deposits
+    let mut hot = DepositHotSlot::load(env);
+    hot.state.total = hot
+        .state
+        .total
         .checked_sub(position.amount)
         .ok_or(WithdrawError::Overflow)?;
-    set_total_deposits(env, new_total);
+    hot.commit(env);
 
     WithdrawEvent {
         user,
@@ -232,19 +235,6 @@ fn save_collateral_position(env: &Env, user: &Address, position: &DepositCollate
     env.storage()
         .persistent()
         .set(&DepositDataKey::UserCollateral(user.clone()), position);
-}
-
-fn get_total_deposits(env: &Env) -> i128 {
-    env.storage()
-        .persistent()
-        .get(&DepositDataKey::TotalAmount)
-        .unwrap_or(0)
-}
-
-fn set_total_deposits(env: &Env, amount: i128) {
-    env.storage()
-        .persistent()
-        .set(&DepositDataKey::TotalAmount, &amount);
 }
 
 fn get_min_withdraw_amount(env: &Env) -> i128 {
@@ -335,9 +325,9 @@ pub fn emergency_withdraw(
     };
     save_collateral_position(env, &user, &updated_position);
 
-    let total_deposits = get_total_deposits(env);
-    let new_total = total_deposits.checked_sub(amount).unwrap_or(0);
-    set_total_deposits(env, new_total);
+    let mut hot = DepositHotSlot::load(env);
+    hot.state.total = hot.state.total.checked_sub(amount).unwrap_or(0);
+    hot.commit(env);
 
     // Track total emergency analytics
     let total_withdrawn = get_total_emergency_withdrawn(env);
@@ -347,6 +337,10 @@ pub fn emergency_withdraw(
         total_withdrawn.saturating_add(amount),
         total_fees.saturating_add(fee_amount),
     );
+    if fee_amount > 0 {
+        crate::lazy::add(env, crate::lazy::LazyField::AccumulatedFees, fee_amount)
+            .map_err(|_| WithdrawError::Overflow)?;
+    }
 
     EmergencyWithdrawEvent {
         user,
@@ -363,16 +357,14 @@ pub fn emergency_withdraw(
 }
 
 /// Set maximum limit per emergency withdrawal (0 = unlimited)
-pub fn set_emergency_withdraw_limit(
-    env: &Env,
-    max_amount: i128,
-) -> Result<(), WithdrawError> {
+pub fn set_emergency_withdraw_limit(env: &Env, max_amount: i128) -> Result<(), WithdrawError> {
     if max_amount < 0 {
         return Err(WithdrawError::InvalidAmount);
     }
-    env.storage()
-        .persistent()
-        .set(&EmergencyWithdrawDataKey::MaxEmergencyWithdrawAmount, &max_amount);
+    env.storage().persistent().set(
+        &EmergencyWithdrawDataKey::MaxEmergencyWithdrawAmount,
+        &max_amount,
+    );
     Ok(())
 }
 
@@ -398,9 +390,10 @@ pub fn get_total_emergency_fees(env: &Env) -> i128 {
 }
 
 pub fn set_total_emergency_stats(env: &Env, withdrawn: i128, fees: i128) {
-    env.storage()
-        .persistent()
-        .set(&EmergencyWithdrawDataKey::TotalEmergencyWithdrawn, &withdrawn);
+    env.storage().persistent().set(
+        &EmergencyWithdrawDataKey::TotalEmergencyWithdrawn,
+        &withdrawn,
+    );
     env.storage()
         .persistent()
         .set(&EmergencyWithdrawDataKey::TotalEmergencyFees, &fees);
@@ -413,3 +406,17 @@ pub fn get_emergency_stats(env: &Env) -> (i128, i128) {
     )
 }
 
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    WithdrawError => stellarlend_errors::domains::LENDING_WITHDRAW;
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    WithdrawPaused => Paused, "Withdrawals are paused";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    InsufficientCollateral => Insufficient, "Collateral is insufficient for this position", AddCollateral;
+    InsufficientCollateralRatio => GuaranteeViolated, "Insufficient collateral ratio";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    DustAmount => InvalidInput, "Amount is below the dust threshold";
+    EmergencyLimitExceeded => LimitExceeded, "Emergency limit exceeded", ReduceAmount;
+    ReentrancyDetected => Reentrancy, "Reentrant call blocked";
+}

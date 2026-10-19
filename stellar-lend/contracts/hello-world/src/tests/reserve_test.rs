@@ -23,10 +23,12 @@
 #![cfg(test)]
 
 use crate::deposit::DepositDataKey;
+use crate::treasury::{
+    accrue_reserve, get_reserve_balance, get_treasury, set_treasury, claim_reserves, TreasuryError
+};
 use crate::reserve::{
-    accrue_reserve, get_reserve_balance, get_reserve_factor, get_reserve_stats,
-    get_treasury_address, initialize_reserve_config, set_reserve_factor, set_treasury_address,
-    withdraw_reserve_to_treasury, ReserveError, BASIS_POINTS_SCALE, DEFAULT_RESERVE_FACTOR_BPS,
+    get_reserve_factor, get_reserve_stats,
+    initialize_reserve_config, set_reserve_factor, ReserveError, BASIS_POINTS_SCALE, DEFAULT_RESERVE_FACTOR_BPS,
     MAX_RESERVE_FACTOR_BPS,
 };
 use soroban_sdk::{testutils::Address as _, Address, Env};
@@ -55,7 +57,7 @@ fn test_initialize_reserve_config(
     contract_id: &Address,
     asset: Option<Address>,
     reserve_factor_bps: i128,
-) -> Result<(), ReserveError> {
+) -> Result<(), TreasuryError> {
     env.as_contract(contract_id, || {
         initialize_reserve_config(env, asset, reserve_factor_bps)
     })
@@ -75,7 +77,7 @@ fn test_set_reserve_factor(
     caller: Address,
     asset: Option<Address>,
     reserve_factor_bps: i128,
-) -> Result<(), ReserveError> {
+) -> Result<(), TreasuryError> {
     env.as_contract(contract_id, || {
         set_reserve_factor(env, caller, asset, reserve_factor_bps)
     })
@@ -86,32 +88,33 @@ fn test_accrue_reserve(
     contract_id: &Address,
     asset: Option<Address>,
     interest_amount: i128,
-) -> Result<(i128, i128), ReserveError> {
+) -> Result<(i128, i128), TreasuryError> {
     env.as_contract(contract_id, || accrue_reserve(env, asset, interest_amount))
 }
 
-fn test_set_treasury_address(
+fn test_set_treasury(
     env: &Env,
     contract_id: &Address,
     caller: Address,
     treasury: Address,
-) -> Result<(), ReserveError> {
-    env.as_contract(contract_id, || set_treasury_address(env, caller, treasury))
+) -> Result<(), TreasuryError> {
+    env.as_contract(contract_id, || set_treasury(env, caller, treasury))
 }
 
-fn test_get_treasury_address(env: &Env, contract_id: &Address) -> Option<Address> {
-    env.as_contract(contract_id, || get_treasury_address(env))
+fn test_get_treasury(env: &Env, contract_id: &Address) -> Option<Address> {
+    env.as_contract(contract_id, || get_treasury(env))
 }
 
-fn test_withdraw_reserve_to_treasury(
+fn test_claim_reserves(
     env: &Env,
     contract_id: &Address,
     caller: Address,
     asset: Option<Address>,
+    recipient: Address,
     amount: i128,
-) -> Result<i128, ReserveError> {
+) -> Result<(), TreasuryError> {
     env.as_contract(contract_id, || {
-        withdraw_reserve_to_treasury(env, caller, asset, amount)
+        claim_reserves(env, caller, asset, recipient, amount)
     })
 }
 
@@ -217,7 +220,7 @@ fn test_initialize_reserve_config_exceeds_max() {
     // Try to initialize with reserve factor > 50%
     let result =
         test_initialize_reserve_config(&env, &contract_id, asset, MAX_RESERVE_FACTOR_BPS + 1);
-    assert_eq!(result, Err(ReserveError::InvalidReserveFactor));
+    assert_eq!(result, Err(TreasuryError::InvalidReserveFactor));
 }
 
 #[test]
@@ -227,7 +230,7 @@ fn test_initialize_reserve_config_negative_factor() {
 
     // Try to initialize with negative reserve factor
     let result = test_initialize_reserve_config(&env, &contract_id, asset, -100);
-    assert_eq!(result, Err(ReserveError::InvalidReserveFactor));
+    assert_eq!(result, Err(TreasuryError::InvalidReserveFactor));
 }
 
 #[test]
@@ -307,7 +310,7 @@ fn test_set_reserve_factor_exceeds_max() {
     // Try to set reserve factor > 50%
     let result =
         test_set_reserve_factor(&env, &contract_id, admin, asset, MAX_RESERVE_FACTOR_BPS + 1);
-    assert_eq!(result, Err(ReserveError::InvalidReserveFactor));
+    assert_eq!(result, Err(TreasuryError::InvalidReserveFactor));
 }
 
 #[test]
@@ -508,43 +511,43 @@ fn test_accrue_reserve_rounding() {
 // ============================================================================
 
 #[test]
-fn test_set_treasury_address_by_admin() {
+fn test_set_treasury_by_admin() {
     let (env, contract_id, admin, _user, treasury) = setup_test_env();
 
     // Admin sets treasury address
-    let result = test_set_treasury_address(&env, &contract_id, admin, treasury.clone());
+    let result = test_set_treasury(&env, &contract_id, admin, treasury.clone());
     assert!(result.is_ok());
 
     // Verify treasury address is set
-    let stored_treasury = test_get_treasury_address(&env, &contract_id);
+    let stored_treasury = test_get_treasury(&env, &contract_id);
     assert_eq!(stored_treasury, Some(treasury));
 }
 
 #[test]
 #[should_panic(expected = "HostError: Error(Auth, InvalidAction(0))")]
-fn test_set_treasury_address_by_non_admin() {
+fn test_set_treasury_by_non_admin() {
     let (env, contract_id, _admin, user, treasury) = setup_test_env();
 
     // Non-admin tries to set treasury address - should fail
-    let _ = test_set_treasury_address(&env, &contract_id, user, treasury);
+    let _ = test_set_treasury(&env, &contract_id, user, treasury);
 }
 
 #[test]
-fn test_set_treasury_address_to_contract() {
+fn test_set_treasury_to_contract() {
     let (env, contract_id, admin, _user, _treasury) = setup_test_env();
 
     // Try to set treasury to contract address - should fail
     let contract_addr = env.current_contract_address();
-    let result = test_set_treasury_address(&env, &contract_id, admin, contract_addr);
-    assert_eq!(result, Err(ReserveError::InvalidTreasury));
+    let result = test_set_treasury(&env, &contract_id, admin, contract_addr);
+    assert_eq!(result, Err(TreasuryError::InvalidTreasury));
 }
 
 #[test]
-fn test_get_treasury_address_not_set() {
+fn test_get_treasury_not_set() {
     let (env, contract_id, _admin, _user, _treasury) = setup_test_env();
 
     // Get treasury address before it's set
-    let treasury = test_get_treasury_address(&env, &contract_id);
+    let treasury = test_get_treasury(&env, &contract_id);
     assert_eq!(treasury, None);
 }
 
@@ -553,17 +556,17 @@ fn test_update_treasury_address() {
     let (env, contract_id, admin, _user, treasury) = setup_test_env();
 
     // Set initial treasury address
-    test_set_treasury_address(&env, &contract_id, admin.clone(), treasury.clone()).unwrap();
+    test_set_treasury(&env, &contract_id, admin.clone(), treasury.clone()).unwrap();
     assert_eq!(
-        test_get_treasury_address(&env, &contract_id),
+        test_get_treasury(&env, &contract_id),
         Some(treasury)
     );
 
     // Update to new treasury address
     let new_treasury = Address::generate(&env);
-    test_set_treasury_address(&env, &contract_id, admin, new_treasury.clone()).unwrap();
+    test_set_treasury(&env, &contract_id, admin, new_treasury.clone()).unwrap();
     assert_eq!(
-        test_get_treasury_address(&env, &contract_id),
+        test_get_treasury(&env, &contract_id),
         Some(new_treasury)
     );
 }
@@ -573,19 +576,19 @@ fn test_update_treasury_address() {
 // ============================================================================
 
 #[test]
-fn test_withdraw_reserve_to_treasury_success() {
+fn test_claim_reserves_success() {
     let (env, contract_id, admin, _user, treasury) = setup_test_env();
     let asset = Some(Address::generate(&env));
 
     // Setup: initialize, set treasury, accrue reserves
     test_initialize_reserve_config(&env, &contract_id, asset.clone(), 1000).unwrap();
-    test_set_treasury_address(&env, &contract_id, admin.clone(), treasury).unwrap();
+    test_set_treasury(&env, &contract_id, admin.clone(), treasury).unwrap();
     test_accrue_reserve(&env, &contract_id, asset.clone(), 10000).unwrap(); // Accrues 1000 to reserves
 
     // Withdraw 500 to treasury
-    let result = test_withdraw_reserve_to_treasury(&env, &contract_id, admin, asset.clone(), 500);
+    let recipient = Address::generate(&env);
+    let result = test_claim_reserves(&env, &contract_id, admin, asset.clone(), recipient, 500);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 500);
 
     // Verify reserve balance is reduced
     let balance = test_get_reserve_balance(&env, &contract_id, asset);
@@ -599,11 +602,12 @@ fn test_withdraw_reserve_full_balance() {
 
     // Setup
     test_initialize_reserve_config(&env, &contract_id, asset.clone(), 1000).unwrap();
-    test_set_treasury_address(&env, &contract_id, admin.clone(), treasury).unwrap();
+    test_set_treasury(&env, &contract_id, admin.clone(), treasury).unwrap();
     test_accrue_reserve(&env, &contract_id, asset.clone(), 10000).unwrap(); // Accrues 1000
 
     // Withdraw full balance
-    let result = test_withdraw_reserve_to_treasury(&env, &contract_id, admin, asset.clone(), 1000);
+    let recipient = Address::generate(&env);
+    let result = test_claim_reserves(&env, &contract_id, admin, asset.clone(), recipient, 1000);
     assert!(result.is_ok());
 
     // Verify reserve balance is zero
@@ -618,12 +622,13 @@ fn test_withdraw_reserve_exceeds_balance() {
 
     // Setup
     test_initialize_reserve_config(&env, &contract_id, asset.clone(), 1000).unwrap();
-    test_set_treasury_address(&env, &contract_id, admin.clone(), treasury).unwrap();
+    test_set_treasury(&env, &contract_id, admin.clone(), treasury).unwrap();
     test_accrue_reserve(&env, &contract_id, asset.clone(), 10000).unwrap(); // Accrues 1000
 
     // Try to withdraw more than available
-    let result = test_withdraw_reserve_to_treasury(&env, &contract_id, admin, asset, 1001);
-    assert_eq!(result, Err(ReserveError::InsufficientReserve));
+    let recipient = Address::generate(&env);
+    let result = test_claim_reserves(&env, &contract_id, admin, asset, recipient, 1001);
+    assert_eq!(result, Err(TreasuryError::InsufficientReserve));
 }
 
 #[test]
@@ -633,12 +638,13 @@ fn test_withdraw_reserve_zero_amount() {
 
     // Setup
     test_initialize_reserve_config(&env, &contract_id, asset.clone(), 1000).unwrap();
-    test_set_treasury_address(&env, &contract_id, admin.clone(), treasury).unwrap();
+    test_set_treasury(&env, &contract_id, admin.clone(), treasury).unwrap();
     test_accrue_reserve(&env, &contract_id, asset.clone(), 10000).unwrap();
 
     // Try to withdraw zero
-    let result = test_withdraw_reserve_to_treasury(&env, &contract_id, admin, asset, 0);
-    assert_eq!(result, Err(ReserveError::InvalidAmount));
+    let recipient = Address::generate(&env);
+    let result = test_claim_reserves(&env, &contract_id, admin, asset, recipient, 0);
+    assert_eq!(result, Err(TreasuryError::InvalidAmount));
 }
 
 #[test]
@@ -648,12 +654,13 @@ fn test_withdraw_reserve_negative_amount() {
 
     // Setup
     test_initialize_reserve_config(&env, &contract_id, asset.clone(), 1000).unwrap();
-    test_set_treasury_address(&env, &contract_id, admin.clone(), treasury).unwrap();
+    test_set_treasury(&env, &contract_id, admin.clone(), treasury).unwrap();
     test_accrue_reserve(&env, &contract_id, asset.clone(), 10000).unwrap();
 
     // Try to withdraw negative amount
-    let result = test_withdraw_reserve_to_treasury(&env, &contract_id, admin, asset, -100);
-    assert_eq!(result, Err(ReserveError::InvalidAmount));
+    let recipient = Address::generate(&env);
+    let result = test_claim_reserves(&env, &contract_id, admin, asset, recipient, -100);
+    assert_eq!(result, Err(TreasuryError::InvalidAmount));
 }
 
 #[test]
@@ -666,8 +673,9 @@ fn test_withdraw_reserve_treasury_not_set() {
     test_accrue_reserve(&env, &contract_id, asset.clone(), 10000).unwrap();
 
     // Try to withdraw without treasury set
-    let result = test_withdraw_reserve_to_treasury(&env, &contract_id, admin, asset, 500);
-    assert_eq!(result, Err(ReserveError::TreasuryNotSet));
+    let recipient = Address::generate(&env);
+    let result = test_claim_reserves(&env, &contract_id, admin, asset, recipient, 500);
+    assert_eq!(result, Err(TreasuryError::TreasuryNotSet));
 }
 
 #[test]
@@ -678,11 +686,12 @@ fn test_withdraw_reserve_by_non_admin() {
 
     // Setup
     test_initialize_reserve_config(&env, &contract_id, asset.clone(), 1000).unwrap();
-    test_set_treasury_address(&env, &contract_id, admin, treasury).unwrap();
+    test_set_treasury(&env, &contract_id, admin, treasury).unwrap();
     test_accrue_reserve(&env, &contract_id, asset.clone(), 10000).unwrap();
 
     // Non-admin tries to withdraw - should fail
-    let _ = test_withdraw_reserve_to_treasury(&env, &contract_id, user, asset, 500);
+    let recipient = Address::generate(&env);
+    let _ = test_claim_reserves(&env, &contract_id, user, asset, recipient, 500);
 }
 
 #[test]
@@ -692,11 +701,12 @@ fn test_withdraw_reserve_multiple_times() {
 
     // Setup
     test_initialize_reserve_config(&env, &contract_id, asset.clone(), 1000).unwrap();
-    test_set_treasury_address(&env, &contract_id, admin.clone(), treasury).unwrap();
+    test_set_treasury(&env, &contract_id, admin.clone(), treasury).unwrap();
     test_accrue_reserve(&env, &contract_id, asset.clone(), 10000).unwrap(); // Accrues 1000
 
+    let recipient = Address::generate(&env);
     // First withdrawal: 300
-    test_withdraw_reserve_to_treasury(&env, &contract_id, admin.clone(), asset.clone(), 300)
+    test_claim_reserves(&env, &contract_id, admin.clone(), asset.clone(), recipient.clone(), 300)
         .unwrap();
     assert_eq!(
         test_get_reserve_balance(&env, &contract_id, asset.clone()),
@@ -704,7 +714,7 @@ fn test_withdraw_reserve_multiple_times() {
     );
 
     // Second withdrawal: 200
-    test_withdraw_reserve_to_treasury(&env, &contract_id, admin.clone(), asset.clone(), 200)
+    test_claim_reserves(&env, &contract_id, admin.clone(), asset.clone(), recipient.clone(), 200)
         .unwrap();
     assert_eq!(
         test_get_reserve_balance(&env, &contract_id, asset.clone()),
@@ -712,7 +722,7 @@ fn test_withdraw_reserve_multiple_times() {
     );
 
     // Third withdrawal: 500 (remaining)
-    test_withdraw_reserve_to_treasury(&env, &contract_id, admin, asset.clone(), 500).unwrap();
+    test_claim_reserves(&env, &contract_id, admin, asset.clone(), recipient, 500).unwrap();
     assert_eq!(test_get_reserve_balance(&env, &contract_id, asset), 0);
 }
 
@@ -723,11 +733,12 @@ fn test_withdraw_reserve_from_zero_balance() {
 
     // Setup without accruing reserves
     test_initialize_reserve_config(&env, &contract_id, asset.clone(), 1000).unwrap();
-    test_set_treasury_address(&env, &contract_id, admin.clone(), treasury).unwrap();
+    test_set_treasury(&env, &contract_id, admin.clone(), treasury).unwrap();
 
     // Try to withdraw from zero balance
-    let result = test_withdraw_reserve_to_treasury(&env, &contract_id, admin, asset, 100);
-    assert_eq!(result, Err(ReserveError::InsufficientReserve));
+    let recipient = Address::generate(&env);
+    let result = test_claim_reserves(&env, &contract_id, admin, asset, recipient, 100);
+    assert_eq!(result, Err(TreasuryError::InsufficientReserve));
 }
 
 // ============================================================================
@@ -1349,7 +1360,7 @@ fn test_get_reserve_stats() {
 
     // Setup
     test_initialize_reserve_config(&env, &contract_id, asset.clone(), 2000).unwrap();
-    test_set_treasury_address(&env, &contract_id, admin, treasury.clone()).unwrap();
+    test_set_treasury(&env, &contract_id, admin, treasury.clone()).unwrap();
     test_accrue_reserve(&env, &contract_id, asset.clone(), 5000).unwrap(); // Accrues 1000
 
     // Get stats
@@ -1390,7 +1401,7 @@ fn test_complete_reserve_lifecycle() {
     test_initialize_reserve_config(&env, &contract_id, asset.clone(), 1000).unwrap();
 
     // 2. Set treasury address
-    test_set_treasury_address(&env, &contract_id, admin.clone(), treasury).unwrap();
+    test_set_treasury(&env, &contract_id, admin.clone(), treasury).unwrap();
 
     // 3. Accrue reserves multiple times
     test_accrue_reserve(&env, &contract_id, asset.clone(), 10000).unwrap(); // +1000
@@ -1441,7 +1452,7 @@ fn test_multiple_assets_independent_reserves() {
     test_initialize_reserve_config(&env, &contract_id, asset1.clone(), 1000).unwrap(); // 10%
     test_initialize_reserve_config(&env, &contract_id, asset2.clone(), 2000).unwrap(); // 20%
 
-    test_set_treasury_address(&env, &contract_id, admin.clone(), treasury).unwrap();
+    test_set_treasury(&env, &contract_id, admin.clone(), treasury).unwrap();
 
     // Accrue reserves for both assets
     test_accrue_reserve(&env, &contract_id, asset1.clone(), 10000).unwrap(); // +1000
@@ -1472,7 +1483,7 @@ fn test_native_asset_reserves() {
 
     // Test with native asset (None)
     test_initialize_reserve_config(&env, &contract_id, None, 1500).unwrap();
-    test_set_treasury_address(&env, &contract_id, admin.clone(), treasury).unwrap();
+    test_set_treasury(&env, &contract_id, admin.clone(), treasury).unwrap();
 
     test_accrue_reserve(&env, &contract_id, None, 10000).unwrap(); // +1500
     assert_eq!(test_get_reserve_balance(&env, &contract_id, None), 1500);

@@ -25,9 +25,7 @@
 
 #![allow(unused)]
 
-use soroban_sdk::{
-    contracterror, contractevent, contracttype, Address, Env, String, Symbol, Vec,
-};
+use soroban_sdk::{contracterror, contractevent, contracttype, Address, Env, String, Symbol, Vec};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -217,7 +215,7 @@ pub struct LendingBridgeStats {
 
 // ─── Events ───────────────────────────────────────────────────────────────────
 
-#[contractevent]
+#[contractevent(topics = ["cross_chain_position_opened"])]
 #[derive(Clone, Debug)]
 pub struct CrossChainPositionOpenedEvent {
     pub user: Address,
@@ -230,7 +228,7 @@ pub struct CrossChainPositionOpenedEvent {
     pub timestamp: u64,
 }
 
-#[contractevent]
+#[contractevent(topics = ["cross_chain_position_repaid"])]
 #[derive(Clone, Debug)]
 pub struct CrossChainPositionRepaidEvent {
     pub user: Address,
@@ -269,7 +267,7 @@ pub struct LiquidityRouteRegisteredEvent {
     pub timestamp: u64,
 }
 
-#[contractevent]
+#[contractevent(topics = ["remote_health_report_submitted"])]
 #[derive(Clone, Debug)]
 pub struct RemoteHealthReportSubmittedEvent {
     pub user: Address,
@@ -301,19 +299,11 @@ fn save_stats(env: &Env, stats: &LendingBridgeStats) {
         .set(&LendingBridgeKey::LendingStats, stats);
 }
 
-fn position_key(
-    user: &Address,
-    remote_chain: &String,
-    remote_pool: &String,
-) -> LendingBridgeKey {
+fn position_key(user: &Address, remote_chain: &String, remote_pool: &String) -> LendingBridgeKey {
     LendingBridgeKey::LendingPosition(user.clone(), remote_chain.clone(), remote_pool.clone())
 }
 
-fn lock_key(
-    user: &Address,
-    remote_chain: &String,
-    remote_pool: &String,
-) -> LendingBridgeKey {
+fn lock_key(user: &Address, remote_chain: &String, remote_pool: &String) -> LendingBridgeKey {
     LendingBridgeKey::CollateralLock(user.clone(), remote_chain.clone(), remote_pool.clone())
 }
 
@@ -867,4 +857,22 @@ pub fn is_health_report_fresh(env: &Env, user: Address, remote_chain: String) ->
 /// Read-only: global lending bridge statistics.
 pub fn get_lending_bridge_stats(env: &Env) -> LendingBridgeStats {
     get_stats(env)
+}
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    LendingBridgeError => stellarlend_errors::domains::BRIDGE_LENDING;
+    Unauthorized => Unauthorized, "Caller is not authorized";
+    PositionNotFound => NotFound, "The lending position does not exist";
+    PositionAlreadyExists => AlreadyExists, "A position already exists for this user on this chain/pool";
+    LockNotFound => NotFound, "The collateral lock does not exist";
+    CollateralStillLocked => InvalidState, "Collateral is still locked and cannot be released";
+    InvalidAmount => InvalidInput, "Amount must be positive";
+    InsufficientHealthFactor => GuaranteeViolated, "Health factor is too low to initiate a new cross-chain borrow";
+    RouteAlreadyExists => AlreadyExists, "The liquidity route already exists";
+    RouteNotFound => NotFound, "The liquidity route was not found";
+    Overflow => Overflow, "Arithmetic overflow";
+    StaleHealthReport => PriceUnavailable, "Remote health factor report not found or stale";
+    AlreadyRepaid => InvalidState, "The position is already marked repaid", FixInput;
 }

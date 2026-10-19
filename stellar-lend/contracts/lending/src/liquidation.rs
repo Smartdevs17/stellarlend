@@ -264,3 +264,14 @@ mod unit {
         assert!(!is_oracle_fresh(100, 161, 60));
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    LiquidationError => stellarlend_errors::domains::LENDING_LIQUIDATION;
+    InvalidAmount => InvalidInput, "`repay_amount` (or another input) was zero or negative";
+    PositionHealthy => InvalidState, "Position health factor is at/above 1.0 — not liquidatable";
+    StaleOracle => PriceUnavailable, "Oracle price is older than the freshness window";
+    Unprofitable => InvalidState, "Estimated gas cost exceeds the liquidation bonus — not worth executing";
+    Overflow => Overflow, "Arithmetic overflow";
+}

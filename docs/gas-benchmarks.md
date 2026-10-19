@@ -42,6 +42,19 @@ CI compares current results to baseline and fails when CPU or memory for any ope
 
 CI benchmark job enforces a regression budget (`10%` by default). When exceeded, the pipeline fails and prints operation-level alerts.
 
+## Competing on gas
+
+The suite above measures the contract as it is. `scripts/gas-golf` is the
+competitive layer on top of it: submit an optimised implementation, have it
+proved equivalent to a maintainer-owned reference over a fixed vector set, and
+get ranked on `instructions / budget` against the reference's figure from the
+same run. See `scripts/gas-golf/README.md`. It reads these budget files, so a
+budget change here moves the leaderboard too.
+
+Note that the leaderboard does not run the Rust suite itself, and that
+`baseline.json` currently carries no `lending::*` results — so a board run on
+this branch reports no rankable entries rather than inventing one.
+
 ## Notes / Edge Cases
 
 - Network congestion does not affect these contract-level host cost benchmarks because they run in deterministic test environment.

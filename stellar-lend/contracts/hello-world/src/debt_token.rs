@@ -26,7 +26,17 @@
 //! - Audit trail through events
 
 #![allow(unused)]
-use soroban_sdk::{contracterror, contractevent, contracttype, Address, Env, Map, Symbol, Vec};
+use soroban_sdk::{contracterror, contractevent, contracttype, Address, Env, Map, String, Symbol, Vec};
+
+/// Canonical all-zero ed25519 account address, used as the "null recipient"
+/// sentinel. `soroban_sdk::Address` has no `zero()` constructor, so the
+/// well-known zero-key strkey is parsed instead.
+pub fn zero_address(env: &Env) -> Address {
+    Address::from_string(&String::from_str(
+        env,
+        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+    ))
+}
 
 use crate::deposit::DepositDataKey;
 use crate::errors::LendingError;
@@ -174,7 +184,7 @@ pub struct DebtTokenListedEvent {
     pub timestamp: u64,
 }
 
-#[contractevent]
+#[contractevent(topics = ["debt_listing_cancelled"])]
 #[derive(Clone, Debug)]
 pub struct DebtTokenListingCancelledEvent {
     pub token_id: u64,
@@ -334,7 +344,7 @@ fn move_debt_token_ownership(
     token_id: u64,
 ) -> Result<(), DebtTokenError> {
     // Validate inputs
-    if to == Address::zero() {
+    if to == zero_address(env) {
         return Err(DebtTokenError::ZeroAddress);
     }
 
@@ -349,8 +359,7 @@ fn move_debt_token_ownership(
     }
 
     // Get token position
-    let position = get_debt_position(env, token_id)
-        .ok_or(DebtTokenError::TokenNotFound)?;
+    let position = get_debt_position(env, token_id).ok_or(DebtTokenError::TokenNotFound)?;
 
     // Check liquidation status
     if position.is_liquidatable {
@@ -365,8 +374,10 @@ fn move_debt_token_ownership(
 
     // Remove from current owner
     let mut from_tokens = owner_tokens;
-    let index = from_tokens.iter().position(|&id| id == token_id)
-        .ok_or(DebtTokenError::TokenNotFound)?;
+    let index = from_tokens
+        .iter()
+        .position(|id| id == token_id)
+        .ok_or(DebtTokenError::TokenNotFound)? as u32;
     from_tokens.remove(index);
 
     let from_key = DebtTokenDataKey::OwnerTokens(from.clone());
@@ -382,7 +393,9 @@ fn move_debt_token_ownership(
     let mut updated_position = position;
     updated_position.updated_at = env.ledger().timestamp();
     let position_key = DebtTokenDataKey::TokenPosition(token_id);
-    env.storage().persistent().set(&position_key, &updated_position);
+    env.storage()
+        .persistent()
+        .set(&position_key, &updated_position);
 
     // Emit transfer event
     DebtTokenTransferredEvent {
@@ -500,6 +513,10 @@ pub fn buy_listed_debt_token(
     buyer: Address,
     token_id: u64,
 ) -> Result<(), DebtTokenError> {
+    // Reentrancy guard — prevents re-entry during token transfer
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| DebtTokenError::Unauthorized)?;
+
     buyer.require_auth();
 
     let key = DebtTokenDataKey::Listing(token_id);
@@ -565,8 +582,7 @@ pub fn burn_debt_token(
     user.require_auth();
 
     // Get token position
-    let position = get_debt_position(env, token_id)
-        .ok_or(DebtTokenError::TokenNotFound)?;
+    let position = get_debt_position(env, token_id).ok_or(DebtTokenError::TokenNotFound)?;
 
     // Verify ownership
     let owner_tokens = get_user_debt_tokens(env, &user);
@@ -576,8 +592,10 @@ pub fn burn_debt_token(
 
     // Remove from owner's token list
     let mut user_tokens = owner_tokens;
-    let index = user_tokens.iter().position(|&id| id == token_id)
-        .ok_or(DebtTokenError::TokenNotFound)?;
+    let index = user_tokens
+        .iter()
+        .position(|id| id == token_id)
+        .ok_or(DebtTokenError::TokenNotFound)? as u32;
     user_tokens.remove(index);
 
     let owner_key = DebtTokenDataKey::OwnerTokens(user.clone());
@@ -656,11 +674,7 @@ pub fn get_total_supply(env: &Env) -> u64 {
 ///
 /// # Errors
 /// * `Unauthorized` - Caller is not admin
-pub fn set_transfer_pause(
-    env: &Env,
-    admin: Address,
-    paused: bool,
-) -> Result<(), DebtTokenError> {
+pub fn set_transfer_pause(env: &Env, admin: Address, paused: bool) -> Result<(), DebtTokenError> {
     // Verify admin authorization
     let admin_key = DepositDataKey::Admin;
     let stored_admin: Address = env
@@ -668,11 +682,11 @@ pub fn set_transfer_pause(
         .persistent()
         .get(&admin_key)
         .ok_or(DebtTokenError::Unauthorized)?;
-    
+
     if admin != stored_admin {
         return Err(DebtTokenError::Unauthorized);
     }
-    
+
     admin.require_auth();
 
     env.storage()
@@ -705,11 +719,11 @@ pub fn set_address_blocked(
         .persistent()
         .get(&admin_key)
         .ok_or(DebtTokenError::Unauthorized)?;
-    
+
     if admin != stored_admin {
         return Err(DebtTokenError::Unauthorized);
     }
-    
+
     admin.require_auth();
 
     if blocked {
@@ -923,7 +937,11 @@ fn save_marketplace_stats(env: &Env, stats: &MarketplaceStats) {
 }
 
 fn record_trade_price(env: &Env, token_id: u64, price: i128, payment_token: Address, now: u64) {
-    let tp = TradePrice { price, payment_token: payment_token.clone(), timestamp: now };
+    let tp = TradePrice {
+        price,
+        payment_token: payment_token.clone(),
+        timestamp: now,
+    };
 
     // Update last-trade price.
     env.storage()
@@ -1131,6 +1149,10 @@ pub fn accept_bid(
     token_id: u64,
     bidder: Address,
 ) -> Result<(), DebtTokenError> {
+    // Reentrancy guard — prevents re-entry during token transfer
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| DebtTokenError::Unauthorized)?;
+
     seller.require_auth();
 
     // Verify ownership.
@@ -1168,7 +1190,15 @@ pub fn accept_bid(
     }
 
     // Record trade for price-discovery.
-    record_trade(env, token_id, seller.clone(), bidder.clone(), bid.price, bid.payment_token.clone(), now);
+    record_trade(
+        env,
+        token_id,
+        seller.clone(),
+        bidder.clone(),
+        bid.price,
+        bid.payment_token.clone(),
+        now,
+    );
 
     DebtTokenBidAcceptedEvent {
         token_id,
@@ -1222,7 +1252,10 @@ pub fn get_twap_price(env: &Env, token_id: u64) -> Option<i128> {
 
     // Simple arithmetic mean over price observations.
     let n = window.len() as i128;
-    let sum: i128 = window.iter().map(|tp| tp.price).fold(0i128, |acc, p| acc.saturating_add(p));
+    let sum: i128 = window
+        .iter()
+        .map(|tp| tp.price)
+        .fold(0i128, |acc, p| acc.saturating_add(p));
     Some(sum.checked_div(n).unwrap_or(sum))
 }
 
@@ -1249,6 +1282,10 @@ pub fn buy_listed_debt_token_tracked(
     buyer: Address,
     token_id: u64,
 ) -> Result<(), DebtTokenError> {
+    // Reentrancy guard — prevents re-entry during token transfer
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| DebtTokenError::Unauthorized)?;
+
     buyer.require_auth();
 
     let key = DebtTokenDataKey::Listing(token_id);
@@ -1268,7 +1305,15 @@ pub fn buy_listed_debt_token_tracked(
     let now = env.ledger().timestamp();
 
     // Price discovery record.
-    record_trade(env, token_id, listing.seller.clone(), buyer.clone(), listing.price, listing.payment_token.clone(), now);
+    record_trade(
+        env,
+        token_id,
+        listing.seller.clone(),
+        buyer.clone(),
+        listing.price,
+        listing.payment_token.clone(),
+        now,
+    );
 
     // Update listings counter.
     let mut stats = get_marketplace_stats(env);
