@@ -21,9 +21,29 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-THRESHOLD="${GAS_REGRESSION_THRESHOLD:-${1:-10.0}}"
-if [[ "$1" == "--threshold" ]]; then
-    THRESHOLD="${2:-10.0}"
+# Precedence: --threshold N / positional N  >  GAS_REGRESSION_THRESHOLD  >  10.0.
+# Parsed with `$#` checks so that running with no arguments works under `set -u`.
+THRESHOLD="${GAS_REGRESSION_THRESHOLD:-10.0}"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --threshold)
+            if [[ $# -lt 2 ]]; then
+                echo "ERROR: --threshold requires a value." >&2
+                exit 2
+            fi
+            THRESHOLD="$2"
+            shift 2
+            ;;
+        *)
+            THRESHOLD="$1"
+            shift
+            ;;
+    esac
+done
+
+if ! [[ "$THRESHOLD" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "ERROR: threshold must be a non-negative number, got '${THRESHOLD}'." >&2
+    exit 2
 fi
 
 BASELINE="${REPO_ROOT}/stellar-lend/benchmarks/baseline.json"

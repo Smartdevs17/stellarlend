@@ -103,6 +103,19 @@ def regression_failures(
     return failures
 
 
+def ungated_operations(
+    results: list[dict[str, Any]],
+    baseline: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Operations the regression gate cannot compare: no baseline entry, or a zero baseline."""
+    ungated = []
+    for item in results:
+        prior = baseline.get(item["operation"])
+        if not prior or int(prior.get("instructions") or 0) <= 0:
+            ungated.append(item["operation"])
+    return sorted(ungated)
+
+
 def storage_summary(results: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
     summary: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for item in results:
@@ -257,6 +270,16 @@ def main() -> int:
     missing = coverage_failures(results, args.coverage)
     over_budget = budget_failures(results)
     regressions = regression_failures(results, baseline, args.max_regression_pct)
+    if args.baseline:
+        # Surface operations the gate cannot judge, so new benchmarks are not
+        # silently exempt from regression checks.
+        ungated = ungated_operations(results, baseline)
+        if ungated:
+            print(
+                f"warning: {len(ungated)} operation(s) have no baseline and are not regression-gated: "
+                + ", ".join(ungated),
+                file=sys.stderr,
+            )
 
     history = read_history(args.history)
     current_entry = history_entry(payload, results)
