@@ -16,3 +16,6 @@ proptest = { version = "1", default-features = false, features = ["alloc"] }
 
 [features]
 testutils = []
+
+[lints]
+workspace = true

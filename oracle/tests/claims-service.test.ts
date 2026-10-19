@@ -84,7 +84,7 @@ describe('ClaimsService Integration', () => {
     });
 
     const { claim } = await service.submitClaim(validRequest);
-    
+
     const paidClaim = service.processPayout(claim.id, 'TX123HASH', 'GADMIN1');
 
     expect(paidClaim.status).toBe(ClaimStatus.PAID_OUT);
@@ -100,9 +100,9 @@ describe('ClaimsService Integration', () => {
     });
 
     const { claim } = await service.submitClaim(validRequest);
-    
+
     service.openDispute(claim.id, 'GCLAIMANT1', 'Payout too low');
-    
+
     const statusBefore = service.getClaim(claim.id)?.status;
     expect(statusBefore).toBe(ClaimStatus.DISPUTED);
 
@@ -121,7 +121,7 @@ describe('ClaimsService Integration', () => {
     });
 
     await service.submitClaim(validRequest);
-    
+
     const stats = service.getStats();
     expect(stats.totalClaims).toBe(1);
     expect(stats.byStatus[ClaimStatus.APPROVED]).toBe(1);

@@ -2,6 +2,7 @@ extern crate std;
 
 use soroban_sdk::testutils::Address as _;
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, Symbol};
+use test_utils::TestEnv;
 
 use crate::cache;
 use crate::message_bus::{self, MessageBusError, MessageState};
@@ -19,13 +20,12 @@ impl CommonTestContract {
 }
 
 fn setup() -> (Env, Address, Address, Address, Address) {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract = env.register(CommonTestContract, ());
-    let source = Address::generate(&env);
-    let target = Address::generate(&env);
-    let user = Address::generate(&env);
-    (env, contract, source, target, user)
+    let mut t = TestEnv::snapshotless();
+    let contract = t.env.register(CommonTestContract, ());
+    let source = t.generate_user();
+    let target = t.generate_user();
+    let user = t.generate_user();
+    (t.env, contract, source, target, user)
 }
 
 #[test]

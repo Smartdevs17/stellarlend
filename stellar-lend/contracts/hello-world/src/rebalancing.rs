@@ -154,8 +154,11 @@ fn record_rebalancing_history(
     estimated_gas_cost: i128,
 ) {
     let key = RebalancingDataKey::RebalancingHistory(user.clone());
-    let mut history: Vec<RebalancingHistoryEntry> =
-        env.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(env));
+    let mut history: Vec<RebalancingHistoryEntry> = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .unwrap_or_else(|| Vec::new(env));
     history.push_back(RebalancingHistoryEntry {
         timestamp: env.ledger().timestamp(),
         health_factor_before,
@@ -251,12 +254,12 @@ pub fn get_rebalancing_config(env: &Env, user: &Address) -> RebalancingConfig {
         .unwrap_or_else(|| RebalancingConfig {
             target_health_factor_min: 15000, // 1.5x default
             target_health_factor_max: 25000, // 2.5x default
-            max_gas_cost: 1000000,      // Default max gas cost
+            max_gas_cost: 1000000,           // Default max gas cost
             auto_rebalance_enabled: false,
-            min_swap_size: 1000000,     // Default minimum swap
-            max_slippage_bps: 500,        // 5% default slippage
+            min_swap_size: 1000000, // Default minimum swap
+            max_slippage_bps: 500,  // 5% default slippage
             last_rebalance_time: 0,
-            rebalance_cooldown: 3600,      // 1 hour default cooldown
+            rebalance_cooldown: 3600, // 1 hour default cooldown
         })
 }
 
@@ -314,13 +317,14 @@ fn execute_rebalancing_internal(env: &Env, user: &Address) -> Result<(), Rebalan
     }
 
     // Get current position summary
-    let position_summary = get_user_position_summary(env, user)
-        .map_err(|_| RebalancingError::Undercollateralized)?;
+    let position_summary =
+        get_user_position_summary(env, user).map_err(|_| RebalancingError::Undercollateralized)?;
     let health_factor_before = position_summary.health_factor;
 
     // Check if rebalancing is needed
-    if position_summary.health_factor >= config.target_health_factor_min 
-        && position_summary.health_factor <= config.target_health_factor_max {
+    if position_summary.health_factor >= config.target_health_factor_min
+        && position_summary.health_factor <= config.target_health_factor_max
+    {
         return Err(RebalancingError::AlreadyHealthy);
     }
 
@@ -465,11 +469,11 @@ fn calculate_optimal_swap(
 
     // For now, return a placeholder decision
     Ok(SwapDecision {
-        from_asset: None, // Would be determined by optimization algorithm
-        to_asset: None,   // Would be determined by optimization algorithm
-        amount: 1000000,  // Placeholder amount
+        from_asset: None,        // Would be determined by optimization algorithm
+        to_asset: None,          // Would be determined by optimization algorithm
+        amount: 1000000,         // Placeholder amount
         expected_amount: 950000, // Placeholder with 5% slippage
-        estimated_gas: 500000, // Placeholder gas estimate
+        estimated_gas: 500000,   // Placeholder gas estimate
     })
 }
 
@@ -485,11 +489,12 @@ fn execute_amm_swap(
 ) -> Result<(), RebalancingError> {
     // In production, this would call the actual AMM contract
     // For now, emit an event indicating the swap should occur
-    
+
     let current_time = env.ledger().timestamp();
-    
+
     // Check slippage (simplified - would compare with actual AMM result)
-    let slippage_bps = ((swap_decision.expected_amount - swap_decision.amount) * 10000) / swap_decision.amount;
+    let slippage_bps =
+        ((swap_decision.expected_amount - swap_decision.amount) * 10000) / swap_decision.amount;
     if slippage_bps > config.max_slippage_bps {
         return Err(RebalancingError::SlippageTooHigh);
     }
@@ -521,7 +526,7 @@ fn estimate_rebalancing_gas_cost(
     let base_gas = 100000; // Base gas for rebalancing
     let collateral_gas = position_summary.total_collateral_value / 1000; // Gas per unit of collateral
     let debt_gas = position_summary.total_debt_value / 1000; // Gas per unit of debt
-    
+
     base_gas + collateral_gas + debt_gas
 }
 
@@ -562,11 +567,11 @@ pub fn set_emergency_stop(
         .persistent()
         .get(&admin_key)
         .ok_or(RebalancingError::Unauthorized)?;
-    
+
     if admin != stored_admin {
         return Err(RebalancingError::Unauthorized);
     }
-    
+
     admin.require_auth();
 
     env.storage()
@@ -596,11 +601,11 @@ pub fn set_rebalancing_pause(
         .persistent()
         .get(&admin_key)
         .ok_or(RebalancingError::Unauthorized)?;
-    
+
     if admin != stored_admin {
         return Err(RebalancingError::Unauthorized);
     }
-    
+
     admin.require_auth();
 
     env.storage()

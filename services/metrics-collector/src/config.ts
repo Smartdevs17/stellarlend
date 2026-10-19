@@ -11,6 +11,7 @@ const envSchema = z.object({
   RAW_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   AGGREGATED_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  EXPORTER_PORT: z.coerce.number().int().positive().default(9464),
 });
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): MetricsCollectorConfig {
@@ -27,5 +28,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MetricsCollect
     rawRetentionDays: data.RAW_RETENTION_DAYS,
     aggregatedRetentionDays: data.AGGREGATED_RETENTION_DAYS,
     logLevel: data.LOG_LEVEL,
+    exporterPort: data.EXPORTER_PORT,
   };
 }

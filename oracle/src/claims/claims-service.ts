@@ -27,27 +27,11 @@ import type {
   ClaimsServiceConfig,
 } from './types';
 import { ClaimStatus, RejectionReason, DisputeResolution } from './types';
-import {
-  ClaimRepository,
-  createClaimRepository,
-} from './claim-repository';
-import {
-  ClaimVerifier,
-  createClaimVerifier,
-} from './claim-verifier';
-import {
-  PayoutCalculator,
-  createPayoutCalculator,
-} from './payout-calculator';
-import {
-  FraudDetector,
-  createFraudDetector,
-} from './fraud-detector';
-import {
-  DisputeManager,
-  createDisputeManager,
-  DisputeError,
-} from './dispute-manager';
+import { ClaimRepository, createClaimRepository } from './claim-repository';
+import { ClaimVerifier, createClaimVerifier } from './claim-verifier';
+import { PayoutCalculator, createPayoutCalculator } from './payout-calculator';
+import { FraudDetector, createFraudDetector } from './fraud-detector';
+import { DisputeManager, createDisputeManager, DisputeError } from './dispute-manager';
 import { logger } from '@/utils/logger';
 
 /**
@@ -139,11 +123,17 @@ export class ClaimsService {
 
     // 2. Fraud detection
     this.repository.transition(
-      claim.id, ClaimStatus.VERIFYING, 'system', 'Starting fraud analysis and oracle verification'
+      claim.id,
+      ClaimStatus.VERIFYING,
+      'system',
+      'Starting fraud analysis and oracle verification'
     );
 
     const allClaims = this.repository.getAll();
-    const fraudResult = this.fraudDetector.detect(claim, allClaims.filter((c) => c.id !== claim.id));
+    const fraudResult = this.fraudDetector.detect(
+      claim,
+      allClaims.filter((c) => c.id !== claim.id)
+    );
 
     if (fraudResult.signals.length > 0) {
       claim.fraudSignals = fraudResult.signals;
@@ -284,15 +274,22 @@ export class ClaimsService {
     const claim = this.repository.findById(claimId);
     if (!claim) throw new Error(`Claim '${claimId}' not found`);
 
-    const allowedStatuses = [ClaimStatus.PENDING, ClaimStatus.PENDING_MANUAL, ClaimStatus.VERIFYING];
+    const allowedStatuses = [
+      ClaimStatus.PENDING,
+      ClaimStatus.PENDING_MANUAL,
+      ClaimStatus.VERIFYING,
+    ];
     if (!allowedStatuses.includes(claim.status)) {
-      throw new Error(
-        `Claim '${claimId}' cannot be re-verified in status '${claim.status}'`
-      );
+      throw new Error(`Claim '${claimId}' cannot be re-verified in status '${claim.status}'`);
     }
 
     // Transition back to VERIFYING
-    this.repository.transition(claim.id, ClaimStatus.VERIFYING, 'system', 'Re-verification triggered');
+    this.repository.transition(
+      claim.id,
+      ClaimStatus.VERIFYING,
+      'system',
+      'Re-verification triggered'
+    );
 
     const verificationResult = await this.verifier.verify(claim);
     claim.verificationResult = verificationResult;
@@ -300,9 +297,19 @@ export class ClaimsService {
 
     if (!verificationResult.isValid) {
       if (this.config.fallbackToPendingManual) {
-        this.repository.transition(claim.id, ClaimStatus.PENDING_MANUAL, 'system', 'Oracle still unavailable');
+        this.repository.transition(
+          claim.id,
+          ClaimStatus.PENDING_MANUAL,
+          'system',
+          'Oracle still unavailable'
+        );
       } else {
-        this.repository.transition(claim.id, ClaimStatus.REJECTED, 'system', 'Re-verification failed');
+        this.repository.transition(
+          claim.id,
+          ClaimStatus.REJECTED,
+          'system',
+          'Re-verification failed'
+        );
         claim.rejectionReason = this.errorCodeToRejectionReason(verificationResult.errors[0]?.code);
         this.repository.save(claim);
       }
@@ -310,7 +317,12 @@ export class ClaimsService {
       const payout = this.calculator.calculate(claim, verificationResult.oracleData!);
       claim.payoutResult = payout;
       this.repository.save(claim);
-      this.repository.transition(claim.id, ClaimStatus.APPROVED, 'system', 'Re-verification passed');
+      this.repository.transition(
+        claim.id,
+        ClaimStatus.APPROVED,
+        'system',
+        'Re-verification passed'
+      );
     }
 
     return this.repository.findById(claimId)!;
@@ -362,9 +374,10 @@ export class ClaimsService {
 
   getStats(): ClaimsStats {
     const all = this.repository.getAll();
-    const byStatus = Object.fromEntries(
-      Object.values(ClaimStatus).map((s) => [s, 0])
-    ) as Record<ClaimStatus, number>;
+    const byStatus = Object.fromEntries(Object.values(ClaimStatus).map((s) => [s, 0])) as Record<
+      ClaimStatus,
+      number
+    >;
 
     let totalPayoutAmount = 0n;
     let fraudCount = 0;
@@ -397,9 +410,7 @@ export class ClaimsService {
 
   // ── Private Helpers ─────────────────────────────────────────────────────────
 
-  private errorCodeToRejectionReason(
-    code: string | undefined
-  ): RejectionReason {
+  private errorCodeToRejectionReason(code: string | undefined): RejectionReason {
     switch (code) {
       case 'ORACLE_UNAVAILABLE':
         return RejectionReason.ORACLE_PRICE_UNAVAILABLE;

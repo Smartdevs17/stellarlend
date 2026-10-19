@@ -204,7 +204,7 @@ pub fn accrue_reserve(
     }
 
     let reserve_factor = crate::reserve::get_reserve_factor(env, asset.clone());
-    
+
     let reserve_amount = interest_amount
         .checked_mul(reserve_factor)
         .ok_or(TreasuryError::Overflow)?
@@ -258,6 +258,10 @@ pub fn claim_reserves(
     recipient: Address,
     amount: i128,
 ) -> Result<(), TreasuryError> {
+    // Reentrancy guard — prevents re-entry during token transfer
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| TreasuryError::Unauthorized)?;
+
     caller.require_auth();
     crate::admin::require_admin(env, &caller).map_err(|_| TreasuryError::Unauthorized)?;
 

@@ -1,12 +1,12 @@
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::GovernanceError;
+use crate::events::ProposalApprovedEvent;
 use crate::storage::GovernanceDataKey;
 use crate::types::{MultisigConfig, Proposal, ProposalStatus};
-use crate::events::ProposalApprovedEvent;
 
-use super::get_admin;
 use super::execution::execute_proposal_type;
+use super::get_admin;
 
 pub fn approve_proposal(
     env: &Env,
@@ -74,6 +74,13 @@ pub fn set_multisig_config(
 
     if admins.is_empty() || threshold == 0 || threshold > admins.len() {
         return Err(GovernanceError::InvalidMultisigConfig);
+    }
+    // A duplicated admin inflates `admins.len()` without adding an approver,
+    // which can make the threshold unreachable.
+    for (i, admin) in admins.iter().enumerate() {
+        if admins.iter().skip(i + 1).any(|other| other == admin) {
+            return Err(GovernanceError::InvalidMultisigConfig);
+        }
     }
 
     let config = MultisigConfig { admins, threshold };

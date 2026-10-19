@@ -286,3 +286,11 @@ mod unit {
         assert_eq!(back.flags, 0xFF);
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    PackError => stellarlend_errors::domains::LENDING_STORAGE_PACK;
+    BpsFieldOverflow => Overflow, "A basis-point value does not fit the 16-bit packed field";
+    TimestampOverflow => Overflow, "Timestamp does not fit the 40-bit packed field";
+}

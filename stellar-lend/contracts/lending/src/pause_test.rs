@@ -88,6 +88,36 @@ fn test_global_pause() {
 }
 
 #[test]
+fn test_emergency_pause_controls_all_operations() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LendingContract, ());
+    let client = LendingContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let collateral_asset = Address::generate(&env);
+
+    client.initialize(&admin, &1_000_000_000, &1000);
+    client.emergency_pause(&admin, &true);
+
+    assert_eq!(
+        client.try_borrow(&user, &asset, &10_000, &collateral_asset, &20_000),
+        Err(Ok(BorrowError::ProtocolPaused))
+    );
+    assert_eq!(
+        client.try_deposit(&user, &asset, &10_000),
+        Err(Ok(DepositError::DepositPaused))
+    );
+    assert_eq!(
+        client.try_withdraw(&user, &asset, &10_000),
+        Err(Ok(WithdrawError::WithdrawPaused))
+    );
+
+    client.emergency_pause(&admin, &false);
+}
+
+#[test]
 #[should_panic(expected = "HostError: Error(Contract, #6)")]
 fn test_set_pause_unauthorized_address() {
     let env = Env::default();

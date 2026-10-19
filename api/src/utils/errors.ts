@@ -1,12 +1,34 @@
+/**
+ * Stable, machine-readable error codes returned in `error.code`.
+ *
+ * The enum value is the wire string, so renaming a member is a breaking change
+ * for clients. Add new codes here rather than inlining string literals.
+ * See `api/docs/ERROR_TAXONOMY.md` for the code → HTTP status mapping.
+ */
 export enum ErrorCode {
+  // Request and input problems (4xx)
   VALIDATION_ERROR = 'VALIDATION_ERROR',
-  INSUFFICIENT_BALANCE = 'INSUFFICIENT_BALANCE',
-  CONTRACT_ERROR = 'CONTRACT_ERROR',
-  NETWORK_ERROR = 'NETWORK_ERROR',
-  RATE_LIMITED = 'RATE_LIMITED',
+  PAYLOAD_TOO_LARGE = 'PAYLOAD_TOO_LARGE',
   UNAUTHORIZED = 'UNAUTHORIZED',
   NOT_FOUND = 'NOT_FOUND',
   CONFLICT = 'CONFLICT',
+  RATE_LIMITED = 'RATE_LIMITED',
+
+  // Protocol and funds
+  INSUFFICIENT_BALANCE = 'INSUFFICIENT_BALANCE', // reserved, not yet emitted
+  CONTRACT_ERROR = 'CONTRACT_ERROR',
+
+  // Compliance gate (403)
+  SANCTIONED_ADDRESS = 'SANCTIONED_ADDRESS',
+  OFAC_MATCH = 'OFAC_MATCH',
+  KYC_REQUIRED = 'KYC_REQUIRED',
+  RESTRICTED_JURISDICTION = 'RESTRICTED_JURISDICTION',
+  LIMIT_EXCEEDED = 'LIMIT_EXCEEDED',
+  AML_HIGH_RISK = 'AML_HIGH_RISK',
+  AML_CRITICAL = 'AML_CRITICAL',
+
+  // Upstream and server problems (5xx)
+  NETWORK_ERROR = 'NETWORK_ERROR',
   INTERNAL_SERVER_ERROR = 'INTERNAL_SERVER_ERROR',
 }
 
@@ -66,7 +88,7 @@ export class ConflictError extends ApiError {
 
 export class PayloadTooLargeError extends ApiError {
   constructor(message = 'Request body too large') {
-    super(413, message, ErrorCode.VALIDATION_ERROR);
+    super(413, message, ErrorCode.PAYLOAD_TOO_LARGE);
     Object.setPrototypeOf(this, PayloadTooLargeError.prototype);
   }
 }

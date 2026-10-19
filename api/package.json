@@ -1,7 +1,7 @@
 {
   "name": "stellarlend-api",
   "version": "1.0.0",
-  "description": "REST API for StellarLend core lending operations",
+  "description": "REST for StellarLend core lending operations",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
@@ -26,6 +26,13 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.46.0",
+    "@opentelemetry/instrumentation": "^0.46.0",
+    "@opentelemetry/instrumentation-express": "^0.46.0",
+    "@opentelemetry/instrumentation-http": "^0.46.0",
+    "@opentelemetry/resources": "^1.9.0",
+    "@opentelemetry/sdk-node": "^1.9.0",
     "@stellar/stellar-sdk": "^14.5.0",
     "@types/ws": "^8.18.1",
     "axios": "^1.6.2",
@@ -40,9 +47,11 @@
     "helmet": "^7.1.0",
     "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.2",
+    "prom-client": "^15.1.2",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
     "uuid": "^9.0.1",
+    "web-push": "^3.6.7",
     "winston": "^3.11.0",
     "ws": "^8.20.0"
   },
@@ -63,6 +72,7 @@
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
     "@types/uuid": "^10.0.0",
+    "@types/web-push": "^3.6.4",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
     "eslint": "^8.56.0",

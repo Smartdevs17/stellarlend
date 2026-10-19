@@ -1,0 +1,37 @@
+# Governance Proposal Template: Feature Activation (#1451)
+# Use this template to propose enabling new protocol features
+
+title = "Activate [Feature Name]"
+description = """
+## Feature Overview
+Description of the feature being proposed.
+
+## Benefits
+How this feature benefits the protocol and users.
+
+## Implementation Status
+- Audit: [Completed/In Progress/Pending]
+- Testing: [Percentage Coverage]
+- Security Review: [Status]
+
+## Activation Plan
+Steps for safe activation and monitoring.
+
+## Rollback Plan
+Strategy if issues arise after activation.
+"""
+
+[proposal]
+type = "feature_activation"
+priority = "high"
+quorum_percentage = 50
+
+[feature]
+name = "feature_name"
+contract_address = "C..."
+activation_delay_blocks = 0
+
+[security]
+audited = false
+audit_reports = []
+testing_coverage_percentage = 0

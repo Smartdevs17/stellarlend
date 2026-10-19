@@ -182,6 +182,13 @@ pub fn flash_loan(
     }
     append_liquidity_observation(env, &asset, final_balance)?;
 
+    // Accumulated fees are a lazy pool field (#1046): the slot is created by
+    // the first fee-bearing flash loan rather than at pool creation.
+    if fee > 0 {
+        crate::lazy::add(env, crate::lazy::LazyField::AccumulatedFees, fee)
+            .map_err(|_| FlashLoanError::Overflow)?;
+    }
+
     FlashLoanEvent {
         receiver: receiver.clone(),
         asset: asset.clone(),
@@ -449,4 +456,22 @@ fn deviation_bps(reference: i128, observed: i128) -> Result<i128, FlashLoanError
             .ok_or(FlashLoanError::Overflow)?
     };
     ratio_bps(diff, reference)
+}
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    FlashLoanError => stellarlend_errors::domains::LENDING_FLASH_LOAN;
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    InsufficientRepayment => Insufficient, "Insufficient repayment";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    InvalidFee => InvalidInput, "Invalid fee";
+    CallbackFailed => Internal, "Callback failed", FixInput;
+    Reentrancy => Reentrancy, "Reentrant call blocked";
+    FlashLoanPaused => Paused, "Flash loan operations are currently paused";
+    FlashLoanLimitExceeded => LimitExceeded, "Loan exceeds configured liquidity-relative limits";
+    PriceImpactTooHigh => LimitExceeded, "Loan would create excessive price impact", AdjustTolerance;
+    TwapDeviationExceeded => LimitExceeded, "Liquidity moved too far from its rolling TWAP reference", AdjustTolerance;
+    ConcurrentFlashLoan => InvalidState, "A loan for this asset is already in progress", RetryLater;
+    Overflow => Overflow, "Arithmetic overflow during security checks";
 }

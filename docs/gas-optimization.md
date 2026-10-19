@@ -69,6 +69,16 @@ The PR gas gate is `.github/workflows/gas-report.yml` (see
 The comparison gate flags a regression if either path exceeds the budget in
 `benchmarks/baseline.json` by the configured threshold.
 
+## Before you ship an optimization
+
+Removing work and changing behaviour look the same in a diff. If you intend to
+submit a gas optimization as a competition entry, `scripts/gas-golf` will diff
+your implementation against the maintainer reference over a fixed vector set at
+a tolerance of exactly `0`, and a divergence keeps it off the board regardless of
+its instruction count — `submissions/collapsed-division.ts` is the worked
+example of a change that halves a division and flips a liquidation boundary from
+exactly `10000` to `10007`. See `scripts/gas-golf/README.md`.
+
 ## Gas comparison (with vs without optimization)
 
 | Path | Without guard | With guard |

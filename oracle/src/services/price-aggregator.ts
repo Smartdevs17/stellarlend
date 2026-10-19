@@ -242,54 +242,70 @@ export class PriceAggregator {
   /**
    * Aggregation mode: query all providers and collect every valid price for
    * weighted-median aggregation.
+   *
+   * Runs in three phases so that no single provider can anchor the others:
+   *
+   *   1. Fetch every available provider's quote (transport failures recorded
+   *      against that provider's circuit breaker).
+   *   2. Screen the round against its own median, dropping quotes that disagree
+   *      with the consensus by more than the validator's deviation threshold.
+   *   3. Validate the survivors, most consensus-aligned first.
+   *
+   * Phases 2 and 3 are separate on purpose. `PriceValidator` keeps a
+   * last-accepted price per asset as its drift reference, so whichever quote it
+   * sees first in a round becomes the yardstick for that quote's peers. Handing
+   * it raw quotes in provider-priority order let a single outlier — a
+   * misconfigured or compromised primary — set the reference and get an honest
+   * majority rejected as "deviating", leaving its own price as the aggregate.
+   * Screening against the median first means the reference is always a quote
+   * the round agreed on.
    */
   private async fetchFromAllProviders(asset: string): Promise<PriceData[]> {
-    const validPrices: PriceData[] = [];
+    const quotes: { provider: BasePriceProvider; raw: RawPriceData }[] = [];
     const errors: Map<string, Error> = new Map();
 
+    // ── Phase 1: collect quotes ───────────────────────────────────────────
     for (const provider of this.providers) {
+      const circuitBreaker = this.circuitBreakers.get(provider.name);
+
+      // Check circuit breaker state
+      if (circuitBreaker && !circuitBreaker.isAllowed()) {
+        logger.warn(`Circuit breaker OPEN for ${provider.name}, skipping`);
+        continue;
+      }
+
       try {
-        const circuitBreaker = this.circuitBreakers.get(provider.name);
-
-        // Check circuit breaker state
-        if (circuitBreaker && !circuitBreaker.isAllowed()) {
-          logger.warn(`Circuit breaker OPEN for ${provider.name}, skipping`);
-          continue;
-        }
-
-        const rawPrice = await provider.fetchPrice(asset);
-        const validation = this.validator.validate(rawPrice);
-
-        if (validation.isValid && validation.price) {
-          validPrices.push(validation.price);
-
-          // Record success for circuit breaker
-          if (circuitBreaker) {
-            circuitBreaker.recordSuccess();
-          }
-
-          logger.debug(`Got valid price from ${provider.name} for ${asset}`, {
-            price: validation.price.price.toString(),
-          });
-        } else {
-          // Record failure for circuit breaker
-          if (circuitBreaker) {
-            circuitBreaker.recordFailure();
-          }
-
-          logger.warn(`Invalid price from ${provider.name} for ${asset}`, {
-            errors: validation.errors,
-          });
-        }
+        quotes.push({ provider, raw: await provider.fetchPrice(asset) });
       } catch (error) {
         // Record failure for circuit breaker
-        const circuitBreaker = this.circuitBreakers.get(provider.name);
-        if (circuitBreaker) {
-          circuitBreaker.recordFailure();
-        }
-
+        circuitBreaker?.recordFailure();
         errors.set(provider.name, error instanceof Error ? error : new Error(String(error)));
         logger.warn(`Provider ${provider.name} failed for ${asset}`, { error });
+      }
+    }
+
+    // ── Phase 2: screen against round consensus ───────────────────────────
+    const accepted = this.screenAgainstConsensus(asset, quotes);
+
+    // ── Phase 3: validate survivors, most consensus-aligned first ─────────
+    const validPrices: PriceData[] = [];
+
+    for (const { provider, raw } of accepted) {
+      const circuitBreaker = this.circuitBreakers.get(provider.name);
+      const validation = this.validator.validate(raw);
+
+      if (validation.isValid && validation.price) {
+        validPrices.push(validation.price);
+        circuitBreaker?.recordSuccess();
+
+        logger.debug(`Got valid price from ${provider.name} for ${asset}`, {
+          price: validation.price.price.toString(),
+        });
+      } else {
+        circuitBreaker?.recordFailure();
+        logger.warn(`Invalid price from ${provider.name} for ${asset}`, {
+          errors: validation.errors,
+        });
       }
     }
 
@@ -300,6 +316,64 @@ export class PriceAggregator {
     }
 
     return validPrices;
+  }
+
+  /**
+   * Drop quotes that disagree with the round's median by more than the
+   * validator's deviation threshold, and order the survivors by how closely
+   * they track that median.
+   *
+   * The median is used rather than the mean because it does not move with an
+   * outlier: with three quotes, one arbitrarily wrong value cannot shift it.
+   * A rejected quote is recorded as a circuit-breaker failure, so a provider
+   * that persistently disagrees with its peers is eventually taken out of
+   * rotation rather than screened out afresh on every round.
+   *
+   * Rounds of one or two quotes are passed through untouched — with no third
+   * opinion there is no majority to appeal to, and the validator's own
+   * cross-round drift check remains the backstop.
+   */
+  private screenAgainstConsensus(
+    asset: string,
+    quotes: { provider: BasePriceProvider; raw: RawPriceData }[]
+  ): { provider: BasePriceProvider; raw: RawPriceData }[] {
+    if (quotes.length < 3) {
+      return quotes;
+    }
+
+    const sorted = [...quotes].sort((a, b) => a.raw.price - b.raw.price);
+    const mid = Math.floor(sorted.length / 2);
+    const median =
+      sorted.length % 2 === 0
+        ? (sorted[mid - 1]!.raw.price + sorted[mid]!.raw.price) / 2
+        : sorted[mid]!.raw.price;
+
+    if (median <= 0) {
+      return quotes;
+    }
+
+    const threshold = this.validator.maxDeviationPercent;
+    const scored = quotes.map((quote) => ({
+      quote,
+      deviation: Math.abs((quote.raw.price - median) / median) * 100,
+    }));
+
+    const kept = scored.filter((entry) => {
+      if (entry.deviation <= threshold) {
+        return true;
+      }
+
+      logger.warn(`Quote from ${entry.quote.provider.name} disagrees with consensus for ${asset}`, {
+        price: entry.quote.raw.price,
+        consensusMedian: median,
+        deviationPercent: entry.deviation,
+        maxDeviationPercent: threshold,
+      });
+      this.circuitBreakers.get(entry.quote.provider.name)?.recordFailure();
+      return false;
+    });
+
+    return kept.sort((a, b) => a.deviation - b.deviation).map((entry) => entry.quote);
   }
 
   /**

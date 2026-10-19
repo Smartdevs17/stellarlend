@@ -3,13 +3,36 @@ use crate::cache::CacheService;
 use crate::config::Config;
 use crate::error::{IndexerError, IndexerResult};
 use crate::models::{EventUpdate, UpdateType};
+use crate::metrics::IndexingMetrics;
 use crate::parser::EventParser;
 use crate::repository::EventRepository;
 use ethers::prelude::*;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::time::{sleep, Duration};
+use tokio::time::{sleep, Duration, Instant};
 use tracing::{debug, error, info, warn};
+
+fn backfill_resume_block(from_block: u64, last_indexed: i64) -> u64 {
+    if last_indexed < from_block as i64 {
+        from_block
+    } else {
+        (last_indexed as u64).saturating_add(1)
+    }
+}
+
+fn backfill_batch_end(batch_start: u64, batch_size: u64, to_block: u64) -> u64 {
+    batch_start
+        .saturating_add(batch_size.max(1).saturating_sub(1))
+        .min(to_block)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackfillResult {
+    pub from_block: u64,
+    pub to_block: u64,
+    pub resumed_from_block: u64,
+    pub indexed_events: usize,
+}
 
 /// Indexer service that monitors the blockchain and indexes events
 pub struct IndexerService {
@@ -30,6 +53,9 @@ pub struct IndexerService {
 
     /// Current indexing state
     is_running: Arc<RwLock<bool>>,
+
+    /// Throughput and backlog metrics shared with monitoring endpoints.
+    metrics: Arc<IndexingMetrics>,
 }
 
 impl IndexerService {
@@ -58,6 +84,7 @@ impl IndexerService {
             cache: Arc::new(RwLock::new(cache)),
             config,
             is_running: Arc::new(RwLock::new(false)),
+            metrics: Arc::new(IndexingMetrics::new(10_000)),
         })
     }
 
@@ -135,15 +162,21 @@ impl IndexerService {
 
                 // Process in batches
                 let mut batch_start = from_block;
+                let batch_size = self.config.indexer.batch_size.max(1);
                 while batch_start <= to_block {
                     let batch_end =
                         std::cmp::min(batch_start + self.config.indexer.batch_size - 1, to_block);
+                    let batch_started = Instant::now();
 
                     match self
                         .index_block_range(&metadata.contract_address, batch_start, batch_end)
                         .await
                     {
                         Ok(count) => {
+                            self.metrics.record_batch(
+                                count as u64,
+                                batch_started.elapsed().as_millis() as u64,
+                            );
                             info!(
                                 "Indexed {} events for {} from blocks {}-{}",
                                 count, metadata.contract_address, batch_start, batch_end
@@ -155,6 +188,7 @@ impl IndexerService {
                                 .await?;
                         }
                         Err(e) => {
+                            self.metrics.record_error();
                             error!(
                                 "Failed to index blocks {}-{} for {}: {}",
                                 batch_start, batch_end, metadata.contract_address, e
@@ -182,9 +216,20 @@ impl IndexerService {
                         }
                     }
 
-                    batch_start = batch_end + 1;
+                    batch_start = batch_end.saturating_add(1);
                 }
             }
+
+            let oldest_indexed = self
+                .repository
+                .get_active_metadata()
+                .await?
+                .into_iter()
+                .map(|metadata| metadata.last_indexed_block)
+                .min()
+                .unwrap_or(current_block);
+            self.metrics
+                .update_backlog(current_block.saturating_sub(oldest_indexed));
 
             // Wait before next poll
             sleep(Duration::from_secs(self.config.indexer.poll_interval)).await;
@@ -198,6 +243,11 @@ impl IndexerService {
         let mut is_running = self.is_running.write().await;
         *is_running = false;
         info!("Stopping indexer service");
+    }
+
+    /// Return a point-in-time snapshot for health and performance reporting.
+    pub fn metrics(&self) -> crate::metrics::MetricsSnapshot {
+        self.metrics.snapshot()
     }
 
     /// Index events in a specific block range for a contract
@@ -264,7 +314,10 @@ impl IndexerService {
             let mut cache = self.cache.write().await;
             cache.invalidate_queries().await?;
             cache.invalidate_stats().await?;
-            cache.set_latest_block(to_block).await?;
+            let latest_block = cache.get_latest_block().await?.unwrap_or(0);
+            cache
+                .set_latest_block(latest_block.max(to_block))
+                .await?;
 
             // Publish real-time updates if enabled
             if self.config.indexer.enable_realtime {
@@ -318,26 +371,18 @@ impl IndexerService {
         // Delete events from reorg block onwards
         let deleted = self
             .repository
-            .delete_events_from_block(reorg_block)
+            .rollback_from_block(reorg_block)
             .await?;
 
         info!("Deleted {} events due to reorg", deleted);
 
-        // Update metadata for affected contracts
-        let metadata_list = self.repository.get_active_metadata().await?;
-
-        for metadata in metadata_list {
-            if metadata.last_indexed_block >= reorg_block as i64 {
-                self.repository
-                    .update_metadata(&metadata.contract_address, reorg_block - 1)
-                    .await?;
-            }
-        }
+        self.repository.refresh_event_statistics().await?;
 
         // Invalidate all caches
         let mut cache = self.cache.write().await;
         cache.invalidate_queries().await?;
         cache.invalidate_stats().await?;
+        cache.set_latest_block(reorg_block.saturating_sub(1)).await?;
 
         Ok(())
     }
@@ -345,5 +390,31 @@ impl IndexerService {
     /// Get service status
     pub async fn is_running(&self) -> bool {
         *self.is_running.read().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{backfill_batch_end, backfill_resume_block};
+
+    #[test]
+    fn backfill_resumes_after_last_committed_batch() {
+        assert_eq!(backfill_resume_block(100, 99), 100);
+        assert_eq!(backfill_resume_block(100, 199), 200);
+        assert_eq!(backfill_resume_block(0, -1), 0);
+    }
+
+    #[test]
+    fn backfill_batches_cover_the_requested_inclusive_range() {
+        let (from, to, size) = (10, 25, 8);
+        let mut batches = Vec::new();
+        let mut start = from;
+        while start <= to {
+            let end = backfill_batch_end(start, size, to);
+            batches.push((start, end));
+            start = end + 1;
+        }
+        assert_eq!(batches, vec![(10, 17), (18, 25)]);
+        assert_eq!(backfill_batch_end(25, 0, 25), 25);
     }
 }

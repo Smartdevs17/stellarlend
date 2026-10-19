@@ -24,3 +24,6 @@ strip = "symbols"
 lto = true
 panic = "abort"
 codegen-units = 1
+
+[lints]
+workspace = true

@@ -18,3 +18,6 @@ stellarlend-common = { path = "../common", features = ["testutils"] }
 
 [features]
 testutils = ["soroban-sdk/testutils"]
+
+[lints]
+workspace = true

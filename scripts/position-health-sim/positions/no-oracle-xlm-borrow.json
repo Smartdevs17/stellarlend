@@ -1,0 +1,9 @@
+{
+  "name": "no-oracle-xlm-borrow",
+  "description": "The same shape as healthy-xlm-borrow, but the pool has no oracle configured. The contract reports a health factor of 0 and returns 0 from get_max_liquidatable_amount, so no liquidation can proceed. The simulator has to reproduce that rather than report a comfortable 2.0x.",
+  "oraclePresent": false,
+  "collateral": [
+    { "asset": "XLM", "amount": "20000", "price": "100000000" }
+  ],
+  "debt": { "asset": "USDC", "amount": "8000", "price": "100000000" }
+}

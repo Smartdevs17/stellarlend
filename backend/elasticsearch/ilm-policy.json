@@ -1,0 +1,34 @@
+{
+  "policy": {
+    "_meta": {
+      "description": "StellarLend contract events: hot for recent queries, warm/cold for history, deleted from the search tier after a year. The API's gzip NDJSON archive (EVENT_ARCHIVE_DIR) remains the long-term system of record."
+    },
+    "phases": {
+      "hot": {
+        "actions": {
+          "rollover": { "max_age": "7d", "max_primary_shard_size": "30gb" },
+          "set_priority": { "priority": 100 }
+        }
+      },
+      "warm": {
+        "min_age": "30d",
+        "actions": {
+          "forcemerge": { "max_num_segments": 1 },
+          "shrink": { "number_of_shards": 1 },
+          "set_priority": { "priority": 50 }
+        }
+      },
+      "cold": {
+        "min_age": "90d",
+        "actions": {
+          "set_priority": { "priority": 0 },
+          "readonly": {}
+        }
+      },
+      "delete": {
+        "min_age": "365d",
+        "actions": { "delete": {} }
+      }
+    }
+  }
+}

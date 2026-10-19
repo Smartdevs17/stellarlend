@@ -113,9 +113,10 @@ pub fn wrap_deposit_to_lp(
     }
 
     // Record the AMM protocol for this asset
-    env.storage()
-        .persistent()
-        .set(&AmmLendingKey::AmmProtocolForAsset(asset.clone()), &amm_protocol);
+    env.storage().persistent().set(
+        &AmmLendingKey::AmmProtocolForAsset(asset.clone()),
+        &amm_protocol,
+    );
 
     // Simulated LP token mint (in production, would call AMM add_liquidity)
     let lp_tokens_received = amount; // Simplified: 1:1 for accounting
@@ -249,9 +250,10 @@ pub fn calculate_optimal_allocation(
         .unwrap_or(0);
 
     // Store utilization for rebalancing triggers
-    env.storage()
-        .persistent()
-        .set(&AmmLendingKey::PoolUtilization(asset.clone()), &utilization_bps);
+    env.storage().persistent().set(
+        &AmmLendingKey::PoolUtilization(asset.clone()),
+        &utilization_bps,
+    );
 
     let suggested_allocation_bps: i128;
     let reason: String;
@@ -259,7 +261,10 @@ pub fn calculate_optimal_allocation(
     if utilization_bps > AUTO_ALLOCATION_UTILIZATION_THRESHOLD_BPS {
         // High utilization: reduce AMM allocation, keep funds in lending pool
         suggested_allocation_bps = BPS_SCALE - utilization_bps;
-        reason = String::from_str(&env, "High pool utilization — prioritizing lending liquidity");
+        reason = String::from_str(
+            &env,
+            "High pool utilization — prioritizing lending liquidity",
+        );
     } else if utilization_bps < AUTO_ALLOCATION_UTILIZATION_THRESHOLD_BPS / 2 {
         // Low utilization: increase AMM allocation
         suggested_allocation_bps = DEFAULT_WITHDRAWAL_BUFFER_BPS;
@@ -267,7 +272,10 @@ pub fn calculate_optimal_allocation(
     } else {
         // Moderate utilization: maintain default buffer
         suggested_allocation_bps = DEFAULT_WITHDRAWAL_BUFFER_BPS;
-        reason = String::from_str(&env, "Moderate utilization — maintaining default allocation");
+        reason = String::from_str(
+            &env,
+            "Moderate utilization — maintaining default allocation",
+        );
     }
 
     Ok(AllocationSuggestion {
@@ -395,7 +403,11 @@ pub fn update_il_tracking(
     current_price: i128,
 ) -> Result<bool, AmmError> {
     let key = AmmLendingKey::IlTracking(asset.clone());
-    let mut snapshot: IlSnapshot = env.storage().persistent().get(&key).ok_or(AmmError::InvalidSwapParams)?;
+    let mut snapshot: IlSnapshot = env
+        .storage()
+        .persistent()
+        .get(&key)
+        .ok_or(AmmError::InvalidSwapParams)?;
 
     snapshot.current_price = current_price;
 
@@ -545,7 +557,9 @@ pub fn optimize_allocation(
 
     // Yield improvement estimate: moving from current to optimal
     let yield_improvement = if avg_utilization < OPTIMAL_UTILIZATION_BPS {
-        (OPTIMAL_UTILIZATION_BPS - avg_utilization).checked_div(100).unwrap_or(0)
+        (OPTIMAL_UTILIZATION_BPS - avg_utilization)
+            .checked_div(100)
+            .unwrap_or(0)
     } else {
         0
     };
@@ -560,11 +574,7 @@ pub fn optimize_allocation(
 /// Update the utilization snapshot for a pool.
 ///
 /// Should be called whenever deposits/withdrawals/borrows change pool state.
-pub fn update_pool_utilization(
-    env: &Env,
-    asset: &Address,
-    utilization_bps: i128,
-) {
+pub fn update_pool_utilization(env: &Env, asset: &Address, utilization_bps: i128) {
     let key = AmmLendingKey::PoolUtilization(asset.clone());
     env.storage().persistent().set(&key, &utilization_bps);
 }
@@ -694,9 +704,7 @@ pub fn create_yield_strategy(
         .unwrap_or(0)
         .saturating_add(1);
 
-    env.storage()
-        .persistent()
-        .set(&counter_key, &strategy_id);
+    env.storage().persistent().set(&counter_key, &strategy_id);
 
     let strategy = YieldStrategy {
         strategy_id,
@@ -710,19 +718,16 @@ pub fn create_yield_strategy(
         total_compounded: 0,
     };
 
-    env.storage()
-        .persistent()
-        .set(&YieldStrategyKey::Strategy(admin.clone(), strategy_id), &strategy);
+    env.storage().persistent().set(
+        &YieldStrategyKey::Strategy(admin.clone(), strategy_id),
+        &strategy,
+    );
 
     Ok(strategy_id)
 }
 
 /// Retrieve a previously created strategy.
-pub fn get_yield_strategy(
-    env: &Env,
-    admin: &Address,
-    strategy_id: u64,
-) -> Option<YieldStrategy> {
+pub fn get_yield_strategy(env: &Env, admin: &Address, strategy_id: u64) -> Option<YieldStrategy> {
     env.storage()
         .persistent()
         .get(&YieldStrategyKey::Strategy(admin.clone(), strategy_id))
@@ -763,11 +768,7 @@ pub fn set_yield_strategy_active(
 /// 4. Updates `last_compounded_at` and `total_compounded` on the strategy.
 ///
 /// Returns the total amount of LP fees compounded across all pools.
-pub fn harvest_and_compound(
-    env: &Env,
-    admin: Address,
-    strategy_id: u64,
-) -> Result<i128, AmmError> {
+pub fn harvest_and_compound(env: &Env, admin: Address, strategy_id: u64) -> Result<i128, AmmError> {
     require_amm_admin(env, &admin)?;
 
     let key = YieldStrategyKey::Strategy(admin.clone(), strategy_id);
@@ -874,8 +875,8 @@ pub fn score_yield_strategy(
     // Objective-weighted composite score.
     let (apy_weight, il_weight) = match strategy.objective {
         YieldStrategyObjective::MaximizeApy => (8_000i128, 2_000i128),
-        YieldStrategyObjective::MinimizeIl  => (2_000i128, 8_000i128),
-        YieldStrategyObjective::Balanced    => (5_000i128, 5_000i128),
+        YieldStrategyObjective::MinimizeIl => (2_000i128, 8_000i128),
+        YieldStrategyObjective::Balanced => (5_000i128, 5_000i128),
     };
 
     let composite_score_bps = (estimated_apy_bps

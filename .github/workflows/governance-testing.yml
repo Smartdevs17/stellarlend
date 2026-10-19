@@ -1,0 +1,120 @@
+name: Governance Testing
+
+# Issue #690 – Governance lifecycle integration tests + gas benchmarks.
+#
+# Covers:
+#   - Proposal lifecycle E2E (create → vote → queue → execute/cancel)
+#   - Quorum / threshold / timelock gating
+#   - Governance gas benchmarks (governance_benchmarks.rs)
+
+on:
+  push:
+    branches: ["main", "dev", "feat/**"]
+    paths:
+      - "tests/e2e/governance.e2e.test.ts"
+      - "tests/e2e/scenarios/harness.ts"
+      - "stellar-lend/benchmarks/src/governance_benchmarks.rs"
+      - "stellar-lend/contracts/hello-world/src/governance/**"
+      - ".github/workflows/governance-testing.yml"
+  pull_request:
+    branches: ["main", "dev"]
+    paths:
+      - "tests/e2e/governance.e2e.test.ts"
+      - "tests/e2e/scenarios/harness.ts"
+      - "stellar-lend/benchmarks/src/governance_benchmarks.rs"
+      - "stellar-lend/contracts/hello-world/src/governance/**"
+      - ".github/workflows/governance-testing.yml"
+  schedule:
+    - cron: "0 5 * * *" # Nightly governance run
+  workflow_dispatch:
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 1: Governance lifecycle E2E suite (tests/e2e)
+  # ─────────────────────────────────────────────────────────────────────────────
+  governance-e2e:
+    name: Governance Lifecycle E2E
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install e2e dependencies
+        working-directory: tests/e2e
+        run: npm ci
+
+      - name: Run governance E2E suite with JSON report
+        working-directory: tests/e2e
+        run: npx jest --runInBand --forceExit --json --outputFile=governance-report.json governance.e2e.test.ts
+
+      - name: Upload governance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governance-e2e-report-${{ github.sha }}
+          path: tests/e2e/governance-report.json
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 2: Governance gas benchmarks (instruction budgets)
+  # ─────────────────────────────────────────────────────────────────────────────
+  governance-bench:
+    name: Governance Gas Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            stellar-lend/target
+          key: ${{ runner.os }}-gov-bench-${{ hashFiles('stellar-lend/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-gov-bench-
+
+      - name: Run benchmarks (governance group included)
+        working-directory: stellar-lend
+        run: cargo run --bin run_benchmarks -- --output governance-benchmark-results.json
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: governance-benchmark-results-${{ github.sha }}
+          path: |
+            stellar-lend/governance-benchmark-results.json
+            stellar-lend/governance-benchmark-results.md
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Gate – all governance jobs must pass
+  # ─────────────────────────────────────────────────────────────────────────────
+  governance-gate:
+    name: Governance Testing Gate
+    runs-on: ubuntu-latest
+    needs: [governance-e2e, governance-bench]
+    if: always()
+    steps:
+      - name: Evaluate gate
+        run: |
+          echo "governance-e2e: ${{ needs.governance-e2e.result }}"
+          echo "governance-bench: ${{ needs.governance-bench.result }}"
+
+          if [[ "${{ needs.governance-e2e.result }}"  != "success" ]] || \
+             [[ "${{ needs.governance-bench.result }}" != "success" ]]; then
+            echo "::error::Governance testing gate FAILED."
+            exit 1
+          fi
+
+          echo "Governance testing gate PASSED."

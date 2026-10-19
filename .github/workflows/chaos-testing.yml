@@ -1,0 +1,152 @@
+name: Chaos Testing
+
+# Issue #689 – Chaos engineering test suite for network failures.
+#
+# Covers:
+#   - Network partition simulation (tests/chaos/network-partition.test.ts)
+#   - RPC outage testing (tests/chaos/network-failures.test.ts)
+#   - Graceful degradation verification (tests/e2e/chaos-engineering.e2e.test.ts)
+#   - Recovery procedure automation (scripts/fuzz/run_chaos.sh)
+#   - Chaos test reporting (scripts/fuzz/chaos_report.sh → markdown artifact)
+
+on:
+  push:
+    branches: ["main", "dev", "feat/**"]
+    paths:
+      - "tests/chaos/**"
+      - "tests/e2e/chaos-engineering.e2e.test.ts"
+      - "scripts/fuzz/run_chaos.sh"
+      - "scripts/fuzz/chaos_report.sh"
+      - ".github/workflows/chaos-testing.yml"
+  pull_request:
+    branches: ["main", "dev"]
+    paths:
+      - "tests/chaos/**"
+      - "tests/e2e/chaos-engineering.e2e.test.ts"
+      - "scripts/fuzz/run_chaos.sh"
+      - "scripts/fuzz/chaos_report.sh"
+      - ".github/workflows/chaos-testing.yml"
+  schedule:
+    - cron: "0 4 * * *" # Nightly chaos run
+  workflow_dispatch:
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 1: Network partition + RPC outage suites (tests/chaos)
+  # ─────────────────────────────────────────────────────────────────────────────
+  chaos-unit:
+    name: Chaos Suites (partition + RPC)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install chaos dependencies
+        working-directory: tests/chaos
+        run: npm ci
+
+      - name: Run chaos suites with JSON report
+        working-directory: tests/chaos
+        run: npx jest --runInBand --forceExit --json --outputFile=chaos-report.json
+
+      - name: Generate chaos markdown report
+        if: always()
+        working-directory: tests/chaos
+        run: bash ../../scripts/fuzz/chaos_report.sh chaos-report.json chaos-report.md || true
+
+      - name: Upload chaos report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-report-${{ github.sha }}
+          path: |
+            tests/chaos/chaos-report.json
+            tests/chaos/chaos-report.md
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 2: Graceful degradation + recovery E2E (tests/e2e chaos suite)
+  # ─────────────────────────────────────────────────────────────────────────────
+  chaos-e2e:
+    name: Chaos E2E (degradation + recovery)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install e2e dependencies
+        working-directory: tests/e2e
+        run: npm ci
+
+      - name: Run chaos engineering E2E suite
+        working-directory: tests/e2e
+        run: npx jest --runInBand --forceExit --json --outputFile=e2e-chaos-report.json chaos-engineering.e2e.test.ts
+
+      - name: Upload E2E chaos report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-e2e-report-${{ github.sha }}
+          path: tests/e2e/e2e-chaos-report.json
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 3: Full recovery-procedure cycle via run_chaos.sh orchestrator
+  # ─────────────────────────────────────────────────────────────────────────────
+  chaos-recovery:
+    name: Recovery Procedure Automation
+    runs-on: ubuntu-latest
+    needs: [chaos-unit]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run recovery cycle
+        run: bash scripts/fuzz/run_chaos.sh recover
+
+      - name: Upload recovery report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-recovery-report-${{ github.sha }}
+          path: tests/chaos/chaos-report.md
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Gate – all chaos jobs must pass
+  # ─────────────────────────────────────────────────────────────────────────────
+  chaos-gate:
+    name: Chaos Testing Gate
+    runs-on: ubuntu-latest
+    needs: [chaos-unit, chaos-e2e, chaos-recovery]
+    if: always()
+    steps:
+      - name: Evaluate gate
+        run: |
+          echo "chaos-unit:     ${{ needs.chaos-unit.result }}"
+          echo "chaos-e2e:      ${{ needs.chaos-e2e.result }}"
+          echo "chaos-recovery: ${{ needs.chaos-recovery.result }}"
+
+          if [[ "${{ needs.chaos-unit.result }}"     != "success" ]] || \
+             [[ "${{ needs.chaos-e2e.result }}"      != "success" ]] || \
+             [[ "${{ needs.chaos-recovery.result }}" != "success" ]]; then
+            echo "::error::Chaos testing gate FAILED."
+            exit 1
+          fi
+
+          echo "Chaos testing gate PASSED."

@@ -1,33 +1,63 @@
-# Interest Rate Models
+# Interest Rate Model
 
-The lending contract now stores the active interest rate model in `InterestRateConfig.model`.
-Governance can switch the model with `update_interest_rate_model` while preserving the existing
-configuration parameters.
+Issue #1194. The borrow rate is a kinked curve over pool utilization, with every
+parameter configurable by the admin.
 
-## Models
+## Model
 
-| Model | Behavior |
-| --- | --- |
-| `Linear` | `base + utilization * slope` |
-| `Kink` | Piecewise linear. Uses `slope` below `kink_utilization_bps` and `jump_slope` above it. |
-| `Jump` | Linear slope across all utilization plus an additional jump slope above the kink. |
-| `Exponential` | Quadratic/cubic integer approximation for markets that need sharper high-utilization pricing. |
+```
+utilization = total_debt * 10_000 / debt_ceiling            (0 when either is 0)
 
-All calculations use basis points and checked integer arithmetic. The final borrow rate is clamped
-between `rate_floor_bps` and `rate_ceiling_bps`. The supply rate is derived from the borrow rate
-minus `spread_bps`, then clamped to the floor.
+borrow rate = base + utilization * slope / kink                       utilization <= kink
+            = base + slope + (utilization - kink) * jump_slope / (10_000 - kink)   above it
 
-## Migration Behavior
+borrow rate is clamped to [rate_floor, rate_ceiling]
+supply rate = max(borrow rate - spread, rate_floor)
+```
 
-Variable-rate positions are migrated lazily because they read the current model on each accrual.
-Stable-rate positions keep their stored `stable_rate_bps` snapshot, so switching models does not
-rewrite existing stable debt. New stable borrows use the active model at the time of borrow.
+All values are basis points per year.
 
-## Benchmarking
+| Parameter | Default | Allowed |
+|---|---|---|
+| `base_rate_bps` | 500 | 0 to 10_000 |
+| `kink_utilization_bps` | 8_000 | 1 to 9_999 |
+| `slope_bps` | 2_000 | >= 0 |
+| `jump_slope_bps` | 10_000 | >= 0 |
+| `rate_floor_bps` | 0 | 0 to 10_000, and <= `rate_ceiling_bps` |
+| `rate_ceiling_bps` | 10_000 | 0 to 10_000 |
+| `spread_bps` | 200 | 0 to 10_000 |
 
-The benchmark suite includes model-switch measurements for all four pre-built models:
+With the defaults:
 
-- `lending::interest_rate_model_linear`
-- `lending::interest_rate_model_kink`
-- `lending::interest_rate_model_jump`
-- `lending::interest_rate_model_exponential`
+| Utilization | Borrow rate | Supply rate |
+|---|---|---|
+| 0% | 500 | 300 |
+| 40% | 500 + 4_000 * 2_000 / 8_000 = 1_500 | 1_300 |
+| 80% (kink) | 500 + 2_000 = 2_500 | 2_300 |
+| 90% | 2_500 + 1_000 * 10_000 / 2_000 = 7_500 | 7_300 |
+| 100% | 12_500, clamped to 10_000 | 9_800 |
+
+## Entry points
+
+| Function | Purpose |
+|---|---|
+| `get_interest_rate_config()` | Current parameters |
+| `set_interest_rate_config(admin, update)` | Change parameters (admin only); returns the new config |
+| `get_borrow_rate_bps()` / `get_supply_rate_bps()` | Current rates |
+| `get_utilization_bps()` | Current utilization |
+
+`update` is an `InterestRateConfigUpdate` whose fields are all `Option`: `None`
+leaves a parameter unchanged. The whole update is validated before anything is
+written, so an update with one invalid field changes nothing. Each change emits
+`RateConfigUpdatedEvent` with the caller as topic and the new parameters.
+
+To put rate changes under governance, set the protocol admin to the governance
+or timelock contract; `set_interest_rate_config` then only succeeds when that
+contract calls it.
+
+## Accrual
+
+Variable-rate debt accrues at the current borrow rate over the time since a
+position last updated. A rate change therefore also prices the part of that
+period that has not been accrued yet. Stable-rate positions keep the rate they
+borrowed at.

@@ -1,4 +1,4 @@
-use soroban_sdk::{contracterror, contracttype, Address, Env, String, Symbol};
+use soroban_sdk::{contracterror, contracttype, Address, Env, String, Symbol, Vec};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -586,10 +586,7 @@ fn record_sandwich_attack(
         .persistent()
         .get(&MevDataKey::SandwichLog)
         .unwrap_or_else(|| Vec::new(env));
-    let next_id = log
-        .last()
-        .map(|r| r.id.saturating_add(1))
-        .unwrap_or(1);
+    let next_id = log.last().map(|r| r.id.saturating_add(1)).unwrap_or(1);
 
     log.push_back(SandwichAttackRecord {
         id: next_id,
@@ -1186,7 +1183,7 @@ fn record_ordering_signal(
     let op_key = operation_symbol(env, &operation);
     let latest_key = MevDataKey::LatestObservation(op_key.clone(), asset.clone());
     let previous_key = MevDataKey::PreviousObservation(op_key.clone(), asset.clone());
-    let smoothed_key = MevDataKey::SmoothedFee(op_key, asset.clone());
+    let smoothed_key = MevDataKey::SmoothedFee(op_key.clone(), asset.clone());
     let now = env.ledger().timestamp();
     let latest: Option<OrderingObservation> = env.storage().persistent().get(&latest_key);
     let previous: Option<OrderingObservation> = env.storage().persistent().get(&previous_key);
@@ -1209,7 +1206,15 @@ fn record_ordering_signal(
         {
             stats.sandwich_alerts = stats.sandwich_alerts.saturating_add(1);
             stats.last_alert_timestamp = now;
-            record_sandwich_attack(env, now, actor.clone(), op_key.clone(), asset.clone(), amount, 2);
+            record_sandwich_attack(
+                env,
+                now,
+                actor.clone(),
+                op_key.clone(),
+                asset.clone(),
+                amount,
+                2,
+            );
         }
     }
 

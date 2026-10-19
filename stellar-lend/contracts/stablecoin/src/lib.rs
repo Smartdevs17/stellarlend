@@ -2,7 +2,37 @@
 #![allow(deprecated)]
 
 use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, IntoVal, Symbol, Val};
+
+/// Storage key for the reentrancy guard.
+#[contracttype]
+#[derive(Clone)]
+enum GuardKey {
+    ReentrancyLock,
+}
+
+/// RAII reentrancy guard. Panics on re-entry, auto-clears on drop.
+struct ReentrancyGuard<'a> {
+    env: &'a Env,
+}
+
+impl<'a> ReentrancyGuard<'a> {
+    fn new(env: &'a Env) -> Self {
+        let key: Val = GuardKey::ReentrancyLock.into_val(env);
+        if env.storage().temporary().has(&key) {
+            panic!("reentrancy detected");
+        }
+        env.storage().temporary().set(&key, &true);
+        Self { env }
+    }
+}
+
+impl<'a> Drop for ReentrancyGuard<'a> {
+    fn drop(&mut self) {
+        let key: Val = GuardKey::ReentrancyLock.into_val(self.env);
+        self.env.storage().temporary().remove(&key);
+    }
+}
 
 const BPS: i128 = 10_000;
 
@@ -29,6 +59,8 @@ pub enum DataKey {
     ReserveRatioBps,
     Shutdown,
     TotalCollateral,
+    UserCollateral(Address),
+    UserDebt(Address),
 }
 
 #[contracttype]
@@ -117,6 +149,66 @@ fn sub_total_collateral(env: &Env, amount: i128) -> Result<(), StablecoinError> 
     Ok(())
 }
 
+fn get_user_collateral(env: &Env, user: &Address) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::UserCollateral(user.clone()))
+        .unwrap_or(0)
+}
+
+fn add_user_collateral(env: &Env, user: &Address, amount: i128) -> Result<(), StablecoinError> {
+    let current = get_user_collateral(env, user);
+    let next = current
+        .checked_add(amount)
+        .ok_or(StablecoinError::Overflow)?;
+    env.storage()
+        .persistent()
+        .set(&DataKey::UserCollateral(user.clone()), &next);
+    Ok(())
+}
+
+fn sub_user_collateral(env: &Env, user: &Address, amount: i128) -> Result<(), StablecoinError> {
+    let current = get_user_collateral(env, user);
+    if amount > current {
+        return Err(StablecoinError::InsufficientCollateral);
+    }
+    env.storage()
+        .persistent()
+        .set(&DataKey::UserCollateral(user.clone()), &(current - amount));
+    Ok(())
+}
+
+fn get_user_debt(env: &Env, user: &Address) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::UserDebt(user.clone()))
+        .unwrap_or(0)
+}
+
+fn add_user_debt(env: &Env, user: &Address, amount: i128) -> Result<(), StablecoinError> {
+    let current = get_user_debt(env, user);
+    let next = current
+        .checked_add(amount)
+        .ok_or(StablecoinError::Overflow)?;
+    env.storage()
+        .persistent()
+        .set(&DataKey::UserDebt(user.clone()), &next);
+    Ok(())
+}
+
+fn sub_user_debt(env: &Env, user: &Address, amount: i128) -> Result<(), StablecoinError> {
+    let current = get_user_debt(env, user);
+    let next = if amount >= current {
+        0
+    } else {
+        current - amount
+    };
+    env.storage()
+        .persistent()
+        .set(&DataKey::UserDebt(user.clone()), &next);
+    Ok(())
+}
+
 #[contract]
 pub struct StablecoinContract;
 
@@ -202,6 +294,7 @@ impl StablecoinContract {
         user: Address,
         amount: i128,
     ) -> Result<(), StablecoinError> {
+        let _guard = ReentrancyGuard::new(&env);
         require_init(&env)?;
         user.require_auth();
         if is_shutdown(&env) {
@@ -218,6 +311,7 @@ impl StablecoinContract {
             &amount,
         );
         add_total_collateral(&env, amount)?;
+        add_user_collateral(&env, &user, amount)?;
 
         env.events()
             .publish((Symbol::new(&env, "collateral_deposited"), user), amount);
@@ -226,13 +320,15 @@ impl StablecoinContract {
 
     /// Mint stablecoin against deposited collateral using the configured fractional reserve ratio.
     ///
-    /// This implementation is intentionally conservative: users may mint up to
-    /// `collateral_amount * reserve_ratio_bps / 10_000`.
+    /// This implementation enforces both per-user collateral bounds and global reserve limits:
+    /// users may mint up to their individual unencumbered collateral capacity:
+    /// `user_collateral * reserve_ratio_bps / 10_000 - user_debt`.
     pub fn mint_from_collateral(
         env: Env,
         user: Address,
         collateral_amount: i128,
     ) -> Result<i128, StablecoinError> {
+        let _guard = ReentrancyGuard::new(&env);
         require_init(&env)?;
         user.require_auth();
         if is_shutdown(&env) {
@@ -240,6 +336,11 @@ impl StablecoinContract {
         }
         if collateral_amount <= 0 {
             return Err(StablecoinError::InvalidAmount);
+        }
+
+        let user_col = get_user_collateral(&env, &user);
+        if user_col <= 0 {
+            return Err(StablecoinError::InsufficientCollateral);
         }
 
         let rr = reserve_ratio_bps(&env)?;
@@ -252,7 +353,43 @@ impl StablecoinContract {
             return Err(StablecoinError::InvalidAmount);
         }
 
+        let user_debt = get_user_debt(&env, &user);
+        let max_user_debt = user_col
+            .checked_mul(rr)
+            .ok_or(StablecoinError::Overflow)?
+            / BPS;
+
+        let next_user_debt = user_debt
+            .checked_add(mint_amount)
+            .ok_or(StablecoinError::Overflow)?;
+
+        if next_user_debt > max_user_debt {
+            return Err(StablecoinError::InsufficientCollateral);
+        }
+
+        // Global reserve cap check
+        let total_collateral: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalCollateral)
+            .unwrap_or(0);
+        let max_supply = total_collateral
+            .checked_mul(rr)
+            .ok_or(StablecoinError::Overflow)?
+            / BPS;
+
         let stable = stablecoin_token(&env)?;
+        let stable_client = TokenClient::new(&env, &stable);
+        let current_supply = stable_client.total_supply();
+        let next_supply = current_supply
+            .checked_add(mint_amount)
+            .ok_or(StablecoinError::Overflow)?;
+        if next_supply > max_supply {
+            return Err(StablecoinError::InsufficientCollateral);
+        }
+
+        add_user_debt(&env, &user, mint_amount)?;
+
         StellarAssetClient::new(&env, &stable).mint(&user, &mint_amount);
 
         env.events().publish(
@@ -264,11 +401,15 @@ impl StablecoinContract {
     }
 
     /// Burn stablecoin and redeem proportional collateral.
+    ///
+    /// Redemption is strictly bounded by the caller's own deposited collateral,
+    /// preventing any unauthorized drainage of reserves belonging to other users.
     pub fn burn_and_redeem(
         env: Env,
         user: Address,
         burn_amount: i128,
     ) -> Result<i128, StablecoinError> {
+        let _guard = ReentrancyGuard::new(&env);
         require_init(&env)?;
         user.require_auth();
         if is_shutdown(&env) {
@@ -278,9 +419,37 @@ impl StablecoinContract {
             return Err(StablecoinError::InvalidAmount);
         }
 
-        // Simple redemption rule: 1:1 collateral payout, bounded by actual collateral held.
+        let user_col = get_user_collateral(&env, &user);
+        let user_debt = get_user_debt(&env, &user);
+
+        // Simple redemption rule: 1:1 collateral payout, strictly bounded by caller's own collateral.
         let collateral_out = burn_amount;
+        if collateral_out > user_col {
+            return Err(StablecoinError::InsufficientCollateral);
+        }
+
+        let remaining_col = user_col - collateral_out;
+        let new_debt = if burn_amount >= user_debt {
+            0
+        } else {
+            user_debt - burn_amount
+        };
+
+        // Ensure remaining collateral satisfies reserve ratio for any remaining debt
+        if new_debt > 0 {
+            let rr = reserve_ratio_bps(&env)?;
+            let max_allowed_debt = remaining_col
+                .checked_mul(rr)
+                .ok_or(StablecoinError::Overflow)?
+                / BPS;
+            if new_debt > max_allowed_debt {
+                return Err(StablecoinError::InsufficientCollateral);
+            }
+        }
+
         sub_total_collateral(&env, collateral_out)?;
+        sub_user_collateral(&env, &user, collateral_out)?;
+        sub_user_debt(&env, &user, burn_amount)?;
 
         let stable = stablecoin_token(&env)?;
         TokenClient::new(&env, &stable).burn(&user, &burn_amount);
@@ -300,6 +469,16 @@ impl StablecoinContract {
         Ok(collateral_out)
     }
 
+    pub fn get_user_collateral(env: Env, user: Address) -> Result<i128, StablecoinError> {
+        require_init(&env)?;
+        Ok(get_user_collateral(&env, &user))
+    }
+
+    pub fn get_user_debt(env: Env, user: Address) -> Result<i128, StablecoinError> {
+        require_init(&env)?;
+        Ok(get_user_debt(&env, &user))
+    }
+
     pub fn get_config(env: Env) -> Result<FractionalReserveConfig, StablecoinError> {
         Ok(FractionalReserveConfig {
             reserve_ratio_bps: reserve_ratio_bps(&env)?,
@@ -314,4 +493,121 @@ impl StablecoinContract {
             .get(&DataKey::TotalCollateral)
             .unwrap_or(0))
     }
+}
+
+#[cfg(test)]
+mod test {
+    use super::{FractionalReserveConfig, StablecoinContract, StablecoinContractClient, StablecoinError};
+    use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, Address, Env};
+
+    fn setup() -> (
+        Env,
+        Address,
+        Address,
+        Address,
+        StablecoinContractClient<'static>,
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let user = Address::generate(&env);
+        let contract_id = env.register(StablecoinContract, ());
+        let stablecoin = env.register_stellar_asset_contract(contract_id.clone());
+        let collateral = env.register_stellar_asset_contract(admin.clone());
+        let client = StablecoinContractClient::new(&env, &contract_id);
+
+        client.initialize(
+            &admin,
+            &stablecoin,
+            &collateral,
+            &FractionalReserveConfig {
+                reserve_ratio_bps: 2_000,
+            },
+        );
+
+        (env, admin, user, collateral, client)
+    }
+
+    #[test]
+    fn minting_is_capped_by_actual_reserve() {
+        let (env, _admin, user, collateral, client) = setup();
+        let collateral_client = StellarAssetClient::new(&env, &collateral);
+        collateral_client.mint(&user, &10);
+        client.deposit_collateral(&user, &10);
+
+        let oversized = client.try_mint_from_collateral(&user, &1_000_000);
+        assert_eq!(oversized, Err(Ok(StablecoinError::InsufficientCollateral)));
+
+        let minted = client.mint_from_collateral(&user, &10);
+        assert_eq!(minted, 2);
+
+        let repeated = client.try_mint_from_collateral(&user, &10);
+        assert_eq!(repeated, Err(Ok(StablecoinError::InsufficientCollateral)));
+    }
+
+    #[test]
+    fn zero_collateral_user_cannot_mint_against_other_deposits() {
+        let (env, _admin, alice, collateral, client) = setup();
+        let eve = Address::generate(&env);
+        let collateral_client = StellarAssetClient::new(&env, &collateral);
+
+        // Alice deposits 100 collateral
+        collateral_client.mint(&alice, &100);
+        client.deposit_collateral(&alice, &100);
+        assert_eq!(client.get_user_collateral(&alice), 100);
+        assert_eq!(client.get_user_collateral(&eve), 0);
+
+        // Eve (with 0 deposited collateral) cannot mint against Alice's collateral
+        let eve_mint = client.try_mint_from_collateral(&eve, &100);
+        assert_eq!(eve_mint, Err(Ok(StablecoinError::InsufficientCollateral)));
+
+        // Alice can mint up to her reserve ratio capacity (20% of 100 = 20)
+        let alice_mint = client.mint_from_collateral(&alice, &100);
+        assert_eq!(alice_mint, 20);
+        assert_eq!(client.get_user_debt(&alice), 20);
+
+        // Eve cannot burn and redeem collateral she did not deposit
+        let eve_redeem = client.try_burn_and_redeem(&eve, &20);
+        assert_eq!(eve_redeem, Err(Ok(StablecoinError::InsufficientCollateral)));
+    }
+
+    #[test]
+    fn user_debt_and_collateral_lifecycle() {
+        let (env, _admin, user, collateral, client) = setup();
+        let collateral_client = StellarAssetClient::new(&env, &collateral);
+        collateral_client.mint(&user, &100);
+        client.deposit_collateral(&user, &100);
+
+        assert_eq!(client.get_user_collateral(&user), 100);
+        assert_eq!(client.get_user_debt(&user), 0);
+
+        // Mint 20 stablecoins (20% of 100)
+        let minted = client.mint_from_collateral(&user, &100);
+        assert_eq!(minted, 20);
+        assert_eq!(client.get_user_debt(&user), 20);
+
+        // Cannot redeem all 100 collateral while 20 debt is outstanding
+        let invalid_redeem = client.try_burn_and_redeem(&user, &100);
+        assert_eq!(invalid_redeem, Err(Ok(StablecoinError::InsufficientCollateral)));
+
+        // Burn and redeem 20 stablecoins -> debt drops to 0, collateral drops to 80
+        let redeemed = client.burn_and_redeem(&user, &20);
+        assert_eq!(redeemed, 20);
+        assert_eq!(client.get_user_debt(&user), 0);
+        assert_eq!(client.get_user_collateral(&user), 80);
+    }
+}
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    StablecoinError => stellarlend_errors::domains::STABLECOIN;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    InvalidAmount => InvalidInput, "Amount is zero, negative, or out of range";
+    InvalidParameter => InvalidInput, "Parameter is invalid or out of range";
+    Overflow => Overflow, "Arithmetic overflow or underflow";
+    Shutdown => Paused, "Stablecoin system has been shut down";
+    InsufficientCollateral => Insufficient, "Collateral is insufficient for this position", AddCollateral;
 }

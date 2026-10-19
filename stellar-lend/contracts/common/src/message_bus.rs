@@ -182,3 +182,12 @@ pub fn get_message(env: &Env, id: u64) -> Option<BusMessage> {
         .unwrap_or(Map::new(env));
     messages.get(id)
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    MessageBusError => stellarlend_errors::domains::COMMON_MESSAGE_BUS;
+    MessageNotFound => NotFound, "Message not found";
+    AlreadyDelivered => AlreadyExists, "Already delivered";
+    RetryLimitExceeded => LimitExceeded, "Retry limit exceeded";
+}

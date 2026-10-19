@@ -1,121 +1,210 @@
 import { Router } from 'express';
-import * as eventsController from '../controllers/events.controller';
+import { eventsController } from '../controllers/events.controller';
+import { requireRole } from '../middleware/rbac';
 
 const router: Router = Router();
 
 /**
  * @openapi
- * /events/schema:
+ * /events:
  *   get:
- *     summary: Structured event schema catalog
+ *     summary: Query indexed contract events with filters
  *     description: >
- *       Machine-readable mirror of the on-chain event schema
- *       (`stellar-lend/contracts/hello-world/src/events.rs`). Returns the current
- *       schema version, the canonical module/action vocabularies, and the topic
- *       layout + field types of every emitted event, including the versioned
- *       `structured_event_v1` envelope.
- *     tags:
- *       - Events
- *     responses:
- *       200:
- *         description: The full event catalog
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 schemaVersion:
- *                   type: integer
- *                   example: 1
- *                 modules:
- *                   type: array
- *                   items:
- *                     type: string
- *                 actions:
- *                   type: array
- *                   items:
- *                     type: string
- *                 envelope:
- *                   type: string
- *                   example: structured_event_v1
- *                 events:
- *                   type: array
- *                   items:
- *                     type: object
- */
-router.get('/schema', eventsController.getSchema);
-
-/**
- * @openapi
- * /events/schema/{name}:
- *   get:
- *     summary: Single event definition
+ *       Returns a page of indexed contract events, newest first by default.
+ *       Filters combine with AND. Pass `nextCursor` back as `cursor` for the
+ *       next page. Set `includeArchived=true` to also search cold storage.
  *     tags:
  *       - Events
  *     parameters:
- *       - in: path
- *         name: name
- *         required: true
- *         schema:
- *           type: string
- *         description: Canonical event name, e.g. `structured_event_v1` or `deposit`
+ *       - { in: query, name: type, schema: { type: string }, description: 'Event type, e.g. deposit, liquidation, proto_evt' }
+ *       - { in: query, name: account, schema: { type: string }, description: 'Any address referenced by the event (alias: address)' }
+ *       - { in: query, name: contract, schema: { type: string } }
+ *       - { in: query, name: module, schema: { type: string }, description: 'Structured envelope module, e.g. lending' }
+ *       - { in: query, name: action, schema: { type: string }, description: 'Structured envelope action, e.g. borrow' }
+ *       - { in: query, name: from, schema: { type: string }, description: 'Epoch ms or ISO date (inclusive)' }
+ *       - { in: query, name: to, schema: { type: string }, description: 'Epoch ms or ISO date (inclusive)' }
+ *       - { in: query, name: fromLedger, schema: { type: integer } }
+ *       - { in: query, name: toLedger, schema: { type: integer } }
+ *       - { in: query, name: order, schema: { type: string, enum: [asc, desc], default: desc } }
+ *       - { in: query, name: limit, schema: { type: integer, default: 50, maximum: 1000 } }
+ *       - { in: query, name: cursor, schema: { type: string } }
+ *       - { in: query, name: includeArchived, schema: { type: boolean, default: false } }
  *     responses:
  *       200:
- *         description: The event definition
- *       404:
- *         description: Unknown event name
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
+ *         description: '{ events, nextCursor, matched, tookMs, source }'
+ *       400:
+ *         description: Invalid filter
  */
-router.get('/schema/:name', eventsController.getEventByName);
-
-/**
- * @openapi
- * /events/version:
- *   get:
- *     summary: Current event schema version
- *     tags:
- *       - Events
- *     responses:
- *       200:
- *         description: The schema version
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 schemaVersion:
- *                   type: integer
- *                   example: 1
- */
-router.get('/version', eventsController.getSchemaVersion);
-
-/**
- * @openapi
- * /events/modules:
- *   get:
- *     summary: Canonical event module identifiers
- *     tags:
- *       - Events
- *     responses:
- *       200:
- *         description: List of module identifiers
- */
+router.get('/', eventsController.getEvents);
+router.get('/schema', eventsController.getSchema);
+router.get('/schema/:name', eventsController.getSchemaByName);
+router.get('/version', eventsController.getVersion);
 router.get('/modules', eventsController.getModules);
+router.get('/actions', eventsController.getActions);
 
 /**
  * @openapi
- * /events/actions:
+ * /events/types:
  *   get:
- *     summary: Canonical event action verbs
+ *     summary: List all known event types
+ *     description: Returns distinct event types available for filtering
+ *     tags:
+ *       - Events
+ */
+router.get('/types', eventsController.getEventTypes);
+
+/**
+ * @openapi
+ * /events/stats:
+ *   get:
+ *     summary: Event volume statistics
+ *     description: Returns total and per-type counts of indexed events
+ *     tags:
+ *       - Events
+ */
+router.get('/stats', eventsController.getEventStats);
+
+/**
+ * @openapi
+ * /events/analytics:
+ *   get:
+ *     summary: Event analytics for dashboards
+ *     description: >
+ *       Counts by type / module / schema status, a time series, top accounts,
+ *       volume per asset for amount-bearing events, and recent query latency.
+ *     tags:
+ *       - Events
+ *     parameters:
+ *       - { in: query, name: from, schema: { type: string } }
+ *       - { in: query, name: to, schema: { type: string } }
+ *       - { in: query, name: bucket, schema: { type: string, enum: [hour, day], default: hour } }
+ *       - { in: query, name: top, schema: { type: integer, default: 10 } }
+ */
+router.get('/analytics', eventsController.getAnalytics);
+
+/**
+ * @openapi
+ * /events/indexer/status:
+ *   get:
+ *     summary: Indexer health — cursor, lag, archive summary, sink failures
+ *     tags:
+ *       - Events
+ */
+router.get('/indexer/status', eventsController.getIndexerStatus);
+
+/**
+ * @openapi
+ * /events/indexer/health:
+ *   get:
+ *     summary: Comprehensive indexer health status and diagnostic checks
  *     tags:
  *       - Events
  *     responses:
  *       200:
- *         description: List of action verbs
+ *         description: Indexer is healthy or degraded
+ *       503:
+ *         description: Indexer is unhealthy or critical lag/error detected
  */
-router.get('/actions', eventsController.getActions);
+router.get('/indexer/health', eventsController.getIndexerHealth);
+
+/**
+ * @openapi
+ * /events/indexer/metrics:
+ *   get:
+ *     summary: Prometheus exposition metrics or JSON telemetry
+ *     tags:
+ *       - Events
+ *     responses:
+ *       200:
+ *         description: Prometheus exposition text or JSON metrics
+ */
+router.get('/indexer/metrics', eventsController.getIndexerMetrics);
+
+/**
+ * @openapi
+ * /events/indexer/alerts:
+ *   get:
+ *     summary: List active and historical indexer alerts
+ *     tags:
+ *       - Events
+ */
+router.get('/indexer/alerts', eventsController.getIndexerAlerts);
+
+/**
+ * @openapi
+ * /events/indexer/alerts/{id}/ack:
+ *   post:
+ *     summary: Acknowledge an indexer alert
+ *     tags:
+ *       - Events
+ */
+router.post('/indexer/alerts/:id/ack', eventsController.ackIndexerAlert);
+
+/**
+ * @openapi
+ * /events/indexer/alerts/clear:
+ *   post:
+ *     summary: Clear acknowledged indexer alerts (operator)
+ *     tags:
+ *       - Events
+ */
+router.post('/indexer/alerts/clear', requireRole('operator'), eventsController.clearIndexerAlerts);
+
+/**
+ * @openapi
+ * /events/indexer/sync:
+ *   post:
+ *     summary: Pull new events from Soroban RPC now (operator)
+ *     tags:
+ *       - Events
+ */
+router.post('/indexer/sync', requireRole('operator'), eventsController.syncIndexer);
+
+/**
+ * @openapi
+ * /events/archive:
+ *   get:
+ *     summary: Archive manifest — cold-storage segments with ledger/time bounds
+ *     tags:
+ *       - Events
+ *   post:
+ *     summary: Move events older than the retention window to cold storage (operator)
+ *     tags:
+ *       - Events
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               olderThanDays: { type: integer, minimum: 1, description: 'Defaults to EVENT_HOT_RETENTION_DAYS' }
+ */
+router.get('/archive', eventsController.getArchiveSegments);
+router.post('/archive', requireRole('operator'), eventsController.archive);
+
+/**
+ * @openapi
+ * /events/replay:
+ *   post:
+ *     summary: Replay events to reconstruct account state (operator, debugging)
+ *     description: >
+ *       Re-applies events in ledger order (hot + archived) and returns per-account
+ *       collateral/debt, every state transition, and anomalies such as balances
+ *       going negative. Accepts the same filters as GET /events plus
+ *       `source` (typed | structured) and `maxTransitions`.
+ *     tags:
+ *       - Events
+ */
+router.post('/replay', requireRole('operator'), eventsController.replay);
+
+/**
+ * @openapi
+ * /events/{id}:
+ *   get:
+ *     summary: Fetch a single indexed event by RPC event id
+ *     tags:
+ *       - Events
+ */
+router.get('/:id', eventsController.getEventById);
 
 export default router;

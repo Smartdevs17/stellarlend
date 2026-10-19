@@ -150,7 +150,6 @@ fn test_admin_bypass() {
     assert!(client.borrow_asset(&admin, &None, &1).is_ok());
 }
 
-
 // ── Issue #667: congestion-adaptive rate limiting ──────────────────────────────
 
 #[test]

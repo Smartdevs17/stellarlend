@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { emergencyPauseService } from '../services/emergencyPause.service';
+import { authenticateAdmin } from '../middleware/auth';
 import logger from '../utils/logger';
 
 const router: Router = Router();
@@ -194,21 +195,21 @@ const emergencyController = {
 };
 
 router.get('/status', emergencyController.getStatus);
-router.post('/pause', emergencyController.pause);
-router.post('/resume', emergencyController.resume);
-router.post('/withdraw', emergencyController.executeEmergencyWithdrawal);
-router.post('/emergency-withdraw', emergencyController.executeEmergencyWithdrawal);
+router.post('/pause', authenticateAdmin, emergencyController.pause);
+router.post('/resume', authenticateAdmin, emergencyController.resume);
+router.post('/withdraw', authenticateAdmin, emergencyController.executeEmergencyWithdrawal);
+router.post('/emergency-withdraw', authenticateAdmin, emergencyController.executeEmergencyWithdrawal);
 router.get('/fee-preview', emergencyController.previewFee);
 router.get('/limits', emergencyController.getLimits);
-router.put('/limits', emergencyController.updateLimits);
+router.put('/limits', authenticateAdmin, emergencyController.updateLimits);
 router.get('/analytics', emergencyController.getAnalytics);
 router.get('/report', emergencyController.getReport);
 router.get('/withdrawals', emergencyController.getWithdrawals);
-router.post('/queue-withdrawal', emergencyController.queueWithdrawal);
-router.post('/drain-queue', emergencyController.drainQueue);
+router.post('/queue-withdrawal', authenticateAdmin, emergencyController.queueWithdrawal);
+router.post('/drain-queue', authenticateAdmin, emergencyController.drainQueue);
 router.get('/queue', emergencyController.getQueue);
-router.post('/trigger-failure', emergencyController.triggerFailure);
-router.post('/trigger-success', emergencyController.triggerSuccess);
+router.post('/trigger-failure', authenticateAdmin, emergencyController.triggerFailure);
+router.post('/trigger-success', authenticateAdmin, emergencyController.triggerSuccess);
 router.get('/notifications', emergencyController.getNotifications);
 router.get('/history', emergencyController.getHistory);
 

@@ -4,6 +4,7 @@ import {
   xdr,
   Address,
   Keypair,
+  StrKey,
   nativeToScVal,
   Account,
   BASE_FEE,
@@ -11,6 +12,7 @@ import {
 } from '@stellar/stellar-sdk';
 import { ValidationError } from '../utils/errors';
 import { Server as SorobanServer } from '@stellar/stellar-sdk/rpc';
+import type { rpc } from '@stellar/stellar-sdk';
 import axios from 'axios';
 import type { AxiosResponse } from 'axios';
 import { config } from '../config';
@@ -29,8 +31,10 @@ import {
 import { BoundedTtlCache } from '../utils/boundedTtlCache';
 import { redisCacheService } from './redisCache.service';
 import { requestCoalescingService } from './requestCoalescing.service';
+import { readCacheService } from './readCache.service';
+import type { RawContractEvent } from './eventIndex/types';
 
-const CONTRACT_METHODS: Record<LendingOperation, string> = {
+export const CONTRACT_METHODS: Record<LendingOperation, string> = {
   deposit: 'deposit_collateral',
   borrow: 'borrow_asset',
   repay: 'repay_debt',
@@ -382,6 +386,20 @@ export class StellarService {
       amount,
     });
     return requestCoalescingService.execute(coalescingKey, async () => {
+      // Repeated simulations of the same pool operation within the TTL reuse
+      // the cached result instead of another Soroban RPC round trip. Entries
+      // are dropped after a submitted transaction (see lending.controller).
+      const simulationCacheKey = redisCacheService.buildKey(
+        'simulation',
+        `${userAddress}:${operation}:${assetAddress ?? 'native'}:${amount}`
+      );
+      const cached = await redisCacheService.get<{
+        cpuInstructions: string;
+        memoryBytes: string;
+        minResourceFee: string;
+      }>(simulationCacheKey);
+      if (cached) return cached;
+
       try {
         const account = await this.getAccount(userAddress);
         const contract = new Contract(this.contractId);
@@ -406,11 +424,17 @@ export class StellarService {
           throw new InternalServerError(`Simulation failed: ${simulation.error}`);
         }
 
-        return {
+        const estimate = {
           cpuInstructions: simulation.cost?.cpuInsns || '0',
           memoryBytes: simulation.cost?.memBytes || '0',
           minResourceFee: simulation.minResourceFee || '0',
         };
+        await redisCacheService.set(
+          simulationCacheKey,
+          estimate,
+          Math.max(1, Math.floor(config.cache.simulationTtlMs / 1000))
+        );
+        return estimate;
       } catch (error: any) {
         logger.error(`Failed to estimate gas for ${operation}:`, error);
         throw new InternalServerError(error.message || `Failed to estimate gas for ${operation}`);
@@ -429,6 +453,51 @@ export class StellarService {
       .addOperation(contract.call(methodName, ...params))
       .setTimeout(TX_TIMEOUT_SECONDS)
       .build();
+  }
+
+  public async readContract(methodName: string, ...params: any[]): Promise<any> {
+    return this.simulateContractCall(methodName, ...params);
+  }
+
+  /** Latest ledger known to Soroban RPC. */
+  public async getLatestLedger(): Promise<number> {
+    const res = await this.sorobanServer.getLatestLedger();
+    return res.sequence;
+  }
+
+  /**
+   * Fetch one page of the lending contract's events from Soroban RPC
+   * (`getEvents`), with topics and values decoded to native JS values. Used
+   * by the event indexer (`services/eventIndex`) as its event source.
+   */
+  public async fetchContractEvents(request: {
+    startLedger?: number;
+    cursor?: string;
+    limit: number;
+  }): Promise<{ events: RawContractEvent[]; cursor: string; latestLedger: number }> {
+    if (!this.contractId) {
+      throw new InternalServerError('CONTRACT_ID is not configured; cannot index events');
+    }
+    const filters: rpc.Api.EventFilter[] = [{ type: 'contract', contractIds: [this.contractId] }];
+    const page = await this.sorobanServer.getEvents(
+      request.cursor
+        ? { filters, cursor: request.cursor, limit: request.limit }
+        : { filters, startLedger: request.startLedger ?? 1, limit: request.limit }
+    );
+    return {
+      cursor: page.cursor,
+      latestLedger: page.latestLedger,
+      events: page.events.map((e) => ({
+        id: e.id,
+        ledger: e.ledger,
+        ledgerClosedAt: e.ledgerClosedAt,
+        contractId: e.contractId?.contractId() ?? this.contractId,
+        txHash: e.txHash,
+        inSuccessfulContractCall: e.inSuccessfulContractCall,
+        topic: e.topic.map((t) => scValToNative(t)),
+        value: scValToNative(e.value),
+      })),
+    };
   }
 
   private async simulateContractCall(methodName: string, ...params: any[]): Promise<any> {
@@ -459,42 +528,41 @@ export class StellarService {
   async getProtocolStats(): Promise<ProtocolStatsResponse> {
     const coalescingKey = requestCoalescingService.generateKey('getProtocolStats', {});
 
-    return requestCoalescingService.execute(coalescingKey, async () => {
-      const redisKey = redisCacheService.buildKey('protocol', 'stats');
-      const redisCached = await redisCacheService.get<ProtocolStatsResponse>(redisKey);
-      if (redisCached) return redisCached;
+    return requestCoalescingService.execute(coalescingKey, () =>
+      readCacheService.getOrLoad<ProtocolStatsResponse>(
+        'protocol',
+        'stats',
+        config.cache.protocolStatsTtlMs,
+        async () => protocolStatsCache.get(PROTOCOL_STATS_CACHE_KEY) ?? this.loadProtocolStats()
+      )
+    );
+  }
 
-      const cachedResponse = protocolStatsCache.get(PROTOCOL_STATS_CACHE_KEY);
-      if (cachedResponse) {
-        return cachedResponse;
-      }
+  /**
+   * Fetch protocol stats from the contract, bypassing every cache layer.
+   * The prefetch scheduler uses this loader to keep the cached entry warm.
+   */
+  async loadProtocolStats(): Promise<ProtocolStatsResponse> {
+    try {
+      const report = await this.simulateContractCall('get_protocol_report');
+      const metrics = report?.metrics ?? report ?? {};
 
-      try {
-        const report = await this.simulateContractCall('get_protocol_report');
-        const metrics = report?.metrics ?? report ?? {};
+      const response: ProtocolStatsResponse = {
+        totalDeposits: toIntegerString(metrics.total_deposits ?? metrics.totalDeposits ?? 0),
+        totalBorrows: toIntegerString(metrics.total_borrows ?? metrics.totalBorrows ?? 0),
+        utilizationRate: formatBpsAsRatio(
+          toIntegerString(metrics.utilization_rate ?? metrics.utilizationRate ?? 0)
+        ),
+        numberOfUsers: toSafeNumber(metrics.total_users ?? metrics.totalUsers ?? 0),
+        tvl: toIntegerString(metrics.total_value_locked ?? metrics.totalValueLocked ?? 0),
+      };
 
-        const response: ProtocolStatsResponse = {
-          totalDeposits: toIntegerString(metrics.total_deposits ?? metrics.totalDeposits ?? 0),
-          totalBorrows: toIntegerString(metrics.total_borrows ?? metrics.totalBorrows ?? 0),
-          utilizationRate: formatBpsAsRatio(
-            toIntegerString(metrics.utilization_rate ?? metrics.utilizationRate ?? 0)
-          ),
-          numberOfUsers: toSafeNumber(metrics.total_users ?? metrics.totalUsers ?? 0),
-          tvl: toIntegerString(metrics.total_value_locked ?? metrics.totalValueLocked ?? 0),
-        };
-
-        protocolStatsCache.set(PROTOCOL_STATS_CACHE_KEY, response);
-        await redisCacheService.set(
-          redisKey,
-          response,
-          Math.floor(config.cache.protocolStatsTtlMs / 1000)
-        );
-        return response;
-      } catch (error) {
-        logger.error('Failed to fetch protocol stats:', error);
-        throw new InternalServerError('Failed to fetch protocol stats');
-      }
-    });
+      protocolStatsCache.set(PROTOCOL_STATS_CACHE_KEY, response);
+      return response;
+    } catch (error) {
+      logger.error('Failed to fetch protocol stats:', error);
+      throw new InternalServerError('Failed to fetch protocol stats');
+    }
   }
 
   async submitTransaction(txXdr: string): Promise<TransactionResponse> {
@@ -886,45 +954,113 @@ export class StellarService {
 
     const coalescingKey = requestCoalescingService.generateKey('getUserPosition', { userAddress });
 
-    return requestCoalescingService.execute(coalescingKey, async () => {
-      const cacheKey = redisCacheService.buildKey('position', userAddress);
-      const cached = await redisCacheService.get<PositionResponse>(cacheKey);
-      if (cached) return cached;
+    return requestCoalescingService.execute(coalescingKey, () =>
+      readCacheService.getOrLoad<PositionResponse>(
+        'position',
+        userAddress,
+        config.cache.positionTtlMs,
+        () => this.loadUserPosition(userAddress)
+      )
+    );
+  }
 
-      try {
-        const userParam = new Address(userAddress).toScVal();
-        const raw = await this.simulateContractCall('get_user_position', userParam);
+  /**
+   * Read the contract's oracle-priced, liquidation-threshold-weighted position
+   * summary. Raw collateral/debt ratios are NOT health factors.
+   * The position read cache is invalidated after successful submissions.
+   */
+  async getPositionHealth(userAddress: string): Promise<{
+    userAddress: string;
+    totalCollateralValue: string;
+    weightedCollateralValue: string;
+    totalDebtValue: string;
+    weightedDebtValue: string;
+    healthFactor: string;
+    isLiquidatable: boolean;
+    borrowCapacity: string;
+  }> {
+    if (!StrKey.isValidEd25519PublicKey(userAddress)) {
+      throw new ValidationError('Invalid Stellar address format');
+    }
 
-        const collateral = toIntegerString(raw?.collateral ?? raw?.collateral_amount ?? 0);
-        const debt = toIntegerString(raw?.debt ?? raw?.debt_amount ?? 0);
-        const borrowInterest = toIntegerString(raw?.borrow_interest ?? raw?.interest ?? 0);
-        const lastAccrualTime = toSafeNumber(raw?.last_accrual_time ?? raw?.lastAccrualTime ?? 0);
+    return requestCoalescingService.execute(
+      requestCoalescingService.generateKey('getPositionHealth', { userAddress }),
+      () => readCacheService.getOrLoad(
+        'position',
+        `health:${userAddress}`,
+        config.cache.positionTtlMs,
+        async () => {
+          // The contract applies asset-specific oracle prices, liquidation
+          // thresholds and accrued interest. Never derive these from nominal
+          // collateral/debt balances or substitute a fabricated health score.
+          const raw = await this.simulateContractCall(
+            'get_user_position_summary',
+            new Address(userAddress).toScVal()
+          );
+          if (!raw || typeof raw !== 'object') {
+            throw new InternalServerError('Invalid position health response');
+          }
+          const fields = [
+            'total_collateral_value',
+            'weighted_collateral_value',
+            'total_debt_value',
+            'weighted_debt_value',
+            'health_factor',
+            'is_liquidatable',
+            'borrow_capacity',
+          ] as const;
+          for (const field of fields) {
+            if (raw[field] === undefined || raw[field] === null) {
+              throw new InternalServerError('Incomplete position health response');
+            }
+          }
+          if (typeof raw.is_liquidatable !== 'boolean') {
+            throw new InternalServerError('Invalid position liquidation status');
+          }
+          return {
+            userAddress,
+            totalCollateralValue: toIntegerString(raw.total_collateral_value),
+            weightedCollateralValue: toIntegerString(raw.weighted_collateral_value),
+            totalDebtValue: toIntegerString(raw.total_debt_value),
+            weightedDebtValue: toIntegerString(raw.weighted_debt_value),
+            healthFactor: toIntegerString(raw.health_factor),
+            isLiquidatable: raw.is_liquidatable,
+            borrowCapacity: toIntegerString(raw.borrow_capacity),
+          };
+        }
+      )
+    );
+  }
 
-        const collateralBig = BigInt(collateral);
-        const debtBig = BigInt(debt);
-        const collateralRatio =
-          debtBig > 0n ? ((collateralBig * 10000n) / debtBig).toString() : 'Infinity';
+  private async loadUserPosition(userAddress: string): Promise<PositionResponse> {
+    try {
+      const userParam = new Address(userAddress).toScVal();
+      const raw = await this.simulateContractCall('get_user_position', userParam);
 
-        const result: PositionResponse = {
-          userAddress,
-          collateral,
-          debt,
-          borrowInterest,
-          lastAccrualTime,
-          collateralRatio,
-        };
+      const collateral = toIntegerString(raw?.collateral ?? raw?.collateral_amount ?? 0);
+      const debt = toIntegerString(raw?.debt ?? raw?.debt_amount ?? 0);
+      const borrowInterest = toIntegerString(raw?.borrow_interest ?? raw?.interest ?? 0);
+      const lastAccrualTime = toSafeNumber(raw?.last_accrual_time ?? raw?.lastAccrualTime ?? 0);
 
-        await redisCacheService.set(
-          cacheKey,
-          result,
-          Math.floor(config.cache.positionTtlMs / 1000)
-        );
-        return result;
-      } catch (error) {
-        logger.error('Failed to fetch user position:', error);
-        throw new InternalServerError('Failed to fetch user position');
-      }
-    });
+      const collateralBig = BigInt(collateral);
+      const debtBig = BigInt(debt);
+      const collateralRatio =
+        debtBig > 0n ? ((collateralBig * 10000n) / debtBig).toString() : 'Infinity';
+
+      const result: PositionResponse = {
+        userAddress,
+        collateral,
+        debt,
+        borrowInterest,
+        lastAccrualTime,
+        collateralRatio,
+      };
+
+      return result;
+    } catch (error) {
+      logger.error('Failed to fetch user position:', error);
+      throw new InternalServerError('Failed to fetch user position');
+    }
   }
 
   private isValidStellarAddress(address: string): boolean {

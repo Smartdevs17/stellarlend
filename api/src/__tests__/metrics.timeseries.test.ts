@@ -5,8 +5,10 @@ import {
   queryTimeSeries,
   seedMemoryPoint,
 } from '../services/metricsTimeseries.service';
-import { getTimeSeries } from '../controllers/metrics.controller';
+import { getTimeSeries, getIndexerMetrics } from '../controllers/metrics.controller';
 import type { Request, Response, NextFunction } from 'express';
+import { setEventIndexer } from '../services/eventIndex';
+import { memoryIndexer } from '../services/eventIndex/__fixtures__/events';
 
 describe('metricsTimeseries.service', () => {
   beforeEach(() => {
@@ -79,5 +81,24 @@ describe('metrics.controller getTimeSeries', () => {
     await getTimeSeries(req, res as unknown as Response, jest.fn());
     expect(res.statusCode).toBe(200);
     expect((res.body as { points: unknown[] }).points.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('getIndexerMetrics returns JSON when requested', async () => {
+    const { indexer } = memoryIndexer();
+    setEventIndexer(indexer);
+
+    try {
+      const req = {
+        headers: { accept: 'application/json' },
+        query: {},
+      } as unknown as Request;
+      const res = mockRes();
+      await getIndexerMetrics(req, res as unknown as Response, jest.fn());
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toHaveProperty('health');
+      expect(res.body).toHaveProperty('lag');
+    } finally {
+      setEventIndexer(null);
+    }
   });
 });

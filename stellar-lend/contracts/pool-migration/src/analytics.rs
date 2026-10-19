@@ -28,8 +28,7 @@ pub fn record_migration(env: &Env, record: &PoolMigrationRecord) {
                 let prev = analytics.average_slippage_bps as u64;
                 let new = record.slippage_bps as u64;
                 let count = analytics.successful_migrations;
-                analytics.average_slippage_bps =
-                    ((prev * (count - 1) + new) / count) as u32;
+                analytics.average_slippage_bps = ((prev * (count - 1) + new) / count) as u32;
             }
 
             analytics.most_active_source_pool = Some(record.source_pool.clone());
@@ -40,7 +39,9 @@ pub fn record_migration(env: &Env, record: &PoolMigrationRecord) {
         }
     }
 
-    env.storage().instance().set(&DataKey::Analytics, &analytics);
+    env.storage()
+        .instance()
+        .set(&DataKey::Analytics, &analytics);
 
     // Update per-pool stats
     update_pool_stats(env, &record.source_pool, record, true);
@@ -51,7 +52,9 @@ pub fn record_migration(env: &Env, record: &PoolMigrationRecord) {
     let user_count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
     if user_count == 0 {
         analytics.unique_users += 1;
-        env.storage().instance().set(&DataKey::Analytics, &analytics);
+        env.storage()
+            .instance()
+            .set(&DataKey::Analytics, &analytics);
     }
     env.storage()
         .persistent()
@@ -59,24 +62,19 @@ pub fn record_migration(env: &Env, record: &PoolMigrationRecord) {
 }
 
 /// Update per-pool migration statistics.
-fn update_pool_stats(
-    env: &Env,
-    pool: &Address,
-    record: &PoolMigrationRecord,
-    is_source: bool,
-) {
+fn update_pool_stats(env: &Env, pool: &Address, record: &PoolMigrationRecord, is_source: bool) {
     let stats_key = DataKey::PoolStats(pool.clone());
-    let mut stats: PoolMigrationStats = env
-        .storage()
-        .persistent()
-        .get(&stats_key)
-        .unwrap_or(PoolMigrationStats {
-            pool: pool.clone(),
-            total_outflow: 0,
-            total_inflow: 0,
-            migration_count: 0,
-            unique_migrators: 0,
-        });
+    let mut stats: PoolMigrationStats =
+        env.storage()
+            .persistent()
+            .get(&stats_key)
+            .unwrap_or(PoolMigrationStats {
+                pool: pool.clone(),
+                total_outflow: 0,
+                total_inflow: 0,
+                migration_count: 0,
+                unique_migrators: 0,
+            });
 
     if is_source {
         stats.total_outflow += record.amount;

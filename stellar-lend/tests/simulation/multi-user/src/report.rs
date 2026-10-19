@@ -50,7 +50,9 @@ impl SimulationReport {
         }
 
         if !metrics.state_consistency_verified {
-            recommendations.push("State consistency check FAILED. Investigate invariant violations.".to_string());
+            recommendations.push(
+                "State consistency check FAILED. Investigate invariant violations.".to_string(),
+            );
             for error in &metrics.consistency_errors {
                 recommendations.push(format!("  - {}", error));
             }

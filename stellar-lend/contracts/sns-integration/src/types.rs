@@ -49,3 +49,17 @@ pub struct SNSAnalytics {
     pub cache_hit_rate: u32,
     pub resolution_latency_ms: u64,
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    SNSError => stellarlend_errors::domains::SNS_INTEGRATION;
+    NotInitialized => NotInitialized, "Contract or feature is not initialized";
+    AlreadyInitialized => AlreadyInitialized, "Contract or feature is already initialized";
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    NameNotFound => NotFound, "Name not found";
+    NameExpired => InvalidState, "Name expired", FixInput;
+    InvalidName => InvalidInput, "Invalid name";
+    ResolutionFailed => Internal, "Resolution failed";
+    CacheMiss => NotFound, "Cache miss", RetryLater;
+}

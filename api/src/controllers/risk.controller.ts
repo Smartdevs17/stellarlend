@@ -98,6 +98,15 @@ export class RiskController {
     }
   }
 
+  async getAdminRiskDashboard(_req: Request, res: Response): Promise<void> {
+    try {
+      const dashboard = await riskMonitoringService.getAdminMarketRiskDashboard();
+      res.json(dashboard);
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to fetch admin market risk dashboard' });
+    }
+  }
+
   // Collateral Ratio Monitoring endpoints
   async getCollateralRatioSnapshots(req: Request, res: Response): Promise<void> {
     try {

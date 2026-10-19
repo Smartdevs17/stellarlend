@@ -172,3 +172,14 @@ pub mod factory {
         crate::token_adapter_verify::register_adapter(env, config)
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    AdapterError => stellarlend_errors::domains::LENDING_TOKEN_ADAPTER;
+    AdapterFailed => Internal, "Adapter operation failed";
+    TokenNotSupported => InvalidAsset, "Token is not supported by this adapter";
+    VerificationFailed => Internal, "Adapter verification failed";
+    InvalidConfig => InvalidInput, "Invalid adapter configuration";
+    NotImplemented => Internal, "Adapter operation not implemented", ReportBug;
+}

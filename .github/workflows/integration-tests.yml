@@ -1,0 +1,110 @@
+name: Integration Tests
+
+# Issue #688 – Cross-contract integration harness + state simulation.
+#
+# Covers:
+#   - Cross-contract journey suite (cross-contract-harness.e2e.test.ts)
+#   - Multi-contract state simulation + invariants (multi-contract-state.e2e.test.ts)
+#   - test-utils / common event helpers (Rust)
+
+on:
+  push:
+    branches: ["main", "dev", "feat/**"]
+    paths:
+      - "tests/e2e/scenarios/cross-contract-harness.e2e.test.ts"
+      - "tests/e2e/scenarios/multi-contract-state.e2e.test.ts"
+      - "tests/e2e/scenarios/harness.ts"
+      - "stellar-lend/contracts/test-utils/**"
+      - "stellar-lend/contracts/common/**"
+      - ".github/workflows/integration-tests.yml"
+  pull_request:
+    branches: ["main", "dev"]
+    paths:
+      - "tests/e2e/scenarios/cross-contract-harness.e2e.test.ts"
+      - "tests/e2e/scenarios/multi-contract-state.e2e.test.ts"
+      - "tests/e2e/scenarios/harness.ts"
+      - "stellar-lend/contracts/test-utils/**"
+      - "stellar-lend/contracts/common/**"
+      - ".github/workflows/integration-tests.yml"
+  schedule:
+    - cron: "0 6 * * *" # Nightly integration run
+  workflow_dispatch:
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 1: Cross-contract + state-simulation E2E suites
+  # ─────────────────────────────────────────────────────────────────────────────
+  cross-contract-e2e:
+    name: Cross-Contract E2E (harness + state simulation)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install e2e dependencies
+        working-directory: tests/e2e
+        run: npm ci
+
+      - name: Run cross-contract suites with JSON report
+        working-directory: tests/e2e
+        run: |
+          npx jest --runInBand --forceExit --json --outputFile=integration-report.json \
+            cross-contract-harness multi-contract-state
+
+      - name: Upload integration report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-e2e-report-${{ github.sha }}
+          path: tests/e2e/integration-report.json
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 2: Full E2E regression (ensures harness changes don't break journeys)
+  # ─────────────────────────────────────────────────────────────────────────────
+  e2e-regression:
+    name: Full E2E Regression
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install e2e dependencies
+        working-directory: tests/e2e
+        run: npm ci
+
+      - name: Run full e2e suite
+        working-directory: tests/e2e
+        run: npm test
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Gate – all integration jobs must pass
+  # ─────────────────────────────────────────────────────────────────────────────
+  integration-gate:
+    name: Integration Testing Gate
+    runs-on: ubuntu-latest
+    needs: [cross-contract-e2e, e2e-regression]
+    if: always()
+    steps:
+      - name: Evaluate gate
+        run: |
+          echo "cross-contract-e2e: ${{ needs.cross-contract-e2e.result }}"
+          echo "e2e-regression:     ${{ needs.e2e-regression.result }}"
+
+          if [[ "${{ needs.cross-contract-e2e.result }}" != "success" ]] || \
+             [[ "${{ needs.e2e-regression.result }}"     != "success" ]]; then
+            echo "::error::Integration testing gate FAILED."
+            exit 1
+          fi
+
+          echo "Integration testing gate PASSED."

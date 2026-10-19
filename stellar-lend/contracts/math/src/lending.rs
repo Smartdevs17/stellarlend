@@ -30,8 +30,7 @@ impl InterestRateModel {
             if self.kink_utilization_bps == 0 {
                 return self.base_rate_bps;
             }
-            self.base_rate_bps
-                + (utilization_bps * self.slope_bps) / self.kink_utilization_bps
+            self.base_rate_bps + (utilization_bps * self.slope_bps) / self.kink_utilization_bps
         } else {
             // Above kink: jump slope
             let rate_at_kink = self.base_rate_bps + self.slope_bps;

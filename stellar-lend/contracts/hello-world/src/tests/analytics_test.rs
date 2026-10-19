@@ -164,7 +164,12 @@ fn test_analytics_average_borrow_rate_non_negative() {
 // Composite protocol health score (#813)
 // =============================================================================
 
-fn seed_protocol_metrics(env: &Env, contract_id: &Address, utilization_rate: i128, average_borrow_rate: i128) {
+fn seed_protocol_metrics(
+    env: &Env,
+    contract_id: &Address,
+    utilization_rate: i128,
+    average_borrow_rate: i128,
+) {
     env.as_contract(contract_id, || {
         let metrics = ProtocolMetrics {
             total_value_locked: 1_000_000,
@@ -297,4 +302,3 @@ fn test_simulate_what_if_deposit_and_repay() {
     assert_eq!(result.simulated_health_factor, 50_000); // 1500 * 10000 / 300 = 50000 (5.0x)
     assert_eq!(result.is_liquidatable, false);
 }
-

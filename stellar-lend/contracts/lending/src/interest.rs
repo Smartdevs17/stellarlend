@@ -291,3 +291,11 @@ mod unit {
         assert_eq!(interest_for(5_000, INDEX_SCALE, INDEX_SCALE).unwrap(), 0);
     }
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    InterestCacheError => stellarlend_errors::domains::LENDING_INTEREST_CACHE;
+    Overflow => Overflow, "Arithmetic overflow while advancing the index";
+    StaleSnapshot => InvalidState, "A position index was newer than the global index (inconsistent cache)", ReportBug;
+}

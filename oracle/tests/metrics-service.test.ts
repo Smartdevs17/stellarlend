@@ -85,9 +85,9 @@ describe('MetricsService', () => {
 
     it('should calculate asset age correctly', async () => {
       metricsService.updateAssetPrice('XLM', 0.12);
-      
+
       // Wait a bit
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       const metrics = metricsService.getMetrics();
       expect(metrics.assets.XLM.age).toBeGreaterThanOrEqual(0);

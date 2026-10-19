@@ -1,8 +1,8 @@
 use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::GovernanceError;
-use crate::storage::{GovernanceDataKey, GuardianConfig};
 use crate::events::{GuardianAddedEvent, GuardianRemovedEvent};
+use crate::storage::{GovernanceDataKey, GuardianConfig};
 
 pub fn add_guardian(env: &Env, caller: Address, guardian: Address) -> Result<(), GovernanceError> {
     caller.require_auth();

@@ -41,6 +41,22 @@ pub enum ProposalType {
     GenericAction(Action),
     /// Change interest rate configuration
     InterestRateConfig(InterestRateParams),
+    /// Change governance's own voting rules. Takes effect for proposals
+    /// created after execution; in-flight proposals keep the rules they were
+    /// created under.
+    UpdateGovernanceConfig(GovernanceParams),
+}
+
+/// Partial update to [`GovernanceConfig`]; `None` fields are left unchanged.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct GovernanceParams {
+    pub voting_period: Option<u64>,
+    pub execution_delay: Option<u64>,
+    pub quorum_bps: Option<u32>,
+    pub proposal_threshold: Option<i128>,
+    pub timelock_duration: Option<u64>,
+    pub default_voting_threshold: Option<i128>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -71,7 +87,14 @@ pub struct Proposal {
     pub against_votes: i128,
     pub abstain_votes: i128,
     pub total_voting_power: i128,
+    /// Voting power is measured strictly before this timestamp.
     pub created_at: u64,
+    /// Participation (for + against + abstain) required to pass, fixed at
+    /// creation from the total locked supply and the quorum then in force.
+    pub quorum_votes: i128,
+    /// Emergency proposals skip voting and the timelock, so they execute only
+    /// once the multisig approval threshold is met.
+    pub emergency: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -93,6 +116,15 @@ pub struct VotePowerSnapshot {
     pub snapshot_time: u64,
 }
 
+/// Voting power of an account (or the total locked supply) from `timestamp`
+/// until the next checkpoint.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct VotingCheckpoint {
+    pub timestamp: u64,
+    pub votes: i128,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub struct VoteLock {
@@ -109,6 +141,21 @@ pub struct DelegationRecord {
     pub delegatee: Address,
     pub delegated_at: u64,
     pub depth: u32,
+    pub lock_until: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct PackedBatchOperation {
+    pub op_type: u32,
+    pub packed_data: soroban_sdk::Bytes,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct OptimizedBatchCall {
+    pub shared_header: soroban_sdk::Bytes,
+    pub operations: soroban_sdk::Vec<PackedBatchOperation>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -235,6 +282,7 @@ pub struct RecoveryRequest {
     pub initiator: Address,
     pub initiated_at: u64,
     pub expires_at: u64,
+    pub ready_at: u64,
 }
 
 // ========================================================================
@@ -262,8 +310,10 @@ pub const DEFAULT_VOTING_THRESHOLD: i128 = 5_000; // 50% default threshold
 pub const DEFAULT_TIMELOCK_DURATION: u64 = 7 * 24 * 60 * 60; // 7 days
 pub const DEFAULT_RECOVERY_PERIOD: u64 = 3 * 24 * 60 * 60; // 3 days
 pub const MIN_TIMELOCK_DELAY: u64 = 24 * 60 * 60; // 24 hours
-pub const DELEGATION_DEADLINE: u64 = 24 * 60 * 60; // 24 hours
-pub const MAX_DELEGATION_DEPTH: u32 = 3;
+pub const MIN_VOTING_PERIOD: u64 = 60 * 60; // 1 hour
+pub const MAX_VOTING_PERIOD: u64 = 30 * 24 * 60 * 60; // 30 days
+pub const MAX_EXECUTION_DELAY: u64 = 30 * 24 * 60 * 60; // 30 days
+pub const MAX_TIMELOCK_DURATION: u64 = 30 * 24 * 60 * 60; // 30 days
 pub const PROPOSAL_RATE_LIMIT: u32 = 5;
 pub const PROPOSAL_RATE_WINDOW: u64 = 24 * 60 * 60; // 24 hours
 pub const MAX_DESCRIPTION_LEN: u32 = 2_000; // Max chars for governance proposal descriptions

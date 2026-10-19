@@ -6,10 +6,15 @@
 
 #![allow(unused_imports)]
 
-extern crate std;
+use crate::invariant_test_suite::{
+    setup_test_environment, InvariantTestConfig, InvariantTestSuite,
+};
 use crate::proptest_helpers::{LARGE_CEILING, MAX_AMOUNT, MIN_AMOUNT};
-use crate::invariant_test_suite::{InvariantTestConfig, InvariantTestSuite, setup_test_environment};
 use crate::{LendingContract, LendingContractClient};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 use proptest::prelude::*;
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
@@ -243,7 +248,7 @@ proptest! {
         let contract_id = env.register(LendingContract, ());
         let client = LendingContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
-        let mut users = std::vec::Vec::new();
+        let mut users = Vec::new();
         for _ in 0..3 { users.push(Address::generate(&env)); }
         let asset     = Address::generate(&env);
         let col_asset = Address::generate(&env);
@@ -275,6 +280,10 @@ proptest! {
             for u in &users {
                 prop_assert!(client.get_collateral_balance(u) >= 0);
                 prop_assert!(client.get_debt_balance(u)       >= 0);
+                prop_assert!(
+                    client.get_health_factor(u) >= 0,
+                    "health factor must never become negative"
+                );
             }
         }
     }

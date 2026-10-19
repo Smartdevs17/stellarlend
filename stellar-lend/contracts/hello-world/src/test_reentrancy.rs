@@ -32,7 +32,10 @@ fn test_cross_function_reentrancy_protection() {
 
     // Verify guard state is properly managed
     let guard = ReentrancyGuard::new_with_key(&env, ReentrancyKey::DepositLock, false);
-    assert!(guard.is_ok(), "Guard should be available after function completes");
+    assert!(
+        guard.is_ok(),
+        "Guard should be available after function completes"
+    );
 }
 
 #[test]
@@ -81,7 +84,10 @@ fn test_read_only_reentrancy_detection() {
     // Test read-only reentrancy detection
     let guard = ReentrancyGuard::new_read_only(&env);
     assert!(guard.is_ok(), "Read-only guard should be available");
-    assert!(guard.unwrap().is_read_only_reentrancy() == false, "Should not be in read-only reentrancy initially");
+    assert!(
+        guard.unwrap().is_read_only_reentrancy() == false,
+        "Should not be in read-only reentrancy initially"
+    );
 }
 
 #[contract]

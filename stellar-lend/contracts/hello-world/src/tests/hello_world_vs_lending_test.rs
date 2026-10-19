@@ -89,7 +89,8 @@ fn test_cross_impl_deposit_reflected_in_position() {
     let user_a = Address::generate(&env);
     let user_b = Address::generate(&env);
 
-    hw.deposit(&user_a, 2_000_000).expect("hello-world deposit should succeed");
+    hw.deposit(&user_a, 2_000_000)
+        .expect("hello-world deposit should succeed");
     lending
         .deposit(&user_b, 2_000_000)
         .expect("lending deposit should succeed");
@@ -97,7 +98,10 @@ fn test_cross_impl_deposit_reflected_in_position() {
     let pos_a = hw.get_position(&user_a);
     let pos_b = lending.get_position(&user_b);
 
-    assert!(pos_a.collateral > 0, "hello-world collateral must be recorded");
+    assert!(
+        pos_a.collateral > 0,
+        "hello-world collateral must be recorded"
+    );
     assert!(pos_b.collateral > 0, "lending collateral must be recorded");
     assert_eq!(
         pos_a.debt, 0,

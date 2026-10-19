@@ -1,0 +1,9 @@
+{
+  "name": "leveraged-xlm-borrow",
+  "description": "20,000 XLM against 16,000 USDC, flat 1.0 oracle. Weighted collateral is exactly 16,000, equal to the debt, so the health factor sits on 1.0 — the boundary itself. The contract still treats it as healthy, but any fall in the collateral crosses it, which is the position a leveraged borrower is actually exposed to.",
+  "oraclePresent": true,
+  "collateral": [
+    { "asset": "XLM", "amount": "20000", "price": "100000000" }
+  ],
+  "debt": { "asset": "USDC", "amount": "16000", "price": "100000000" }
+}

@@ -1,0 +1,12 @@
+[package]
+name = "proposal"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+soroban-sdk = { workspace = true }
+timelock = { path = "../timelock" }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+timelock = { path = "../timelock", features = ["testutils"] }

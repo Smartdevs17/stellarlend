@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as lendingController from '../controllers/lending.controller';
+import * as transactionSimulationController from '../controllers/transactionSimulation.controller';
 import {
   prepareValidation,
   submitValidation,
@@ -119,6 +120,31 @@ router.get('/prepare/:operation', prepareValidation, lendingController.prepare);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
+/**
+ * @openapi
+ * /lending/positions/{userAddress}/health:
+ *   get:
+ *     summary: Query a user's on-chain position health
+ *     description: Returns the contract-calculated, oracle-priced health summary. Health factor is scaled by 10,000; values are returned as integer strings.
+ *     tags:
+ *       - Lending
+ *     parameters:
+ *       - in: path
+ *         name: userAddress
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Stellar public account address
+ *     responses:
+ *       200:
+ *         description: Position health summary
+ *       400:
+ *         description: Invalid Stellar address
+ *       500:
+ *         description: Unable to read or decode the on-chain summary
+ */
+router.get('/positions/:userAddress/health', lendingController.getPositionHealth);
+
 router.post('/submit', submitValidation, lendingController.submit);
 
 router.post(
@@ -126,6 +152,54 @@ router.post(
   relayDelegatedValidation,
   lendingController.relayDelegated
 );
+
+/**
+ * @openapi
+ * /lending/simulate:
+ *   post:
+ *     summary: Simulate a transaction against Soroban RPC
+ *     description: Runs a base64 transaction envelope, or a lending operation built for the user, through simulateTransaction and returns resource usage, minimum resource fee, decoded return value, required authorizations, diagnostic events, state changes and any restore preamble. A failed simulation is a 200 response with status `error`.
+ *     tags:
+ *       - Lending
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               transactionXdr:
+ *                 type: string
+ *                 description: Base64 transaction envelope. When present the operation fields are ignored.
+ *               operation:
+ *                 type: string
+ *                 enum: [deposit, borrow, repay, withdraw]
+ *               userAddress:
+ *                 type: string
+ *                 description: Stellar public key (Ed25519)
+ *               amount:
+ *                 type: string
+ *                 description: Amount as a positive integer string (stroops)
+ *               assetAddress:
+ *                 type: string
+ *                 description: Optional asset contract address
+ *     responses:
+ *       200:
+ *         description: Simulation outcome (status success, restore_required or error)
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       502:
+ *         description: Soroban RPC was unreachable
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post('/simulate', transactionSimulationController.simulateTransaction);
 
 /**
  * @openapi

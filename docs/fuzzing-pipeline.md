@@ -48,3 +48,14 @@ cd stellar-lend
 cargo +nightly fuzz run lending_actions fuzz/corpus/lending_actions -- -max_total_time=60
 cargo +nightly fuzz coverage lending_actions fuzz/corpus/lending_actions
 ```
+
+## Oracle Hub smoke fuzzing
+
+The `oracle_actions` target exercises deterministic push-feed registration, bounded price updates, and multi-source aggregation through the Oracle Hub contract. It uses the checked-in seed at `stellar-lend/fuzz/corpus/oracle_actions/seed_01` and runs in `.github/workflows/oracle-fuzz.yml`.
+
+Run the local smoke target with:
+
+```bash
+cd stellar-lend
+cargo +nightly fuzz run oracle_actions fuzz/corpus/oracle_actions -- -max_total_time=60 -timeout=15
+```

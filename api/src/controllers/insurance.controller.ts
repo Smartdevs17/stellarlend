@@ -1,68 +1,118 @@
 import { Request, Response } from 'express';
 import { insuranceService } from '../services/insurance/insurance.service';
+import { AuthRequest } from '../middleware/auth';
+import { UnauthorizedError } from '../utils/errors';
 
 export class InsuranceController {
   listPolicies(_req: Request, res: Response) {
     try {
       res.json({ success: true, data: insuranceService.listPolicies() });
     } catch (error) {
-      res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
+      const status = (error as any).statusCode || 400;
+      res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
     }
   }
 
-  onboardProvider(req: Request, res: Response) {
+  onboardProvider(req: AuthRequest, res: Response) {
     try {
-      res.json({ success: true, data: insuranceService.onboardProvider(req.body) });
-    } catch (error) {
-      res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
-    }
-  }
-
-  createPolicy(req: Request, res: Response) {
-    try {
-      res.json({ success: true, data: insuranceService.createPolicy(req.body) });
-    } catch (error) {
-      res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
-    }
-  }
-
-  purchase(req: Request, res: Response) {
-    try {
-      res.json({
-        success: true,
-        data: insuranceService.purchase(
-          req.body.policyId,
-          req.body.lender,
-          req.body.positionId,
-          req.body.coverageAmount
-        ),
+      const userAddress = req.user?.address;
+      if (!userAddress) {
+        throw new UnauthorizedError('Authentication required');
+      }
+      // Force kycStatus to 'pending' on self-onboarding; bind address to authenticated caller
+      const provider = insuranceService.onboardProvider({
+        ...req.body,
+        address: userAddress,
+        kycStatus: 'pending',
       });
+      res.status(201).json({ success: true, data: provider });
     } catch (error) {
-      res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
+      const status = (error as any).statusCode || 400;
+      res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
     }
   }
 
-  submitClaim(req: Request, res: Response) {
+  updateKycStatus(req: Request, res: Response) {
     try {
-      res.json({
-        success: true,
-        data: insuranceService.submitClaim(
-          req.body.coverageId,
-          req.body.trigger,
-          req.body.evidence,
-          Number(req.body.amount)
-        ),
-      });
+      const { id } = req.params!;
+      const { status } = req.body;
+      if (!['pending', 'approved', 'rejected'].includes(status)) {
+        res.status(400).json({ success: false, error: 'status must be pending, approved, or rejected' });
+        return;
+      }
+      const provider = insuranceService.updateKycStatus(id!, status);
+      res.status(200).json({ success: true, data: provider });
     } catch (error) {
-      res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
+      const status = (error as any).statusCode || 400;
+      res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
     }
   }
 
-  disputeClaim(req: Request, res: Response) {
+  createPolicy(req: AuthRequest, res: Response) {
     try {
-      res.json({ success: true, data: insuranceService.disputeClaim(req.params.id!) });
+      const userAddress = req.user?.address;
+      if (!userAddress) {
+        throw new UnauthorizedError('Authentication required');
+      }
+      const policy = insuranceService.createPolicy(req.body, userAddress);
+      res.status(201).json({ success: true, data: policy });
     } catch (error) {
-      res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
+      const status = (error as any).statusCode || 400;
+      res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
+    }
+  }
+
+  purchase(req: AuthRequest, res: Response) {
+    try {
+      const userAddress = req.user?.address;
+      if (!userAddress) {
+        throw new UnauthorizedError('Authentication required');
+      }
+      // Bind coverage purchase to authenticated lender
+      const coverage = insuranceService.purchase(
+        req.body.policyId,
+        userAddress,
+        req.body.positionId,
+        req.body.coverageAmount
+      );
+      res.status(201).json({ success: true, data: coverage });
+    } catch (error) {
+      const status = (error as any).statusCode || 400;
+      res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
+    }
+  }
+
+  submitClaim(req: AuthRequest, res: Response) {
+    try {
+      const userAddress = req.user?.address;
+      if (!userAddress) {
+        throw new UnauthorizedError('Authentication required');
+      }
+      const claim = insuranceService.submitClaim(
+        req.body.coverageId,
+        req.body.trigger,
+        req.body.evidence,
+        Number(req.body.amount),
+        userAddress
+      );
+      res.status(201).json({ success: true, data: claim });
+    } catch (error) {
+      const status = (error as any).statusCode || 400;
+      res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
+    }
+  }
+
+  disputeClaim(req: AuthRequest, res: Response) {
+    try {
+      const userAddress = req.user?.address;
+      if (!userAddress) {
+        throw new UnauthorizedError('Authentication required');
+      }
+      const claim = insuranceService.disputeClaim(req.params.id!, userAddress);
+      res.status(200).json({ success: true, data: claim });
+    } catch (error) {
+      const status = (error as any).statusCode || 400;
+      res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
     }
   }
 
@@ -73,7 +123,8 @@ export class InsuranceController {
         data: insuranceService.dashboard(req.query.providerId as string | undefined),
       });
     } catch (error) {
-      res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
+      const status = (error as any).statusCode || 400;
+      res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
     }
   }
 
@@ -86,7 +137,8 @@ export class InsuranceController {
       }
       res.json({ success: true, data: insuranceService.calculatePremium(policyId, Number(riskScore)) });
     } catch (error) {
-      res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
+      const status = (error as any).statusCode || 400;
+      res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
     }
   }
 
@@ -94,7 +146,8 @@ export class InsuranceController {
     try {
       res.json({ success: true, data: insuranceService.listProviders() });
     } catch (error) {
-      res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
+      const status = (error as any).statusCode || 400;
+      res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
     }
   }
 
@@ -102,7 +155,8 @@ export class InsuranceController {
     try {
       res.json({ success: true, data: insuranceService.getAnalytics() });
     } catch (error) {
-      res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
+      const status = (error as any).statusCode || 400;
+      res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
     }
   }
 
@@ -110,7 +164,8 @@ export class InsuranceController {
     try {
       res.json({ success: true, data: insuranceService.listCoverages(req.query.lender as string) });
     } catch (error) {
-      res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
+      const status = (error as any).statusCode || 400;
+      res.status(status).json({ success: false, error: error instanceof Error ? error.message : 'Invalid request' });
     }
   }
 }

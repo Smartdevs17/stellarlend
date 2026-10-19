@@ -154,3 +154,11 @@ pub fn set_risk_alert_thresholds(
 pub fn get_risk_alert_thresholds(env: &Env) -> Option<RiskAlertThresholds> {
     env.storage().persistent().get(&RiskMonitorKey::Thresholds)
 }
+
+// Unified error registry: protocol-wide global codes, messages and recovery
+// suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
+stellarlend_errors::impl_contract_error! {
+    RiskMonitorError => stellarlend_errors::domains::LENDING_RISK_MONITOR;
+    Unauthorized => Unauthorized, "Caller is not authorized to perform this action";
+    InvalidThresholds => InvalidInput, "Invalid thresholds";
+}

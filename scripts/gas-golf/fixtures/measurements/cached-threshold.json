@@ -1,0 +1,18 @@
+{
+  "_comment": "SYNTHETIC. Not a benchmark run \u2014 see fixtures/README.md.",
+  "version": "0.1.0",
+  "timestamp": "2026-01-01T00:00:00Z",
+  "git_commit": "0000000000000000000000000000000000000000",
+  "results": [
+    {
+      "operation": "lending::get_health_factor",
+      "scenario": "",
+      "instructions": 201338,
+      "memory_bytes": 9216,
+      "storage_reads": 2,
+      "storage_writes": 0,
+      "cold_storage": false,
+      "git_commit": "0000000000000000000000000000000000000000"
+    }
+  ]
+}

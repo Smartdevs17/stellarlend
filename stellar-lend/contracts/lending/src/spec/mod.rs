@@ -47,6 +47,8 @@ pub mod accounting;
 #[cfg(any(test, feature = "spec"))]
 pub mod collateral;
 #[cfg(any(test, feature = "spec"))]
+pub mod cross_contract_spec;
+#[cfg(any(test, feature = "spec"))]
 pub mod deposit_spec;
 #[cfg(any(test, feature = "spec"))]
 pub mod health_factor;
@@ -55,14 +57,12 @@ pub mod interest;
 #[cfg(any(test, feature = "spec"))]
 pub mod liquidation;
 #[cfg(any(test, feature = "spec"))]
+pub mod oracle_spec;
+#[cfg(any(test, feature = "spec"))]
 pub mod protocol_invariants;
 #[cfg(any(test, feature = "spec"))]
 pub mod rewards;
 #[cfg(any(test, feature = "spec"))]
-pub mod withdraw_spec;
-#[cfg(any(test, feature = "spec"))]
-pub mod oracle_spec;
-#[cfg(any(test, feature = "spec"))]
-pub mod cross_contract_spec;
-#[cfg(any(test, feature = "spec"))]
 pub mod upgrade_spec;
+#[cfg(any(test, feature = "spec"))]
+pub mod withdraw_spec;

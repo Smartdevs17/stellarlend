@@ -4,7 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+stellarlend-errors = { path = "../errors" }
 soroban-sdk = { workspace = true, features = ["testutils"] }
 
 [dev-dependencies]
 proptest = "1.4"
+
+[lints]
+workspace = true

@@ -21,6 +21,7 @@ router.put('/alert-config', (req, res) => riskController.updateAlertConfig(req, 
 router.get('/user/:address/risk-profile', (req, res) => riskController.getUserRiskProfile(req, res));
 
 router.get('/dashboard', (req, res) => riskController.getDashboard(req, res));
+router.get('/admin/market-risk-dashboard', (req, res) => riskController.getAdminRiskDashboard(req, res));
 
 // Collateral Ratio Monitoring routes
 router.get('/collateral-ratio/snapshots', (req, res) => riskController.getCollateralRatioSnapshots(req, res));

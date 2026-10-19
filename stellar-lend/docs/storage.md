@@ -2,7 +2,7 @@
 
 This document details the storage architecture of the StellarLend protocol.
 
-## Packed Pool Configuration (#713)
+## Packed Pool Configuration (#834)
 
 To minimize storage costs and optimize I/O on the Soroban network, pool configuration settings are tightly packed into two primitive data types. By bit-packing configurations that were previously stored in multiple independent keys, we significantly reduce ledger access gas costs for every lending and borrowing operation.
 
@@ -36,3 +36,22 @@ The logical `PoolConfig` is packed into a `PackedConfig` composed of:
 ### Migration from Legacy Layout
 
 The protocol automatically migrates from the legacy global `RiskParams` and per-asset `ReserveFactor` structures to the new per-pool `PackedConfig` the first time a pool's configuration is read via `get_pool_config()`.
+
+Values that cannot be represented are rejected before persistence. Each rate
+field must fit its 16-bit allocation, timestamps must fit 40 bits, and flags
+must fit the reserved 8-bit status byte. This avoids silent truncation during
+packing.
+
+## Typed storage abstraction (#828)
+
+Core contract storage access is routed through typed repository boundaries:
+
+- `PersistentStore` and `TemporaryStore` in the core contract provide generic,
+  compile-time checked access while centralizing SDK calls.
+- `DataStoreRepository` limits the data-store contract to its own `StoreKey`
+  namespace and is used by initialization, authorization, entries, backups,
+  restores, migrations, and accounting helpers.
+
+These boundaries preserve the existing on-chain key layout. They are an
+internal refactor, so deployed data remains readable and future TTL,
+instrumentation, or migration policy can be introduced in one place.

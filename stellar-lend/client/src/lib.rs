@@ -103,6 +103,7 @@
 
 // Re-export main types and modules
 pub mod config;
+pub mod dedup;
 pub mod error;
 pub mod horizon;
 pub mod monitor;

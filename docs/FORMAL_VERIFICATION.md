@@ -35,7 +35,19 @@ and are completely absent from the production WASM binary.
 | `spec::withdraw_spec` | `withdraw` | W-01 … W-07 |
 | `spec::protocol_invariants` | protocol accounting, health factor, interest index | P-01 ... P-05, H-01 ... H-05, I-01 ... I-03 |
 
-**Total: 69 lemmas across 9 critical function groups**
+| `spec::oracle_spec` | `get_price` � oracle data consumption paths | ORA-001 � ORA-010 |
+| `spec::cross_contract_spec` | Reentrancy, flash loans, AMM callbacks, migration atomicity | INV-REENTRANCY � INV-MIGRATION-COMPLETENESS |
+| `spec::upgrade_spec` | Upgrade state machine, storage safety | INV-UPGRADE-VERSION � INV-UPGRADE-ROLLBACK |
+| `spec::migration_hub` | Migration deadline, rate-limit, rollback | INV-MIG-DEADLINE � INV-MIG-ANALYTICS |
+| certora `interest_rate_model.spec` | IRM boundary conditions | IRM-001 � IRM-008 |
+| certora `oracle_integration.spec` | Oracle integration contracts | ORA-001 � ORA-010 |
+| certora `health_factor_bounds.spec` | Health factor bounds & monotonicity | HF-001 � HF-007 (Issue #687) |
+| certora `interest_accrual.spec` | Interest accrual invariants | IA-001 � IA-008 (Issue #687) |
+
+**Total: 69 lemmas across 9 critical function groups + 33 Certora rules across 5 spec files + 4 new Rust spec modules**
+
+Issue #687 adds health-factor and interest-accrual Certora specs, `scripts/verification-report.sh` structure checks, and a `verification-baseline.json` CI gate. Run `bash scripts/verification-report.sh` to validate the suite locally.
+
 
 ---
 
@@ -227,3 +239,7 @@ The workflow at `.github/workflows/formal-verification.yml` runs:
 Kani is used as the Rust/Soroban model checker for this repository. It fills
 the same role that Certora Prover fills for Solidity/EVM projects while keeping
 the verification target native to the contract language used here.
+
+
+
+

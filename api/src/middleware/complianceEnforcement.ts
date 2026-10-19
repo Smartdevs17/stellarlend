@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { complianceService } from '../services/compliance.service';
 import logger from '../utils/logger';
+import { ErrorCode } from '../utils/errors';
 
 /**
  * Compliance middleware that enforces KYC/AML checks on protected endpoints.
@@ -37,7 +38,7 @@ export function complianceEnforcement(options?: {
         logger.warn('COMPLIANCE_BLOCKED: Sanctioned address', { address: userAddress });
         return res.status(403).json({
           error: 'Address is on sanctions list',
-          code: 'SANCTIONED_ADDRESS',
+          code: ErrorCode.SANCTIONED_ADDRESS,
         });
       }
 
@@ -46,7 +47,7 @@ export function complianceEnforcement(options?: {
         logger.warn('COMPLIANCE_BLOCKED: OFAC match', { address: userAddress, confidence: ofacResult.confidence });
         return res.status(403).json({
           error: 'Address matches OFAC sanctions list',
-          code: 'OFAC_MATCH',
+          code: ErrorCode.OFAC_MATCH,
         });
       }
 
@@ -56,7 +57,7 @@ export function complianceEnforcement(options?: {
           logger.warn('COMPLIANCE_BLOCKED: KYC required', { address: userAddress });
           return res.status(403).json({
             error: 'KYC verification required',
-            code: 'KYC_REQUIRED',
+            code: ErrorCode.KYC_REQUIRED,
           });
         }
       }
@@ -69,7 +70,7 @@ export function complianceEnforcement(options?: {
           logger.warn('COMPLIANCE_BLOCKED: Restricted jurisdiction', { address: userAddress, jurisdiction: kyc.jurisdiction });
           return res.status(403).json({
             error: `Jurisdiction ${kyc.jurisdiction} is restricted`,
-            code: 'RESTRICTED_JURISDICTION',
+            code: ErrorCode.RESTRICTED_JURISDICTION,
           });
         }
       }
@@ -90,7 +91,7 @@ export function complianceEnforcement(options?: {
             });
             return res.status(403).json({
               error: 'Regulatory limits exceeded',
-              code: 'LIMIT_EXCEEDED',
+              code: ErrorCode.LIMIT_EXCEEDED,
               violations: limitCheck.violations,
             });
           }
@@ -104,7 +105,7 @@ export function complianceEnforcement(options?: {
           logger.warn('COMPLIANCE_BLOCKED: Critical AML risk', { address: userAddress, riskScore: assessment.riskScore });
           return res.status(403).json({
             error: 'Transaction blocked due to critical AML risk',
-            code: 'AML_CRITICAL',
+            code: ErrorCode.AML_CRITICAL,
             riskScore: assessment.riskScore,
             flags: assessment.flags,
           });
@@ -113,7 +114,7 @@ export function complianceEnforcement(options?: {
           logger.warn('COMPLIANCE_BLOCKED: High AML risk', { address: userAddress, riskScore: assessment.riskScore });
           return res.status(403).json({
             error: 'Transaction requires review due to high AML risk',
-            code: 'AML_HIGH_RISK',
+            code: ErrorCode.AML_HIGH_RISK,
             riskScore: assessment.riskScore,
             flags: assessment.flags,
           });
