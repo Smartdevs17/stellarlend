@@ -1,3 +1,5 @@
+import { webhookService } from '../webhook.service';
+
 export interface PositionHealth {
   address: string;
   collateralAsset: string;
@@ -174,6 +176,9 @@ export class LiquidationMonitorService {
         listener(all);
       } catch { /* skip failed listener */ }
     }
+
+    // Issue #1376 – emit signed webhooks for positions now in liquidation range.
+    webhookService.notifyLiquidationAlerts(this.getAlerts());
   }
 }
 

@@ -24,17 +24,63 @@ const BCRYPT_COST = 10;
 const KEY_BYTES = 32; // 256-bit raw key → 64-char hex string
 const PREFIX_LENGTH = 8;
 
+/**
+ * Issue #1374 – Scoped API keys.
+ *
+ * Supported scopes. `*` grants full access and is the default so existing
+ * keys keep working; callers can request narrow scopes for least privilege.
+ */
+export const API_SCOPES = ['read', 'write', 'admin', 'liquidation:read', 'webhooks:manage'] as const;
+export type ApiScope = (typeof API_SCOPES)[number] | '*';
+export const DEFAULT_SCOPES: ApiScope[] = ['*'];
+
+export function normalizeScopes(scopes?: unknown): ApiScope[] {
+  if (scopes === undefined || scopes === null) return [...DEFAULT_SCOPES];
+  if (!Array.isArray(scopes) || scopes.length === 0) {
+    throw new ConflictError('scopes must be a non-empty array');
+  }
+  const normalized = scopes.map((s) => String(s));
+  for (const scope of normalized) {
+    if (scope !== '*' && !(API_SCOPES as readonly string[]).includes(scope)) {
+      throw new ConflictError(
+        `Unknown scope "${scope}". Allowed: ${API_SCOPES.join(', ')}, *`
+      );
+    }
+  }
+  return normalized as ApiScope[];
+}
+
 export interface ApiKeyRecord {
   id: string;
   prefix: string;
   /** bcrypt hash – never the raw key */
   hash: string;
   name?: string;
+  /** Issue #1374 – scopes granted to this key. `['*']` = full access. */
+  scopes: ApiScope[];
   createdAt: string;
   lastUsedAt?: string;
   revokedAt?: string;
   createdBy?: string;
 }
+
+/**
+ * Issue #1375 – Per-key usage analytics.
+ */
+export interface ApiKeyUsage {
+  keyId: string;
+  requests: number;
+  byEndpoint: Record<string, number>;
+  lastUsedAt?: string;
+  firstUsedAt?: string;
+}
+
+const usageStore = new Map<string, ApiKeyUsage>();
+
+const EMPTY_USAGE: Omit<ApiKeyUsage, 'keyId'> = {
+  requests: 0,
+  byEndpoint: {},
+};
 
 export interface CreateApiKeyResult {
   /** The raw key – shown ONCE, never stored. Caller must save it. */
@@ -76,7 +122,7 @@ class ApiKeyService {
    * @param actor   Address / identity of the creator (for audit log).
    * @returns       The raw key (shown once) and the stored record (no hash).
    */
-  async create(name: string, actor: string): Promise<CreateApiKeyResult> {
+  async create(name: string, actor: string, scopes?: ApiScope[]): Promise<CreateApiKeyResult> {
     const rawKey = generateRawKey();
     const prefix = extractPrefix(rawKey);
     const hash = await bcrypt.hash(rawKey, BCRYPT_COST);
@@ -86,6 +132,7 @@ class ApiKeyService {
       prefix,
       hash,
       name,
+      scopes: normalizeScopes(scopes),
       createdAt: new Date().toISOString(),
       createdBy: actor,
     };
@@ -96,7 +143,7 @@ class ApiKeyService {
       action: 'API_KEY_CREATED',
       actor,
       status: 'success',
-      afterState: { keyId: record.id, prefix, name },
+      afterState: { keyId: record.id, prefix, name, scopes: record.scopes },
     });
 
     logger.info('API key created', { keyId: record.id, prefix, name, actor });
@@ -164,7 +211,7 @@ class ApiKeyService {
     }
 
     // Create the replacement key (old key still valid until revoked)
-    const result = await this.create(existing.name ?? 'rotated', actor);
+    const result = await this.create(existing.name ?? 'rotated', actor, existing.scopes);
 
     auditLogService.record({
       action: 'API_KEY_ROTATED',
@@ -238,6 +285,7 @@ class ApiKeyService {
         prefix,
         hash,
         name: k.name,
+        scopes: [...DEFAULT_SCOPES],
         createdAt: new Date().toISOString(),
         createdBy: k.createdBy,
       };
@@ -256,9 +304,55 @@ class ApiKeyService {
     return migrated;
   }
 
+  /**
+   * Issue #1374 – Check whether a key record grants a required scope.
+   * `*` grants every scope.
+   */
+  hasScope(
+    record: Pick<ApiKeyRecord, 'scopes'> | undefined,
+    required: ApiScope
+  ): boolean {
+    if (!record) return false;
+    return record.scopes.includes('*') || record.scopes.includes(required);
+  }
+
+  /**
+   * Issue #1375 – Record one authenticated request for usage analytics.
+   * Kept in-memory alongside the key store; endpoint is the matched route
+   * path (or the raw path when no route matched).
+   */
+  recordUsage(keyId: string, endpoint: string): ApiKeyUsage {
+    const now = new Date().toISOString();
+    const existing = usageStore.get(keyId) ?? {
+      keyId,
+      ...EMPTY_USAGE,
+      firstUsedAt: now,
+    };
+    existing.requests += 1;
+    existing.byEndpoint[endpoint] = (existing.byEndpoint[endpoint] ?? 0) + 1;
+    existing.lastUsedAt = now;
+    usageStore.set(keyId, existing);
+    return existing;
+  }
+
+  /**
+   * Issue #1375 – Usage totals for a single key.
+   * Unknown keys return a zeroed record rather than throwing so dashboards
+   * can render keys that have not been used yet.
+   */
+  getUsage(keyId: string): ApiKeyUsage {
+    return usageStore.get(keyId) ?? { keyId, ...EMPTY_USAGE, byEndpoint: {} };
+  }
+
+  /** Issue #1375 – All recorded usage, for aggregate dashboards. */
+  listUsage(): ApiKeyUsage[] {
+    return [...usageStore.values()];
+  }
+
   /** Exposed for testing only. */
   _reset(): void {
     store.clear();
+    usageStore.clear();
   }
 }
 

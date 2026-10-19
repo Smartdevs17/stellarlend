@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { apiKeyService } from '../services/apiKey.service';
+import { apiKeyService, normalizeScopes } from '../services/apiKey.service';
+import { webhookService } from '../services/webhook.service';
 import {
   getSensitiveRateLimitAnalytics,
   getSensitiveRateLimitConfig,
@@ -153,6 +154,11 @@ router.get('/', (_req, res) => {
  *                 type: string
  *               actor:
  *                 type: string
+ *               scopes:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: 'Scopes to grant. Defaults to ["*"] (full access). Allowed: read, write, admin, liquidation:read, webhooks:manage, *'
  *     responses:
  *       201:
  *         description: New API key. The raw key is returned once.
@@ -165,7 +171,8 @@ router.get('/api-keys', (req, res) => {
 router.post('/api-keys', async (req, res, next: NextFunction) => {
   try {
     const name = typeof req.body?.name === 'string' ? req.body.name : 'unnamed-key';
-    const result = await apiKeyService.create(name, actorFromRequest(req));
+    const scopes = normalizeScopes(req.body?.scopes);
+    const result = await apiKeyService.create(name, actorFromRequest(req), scopes);
     res.status(201).json({
       data: result,
       warning: 'Store rawKey now. StellarLend only stores a hash and cannot show it again.',
@@ -173,6 +180,41 @@ router.post('/api-keys', async (req, res, next: NextFunction) => {
   } catch (error) {
     next(error);
   }
+});
+
+/**
+ * @openapi
+ * /developer/api-keys/{keyId}/usage:
+ *   get:
+ *     summary: Get per-key API usage analytics
+ *     tags: [Developer]
+ *     parameters:
+ *       - in: path
+ *         name: keyId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Request totals, per-endpoint breakdown, and last-used timestamp
+ */
+router.get('/api-keys/:keyId/usage', (req, res) => {
+  const usage = apiKeyService.getUsage(req.params.keyId);
+  res.json({ data: usage });
+});
+
+/**
+ * @openapi
+ * /developer/usage/keys:
+ *   get:
+ *     summary: Get usage analytics for all API keys
+ *     tags: [Developer]
+ *     responses:
+ *       200:
+ *         description: Aggregate per-key usage for dashboards
+ */
+router.get('/usage/keys', (_req, res) => {
+  res.json({ data: apiKeyService.listUsage() });
 });
 
 router.post('/api-keys/:keyId/rotate', async (req, res, next: NextFunction) => {
@@ -263,7 +305,7 @@ router.post('/graphql', (_req, res) => {
  * @openapi
  * /developer/webhooks/test:
  *   post:
- *     summary: Queue a test webhook delivery
+ *     summary: Send a signed test webhook delivery
  *     tags: [Developer]
  *     requestBody:
  *       required: true
@@ -280,34 +322,104 @@ router.post('/graphql', (_req, res) => {
  *                 type: string
  *     responses:
  *       200:
- *         description: Test webhook payload queued
+ *         description: Delivery result including HMAC signature header semantics
  *       400:
  *         description: Invalid webhook URL
  */
-router.post('/webhooks/test', (req, res) => {
-  const url = typeof req.body?.url === 'string' ? req.body.url : '';
-  const event = typeof req.body?.event === 'string' ? req.body.event : 'transaction.submitted';
+router.post('/webhooks/test', async (req, res, next: NextFunction) => {
+  try {
+    const url = typeof req.body?.url === 'string' ? req.body.url : '';
+    const event = typeof req.body?.event === 'string' ? req.body.event : 'webhook.test';
 
-  if (!/^https?:\/\//.test(url)) {
-    res.status(400).json({ success: false, error: 'A valid http(s) webhook URL is required' });
+    if (!/^https?:\/\//.test(url)) {
+      res.status(400).json({ success: false, error: 'A valid http(s) webhook URL is required' });
+      return;
+    }
+
+    // Issue #1376 – real signed delivery with retries instead of a stub queue.
+    const { subscription, secret } = webhookService.subscribe({ url, events: [event] });
+    const deliveries = await webhookService.dispatch(event, {
+      message: 'StellarLend webhook test event',
+      transactionHash: 'test-transaction-hash',
+    });
+    webhookService.unsubscribe(subscription.id);
+
+    res.json({
+      success: true,
+      secret,
+      signatureHeader: 'X-StellarLend-Signature: t=<unix>,v1=<hmac-sha256>',
+      deliveries,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * @openapi
+ * /developer/webhooks:
+ *   get:
+ *     summary: List webhook subscriptions
+ *     tags: [Developer]
+ *     responses:
+ *       200:
+ *         description: Active subscriptions without signing secrets
+ *   post:
+ *     summary: Register a webhook subscription
+ *     tags: [Developer]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [url]
+ *             properties:
+ *               url:
+ *                 type: string
+ *                 format: uri
+ *               events:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ['liquidation.alert']
+ *     responses:
+ *       201:
+ *         description: Subscription created. The signing secret is returned once.
+ */
+router.get('/webhooks', (_req, res) => {
+  res.json({ data: webhookService.list() });
+});
+
+router.post('/webhooks', (req, res, next: NextFunction) => {
+  try {
+    const url = typeof req.body?.url === 'string' ? req.body.url : '';
+    const events = Array.isArray(req.body?.events)
+      ? req.body.events.map((e: unknown) => String(e))
+      : ['liquidation.alert'];
+
+    if (!/^https?:\/\//.test(url)) {
+      res.status(400).json({ success: false, error: 'A valid http(s) webhook URL is required' });
+      return;
+    }
+
+    const result = webhookService.subscribe({ url, events });
+    res.status(201).json({
+      data: result,
+      warning: 'Store the signing secret now. It is only returned once.',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/webhooks/:id', (req, res) => {
+  const removed = webhookService.unsubscribe(req.params.id);
+  if (!removed) {
+    res.status(404).json({ success: false, error: 'Webhook subscription not found' });
     return;
   }
-
-  res.json({
-    success: true,
-    delivery: {
-      id: `wh_test_${Date.now()}`,
-      url,
-      event,
-      payload: {
-        id: `evt_${Date.now()}`,
-        type: event,
-        createdAt: new Date().toISOString(),
-        data: { transactionHash: 'test-transaction-hash' },
-      },
-      status: 'queued',
-    },
-  });
+  res.status(204).send();
 });
 
 /**

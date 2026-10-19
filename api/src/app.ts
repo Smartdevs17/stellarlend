@@ -29,6 +29,7 @@ import migrationRoutes from './routes/migration.routes';
 import ratesRoutes from './routes/rates.routes';
 import crossProtocolRoutes from './routes/crossProtocol.routes';
 import developerRoutes from './routes/developer.routes';
+import sandboxRoutes from './routes/sandbox.routes';
 import mevRoutes from './routes/mev.routes';
 import reputationRoutes from './routes/reputation.routes';
 import socialRoutes from './routes/social.routes';
@@ -215,6 +216,8 @@ const legacySystemCompat = legacyCompatibilityMiddleware('/api/v1/system');
 const legacySecurityCompat = legacyCompatibilityMiddleware('/api/v1/security');
 
 app.use('/api/developer', legacySystemCompat, developerRoutes);
+// Issue #1377 – isolated, resettable sandbox environment.
+app.use('/api/sandbox', sandboxRoutes);
 app.use('/api/health', legacySystemCompat, healthRoutes);
 app.use('/api/protocol', legacyProtocolCompat, protocolRoutes);
 app.use(
