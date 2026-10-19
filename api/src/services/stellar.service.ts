@@ -978,7 +978,8 @@ export class StellarService {
     isLiquidatable: boolean;
     borrowCapacity: string;
   }> {
-    if (!this.isValidStellarAddress(userAddress)) {
+    // Stellar account IDs are 56 characters total: G followed by 55 base32 chars.
+    if (!/^G[A-Z2-7]{55}$/.test(userAddress)) {
       throw new ValidationError('Invalid Stellar address format');
     }
 
