@@ -50,6 +50,8 @@ pub enum AmmError {
     MaxInputExceeded = 13,
     /// Contract has already been initialized
     AlreadyInitialized = 14,
+    /// Nested entry into a guarded AMM entrypoint was rejected
+    ReentrancyDetected = 15,
 }
 
 /// Storage keys for AMM-related data
