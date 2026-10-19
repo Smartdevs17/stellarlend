@@ -121,9 +121,9 @@ fn funded_allocations_are_claimable_once_and_isolated_per_supplier() {
     let token = token::Client::new(&f.env, &asset);
     f.client.set_supplier_reward(&f.admin, &alice, &300);
     f.client.set_supplier_reward(&f.admin, &bob, &200);
-    let events_before = f.env.events().all().len();
+    let events_before = f.env.events().all();
     assert_eq!(f.client.claim_supplier_rewards(&alice), 300);
-    assert!(f.env.events().all().len() > events_before);
+    assert_ne!(f.env.events().all(), events_before);
     assert_eq!(token.balance(&alice), 300);
     assert_eq!(token.balance(&bob), 0);
     assert_eq!(token.balance(&f.client.address), 700);
