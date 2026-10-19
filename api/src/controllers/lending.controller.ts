@@ -15,6 +15,7 @@ import { config } from '../config/index';
 import logger from '../utils/logger';
 import { emergencyPauseService } from '../services/emergencyPause.service';
 import { redisCacheService } from '../services/redisCache.service';
+import { readCacheService } from '../services/readCache.service';
 import { auditLogService } from '../services/auditLog.service';
 import { parsePaginationParams } from '../utils/pagination';
 import { requestCoalescingService } from '../services/requestCoalescing.service';
@@ -145,11 +146,7 @@ export const submit = async (req: Request, res: Response, next: NextFunction) =>
         ip: req.ip,
       });
 
-      await redisCacheService.delByPrefix('stellarlend:position:');
-      await redisCacheService.delByPrefix('stellarlend:pool:');
-      await redisCacheService.delByPrefix('stellarlend:protocol:');
-      await redisCacheService.delByPrefix('stellarlend:simulation:');
-      await redisCacheService.delByPrefix('stellarlend:http:');
+      await readCacheService.invalidateAfterWrite();
 
       return res.status(200).json(monitorResult);
     }
@@ -525,7 +522,7 @@ export const executeRebalancing = async (req: Request, res: Response, next: Next
       message: 'Rebalancing executed successfully',
     };
 
-    await redisCacheService.delByPrefix('stellarlend:position:');
+    await readCacheService.invalidate('position');
 
     return res.status(200).json(response);
   } catch (error) {

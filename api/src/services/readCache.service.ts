@@ -47,6 +47,18 @@ export const READ_CACHE_KINDS: readonly HotCacheKeyKind[] = [
   'http',
 ];
 
+/**
+ * Kinds a submitted lending transaction can make stale. Gas and price reads are
+ * not affected by a user's transaction, so they are left to expire on their TTL.
+ */
+export const WRITE_INVALIDATED_KINDS: readonly HotCacheKeyKind[] = [
+  'position',
+  'pool',
+  'protocol',
+  'simulation',
+  'http',
+];
+
 export function ttlSeconds(ttlMs: number): number {
   return Math.max(1, Math.floor(ttlMs / 1000));
 }
@@ -134,6 +146,14 @@ export class ReadCacheService {
 
   async invalidateAll(): Promise<void> {
     await Promise.all(READ_CACHE_KINDS.map((kind) => this.invalidate(kind)));
+  }
+
+  /**
+   * Drop the read models a state-changing transaction can make stale. Going
+   * through `invalidate` keeps these writes in the per-kind invalidation metrics.
+   */
+  async invalidateAfterWrite(): Promise<void> {
+    await Promise.all(WRITE_INVALIDATED_KINDS.map((kind) => this.invalidate(kind)));
   }
 
   recordHit(kind: HotCacheKeyKind): void {

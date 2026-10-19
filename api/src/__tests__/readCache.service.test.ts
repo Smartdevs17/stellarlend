@@ -155,6 +155,29 @@ describe('ReadCacheService', () => {
     expect(cache.getStats().kinds.position.invalidations).toBe(3);
   });
 
+  it('drops the write-affected kinds after a transaction and counts each invalidation', async () => {
+    const loader = jest.fn().mockResolvedValue('x');
+    await cache.getOrLoad('position', 'GA', 30000, loader);
+    await cache.getOrLoad('protocol', 'stats', 30000, loader);
+    await cache.getOrLoad('gas', 'history', 30000, loader);
+
+    await cache.invalidateAfterWrite();
+
+    await expect(
+      redisCacheService.get(redisCacheService.buildKey('position', 'GA'))
+    ).resolves.toBeNull();
+    await expect(
+      redisCacheService.get(redisCacheService.buildKey('protocol', 'stats'))
+    ).resolves.toBeNull();
+    // Gas reads are not changed by a user transaction and keep their entry.
+    await expect(redisCacheService.get(redisCacheService.buildKey('gas', 'history'))).resolves.toBe(
+      'x'
+    );
+    expect(cache.getStats().kinds.position.invalidations).toBe(1);
+    expect(cache.getStats().kinds.protocol.invalidations).toBe(1);
+    expect(cache.getStats().kinds.gas?.invalidations ?? 0).toBe(0);
+  });
+
   it('exposes the read kinds and validates kind names', () => {
     expect(READ_CACHE_KINDS).toContain('http');
     expect(READ_CACHE_KINDS).not.toContain('nonce');
