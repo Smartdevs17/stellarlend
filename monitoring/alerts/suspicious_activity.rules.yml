@@ -1,0 +1,133 @@
+# Prometheus alerting rules — StellarLend on-chain event monitoring
+# Issue #1391 — Add event monitoring for suspicious activity
+#
+# These rules fire on metrics exported by the StellarLend indexer service when
+# it processes events emitted by `event_monitor.rs` inside the lending contract.
+#
+# Metric naming convention (exported by the indexer):
+#   stellarlend_security_alert_total{rule, severity}  — counter of alert events
+#   stellarlend_large_borrow_amount                   — gauge: largest borrow seen in last window
+#   stellarlend_burst_tx_count{user}                  — gauge: max action count in window
+#   stellarlend_price_deviation_bps{asset}            — gauge: latest deviation (bps)
+#   stellarlend_rapid_liquidation_count{user}         — gauge: liq count in window
+
+groups:
+  - name: stellarlend_security_alerts
+    rules:
+
+      # ── Large borrow ───────────────────────────────────────────────────────
+      - alert: LargeBorrowDetected
+        expr: >
+          increase(stellarlend_security_alert_total{rule="LRG_BRW", severity="2"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: lending
+          project: stellarlend
+        annotations:
+          summary: "StellarLend: large borrow event detected"
+          description: >
+            A single borrow exceeded the large-borrow threshold
+            (default 500 000 protocol units). Investigate immediately for
+            potential flash-loan attack or undercollateralised position.
+          runbook_url: "https://docs.stellarlend.com/runbooks/large-borrow"
+
+      # ── Burst transactions ─────────────────────────────────────────────────
+      - alert: BurstTransactionsDetected
+        expr: >
+          increase(stellarlend_security_alert_total{rule="BURST_TX", severity="1"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: lending
+          project: stellarlend
+        annotations:
+          summary: "StellarLend: burst transaction pattern from a single address"
+          description: >
+            A single address exceeded {{ $value }} actions within the
+            60-second rolling window (default threshold: 10). May indicate
+            automated exploit scripting or sandwich-attack setup.
+          runbook_url: "https://docs.stellarlend.com/runbooks/burst-tx"
+
+      # ── Rapid liquidations ─────────────────────────────────────────────────
+      - alert: RapidLiquidationsDetected
+        expr: >
+          increase(stellarlend_security_alert_total{rule="RPD_LIQ", severity="2"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: lending
+          project: stellarlend
+        annotations:
+          summary: "StellarLend: rapid successive liquidations of the same user"
+          description: >
+            The same address was liquidated ≥ 3 times within 300 seconds.
+            This may indicate oracle manipulation or a cascading liquidation
+            attack. Investigate the oracle price feed for the affected asset.
+          runbook_url: "https://docs.stellarlend.com/runbooks/rapid-liquidations"
+
+      # ── Oracle price deviation ─────────────────────────────────────────────
+      - alert: OraclePriceDeviationCritical
+        expr: >
+          increase(stellarlend_security_alert_total{rule="PRC_DEV", severity="2"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: oracle
+          project: stellarlend
+        annotations:
+          summary: "StellarLend: oracle price deviated > 5% from reference"
+          description: >
+            The oracle-reported price for an asset deviated more than
+            DEFAULT_PRICE_DEVIATION_BPS (500 bps / 5%) from the contract's
+            reference price. This could indicate price manipulation, stale
+            data, or an oracle compromise.
+          runbook_url: "https://docs.stellarlend.com/runbooks/oracle-deviation"
+
+      - alert: OraclePriceDeviationWarning
+        expr: >
+          increase(stellarlend_security_alert_total{rule="PRC_DEV", severity="1"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: oracle
+          project: stellarlend
+        annotations:
+          summary: "StellarLend: oracle reference price is zero (cannot compute deviation)"
+          description: >
+            The reference price used for deviation checking was zero.
+            This may indicate a mis-configured oracle or a newly listed asset
+            without a valid reference.
+
+      # ── Flash loan abuse ───────────────────────────────────────────────────
+      - alert: FlashLoanAbuseDetected
+        expr: >
+          increase(stellarlend_security_alert_total{rule="FL_ABUSE", severity="2"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: lending
+          project: stellarlend
+        annotations:
+          summary: "StellarLend: flash loan with zero or negative protocol fee"
+          description: >
+            A flash loan was executed but the protocol fee was zero or negative.
+            This strongly suggests an exploit attempt. Pause the protocol
+            and investigate immediately.
+          runbook_url: "https://docs.stellarlend.com/runbooks/flash-loan-abuse"
+
+      # ── Admin action audit ─────────────────────────────────────────────────
+      - alert: AdminActionPerformed
+        expr: >
+          increase(stellarlend_security_alert_total{rule="ADM_ACT", severity="0"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          component: governance
+          project: stellarlend
+        annotations:
+          summary: "StellarLend: privileged admin action executed"
+          description: >
+            A governance/admin operation was performed on-chain.
+            This is informational — verify that the action was expected and
+            authorised by the multi-sig.

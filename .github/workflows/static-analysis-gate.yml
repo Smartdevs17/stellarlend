@@ -1,0 +1,164 @@
+name: Static Analysis Gate (Clippy + Audit)
+# Issue #1393 — Add static analysis (Clippy/audit) gate
+#
+# This workflow enforces a hard CI gate on every PR and push to main/dev:
+#
+#   1. cargo fmt --check   — zero formatting deviations allowed
+#   2. cargo clippy        — all warnings treated as errors (-D warnings)
+#   3. cargo audit         — no known advisories in the dependency tree
+#   4. cargo deny          — additional supply-chain / license checks
+#
+# The workflow FAILS the PR if any of the above steps report issues,
+# preventing merges until the code is clean.
+
+on:
+  push:
+    branches: ["main", "dev"]
+  pull_request:
+    branches: ["main", "dev"]
+
+concurrency:
+  group: static-analysis-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Format check — zero tolerance
+  # ──────────────────────────────────────────────────────────────────────────
+  fmt:
+    name: Format (cargo fmt)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable + rustfmt
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: |
+          cd stellar-lend
+          cargo fmt --all -- --check
+        # Fail message shown to contributors on mismatch:
+        # Run `cargo fmt --all` locally and commit the result.
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Clippy — all warnings are errors
+  # ──────────────────────────────────────────────────────────────────────────
+  clippy:
+    name: Lint (cargo clippy -D warnings)
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable + clippy
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry & build artefacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            stellar-lend/target
+          key: ${{ runner.os }}-clippy-${{ hashFiles('stellar-lend/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-clippy-
+
+      - name: Run clippy (deny all warnings)
+        run: |
+          cd stellar-lend
+          cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run clippy for Wasm target
+        run: |
+          cd stellar-lend
+          rustup target add wasm32-unknown-unknown
+          cargo clippy --target wasm32-unknown-unknown --all-features -- -D warnings
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Security audit — no known CVEs
+  # ──────────────────────────────────────────────────────────────────────────
+  audit:
+    name: Security Audit (cargo audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-audit-${{ hashFiles('stellar-lend/Cargo.lock') }}
+
+      - name: Install cargo-audit (pinned)
+        run: cargo install cargo-audit --locked --version "^0.21"
+
+      - name: Run cargo audit
+        run: |
+          cd stellar-lend
+          cargo audit --deny warnings
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-audit-report-${{ github.sha }}
+          path: stellar-lend/Cargo.lock
+          retention-days: 30
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Supply-chain / license gate — cargo deny
+  # ──────────────────────────────────────────────────────────────────────────
+  deny:
+    name: Supply-chain (cargo deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-deny (pinned)
+        run: cargo install cargo-deny --locked --version "^0.16"
+
+      - name: Run cargo deny
+        run: |
+          cargo deny \
+            --manifest-path stellar-lend/Cargo.toml \
+            --config stellar-lend/deny.toml \
+            check advisories bans licenses sources
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Gate — all jobs must pass to allow merge
+  # ──────────────────────────────────────────────────────────────────────────
+  static-analysis-gate:
+    name: Static Analysis Gate
+    runs-on: ubuntu-latest
+    needs: [fmt, clippy, audit, deny]
+    if: always()
+    steps:
+      - name: Evaluate all checks
+        run: |
+          echo "fmt     : ${{ needs.fmt.result }}"
+          echo "clippy  : ${{ needs.clippy.result }}"
+          echo "audit   : ${{ needs.audit.result }}"
+          echo "deny    : ${{ needs.deny.result }}"
+
+          if [[ "${{ needs.fmt.result }}"    != "success" ]] || \
+             [[ "${{ needs.clippy.result }}" != "success" ]] || \
+             [[ "${{ needs.audit.result }}"  != "success" ]] || \
+             [[ "${{ needs.deny.result }}"   != "success" ]]; then
+            echo "::error::Static analysis gate FAILED — fix all Clippy / fmt / audit issues before merging."
+            exit 1
+          fi
+
+          echo "✅ All static analysis checks passed."
