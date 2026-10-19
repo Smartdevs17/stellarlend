@@ -304,6 +304,22 @@ export const coalescingMetrics = async (_req: Request, res: Response, next: Next
   }
 };
 
+export const getPositionHealth = async (req: Request, res: Response, next: NextFunction) => {
+  const userAddress = req.params.userAddress;
+  if (!userAddress || !/^G[A-Z2-7]{55}$/.test(userAddress)) {
+    return res.status(400).json({ success: false, error: 'Invalid Stellar account address' });
+  }
+
+  try {
+    const health = await new StellarService().getPositionHealth(userAddress);
+    res.setHeader('Cache-Control', 'private, no-cache');
+    return res.status(200).json({ success: true, data: health });
+  } catch (error) {
+    next(error);
+    return;
+  }
+};
+
 export const protocolStats = async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const stellarService = new StellarService();
