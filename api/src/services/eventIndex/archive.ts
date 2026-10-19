@@ -24,6 +24,8 @@ const MANIFEST_KEY = 'manifest.json';
 export interface ColdStorage {
   put(key: string, body: Buffer): Promise<void>;
   get(key: string): Promise<Buffer | null>;
+  /** Remove an object. Deleting a missing key is a no-op. */
+  delete(key: string): Promise<void>;
 }
 
 export class FileSystemColdStorage implements ColdStorage {
@@ -47,6 +49,10 @@ export class FileSystemColdStorage implements ColdStorage {
     }
   }
 
+  async delete(key: string): Promise<void> {
+    await fs.rm(this.resolve(key), { force: true });
+  }
+
   private resolve(key: string): string {
     const target = path.resolve(this.root, key);
     if (!target.startsWith(path.resolve(this.root) + path.sep)) {
@@ -66,6 +72,10 @@ export class MemoryColdStorage implements ColdStorage {
 
   async get(key: string): Promise<Buffer | null> {
     return this.objects.get(key) ?? null;
+  }
+
+  async delete(key: string): Promise<void> {
+    this.objects.delete(key);
   }
 }
 
@@ -109,8 +119,10 @@ export class EventArchiver {
     }
 
     const written: ArchiveSegment[] = [];
+    const superseded: ArchiveSegment[] = [];
     for (const [day, dayEvents] of byDay) {
       const previous = manifest.segments.filter((s) => s.key.startsWith(`events/${day}/`));
+      superseded.push(...previous);
       const merged = new Map<string, IndexedEvent>();
       for (const s of previous) for (const e of await this.readSegment(s)) merged.set(e.id, e);
       for (const e of dayEvents) merged.set(e.id, e);
@@ -154,6 +166,13 @@ export class EventArchiver {
 
     manifest.segments.sort((a, b) => a.fromLedger - b.fromLedger);
     await this.storage.put(MANIFEST_KEY, Buffer.from(JSON.stringify(manifest, null, 2)));
+    // Reclaim superseded generations only after the manifest stops referencing
+    // them. A crash before this point leaves orphaned objects, never a manifest
+    // entry that points at a deleted segment.
+    for (const old of superseded) {
+      this.segmentCache.delete(old.key);
+      await this.storage.delete(old.key);
+    }
     this.trimCache();
     return written;
   }

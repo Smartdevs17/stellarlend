@@ -340,6 +340,19 @@ describe('archival and replay', () => {
     expect(manifest.segments[0]!.count).toBe(3);
   });
 
+  it('deletes superseded segment generations from cold storage', async () => {
+    const { indexer, storage } = await seeded();
+    await indexer.archive(2 * DAY_MS, at(3 * L + 10));
+    await indexer.ingest([typed('withdrawal', 3, alice, 10n)]);
+    await indexer.archive(2 * DAY_MS, at(3 * L + 10));
+
+    expect([...storage.objects.keys()].sort()).toEqual([
+      'events/2026-01-01/segment-2.ndjson.gz',
+      'events/2026-01-02/segment-1.ndjson.gz',
+      'manifest.json',
+    ]);
+  });
+
   it('detects corrupted segments via checksum', async () => {
     const { indexer, storage } = await seeded();
     await indexer.archive(2 * DAY_MS, at(3 * L + 10));
