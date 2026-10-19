@@ -44,4 +44,14 @@ const router: Router = Router();
  */
 router.get('/timeseries', metricsController.getTimeSeries);
 
+/**
+ * @openapi
+ * /metrics/indexer:
+ *   get:
+ *     summary: Indexer telemetry in Prometheus text exposition format or JSON
+ *     tags:
+ *       - Metrics
+ */
+router.get('/indexer', metricsController.getIndexerMetrics);
+
 export default router;

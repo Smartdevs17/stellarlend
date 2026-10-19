@@ -71,6 +71,7 @@ Key admin entrypoints (see contract for full list):
 - Analytics auto-update on deposit/borrow/repay/withdraw
 - Monitoring entrypoints: `monitor_report_health/performance/security`, `monitor_get`
 - Event indexing details, topic layouts, and decoding examples are documented in [event-indexing.md](event-indexing.md)
+- **[Indexer Health & Lag Monitoring](INDEXER_HEALTH_MONITORING.md)** - Real-time indexer lag tracking, Prometheus & JSON metrics exposition, automated alert evaluation, and frontend monitoring dashboard (Issue #1423)
 
 ### Analytics Read APIs
 - `get_protocol_report()` & `get_user_report(address)` surface typed structs (`ProtocolReport`, `UserReport`) containing

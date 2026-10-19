@@ -20,11 +20,13 @@ import { ElasticsearchEventSink, EventSink } from './elasticsearch';
 import { EventIndexer } from './indexer';
 
 export * from './types';
-export { EventIndexer } from './indexer';
+export { EventIndexer, IndexerStatus, SyncHistoryPoint } from './indexer';
 export { EventStore } from './store';
 export { EventArchiver, FileSystemColdStorage, MemoryColdStorage } from './archive';
 export { ElasticsearchEventSink } from './elasticsearch';
 export { CURRENT_SCHEMA_VERSION, normalizeEvent, upcast } from './schema';
+export { IndexerAlertManager, IndexerAlert, AlertThresholds, DEFAULT_ALERT_THRESHOLDS } from './alerts';
+export { formatIndexerMetricsAsPrometheus, formatIndexerMetricsAsJson } from './metrics';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

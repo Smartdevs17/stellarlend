@@ -8,6 +8,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Activity, Archive, Database, Search, Timer } from 'lucide-react';
+import { IndexerHealthDashboard } from './IndexerHealthDashboard';
 
 interface Analytics {
   totalEvents: number;
@@ -60,6 +61,7 @@ export const EventAnalyticsDashboard: React.FC<EventAnalyticsDashboardProps> = (
   apiBaseUrl = '/api',
   refreshMs = 30_000,
 }) => {
+  const [tab, setTab] = useState<'analytics' | 'indexerHealth'>('analytics');
   const [bucket, setBucket] = useState<'hour' | 'day'>('hour');
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [status, setStatus] = useState<IndexerStatus | null>(null);
@@ -110,6 +112,28 @@ export const EventAnalyticsDashboard: React.FC<EventAnalyticsDashboardProps> = (
     }
   };
 
+  if (tab === 'indexerHealth') {
+    return (
+      <div className="space-y-4">
+        <div className="flex border-b border-gray-200 bg-white px-6 pt-4 rounded-t-lg">
+          <button
+            onClick={() => setTab('analytics')}
+            className="px-4 py-2 font-medium text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700"
+          >
+            Event Analytics
+          </button>
+          <button
+            onClick={() => setTab('indexerHealth')}
+            className="px-4 py-2 font-medium text-sm border-b-2 border-blue-600 text-blue-600 font-semibold"
+          >
+            Indexer Health & Lag
+          </button>
+        </div>
+        <IndexerHealthDashboard apiBaseUrl={apiBaseUrl} />
+      </div>
+    );
+  }
+
   if (error && !analytics) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -156,6 +180,26 @@ export const EventAnalyticsDashboard: React.FC<EventAnalyticsDashboardProps> = (
 
   return (
     <div className="bg-white rounded-lg shadow-lg p-6 space-y-6">
+      <div className="flex border-b border-gray-200 pb-3 justify-between items-center">
+        <div className="flex gap-4">
+          <button
+            onClick={() => setTab('analytics')}
+            className="font-medium text-sm border-b-2 border-blue-600 text-blue-600 pb-2 -mb-[13px] font-semibold"
+          >
+            Event Analytics
+          </button>
+          <button
+            onClick={() => setTab('indexerHealth')}
+            className="font-medium text-sm border-b-2 border-transparent text-gray-500 hover:text-gray-700 pb-2 -mb-[13px] flex items-center gap-1.5"
+          >
+            Indexer Health & Lag
+            {status?.lagLedgers !== null && (status?.lagLedgers ?? 0) > 20 && (
+              <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
+            )}
+          </button>
+        </div>
+      </div>
+
       <div className="flex items-center justify-between">
         <h3 className="text-xl font-bold text-gray-900">Contract Event Analytics</h3>
         <div className="flex gap-2">
@@ -181,11 +225,23 @@ export const EventAnalyticsDashboard: React.FC<EventAnalyticsDashboardProps> = (
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {tiles.map(({ icon: Icon, label, value, warn }) => (
-          <div key={label} className={`rounded-lg p-4 ${warn ? 'bg-amber-50' : 'bg-gray-50'}`}>
+          <div
+            key={label}
+            onClick={label === 'Indexer lag' ? () => setTab('indexerHealth') : undefined}
+            className={`rounded-lg p-4 transition-all ${warn ? 'bg-amber-50' : 'bg-gray-50'} ${
+              label === 'Indexer lag' ? 'cursor-pointer hover:ring-2 hover:ring-blue-400' : ''
+            }`}
+            title={label === 'Indexer lag' ? 'Click to open Indexer Health Dashboard' : undefined}
+          >
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <Icon className="w-4 h-4" /> {label}
             </div>
             <div className="mt-1 text-lg font-semibold text-gray-900">{value}</div>
+            {label === 'Indexer lag' && (
+              <div className="mt-1 text-xs text-blue-600 font-medium hover:underline">
+                View Health Dashboard →
+              </div>
+            )}
           </div>
         ))}
       </div>

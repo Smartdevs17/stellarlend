@@ -1,0 +1,72 @@
+# Prometheus Alerting Rules for StellarLend Contract Event Indexer
+# Issue #1423 — Monitor Indexer Health and Lag
+
+groups:
+  - name: indexer_health_alerts
+    rules:
+      - alert: IndexerCriticalLag
+        expr: indexer_lag_ledgers >= 100
+        for: 2m
+        labels:
+          severity: critical
+          component: indexer
+          project: stellarlend
+        annotations:
+          summary: "StellarLend event indexer is critically lagging"
+          description: "Indexer is lagging {{ $value }} ledgers behind network tip (>100 ledgers / ~500s delay)."
+          runbook_url: "https://docs.stellarlend.com/runbooks/indexer-lag"
+
+      - alert: IndexerHighLag
+        expr: indexer_lag_ledgers >= 20 and indexer_lag_ledgers < 100
+        for: 3m
+        labels:
+          severity: warning
+          component: indexer
+          project: stellarlend
+        annotations:
+          summary: "StellarLend event indexer has elevated lag"
+          description: "Indexer is lagging {{ $value }} ledgers behind network tip (warning threshold: 20 ledgers)."
+
+      - alert: IndexerSyncStalled
+        expr: indexer_last_sync_age_seconds > 180
+        for: 1m
+        labels:
+          severity: critical
+          component: indexer
+          project: stellarlend
+        annotations:
+          summary: "StellarLend event indexer sync has stalled"
+          description: "No successful event sync completed in {{ $value }} seconds (>180s)."
+
+      - alert: IndexerProcessDown
+        expr: indexer_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: indexer
+          project: stellarlend
+        annotations:
+          summary: "StellarLend event indexer polling process is stopped"
+          description: "Indexer background polling loop is inactive (indexer_up=0)."
+
+      - alert: IndexerConsecutiveErrors
+        expr: indexer_consecutive_errors >= 3
+        for: 1m
+        labels:
+          severity: warning
+          component: indexer
+          project: stellarlend
+        annotations:
+          summary: "StellarLend event indexer experiencing consecutive sync errors"
+          description: "Indexer failed {{ $value }} consecutive sync cycles."
+
+      - alert: IndexerSinkFailure
+        expr: increase(indexer_sink_failures_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: indexer
+          project: stellarlend
+        annotations:
+          summary: "Downstream event sink delivery failure"
+          description: "Indexer failed to deliver events to downstream sink {{ $labels.sink }}."

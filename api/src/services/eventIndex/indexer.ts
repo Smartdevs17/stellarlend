@@ -24,6 +24,7 @@ import type {
   IndexedEvent,
   RawContractEvent,
 } from './types';
+import { IndexerAlertManager, IndexerAlert, AlertThresholds } from './alerts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -35,6 +36,55 @@ export interface EventSource {
     cursor: string;
     latestLedger: number;
   }>;
+}
+
+export interface SyncHistoryPoint {
+  timestamp: number;
+  latestNetworkLedger: number;
+  latestIndexedLedger: number;
+  lagLedgers: number;
+  durationMs: number;
+  eventsFetched: number;
+  eventsIndexed: number;
+  status: 'ok' | 'error';
+  errorMessage?: string;
+}
+
+export interface IndexerStatus {
+  running: boolean;
+  syncing: boolean;
+  healthStatus: 'healthy' | 'degraded' | 'unhealthy';
+  schemaVersion: number;
+  cursor: string | null;
+  lastSyncAt: number | null;
+  lastSyncDurationMs: number | null;
+  lastError: string | null;
+  lastErrorAt: number | null;
+  totalIngested: number;
+  hotEvents: number;
+  hotRetentionMs: number;
+  latestIndexedLedger: number;
+  latestNetworkLedger: number;
+  lagLedgers: number | null;
+  lagSeconds: number | null;
+  syncSuccessCount: number;
+  syncErrorCount: number;
+  consecutiveErrors: number;
+  archive: {
+    segments: number;
+    events: number;
+    oldestLedger: number | null;
+    newestLedger: number | null;
+  };
+  sinks: Array<{ name: string; failures: number }>;
+  queryLatency: {
+    samples: number;
+    p50Ms: number;
+    p95Ms: number;
+    maxMs: number;
+  };
+  syncHistory: SyncHistoryPoint[];
+  alerts: IndexerAlert[];
 }
 
 export interface EventIndexerOptions {
@@ -49,6 +99,7 @@ export interface EventIndexerOptions {
   startLedger?: number;
   pageSize?: number;
   maxPagesPerSync?: number;
+  alertThresholds?: Partial<AlertThresholds>;
 }
 
 export interface SyncResult {
@@ -79,10 +130,18 @@ export class EventIndexer {
   private syncing: Promise<SyncResult> | null = null;
   private timer: NodeJS.Timeout | null = null;
   private lastSyncAt: number | null = null;
+  private lastSyncDurationMs: number | null = null;
   private lastError: string | null = null;
+  private lastErrorAt: number | null = null;
   private latestNetworkLedger = 0;
   private totalIngested = 0;
   private sinkFailures: Record<string, number> = {};
+  private syncSuccessCount = 0;
+  private syncErrorCount = 0;
+  private consecutiveErrors = 0;
+  private syncHistory: SyncHistoryPoint[] = [];
+  private readonly maxSyncHistory = 50;
+  private readonly alertManager: IndexerAlertManager;
 
   constructor(options: EventIndexerOptions) {
     this.source = options.source;
@@ -94,6 +153,7 @@ export class EventIndexer {
     this.startLedger = options.startLedger;
     this.pageSize = options.pageSize ?? 200;
     this.maxPagesPerSync = options.maxPagesPerSync ?? 50;
+    this.alertManager = new IndexerAlertManager(options.alertThresholds);
   }
 
   // ─── Ingestion ────────────────────────────────────────────────────────────
@@ -135,7 +195,9 @@ export class EventIndexer {
   }
 
   private async runSync(): Promise<SyncResult> {
+    const start = Date.now();
     const result: SyncResult = { fetched: 0, indexed: 0, pages: 0, latestNetworkLedger: 0 };
+    let syncError: Error | null = null;
     try {
       for (let page = 0; page < this.maxPagesPerSync; page += 1) {
         const request = this.cursor
@@ -150,13 +212,43 @@ export class EventIndexer {
         if (res.events.length < this.pageSize) break;
       }
       this.lastError = null;
+      this.consecutiveErrors = 0;
+      this.syncSuccessCount += 1;
       return result;
     } catch (err) {
-      this.lastError = err instanceof Error ? err.message : String(err);
+      syncError = err instanceof Error ? err : new Error(String(err));
+      this.lastError = syncError.message;
+      this.lastErrorAt = Date.now();
+      this.consecutiveErrors += 1;
+      this.syncErrorCount += 1;
       logger.warn('Event indexer sync failed', { error: this.lastError });
       throw err;
     } finally {
+      const durationMs = Date.now() - start;
+      this.lastSyncDurationMs = durationMs;
       this.lastSyncAt = Date.now();
+      const latestIndexedLedger = this.store.latestLedger();
+      const lag = this.latestNetworkLedger
+        ? Math.max(0, this.latestNetworkLedger - latestIndexedLedger)
+        : 0;
+      this.recordSyncHistory({
+        timestamp: this.lastSyncAt,
+        latestNetworkLedger: this.latestNetworkLedger,
+        latestIndexedLedger,
+        lagLedgers: lag,
+        durationMs,
+        eventsFetched: result.fetched,
+        eventsIndexed: result.indexed,
+        status: syncError ? 'error' : 'ok',
+        errorMessage: syncError ? syncError.message : undefined,
+      });
+    }
+  }
+
+  private recordSyncHistory(point: SyncHistoryPoint): void {
+    this.syncHistory.unshift(point);
+    if (this.syncHistory.length > this.maxSyncHistory) {
+      this.syncHistory.pop();
     }
   }
 
@@ -342,32 +434,92 @@ export class EventIndexer {
     };
   }
 
-  async status() {
+  getAlertManager(): IndexerAlertManager {
+    return this.alertManager;
+  }
+
+  getAlerts(): IndexerAlert[] {
+    const latestIndexedLedger = this.store.latestLedger();
+    const lagLedgers = this.latestNetworkLedger
+      ? Math.max(0, this.latestNetworkLedger - latestIndexedLedger)
+      : null;
+    return this.alertManager.evaluate({
+      running: this.timer !== null,
+      lastSyncAt: this.lastSyncAt,
+      lastError: this.lastError,
+      lagLedgers,
+      consecutiveErrors: this.consecutiveErrors,
+      sinks: this.sinks.map((s) => ({ name: s.name, failures: this.sinkFailures[s.name] ?? 0 })),
+    });
+  }
+
+  acknowledgeAlert(id: string): boolean {
+    return this.alertManager.acknowledgeAlert(id);
+  }
+
+  clearAcknowledgedAlerts(): number {
+    return this.alertManager.clearAcknowledged();
+  }
+
+  async status(): Promise<IndexerStatus> {
     const manifest = await this.archiver.getManifest();
     const latestIndexedLedger = this.store.latestLedger();
+    const lagLedgers = this.latestNetworkLedger
+      ? Math.max(0, this.latestNetworkLedger - latestIndexedLedger)
+      : null;
+    const lagSeconds = lagLedgers !== null ? lagLedgers * 5 : null;
+
+    const sinks = this.sinks.map((s) => ({
+      name: s.name,
+      failures: this.sinkFailures[s.name] ?? 0,
+    }));
+
+    const alerts = this.alertManager.evaluate({
+      running: this.timer !== null,
+      lastSyncAt: this.lastSyncAt,
+      lastError: this.lastError,
+      lagLedgers,
+      consecutiveErrors: this.consecutiveErrors,
+      sinks,
+    });
+
+    let healthStatus: 'healthy' | 'degraded' | 'unhealthy' = 'healthy';
+    if (alerts.some((a) => a.severity === 'critical')) {
+      healthStatus = 'unhealthy';
+    } else if (!this.timer || alerts.some((a) => a.severity === 'warning')) {
+      healthStatus = 'degraded';
+    }
+
     return {
       running: this.timer !== null,
       syncing: this.syncing !== null,
+      healthStatus,
       schemaVersion: CURRENT_SCHEMA_VERSION,
       cursor: this.cursor,
       lastSyncAt: this.lastSyncAt,
+      lastSyncDurationMs: this.lastSyncDurationMs,
       lastError: this.lastError,
+      lastErrorAt: this.lastErrorAt,
       totalIngested: this.totalIngested,
       hotEvents: this.store.size,
       hotRetentionMs: this.hotRetentionMs,
       latestIndexedLedger,
       latestNetworkLedger: this.latestNetworkLedger,
-      lagLedgers: this.latestNetworkLedger
-        ? Math.max(0, this.latestNetworkLedger - latestIndexedLedger)
-        : null,
+      lagLedgers,
+      lagSeconds,
+      syncSuccessCount: this.syncSuccessCount,
+      syncErrorCount: this.syncErrorCount,
+      consecutiveErrors: this.consecutiveErrors,
       archive: {
         segments: manifest.segments.length,
         events: manifest.segments.reduce((s, seg) => s + seg.count, 0),
         oldestLedger: manifest.segments[0]?.fromLedger ?? null,
         newestLedger: manifest.segments[manifest.segments.length - 1]?.toLedger ?? null,
       },
-      sinks: this.sinks.map((s) => ({ name: s.name, failures: this.sinkFailures[s.name] ?? 0 })),
+      sinks,
       queryLatency: this.store.latencyStats(),
+      syncHistory: [...this.syncHistory],
+      alerts,
     };
   }
 }

@@ -94,6 +94,64 @@ router.get('/indexer/status', eventsController.getIndexerStatus);
 
 /**
  * @openapi
+ * /events/indexer/health:
+ *   get:
+ *     summary: Comprehensive indexer health status and diagnostic checks
+ *     tags:
+ *       - Events
+ *     responses:
+ *       200:
+ *         description: Indexer is healthy or degraded
+ *       503:
+ *         description: Indexer is unhealthy or critical lag/error detected
+ */
+router.get('/indexer/health', eventsController.getIndexerHealth);
+
+/**
+ * @openapi
+ * /events/indexer/metrics:
+ *   get:
+ *     summary: Prometheus exposition metrics or JSON telemetry
+ *     tags:
+ *       - Events
+ *     responses:
+ *       200:
+ *         description: Prometheus exposition text or JSON metrics
+ */
+router.get('/indexer/metrics', eventsController.getIndexerMetrics);
+
+/**
+ * @openapi
+ * /events/indexer/alerts:
+ *   get:
+ *     summary: List active and historical indexer alerts
+ *     tags:
+ *       - Events
+ */
+router.get('/indexer/alerts', eventsController.getIndexerAlerts);
+
+/**
+ * @openapi
+ * /events/indexer/alerts/{id}/ack:
+ *   post:
+ *     summary: Acknowledge an indexer alert
+ *     tags:
+ *       - Events
+ */
+router.post('/indexer/alerts/:id/ack', eventsController.ackIndexerAlert);
+
+/**
+ * @openapi
+ * /events/indexer/alerts/clear:
+ *   post:
+ *     summary: Clear acknowledged indexer alerts (operator)
+ *     tags:
+ *       - Events
+ */
+router.post('/indexer/alerts/clear', requireRole('operator'), eventsController.clearIndexerAlerts);
+
+/**
+ * @openapi
  * /events/indexer/sync:
  *   post:
  *     summary: Pull new events from Soroban RPC now (operator)

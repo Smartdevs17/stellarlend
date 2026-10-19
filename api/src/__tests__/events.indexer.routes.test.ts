@@ -15,14 +15,19 @@ import {
   USDC,
 } from '../services/eventIndex/__fixtures__/events';
 
-// Mount the router with the real error handler rather than importing the
-// full app, so these tests don't depend on unrelated route modules loading.
+import jwt from 'jsonwebtoken';
+import { assignRole } from '../middleware/rbac';
+import { config } from '../config';
+
 const app = express();
 app.use(express.json());
 app.use('/api/events', eventsRoutes);
 app.use(errorHandler);
 
-const OPERATOR = { 'x-user-role': 'operator', 'x-user-address': 'GOPERATOR' };
+const operatorAddress = 'GOPERATOR12345678901234567890123456789012345678901234567';
+assignRole('admin', operatorAddress, 'operator');
+const token = jwt.sign({ address: operatorAddress }, config.auth.jwtSecret);
+const OPERATOR = { authorization: `Bearer ${token}` };
 
 describe('Event indexing routes (/api/events)', () => {
   const [alice, bob] = [account(), account()];
@@ -147,6 +152,64 @@ describe('Event indexing routes (/api/events)', () => {
       schemaVersion: 1,
     });
     expect(res.body.archive).toMatchObject({ segments: 0, events: 0 });
+    expect(res.body).toHaveProperty('healthStatus');
+    expect(res.body).toHaveProperty('syncHistory');
+    expect(res.body).toHaveProperty('alerts');
+  });
+
+  it('GET /api/events/indexer/health returns structured health diagnostics', async () => {
+    const res = await request(app).get('/api/events/indexer/health');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      success: true,
+      health: {
+        running: false,
+      },
+      lag: {
+        latestIndexedLedger: 4,
+      },
+      sync: {
+        totalSuccess: 0,
+        totalErrors: 0,
+      },
+    });
+  });
+
+  it('GET /api/events/indexer/metrics returns Prometheus exposition format by default', async () => {
+    const res = await request(app).get('/api/events/indexer/metrics');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/plain');
+    expect(res.text).toContain('# HELP indexer_up');
+    expect(res.text).toContain('indexer_latest_indexed_ledger 4');
+    expect(res.text).toContain('indexer_events_total 4');
+  });
+
+  it('GET /api/events/indexer/metrics returns JSON when requested', async () => {
+    const res = await request(app)
+      .get('/api/events/indexer/metrics')
+      .set('Accept', 'application/json');
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('health');
+    expect(res.body).toHaveProperty('lag');
+    expect(res.body.lag.latestIndexedLedger).toBe(4);
+  });
+
+  it('GET and acknowledge /api/events/indexer/alerts', async () => {
+    const res = await request(app).get('/api/events/indexer/alerts');
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('active');
+    expect(res.body).toHaveProperty('thresholds');
+    expect(res.body.thresholds).toMatchObject({
+      lagWarningLedgers: 20,
+      lagCriticalLedgers: 100,
+    });
+
+    if (res.body.active.length > 0) {
+      const alertId = res.body.active[0].id;
+      const ackRes = await request(app).post(`/api/events/indexer/alerts/${alertId}/ack`);
+      expect(ackRes.status).toBe(200);
+      expect(ackRes.body.success).toBe(true);
+    }
   });
 
   describe('operator endpoints', () => {

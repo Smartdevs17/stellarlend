@@ -6,6 +6,11 @@ import {
   type MetricInterval,
   type MetricName,
 } from '../services/metricsTimeseries.service';
+import {
+  getEventIndexer,
+  formatIndexerMetricsAsJson,
+  formatIndexerMetricsAsPrometheus,
+} from '../services/eventIndex';
 
 /**
  * GET /api/metrics/timeseries?metric=&from=&to=&interval=
@@ -65,6 +70,31 @@ export const getTimeSeries = async (
     });
 
     res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/metrics/indexer
+ * Exposes indexer telemetry in Prometheus format or JSON
+ */
+export const getIndexerMetrics = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const indexer = getEventIndexer();
+    const status = await indexer.status();
+    const alerts = indexer.getAlerts();
+    const accept = req.headers['accept'] || '';
+    if (accept.includes('application/json') || req.query.format === 'json') {
+      res.json(formatIndexerMetricsAsJson(status, alerts));
+    } else {
+      res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+      res.send(formatIndexerMetricsAsPrometheus(status, alerts));
+    }
   } catch (error) {
     next(error);
   }

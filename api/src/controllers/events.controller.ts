@@ -9,7 +9,11 @@ import {
   getEventModules,
   getEventActions,
 } from '../services/events.service';
-import { getEventIndexer } from '../services/eventIndex';
+import {
+  getEventIndexer,
+  formatIndexerMetricsAsJson,
+  formatIndexerMetricsAsPrometheus,
+} from '../services/eventIndex';
 import type { EventQuery } from '../services/eventIndex/types';
 import type { ReplaySource } from '../services/eventIndex/replay';
 import { NotFoundError, ValidationError } from '../utils/errors';
@@ -144,6 +148,76 @@ export class EventsController {
   async syncIndexer(_req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       res.json(await getEventIndexer().sync());
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getIndexerHealth(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const status = await getEventIndexer().status();
+      const alerts = getEventIndexer().getAlerts();
+      const json = formatIndexerMetricsAsJson(status, alerts);
+      const statusCode = status.healthStatus === 'unhealthy' ? 503 : 200;
+      res.status(statusCode).json({
+        success: status.healthStatus !== 'unhealthy',
+        ...json,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getIndexerMetrics(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const status = await getEventIndexer().status();
+      const alerts = getEventIndexer().getAlerts();
+      const accept = req.headers['accept'] || '';
+      if (accept.includes('application/json') || req.query.format === 'json') {
+        res.json(formatIndexerMetricsAsJson(status, alerts));
+      } else {
+        res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+        res.send(formatIndexerMetricsAsPrometheus(status, alerts));
+      }
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getIndexerAlerts(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const indexer = getEventIndexer();
+      const activeAlerts = indexer.getAlerts();
+      const alertManager = indexer.getAlertManager();
+      res.json({
+        active: activeAlerts,
+        history: alertManager.getAlertHistory(),
+        thresholds: alertManager.getThresholds(),
+        totalActive: activeAlerts.length,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async ackIndexerAlert(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params;
+      const success = getEventIndexer().acknowledgeAlert(id);
+      if (!success) {
+        res.status(404).json({ error: { message: `Alert with id '${id}' not found` } });
+        return;
+      }
+      res.json({ success: true, message: `Alert '${id}' acknowledged` });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async clearIndexerAlerts(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const cleared = getEventIndexer().clearAcknowledgedAlerts();
+      res.json({ success: true, cleared });
     } catch (error) {
       next(error);
     }
