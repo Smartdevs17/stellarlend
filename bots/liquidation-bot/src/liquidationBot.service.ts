@@ -2,6 +2,7 @@ import WebSocket from 'ws';
 import axios from 'axios';
 import { botConfig, BotConfig } from './config';
 import { Logger } from './logger';
+import { ConfirmedLiquidation, LiquidationWebhookService } from './liquidationWebhook.service';
 
 interface PositionHealth {
   address: string;
@@ -33,10 +34,20 @@ export class LiquidationBotService {
   private activeLiquidations = 0;
   private results: LiquidationResult[] = [];
   private ws: WebSocket | null = null;
+  private readonly webhook: LiquidationWebhookService;
 
-  constructor() {
-    this.config = botConfig;
-    this.logger = new Logger(this.config.logLevel);
+  constructor(config: BotConfig = botConfig, logger: Logger = new Logger(config.logLevel)) {
+    this.config = config;
+    this.logger = logger;
+    this.webhook = new LiquidationWebhookService(
+      {
+        url: config.liquidationWebhookUrl,
+        secret: config.liquidationWebhookSecret,
+        maxAttempts: config.webhookMaxAttempts,
+        retryDelayMs: config.webhookRetryDelayMs,
+      },
+      this.logger,
+    );
   }
 
   public async start(): Promise<void> {
@@ -201,6 +212,7 @@ export class LiquidationBotService {
       };
 
       this.results.push(result);
+      await this.notifyWebhook(result);
       this.logger.info('Liquidation successful', {
         position: position.address,
         txHash: result.txHash,
@@ -220,6 +232,17 @@ export class LiquidationBotService {
     } finally {
       this.activeLiquidations--;
     }
+  }
+
+  private async notifyWebhook(result: LiquidationResult): Promise<void> {
+    if (!result.success || !result.txHash || result.profitStroops === undefined) return;
+    const liquidation: ConfirmedLiquidation = {
+      positionAddress: result.positionAddress,
+      txHash: result.txHash,
+      profitStroops: result.profitStroops,
+      timestamp: result.timestamp,
+    };
+    await this.webhook.deliver(liquidation);
   }
 
   public getStats(): { totalAttempted: number; totalSuccessful: number; totalProfit: number } {

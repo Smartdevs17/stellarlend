@@ -15,6 +15,10 @@ export interface BotConfig {
   maxConcurrentLiquidations: number;
   wsUrl: string;
   apiBaseUrl: string;
+  liquidationWebhookUrl: string;
+  liquidationWebhookSecret: string;
+  webhookMaxAttempts: number;
+  webhookRetryDelayMs: number;
   logLevel: string;
 }
 
@@ -33,6 +37,10 @@ export function loadConfig(): BotConfig {
     maxConcurrentLiquidations: parseInt(process.env.MAX_CONCURRENT_LIQUIDATIONS || '3', 10),
     wsUrl: process.env.WS_URL || 'ws://localhost:3000/api/ws/health-updates',
     apiBaseUrl: process.env.API_BASE_URL || 'http://localhost:3000/api',
+    liquidationWebhookUrl: process.env.LIQUIDATION_WEBHOOK_URL || '',
+    liquidationWebhookSecret: process.env.LIQUIDATION_WEBHOOK_SECRET || '',
+    webhookMaxAttempts: parseInt(process.env.WEBHOOK_MAX_ATTEMPTS || '3', 10),
+    webhookRetryDelayMs: parseInt(process.env.WEBHOOK_RETRY_DELAY_MS || '500', 10),
     logLevel: process.env.LOG_LEVEL || 'info',
   };
 }

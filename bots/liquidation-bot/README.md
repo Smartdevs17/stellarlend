@@ -83,6 +83,10 @@ Copy `.env.example` to `.env` and edit:
 | `MAX_CONCURRENT_LIQUIDATIONS` | `3` | Max parallel liquidations in-flight |
 | `WS_URL` | `ws://localhost:3000/…` | WebSocket health-feed URL |
 | `API_BASE_URL` | `http://localhost:3000/api` | REST API base URL |
+| `LIQUIDATION_WEBHOOK_URL` | *(disabled)* | URL for signed `liquidation.confirmed` notifications |
+| `LIQUIDATION_WEBHOOK_SECRET` | *(disabled)* | Shared secret used for HMAC-SHA256 signatures |
+| `WEBHOOK_MAX_ATTEMPTS` | `3` | Maximum delivery attempts, including the first request |
+| `WEBHOOK_RETRY_DELAY_MS` | `500` | Initial delay between retry attempts; it doubles after each failure |
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
 
 ---
@@ -164,6 +168,42 @@ const stats = bot.getStats();
 
 Integrate with a process manager (e.g. PM2) to monitor the process and
 restart on crash.
+
+## Liquidation webhooks
+
+When a real liquidation request succeeds, the bot sends a
+`liquidation.confirmed` notification if both `LIQUIDATION_WEBHOOK_URL` and
+`LIQUIDATION_WEBHOOK_SECRET` are configured. Dry-run results are not sent.
+
+The JSON body has this shape:
+
+```json
+{
+  "id": "liquidation_abc123_1710000000000",
+  "type": "liquidation.confirmed",
+  "createdAt": 1710000000000,
+  "data": {
+    "positionAddress": "GXXX...",
+    "txHash": "abc123",
+    "profitStroops": 40000,
+    "timestamp": 1710000000000
+  }
+}
+```
+
+The request includes `x-stellarlend-webhook-id`,
+`x-stellarlend-webhook-timestamp`, and
+`x-stellarlend-webhook-signature` headers. The signature is
+`sha256=` followed by the hexadecimal HMAC-SHA256 of
+`<timestamp>.<raw request body>` using `LIQUIDATION_WEBHOOK_SECRET` as the
+key. Consumers should compare the signature using a constant-time comparison
+and reject timestamps outside their replay window before processing the event.
+
+Network errors, timeouts, HTTP 429 responses, and HTTP 5xx responses are
+retried up to `WEBHOOK_MAX_ATTEMPTS` with exponential backoff. Other HTTP
+errors are not retried. Delivery is best effort and does not change the
+already-recorded liquidation result; consumers should use the event `id` for
+deduplication.
 
 ---
 
