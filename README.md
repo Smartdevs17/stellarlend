@@ -1,3 +1,29 @@
+## Asset Onboarding Checklist
+
+Use this checklist when onboarding a new asset to the protocol. Complete each item and record the reviewer and documentation updates before merging.
+
+- [ ] **Configuration**: Add asset parameters (collateral factor, liquidation threshold, decimals, oracle feed) via `set_asset_params`
+- [ ] **Oracle**: Register and validate the price feed; confirm fallback and staleness handling
+- [ ] **Risk Review**: Confirm risk parameters against protocol limits and document rationale
+- [ ] **Testing**: Add unit and integration tests covering deposit, borrow, repay, withdraw, and liquidation paths
+- [ ] **Liquidity**: Verify pool whitelisting and minimum liquidity ratio requirements
+- [ ] **Monitoring**: Add the asset to monitoring/alerting dashboards and rebalancing config
+- [ ] **Documentation**: Update protocol docs, entrypoint references, and changelog
+- [ ] **Review**: Obtain sign-off from a second reviewer
+
+### Onboarding Sign-off
+
+| Item          | Owner | Status |
+|---------------|-------|--------|
+| Configuration |       |        |
+| Oracle        |       |        |
+| Risk Review   |       |        |
+| Testing       |       |        |
+| Liquidity     |       |        |
+| Monitoring    |       |        |
+| Documentation |       |        |
+| Review        |       |        |
+
 ## Stablecoin Reserve Rebalancing Automation
 
 The system automatically maintains stablecoin pegs across pools by:

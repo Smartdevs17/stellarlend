@@ -70,6 +70,29 @@ Docker users can skip the local toolchain: see the "Docker Quickstart" section o
 If a command needs configuration, copy the relevant `.env.example` (for example
 `api/.env`, `oracle/.env`, `docker/devnet/.env`) first.
 
+## Asset onboarding checklist
+
+Onboarding a new asset is a multi-step process that touches contracts, the
+oracle, the API, and documentation. Work through this checklist and reference it
+in your pull request so reviewers can confirm every step is covered.
+
+- [ ] **Proposal** — open an issue describing the asset, its Stellar issuer and
+  asset code, decimals, and the risk parameters you propose.
+- [ ] **Contract configuration** — add the asset to the relevant Soroban
+  contract configuration and cover it with a positive and a negative test.
+- [ ] **Oracle feed** — register the price feed in `oracle/`, document the
+  source and update cadence, and add a test for a stale or missing price.
+- [ ] **API exposure** — surface the asset through `api/` (market metadata,
+  decimals, and risk parameters) and update the API tests.
+- [ ] **SDK and UI** — update `packages/sdk/` and `packages/ui-lending/` so
+  integrators and the UI can list and interact with the asset.
+- [ ] **Risk review** — record the collateral factor, liquidation threshold,
+  and supply/borrow caps, and get sign-off from a maintainer.
+- [ ] **Documentation** — add the asset to the supported-assets documentation
+  and link it from `docs/README.md`.
+- [ ] **Verification** — run `npm run test:all` and `./local-ci.sh`, and note
+  the results in the pull request.
+
 ## Making changes
 
 1. **Fork and branch.** Branch from the latest `main`:
@@ -100,6 +123,7 @@ request review:
 - [ ] `./local-ci.sh` passes for contract changes.
 - [ ] The PR links its issue, and the description explains how to verify it.
 - [ ] New documentation is linked from `docs/README.md`.
+- [ ] New assets follow the [asset onboarding checklist](#asset-onboarding-checklist).
 
 A maintainer reviews within a few business days. Address review comments with
 new commits rather than force-pushing mid-review; large, un-reviewable diffs
@@ -111,6 +135,9 @@ Place new documents in `docs/` using short, descriptive filenames (for example
 `RISK_PARAMETERS.md`), start with a one-paragraph summary, and link the document
 from `docs/README.md` so it is discoverable. Prefer relative links between docs
 so they work on GitHub and in local checkouts.
+
+When onboarding an asset, update the supported-assets documentation as part of
+the [asset onboarding checklist](#asset-onboarding-checklist).
 
 ## Security
 
