@@ -28,6 +28,7 @@ asset may serve prices at all.
 | `history.rs` | Bounded per-asset retention of resolved prices for audit |
 | `incentives.rs` | Governance-funded reward pool for accepted reports |
 | `jump.rs` | Per-update price-jump bound on push reports |
+| `ttl.rs` | Persistent storage TTL policy, extension, and the permissionless bump path |
 | `upgrade.rs` | Staged/apply upgrade mechanism |
 | `tests/` | 14 focused test suites (177 tests) |
 
@@ -114,7 +115,14 @@ All keys live in instance storage. `DataKey` variants (see `storage.rs`):
 | `LastRewarded(Address, Bytes)` | `u64` | Start of a reporter's anti-spin window |
 | `DefaultMaxPriceJump` | `i128` | Hub-wide per-update jump bound in bps (`0` = off) |
 | `MaxPriceJump(Bytes)` | `i128` | Per-asset jump bound override |
+| `DefaultTtlPolicy` | `TtlPolicy` | Hub-wide persistent-storage TTL policy |
+| `TtlPolicy(Bytes)` | `TtlPolicy` | Per-asset TTL policy override |
+| `LastTtlBump(Bytes)` | `u32` | Ledger the asset's persistent entries were last refreshed |
 | `ProposedWasm` | `BytesN<32>` | Staged upgrade hash |
+
+> `PersistentLatestPrice(Bytes, u32)` and `PersistentHistoryEntry(Bytes, u32)`
+> live in **persistent** storage (not instance): mirrors of `LatestPrice` and
+> `HistoryEntry` plus their ledger rent, managed by `ttl.rs`.
 
 ## Pluggable provider interface
 

@@ -194,6 +194,13 @@ pub fn record(
     env.storage()
         .instance()
         .set(&DataKey::HistoryCount(asset.clone()), &(count + 1));
+
+    // A persistent mirror gives each retained price its own ledger rent, which
+    // the TTL manager keeps refreshed independently of the contract instance.
+    // See `ttl.rs`.
+    let mirror_key = DataKey::PersistentHistoryEntry(asset.clone(), count % RING_SLOTS);
+    env.storage().persistent().set(&mirror_key, &entry);
+    crate::ttl::touch_history_entry(env, asset, count % RING_SLOTS);
 }
 
 // ---- reading ---------------------------------------------------------------
@@ -257,6 +264,12 @@ fn read_slot(env: &Env, asset: &Bytes, slot: u32) -> Option<PriceHistoryEntry> {
 /// Slot holding the newest entry.
 fn newest_slot(count: u32) -> u32 {
     (count - 1) % RING_SLOTS
+}
+
+/// Number of ring slots ever written, exposed for the TTL manager so it knows
+/// how many persistent mirrors to iterate over.
+pub fn count_for_ttl(env: &Env, asset: &Bytes) -> u32 {
+    count(env, asset).min(RING_SLOTS)
 }
 
 /// Drop the entries a lowered limit no longer exposes.

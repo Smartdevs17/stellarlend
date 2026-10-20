@@ -35,6 +35,7 @@ mod interface;
 mod jump;
 mod provider;
 mod storage;
+mod ttl;
 mod types;
 mod upgrade;
 
@@ -43,9 +44,8 @@ mod tests;
 
 use crate::types::{
     AggregatedPrice, AggregationParams, AggregationStrategy, CacheConfigUpdatedEvent, CacheStats,
-    FeedQuote, HeartbeatConfig, IncentiveConfig, OracleHealthStatus,
-    PriceFeed, PriceHistoryConfig, PricePoint, PriceSource, ProviderPrice, ReporterRewards,
-    VERSION,
+    FeedQuote, HeartbeatConfig, IncentiveConfig, OracleHealthStatus, PriceFeed, PriceHistoryConfig,
+    PricePoint, PriceSource, ProviderPrice, ReporterRewards, VERSION,
 };
 pub use crate::types::{FeedMode, FeedPriority};
 
@@ -613,6 +613,14 @@ impl OracleHubContract {
         let previous: Option<PricePoint> = env.storage().instance().get(&latest_key);
         jump::enforce(&env, &asset, price, previous.map(|point| point.price));
         env.storage().instance().set(&latest_key, &price_point);
+        // Mirror to persistent storage and refresh its TTL, so the slot's last
+        // accepted price (the jump reference and the audit anchor) is never
+        // archived out from under a later read.
+        env.storage().persistent().set(
+            &storage::DataKey::PersistentLatestPrice(asset.clone(), priority as u32),
+            &price_point,
+        );
+        ttl::touch_latest_price(&env, &asset, priority as u32);
 
         // The report is the slot's heartbeat.
         heartbeat::record_beat(&env, &asset, priority as u32);
@@ -646,6 +654,41 @@ impl OracleHubContract {
     /// Effective per-update jump bound for an asset, in basis points.
     pub fn get_max_price_jump(env: Env, asset: Bytes) -> i128 {
         jump::bound(&env, &asset)
+    }
+
+    // ── Storage TTL management ─────────────────────────────────────────────
+
+    /// Configure the storage TTL policy for the hub, or one asset's override.
+    ///
+    /// A policy declares the low-water `threshold` below which a persistent
+    /// entry is refreshed and the `extend_to` window it is restored to, both in
+    /// ledgers. Pass `None` for the hub-wide default that unconfigured assets
+    /// inherit, or an asset for an override. Values are validated: the window
+    /// must exceed the threshold and stay under [`types::MAX_TTL_EXTEND_TO`].
+    /// Disabling the hub-wide policy (`enabled == false`) does not erase
+    /// per-asset overrides; call with that asset to disable it individually.
+    pub fn set_ttl_policy(env: Env, asset: Option<Bytes>, policy: types::TtlPolicy) {
+        require_not_frozen(&env);
+        require_governance(&env).require_auth();
+        ttl::set_policy(&env, asset.as_ref(), &policy);
+    }
+
+    /// Effective storage TTL policy for an asset, with its last bumped state.
+    pub fn get_ttl_policy(env: Env, asset: Bytes) -> types::TtlConfig {
+        ttl::config(&env, &asset)
+    }
+
+    /// Extend the TTL of every managed persistent entry of an asset.
+    ///
+    /// Permissionless and idempotent: a keeper may call it on a schedule, and
+    /// entries already inside the policy window are left untouched. Returns the
+    /// number of entries actually extended, and publishes `TtlExtendedEvent`
+    /// only when that number is non-zero. This is the recovery path for an
+    /// asset that stopped being written to, whose last price would otherwise
+    /// age out of storage.
+    pub fn bump_storage(env: Env, asset: Bytes) -> u32 {
+        require_not_frozen(&env);
+        ttl::bump_asset(&env, &asset)
     }
 
     /// Governance overwrites a slot's reference price, bypassing the jump
@@ -691,6 +734,17 @@ impl OracleHubContract {
                 confidence,
             },
         );
+        let rebased = PricePoint {
+            asset: asset.clone(),
+            price,
+            timestamp: env.ledger().timestamp(),
+            confidence,
+        };
+        env.storage().persistent().set(
+            &storage::DataKey::PersistentLatestPrice(asset.clone(), priority as u32),
+            &rebased,
+        );
+        ttl::touch_latest_price(&env, &asset, priority as u32);
         cache::invalidate_asset(&env, &asset);
 
         types::PriceRebasedEvent {
@@ -1037,6 +1091,11 @@ fn collect_quotes(env: &Env, asset: &Bytes) -> (Vec<FeedQuote>, bool) {
             .publish(env);
             let point = provider::to_price_point(env, asset, fetched);
             env.storage().instance().set(&latest_key, &point);
+            env.storage().persistent().set(
+                &storage::DataKey::PersistentLatestPrice(asset.clone(), slot),
+                &point,
+            );
+            ttl::touch_latest_price(env, asset, slot);
             // A live pull is proof the provider is alive, so it counts as a
             // heartbeat for the slot.
             heartbeat::record_beat(env, asset, slot);

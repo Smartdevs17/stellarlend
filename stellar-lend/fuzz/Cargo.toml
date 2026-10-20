@@ -4,6 +4,12 @@ version = "0.0.0"
 publish = false
 edition = "2021"
 
+# The fuzz crate is intentionally outside the main `stellar-lend` workspace so
+# its nightly-only, standalone dependency graph never leaks into a normal
+# `cargo build`. Declaring the empty workspace here stops cargo from walking up
+# to an unrelated ancestor workspace.
+[workspace]
+
 [package.metadata]
 cargo-fuzz = true
 
@@ -51,5 +57,11 @@ doc = false
 [[bin]]
 name = "oracle_actions"
 path = "fuzz_targets/oracle_actions.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "oracle_ttl"
+path = "fuzz_targets/oracle_ttl.rs"
 test = false
 doc = false

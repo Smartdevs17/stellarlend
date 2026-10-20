@@ -198,6 +198,49 @@ fails closed. To recover:
 Rebasing is a governance action precisely because it bypasses the bound: the
 reporter whose price was rejected can never rebase its own slot.
 
+## Storage TTL management
+
+Soroban rents persistent storage by the ledger. An entry whose TTL runs out is
+archived, and a price feed whose history or last reference price was archived
+cannot be read back until somebody pays to restore it — which is exactly the
+kind of asset (quiet, rarely read) a liquidation later depends on.
+
+The hub manages the TTL of its persistent entries explicitly:
+
+```
+set_ttl_policy(asset?, { enabled, threshold, extend_to })   // governance
+bump_storage(asset) -> u32                                  // anyone, idempotent
+get_ttl_policy(asset) -> { policy, last_bump_ledger }       // anyone
+```
+
+| Field | Meaning |
+| ----- | ------- |
+| `threshold` | Ledgers remaining at which an entry becomes due for a bump |
+| `extend_to` | Ledgers the entry is restored to when bumped |
+
+- `set_ttl_policy(None, ...)` sets the hub-wide default; `Some(asset)` an
+  override that wins over it. Unconfigured assets inherit the default.
+- A policy is validated: `extend_to > threshold`, `threshold >= 1`, and
+  `extend_to <= MAX_TTL_EXTEND_TO` (`6_307_200`, ~1 year of 5 s ledgers).
+  An incoherent *enabled* policy is rejected with `InvalidConfig`. A disabled
+  policy (`enabled == false`) skips validation and manages nothing.
+- **The write path amortizes the cost.** Every `report_price`, `rebase_price`,
+  and pull refresh also bumps the entry it just wrote, so managed entries stay
+  live without a separate keeper transaction.
+- **`bump_storage` is permissionless and idempotent.** It walks the asset's
+  persistent entries and calls the host's `extend_ttl`, which acts only on
+  entries below `threshold`. A call mid-window therefore does no storage work;
+  it returns the number of managed entries it walked and publishes
+  `TtlExtendedEvent { asset, ledger, extend_to, bumped }` only when at least
+  one exists. This is the recovery path for an asset that stopped being written
+  to.
+- The manager only touches ledger-rent *persistent* entries (the mirrored
+  latest price per slot and the retained history). Instance storage — governance
+  and configuration — shares the contract instance's own rent and is not bumped.
+- TTL is independent of a quote's freshness `stale_threshold_seconds`: the goal
+  is preserving the audit trail and the last reference price, not keeping a
+  stale quote servable.
+
 ## Decimal normalization
 
 Push reporters submit canonical-scale prices. Pull providers report their own

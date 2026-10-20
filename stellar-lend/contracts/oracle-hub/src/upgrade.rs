@@ -203,6 +203,7 @@ pub fn can_execute(env: &Env) -> bool {
 ///
 /// Raises if `new_wasm` is not yet staged, if the installed multisig threshold
 /// has not been met, or if the upgrade timelock has not elapsed.
+#[allow(deprecated)]
 pub fn apply_upgrade(env: &Env, governance: &Address) -> BytesN<32> {
     if !env.storage().instance().has(&DataKey::ProposedWasm) {
         panic_with_error!(env, UpgradeError::UpgradeNotStaged);

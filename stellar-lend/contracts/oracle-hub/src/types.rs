@@ -48,6 +48,25 @@ pub const MAX_CACHE_TTL_SECONDS: u64 = 3600;
 /// Basis-point denominator used across the hub.
 pub const BPS_DENOM: i128 = 10_000;
 
+// ── Storage TTL management ─────────────────────────────────────────────────
+
+/// Default extend-to TTL applied to persistent entries when governance has not
+/// configured a policy: 30 days of ledgers at the network's ~5 s close time.
+pub const DEFAULT_TTL_EXTEND_TO: u32 = 518_400;
+
+/// Default threshold below which an entry is refreshed, as a fraction of the
+/// extend-to window (the entry is bumped once it has fewer than `1/8` of the
+/// window left, mirroring Soroban's own rent policy).
+pub const DEFAULT_TTL_THRESHOLD_DIVISOR: u32 = 8;
+
+/// Low-water mark of a TTL window, in ledgers. The threshold is always kept
+/// above this so a bump can never be a no-op.
+pub const MIN_TTL_THRESHOLD: u32 = 1;
+
+/// Largest extend-to window governance may configure (about 1 year of
+/// ledgers), so a typo cannot lock storage rent for an unbounded horizon.
+pub const MAX_TTL_EXTEND_TO: u32 = 6_307_200;
+
 /// Priority of a feed slot. Lower slots are consulted first during fallback.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[contracttype]
@@ -459,6 +478,79 @@ pub struct PriceRebasedEvent {
     pub priority: u32,
     pub previous_price: i128,
     pub price: i128,
+}
+
+/// Storage TTL policy applied to the hub's persistent entries.
+///
+/// Every stateful entry the hub writes is periodically bumped so it never
+/// expires: an entry is extended whenever its remaining TTL drops below
+/// `threshold`, and the bump restores it to `extend_to` ledgers. A policy with
+/// `enabled == false` disables management for the scope it is attached to.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TtlPolicy {
+    /// Whether the policy is applied. When false, entries are left to Soroban's
+    /// own default rent behaviour.
+    pub enabled: bool,
+    /// Remaining-TTL floor (ledgers) below which an entry is refreshed.
+    pub threshold: u32,
+    /// TTL (ledgers) an entry is extended *to* when bumped.
+    pub extend_to: u32,
+}
+
+impl TtlPolicy {
+    /// The hub-wide default: management on, 30-day window, 1/8 threshold.
+    pub fn default_policy() -> Self {
+        TtlPolicy {
+            enabled: true,
+            threshold: DEFAULT_TTL_EXTEND_TO / DEFAULT_TTL_THRESHOLD_DIVISOR,
+            extend_to: DEFAULT_TTL_EXTEND_TO,
+        }
+    }
+}
+
+impl Default for TtlPolicy {
+    fn default() -> Self {
+        Self::default_policy()
+    }
+}
+
+/// Read-only view of the TTL policy in force for one asset.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct TtlConfig {
+    /// Asset the policy was queried for.
+    pub asset: Bytes,
+    /// Effective policy (per-asset override else the hub-wide default).
+    pub policy: TtlPolicy,
+    /// Ledgers remaining on the asset's latest recorded price, if any.
+    pub last_bump_ledger: u32,
+}
+
+/// Emitted when governance changes a storage TTL policy. `asset` is empty for
+/// the hub-wide default.
+#[contractevent(topics = ["ttl_config_updated"])]
+#[derive(Clone, Debug)]
+pub struct TtlConfigUpdatedEvent {
+    #[topic]
+    pub asset: Bytes,
+    pub enabled: bool,
+    pub threshold: u32,
+    pub extend_to: u32,
+}
+
+/// Emitted when an entry's TTL is extended by a policy bump.
+#[contractevent(topics = ["ttl_extended"])]
+#[derive(Clone, Debug)]
+pub struct TtlExtendedEvent {
+    #[topic]
+    pub asset: Bytes,
+    /// Ledger sequence the bump ran at.
+    pub ledger: u32,
+    /// TTL (ledgers) the entry was extended to.
+    pub extend_to: u32,
+    /// Number of entries bumped by this call.
+    pub bumped: u32,
 }
 
 #[contractevent]

@@ -8,6 +8,21 @@ on:
       - "stellar-lend/fuzz/**"
       - ".github/workflows/oracle-fuzz.yml"
   workflow_dispatch:
+    inputs:
+      max_total_time:
+        description: "Seconds to fuzz each target (reproducible budget)"
+        required: false
+        default: "60"
+  schedule:
+    - cron: "0 3 * * *"
+
+env:
+  # Configurable, reproducible fuzz budget. A crash or assertion failure is
+  # deterministic given the corpus + seed, so the same budget reproduces it.
+  FUZZ_MAX_TOTAL_TIME: ${{ github.event.inputs.max_total_time || '60' }}
+  FUZZ_TIMEOUT: "15"
+  FUZZ_SEED: "0"
+  FUZZ_TARGETS: "oracle_actions oracle_ttl"
 
 jobs:
   oracle-fuzz:
@@ -25,6 +40,13 @@ jobs:
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
 
-      - name: Run oracle fuzz smoke test
+      - name: Run oracle fuzz smoke tests
         working-directory: stellar-lend
-        run: cargo +nightly fuzz run oracle_actions fuzz/corpus/oracle_actions -- -max_total_time=60 -timeout=15
+        run: |
+          for target in $FUZZ_TARGETS; do
+            echo "::group::fuzz $target"
+            cargo +nightly fuzz run "$target" "fuzz/corpus/$target" -- \
+              -seed="$FUZZ_SEED" -max_total_time="$FUZZ_MAX_TOTAL_TIME" -timeout="$FUZZ_TIMEOUT"
+            echo "::endgroup::"
+          done
+

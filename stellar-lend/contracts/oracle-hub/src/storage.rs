@@ -120,4 +120,21 @@ pub enum DataKey {
     DefaultMaxPriceJump,
     /// Per-asset override of [`DataKey::DefaultMaxPriceJump`]. Value: `i128`.
     MaxPriceJump(Bytes),
+    /// Hub-wide storage TTL policy applied to persistent entries.
+    /// Value: `crate::types::TtlPolicy`.
+    DefaultTtlPolicy,
+    /// Per-asset storage TTL policy override.
+    /// Value: `crate::types::TtlPolicy`.
+    TtlPolicy(Bytes),
+    /// Mirror of the latest price of a slot held in **persistent** storage, so
+    /// its ledger rent is managed separately from the instance's. Value:
+    /// `crate::types::PricePoint`.
+    PersistentLatestPrice(Bytes, u32),
+    /// Mirror of one retained history entry held in persistent storage, so its
+    /// ledger rent is managed separately from the instance's. Value:
+    /// `crate::types::PriceHistoryEntry`.
+    PersistentHistoryEntry(Bytes, u32),
+    /// Ledger at which an asset's persistent entries were last refreshed by
+    /// the TTL manager. Value: `u32`.
+    LastTtlBump(Bytes),
 }
