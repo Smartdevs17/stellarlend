@@ -25,13 +25,16 @@
 //! reported by each entry's `VaultDepositEvent` and the position's `asset`
 //! field, which ends up as the asset of the last entry.
 
-use crate::deposit::{emit_deposit_event, get_deposit_position, save_deposit_position, DepositError};
+use crate::deposit::{
+    emit_deposit_event, get_asset_supply_cap, get_asset_total_supply, get_deposit_position,
+    save_deposit_position, set_asset_total_supply, DepositError,
+};
 use crate::dust::is_dust_amount;
 use crate::events::BatchDepositEvent;
 use crate::hot_storage::DepositHotSlot;
 use crate::pause::{self, PauseType};
 use crate::reentrancy::ReentrancyGuard;
-use soroban_sdk::{contracttype, Address, Env, Vec};
+use soroban_sdk::{contracttype, Address, Env, Map, Vec};
 
 /// Upper bound on entries per batch, keeping a batch inside Soroban's
 /// per-transaction CPU and event budgets.
@@ -95,6 +98,7 @@ pub(crate) fn deposit_batch_with_auth(
     // Pass 1: validate every entry against the cumulative totals before any
     // state is touched, so a bad entry late in the batch fails fast.
     let mut batch_total: i128 = 0;
+    let mut asset_totals: Map<Address, i128> = Map::new(env);
     for req in requests.iter() {
         if req.amount <= 0 || is_dust_amount(req.amount, hot.state.min) {
             return Err(DepositError::InvalidAmount);
@@ -102,6 +106,20 @@ pub(crate) fn deposit_batch_with_auth(
         batch_total = batch_total
             .checked_add(req.amount)
             .ok_or(DepositError::Overflow)?;
+
+        let current_asset_supply = match asset_totals.get(req.asset.clone()) {
+            Some(running) => running,
+            None => get_asset_total_supply(env, &req.asset),
+        };
+        let next_asset_supply = current_asset_supply
+            .checked_add(req.amount)
+            .ok_or(DepositError::Overflow)?;
+        if let Some(asset_cap) = get_asset_supply_cap(env, &req.asset) {
+            if next_asset_supply > asset_cap {
+                return Err(DepositError::ExceedsDepositCap);
+            }
+        }
+        asset_totals.set(req.asset, next_asset_supply);
     }
 
     let new_total = hot
@@ -131,6 +149,9 @@ pub(crate) fn deposit_batch_with_auth(
 
     // Single write for each piece of shared state.
     save_deposit_position(env, &user, &position);
+    for (asset, next_total) in asset_totals.iter() {
+        set_asset_total_supply(env, &asset, next_total);
+    }
     hot.state.total = new_total;
     hot.commit(env);
 

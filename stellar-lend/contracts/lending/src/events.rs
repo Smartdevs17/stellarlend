@@ -96,6 +96,18 @@ pub struct BatchDepositEvent {
     pub timestamp: u64,
 }
 
+/// Per-asset supply cap updated by admin (`new_cap` is `0` when the per-asset cap is cleared).
+#[contractevent]
+#[derive(Clone, Debug)]
+pub struct SupplyCapUpdatedEvent {
+    #[topic]
+    pub admin: Address,
+    pub asset: Address,
+    pub previous_cap: i128,
+    pub new_cap: i128,
+    pub timestamp: u64,
+}
+
 /// Withdraw / emergency-withdraw event (includes post-withdrawal balance).
 #[contractevent]
 #[derive(Clone, Debug)]

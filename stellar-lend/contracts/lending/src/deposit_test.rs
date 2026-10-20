@@ -390,3 +390,34 @@ fn test_deposit_cap_boundary() {
     let result = client.try_deposit(&user, &asset, &100);
     assert_eq!(result, Err(Ok(DepositError::ExceedsDepositCap)));
 }
+
+#[test]
+fn test_per_asset_supply_cap_configurable_and_enforced() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LendingContract, ());
+    let client = LendingContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let asset_a = Address::generate(&env);
+    let asset_b = Address::generate(&env);
+
+    client.initialize(&admin, &1_000_000_000, &1000);
+    client.initialize_deposit_settings(&1_000_000_000, &100);
+
+    client.set_asset_supply_cap(&admin, &asset_a, &Some(25_000));
+    assert_eq!(client.get_asset_supply_cap(&asset_a), Some(25_000));
+    assert_eq!(client.get_asset_supply_cap(&asset_b), None);
+
+    assert_eq!(client.deposit(&user, &asset_a, &25_000), 25_000);
+    assert_eq!(client.get_asset_total_supply(&asset_a), 25_000);
+
+    let over = client.try_deposit(&user, &asset_a, &100);
+    assert_eq!(over, Err(Ok(DepositError::ExceedsDepositCap)));
+
+    // Uncapped asset B still accepts deposits
+    assert_eq!(client.deposit(&user, &asset_b, &40_000), 65_000);
+    assert_eq!(client.get_asset_total_supply(&asset_b), 40_000);
+}

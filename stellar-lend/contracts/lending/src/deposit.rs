@@ -41,6 +41,10 @@ pub enum DepositDataKey {
     CapAmount,
     /// Legacy per-field entry (see `TotalAmount`).
     MinAmount,
+    /// Per-asset supply cap configured by the admin.
+    AssetSupplyCap(Address),
+    /// Aggregate supplied amount tracked per asset.
+    AssetTotalSupply(Address),
 }
 
 /// User deposit position
@@ -110,6 +114,17 @@ pub(crate) fn deposit_with_auth(
         return Err(DepositError::ExceedsDepositCap);
     }
 
+    let asset_total = get_asset_total_supply(env, &asset);
+    let new_asset_total = asset_total
+        .checked_add(amount)
+        .ok_or(DepositError::Overflow)?;
+
+    if let Some(asset_cap) = get_asset_supply_cap(env, &asset) {
+        if new_asset_total > asset_cap {
+            return Err(DepositError::ExceedsDepositCap);
+        }
+    }
+
     let mut position = get_deposit_position(env, &user, &asset);
     position.amount = position
         .amount
@@ -119,6 +134,7 @@ pub(crate) fn deposit_with_auth(
     position.asset = asset.clone();
 
     save_deposit_position(env, &user, &position);
+    set_asset_total_supply(env, &asset, new_asset_total);
     hot.state.total = new_total;
     hot.commit(env);
     emit_deposit_event(env, user, asset, amount, position.amount);
@@ -141,6 +157,75 @@ pub fn initialize_deposit_settings(
     hot.state.min = min_deposit_amount;
     hot.commit(env);
     Ok(())
+}
+
+/// Configure (`Some(cap)`) or clear (`None`) the supply cap for a specific asset (admin only).
+pub fn set_asset_supply_cap(
+    env: &Env,
+    admin: &Address,
+    asset: &Address,
+    cap: Option<i128>,
+) -> Result<(), DepositError> {
+    let current_admin = crate::borrow::get_admin(env).ok_or(DepositError::Unauthorized)?;
+    if *admin != current_admin {
+        return Err(DepositError::Unauthorized);
+    }
+    admin.require_auth();
+
+    let previous_cap = get_asset_supply_cap(env, asset).unwrap_or(0);
+    let key = DepositDataKey::AssetSupplyCap(asset.clone());
+
+    let new_cap = match cap {
+        Some(value) => {
+            if value <= 0 {
+                return Err(DepositError::InvalidAmount);
+            }
+            env.storage().persistent().set(&key, &value);
+            value
+        }
+        None => {
+            env.storage().persistent().remove(&key);
+            0
+        }
+    };
+
+    crate::events::SupplyCapUpdatedEvent {
+        admin: admin.clone(),
+        asset: asset.clone(),
+        previous_cap,
+        new_cap,
+        timestamp: env.ledger().timestamp(),
+    }
+    .publish(env);
+
+    Ok(())
+}
+
+/// Read the configured supply cap for `asset`, or `None` if uncapped at the asset level.
+pub fn get_asset_supply_cap(env: &Env, asset: &Address) -> Option<i128> {
+    env.storage()
+        .persistent()
+        .get(&DepositDataKey::AssetSupplyCap(asset.clone()))
+}
+
+/// Read the aggregate supplied amount currently held for `asset`.
+pub fn get_asset_total_supply(env: &Env, asset: &Address) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DepositDataKey::AssetTotalSupply(asset.clone()))
+        .unwrap_or(0)
+}
+
+pub(crate) fn set_asset_total_supply(env: &Env, asset: &Address, total: i128) {
+    env.storage()
+        .persistent()
+        .set(&DepositDataKey::AssetTotalSupply(asset.clone()), &total);
+}
+
+pub(crate) fn decrease_asset_total_supply(env: &Env, asset: &Address, amount: i128) {
+    let current = get_asset_total_supply(env, asset);
+    let updated = current.checked_sub(amount).unwrap_or(0).max(0);
+    set_asset_total_supply(env, asset, updated);
 }
 
 pub fn get_user_collateral(env: &Env, user: &Address, asset: &Address) -> DepositCollateral {

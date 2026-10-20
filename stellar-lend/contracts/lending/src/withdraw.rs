@@ -1,6 +1,6 @@
 use soroban_sdk::{contracterror, contracttype, Address, Env};
 
-use crate::deposit::{DepositCollateral, DepositDataKey};
+use crate::deposit::{decrease_asset_total_supply, DepositCollateral, DepositDataKey};
 use crate::dust::is_dust_amount;
 use crate::hot_storage::DepositHotSlot;
 use crate::reentrancy::ReentrancyGuard;
@@ -102,6 +102,7 @@ pub(crate) fn withdraw_with_auth(
     };
 
     save_collateral_position(env, &user, &updated_position);
+    decrease_asset_total_supply(env, &asset, amount);
 
     let mut hot = DepositHotSlot::load(env);
     hot.state.total = hot.state.total.checked_sub(amount).unwrap_or(0);
@@ -191,6 +192,7 @@ pub fn sweep_deposit_dust(env: &Env, user: Address, asset: Address) -> Result<i1
         last_deposit_time: position.last_deposit_time,
     };
     save_collateral_position(env, &user, &updated_position);
+    decrease_asset_total_supply(env, &asset, position.amount);
 
     let mut hot = DepositHotSlot::load(env);
     hot.state.total = hot
@@ -324,6 +326,7 @@ pub fn emergency_withdraw(
         last_deposit_time: position.last_deposit_time,
     };
     save_collateral_position(env, &user, &updated_position);
+    decrease_asset_total_supply(env, &asset, amount);
 
     let mut hot = DepositHotSlot::load(env);
     hot.state.total = hot.state.total.checked_sub(amount).unwrap_or(0);

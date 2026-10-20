@@ -63,10 +63,15 @@ pub use borrow::{
 };
 use calldata::{CalldataError, CompressedOp};
 use deposit::{
-    deposit as deposit_logic, get_user_collateral as get_deposit_collateral,
-    initialize_deposit_settings as initialize_deposit_logic, DepositCollateral, DepositError,
+    deposit as deposit_logic, get_asset_supply_cap as get_asset_supply_cap_logic,
+    get_asset_total_supply as get_asset_total_supply_logic,
+    get_user_collateral as get_deposit_collateral,
+    initialize_deposit_settings as initialize_deposit_logic,
+    set_asset_supply_cap as set_asset_supply_cap_logic,
 };
-use deposit_batch::{deposit_batch as deposit_batch_logic, BatchDepositResult, DepositRequest};
+pub use deposit::{DepositCollateral, DepositError};
+use deposit_batch::deposit_batch as deposit_batch_logic;
+pub use deposit_batch::{BatchDepositResult, DepositRequest, MAX_BATCH_DEPOSITS};
 use flash_loan::{
     flash_loan as flash_loan_logic, set_flash_loan_fee_bps as set_flash_loan_fee_logic,
     get_flash_loan_fee_bps as get_flash_loan_fee_bps_logic,
@@ -593,6 +598,26 @@ impl LendingContract {
         asset: Address,
     ) -> DepositCollateral {
         get_deposit_collateral(&env, &user, &asset)
+    }
+
+    /// Configure (`Some(cap)`) or clear (`None`) the supply cap for a specific asset (admin only).
+    pub fn set_asset_supply_cap(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        cap: Option<i128>,
+    ) -> Result<(), DepositError> {
+        set_asset_supply_cap_logic(&env, &admin, &asset, cap)
+    }
+
+    /// Read the configured per-asset supply cap for `asset` (`None` when uncapped at the asset level).
+    pub fn get_asset_supply_cap(env: Env, asset: Address) -> Option<i128> {
+        get_asset_supply_cap_logic(&env, &asset)
+    }
+
+    /// Read the aggregate supplied amount currently held for `asset`.
+    pub fn get_asset_total_supply(env: Env, asset: Address) -> i128 {
+        get_asset_total_supply_logic(&env, &asset)
     }
     // ═══════════════════════════════════════════════════════════════════
     // Compressed calldata (#1045)
