@@ -14,6 +14,25 @@ interface EmergencyState {
   bad_debt: number;
 }
 
+interface AssetShutdownState {
+  assetAddress: string;
+  is_shut_down: boolean;
+  reason: string;
+  shut_down_at: number;
+  shut_down_by: string;
+  restored_at: number | null;
+  restored_by: string | null;
+}
+
+const assetShutdowns = new Map<string, AssetShutdownState>();
+
+function normalizeAsset(assetAddress: unknown): string | null {
+  if (typeof assetAddress !== 'string') return null;
+  const trimmed = assetAddress.trim();
+  if (!trimmed) return null;
+  return trimmed.toLowerCase();
+}
+
 let emergencyState: EmergencyState = {
   is_active: false,
   trigger: 'Admin',
@@ -87,6 +106,13 @@ const emergencyController = {
       if (!emergencyState.is_active) {
         return res.status(400).json({ success: false, error: 'No active emergency' });
       }
+      const normalizedAsset = normalizeAsset(assetAddress);
+      if (normalizedAsset) {
+        const shutdown = assetShutdowns.get(normalizedAsset);
+        if (shutdown && shutdown.is_shut_down) {
+          return res.status(400).json({ success: false, error: 'Asset is shut down' });
+        }
+      }
       const now = Math.floor(Date.now() / 1000);
       if (now < emergencyState.window_opens_at || now > emergencyState.window_closes_at) {
         return res.status(400).json({ success: false, error: 'Outside emergency window' });
@@ -130,6 +156,92 @@ const emergencyController = {
       next(error);
     }
   },
+
+  shutdownAsset(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { assetAddress, reason, triggeredBy } = req.body;
+      const normalizedAsset = normalizeAsset(assetAddress);
+      if (!normalizedAsset) {
+        return res.status(400).json({ success: false, error: 'assetAddress required' });
+      }
+      const existing = assetShutdowns.get(normalizedAsset);
+      if (existing && existing.is_shut_down) {
+        return res.status(400).json({ success: false, error: 'Asset already shut down' });
+      }
+      const now = Math.floor(Date.now() / 1000);
+      const state: AssetShutdownState = {
+        assetAddress: normalizedAsset,
+        is_shut_down: true,
+        reason: typeof reason === 'string' && reason.trim() ? reason.trim() : 'Admin shutdown',
+        shut_down_at: now,
+        shut_down_by: typeof triggeredBy === 'string' && triggeredBy.trim() ? triggeredBy.trim() : 'Admin',
+        restored_at: null,
+        restored_by: null,
+      };
+      assetShutdowns.set(normalizedAsset, state);
+      logger.info(`Asset shut down: ${normalizedAsset} (${state.reason})`);
+      res.json({ success: true, data: state });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  restoreAsset(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { assetAddress, restoredBy } = req.body;
+      const normalizedAsset = normalizeAsset(assetAddress);
+      if (!normalizedAsset) {
+        return res.status(400).json({ success: false, error: 'assetAddress required' });
+      }
+      const existing = assetShutdowns.get(normalizedAsset);
+      if (!existing || !existing.is_shut_down) {
+        return res.status(400).json({ success: false, error: 'Asset is not shut down' });
+      }
+      const now = Math.floor(Date.now() / 1000);
+      const state: AssetShutdownState = {
+        ...existing,
+        is_shut_down: false,
+        restored_at: now,
+        restored_by: typeof restoredBy === 'string' && restoredBy.trim() ? restoredBy.trim() : 'Admin',
+      };
+      assetShutdowns.set(normalizedAsset, state);
+      logger.info(`Asset restored: ${normalizedAsset}`);
+      res.json({ success: true, data: state });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  getAssetSttatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const normalizedAsset = normalizeAsset(req.params.assetAddress);
+      if (!normalizedAsset) {
+        return res.status(400).json({ success: false, error: 'assetAddress required' });
+      }
+      const existing = assetShutdowns.get(normalizedAsset);
+      const data: AssetShutdownState = existing || {
+        assetAddress: normalizedAsset,
+        is_shut_down: false,
+        reason: '',
+        shut_down_at: 0,
+        shut_down_by: '',
+        restored_at: null,
+        restored_by: null,
+      };
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  getAssetShutdowns(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = Array.from(assetShutdowns.values()).filter((s) => s.is_shut_down);
+      res.json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  },
 };
 
 router.get('/status', emergencyController.getStatus);
@@ -138,5 +250,9 @@ router.post('/cancel', emergencyController.cancel);
 router.post('/withdraw', emergencyController.emergencyWithdraw);
 router.get('/withdrawals', emergencyController.getWithdrawals);
 router.get('/limits', emergencyController.getLimits);
+router.post('/assets/shutdown', emergencyController.shutdownAsset);
+router.post('/assets/restore', emergencyController.restoreAsset);
+router.get('/assets/shutdowns', emergencyController.getAssetShutdowns);
+router.get('/assets/:assetAddress/status', emergencyController.getAssetStatus);
 
 export default router;

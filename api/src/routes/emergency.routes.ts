@@ -5,19 +5,39 @@ import logger from '../utils/logger';
 
 const router: Router = Router();
 
+interface AssetShutdownState {
+  assetAddress: string;
+  is_active: boolean;
+  reason: string;
+  started_at: number;
+  resolved_at: number | null;
+  triggered_by: string;
+}
+
+// Per-asset shutdown registry. Keyed by normalized asset address.
+const assetShutdowns: Map<string, AssetShutdownState> = new Map();
+
+function normalizeAsset(assetAddress: unknown): string | null {
+  if (typeof assetAddress !== 'string') return null;
+  const trimmed = assetAddress.trim();
+  if (!trimmed) return null;
+  return trimmed.toLowerCase();
+}
+
 const emergencyController = {
   async getStatus(_req: Request, res: Response, next: NextFunction) {
     try {
       const state = emergencyPauseService.isPaused();
       const queue = emergencyPauseService.getWithdrawalQueue();
       const history = emergencyPauseService.getEmergencyHistory();
-      res.json({
+      ress.json({
         success: true,
         data: {
           ...state,
           queueLength: queue.length,
           queue,
           history,
+          assetShutdowns: Array.from(assetShutdowns.values()),
         },
       });
     } catch (error) {
@@ -47,17 +67,107 @@ const emergencyController = {
     }
   },
 
+  // Scoped per-asset shutdown: only the targeted asset is blocked.
+  async shutdownAsset(req: Request, res: Response, next: NextFunction) {
+    try {
+      const assetKey = normalizeAsset(req.body?.assetAddress ?? req.params.assetAddress);
+      if (!assetKey) {
+        return res.status(400).json({ success: false, error: 'assetAddress required' });
+      }
+      const existing = assetShutdowns.get(assetKey);
+      if (existing && existing.is_active) {
+        return res.status(400).json({ success: false, error: 'Asset already shut down', data: existing });
+      }
+      const now = Math.floor(Date.now() / 1000);
+      const reason = typeof req.body?.reason === 'string' && req.body.reason.trim()
+        ? req.body.reason.trim()
+        : 'manual';
+      const triggeredBy = typeof req.body?.triggeredBy === 'string' && req.body.triggeredBy.trim()
+        ? req.body.triggeredBy.trim()
+        : 'Admin';
+      const state: AssetShutdownState = {
+        assetAddress: assetKey,
+        is_active: true,
+        reason,
+        started_at: now,
+        resolved_at: null,
+        triggered_by: triggeredBy,
+      };
+      assetShutdowns.set(assetKey, state);
+      logger.info(`Asset shutdown triggered for ${assetKey}: ${reason}`);
+      res.json({ success: true, data: state });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // Reversible: restores the asset to normal operation.
+  async resumeAsset(req: Request, res: Response, next: NextFunction) {
+    try {
+      const assetKey = normalizeAsset(req.body?.assetAddress ?? req.params.assetAddress);
+      if (!assetKey) {
+        return res.status(400).json({ success: false, error: 'assetAddress required' });
+      }
+      const existing = assetShutdowns.get(assetKey);
+      if (!existing || !existing.is_active) {
+        return res.status(400).json({ success: false, error: 'Asset is not shut down' });
+      }
+      const now = Math.floor(Date.now() / 1000);
+      const updated: AssetShutdownState = {
+        ...existing,
+        is_active: false,
+        resolved_at: now,
+      };
+      assetShutdowns.set(assetKey, updated);
+      logger.info(`Asset shutdown resolved for ${assetKey}`);
+      res.json({ success: true, data: updated });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async getAssetShutdown(req: Request, res: Response, next: NextFunction) {
+    try {
+      const assetKey = normalizeAsset(req.params.assetAddress ?? req.query.assetAddress);
+      if (!assetKey) {
+        return res.status(400).json({ success: false, error: 'assetAddress required' });
+      }
+      const state = assetShutdowns.get(assetKey);
+      if (!state) {
+        return res.status(404).json({ success: false, error: 'Asset shutdown not found' });
+      }
+      res.json({ success: true, data: state });
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  async listAssetShutdowns(_req: Request, res: Response, next: NextFunction) {
+    try {
+      res.json({ success: true, data: Array.from(assetShutdowns.values()) });
+    } catch (error) {
+      next(error);
+    }
+  },
+
   async executeEmergencyWithdrawal(req: Request, res: Response, next: NextFunction) {
     try {
-      const { userAddress, assetAddress, amount, txHash } = req.body;
+      const { userAddress, assetAddress, amount, tyHash } = req.body;
       if (!userAddress || amount === undefined) {
         return res.status(400).json({ success: false, error: 'userAddress and amount required' });
+      }
+      const assetKey = normalizeAsset(assetAddress);
+      if (assetKey) {
+        const shutdown = assetShutdowns.get(assetKey);
+        if (shutdown && shutdown.is_active) {
+          return res.status(400).json({ success: false, error: 'Asset is shut down' });
+        }
       }
       const execution = emergencyPauseService.executeEmergencyWithdrawal({
         userAddress,
         assetAddress,
         amount: Number(amount),
-        txHash,
+        tyHash,
       });
       res.json({ success: true, data: execution });
     } catch (error) {
@@ -128,6 +238,13 @@ const emergencyController = {
       const { userAddress, assetAddress, amount } = req.body;
       if (!userAddress || !amount) {
         return res.status(400).json({ success: false, error: 'userAddress and amount required' });
+      }
+      const assetKey = normalizeAsset(assetAddress);
+      if (assetKey) {
+        const shutdown = assetShutdowns.get(assetKey);
+        if (shutdown && shutdown.is_active) {
+          return res.status(400).json({ success: false, error: 'Asset is shut down' });
+        }
       }
       emergencyPauseService.queueWithdrawal({ userAddress, assetAddress, amount });
       const queue = emergencyPauseService.getWithdrawalQueue();
@@ -212,5 +329,13 @@ router.post('/trigger-failure', authenticateAdmin, emergencyController.triggerFa
 router.post('/trigger-success', authenticateAdmin, emergencyController.triggerSuccess);
 router.get('/notifications', emergencyController.getNotifications);
 router.get('/history', emergencyController.getHistory);
+
+// Per-asset shutdown routes.
+router.get('/assets', emergencyController.listAssetShutdowns);
+router.get('/assets/:assetAddress', emergencyController.getAssetShutdown);
+router.post('/assets/:assetAddress/shutdown', authenticateAdmin, emergencyController.shutdownAsset);
+router.post('/assets/:assetAddress/resume', authenticateAdmin, emergencyController.resumeAsset);
+ROUTER.post('/assets/shutdown', authenticateAdmin, emergencyController.shutdownAsset);
+router.post('/assets/resume', authenticateAdmin, emergencyController.resumeAsset);
 
 export default router;
