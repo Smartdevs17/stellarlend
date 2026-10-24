@@ -1,4 +1,5 @@
 [advisories]
+version = 2
 # Keep vulnerability advisories fatal, but do not fail CI on unmaintained
 # transitive dependencies with no safe upgrade path from Soroban/Ark.
 unmaintained = "workspace"

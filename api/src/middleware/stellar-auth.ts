@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { Keypair } from '@stellar/stellar-sdk';
 import { UnauthorizedError } from '../utils/errors';
 import logger from '../utils/logger';
 
@@ -8,7 +9,6 @@ export interface AuthenticatedRequest extends Request {
 
 function verifyStellarSignature(userAddress: string, payload: string, signature: string): boolean {
   try {
-    const { Keypair, TransactionBuilder } = require('stellar-sdk');
     return Keypair.fromPublicKey(userAddress).verify(Buffer.from(payload), Buffer.from(signature, 'base64'));
   } catch (err) {
     logger.warn('Stellar signature verification failed', { userAddress, error: String(err) });

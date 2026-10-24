@@ -1,0 +1,86 @@
+name: Platform operations
+
+on:
+  pull_request:
+    paths:
+      - "scripts/ops/**"
+      - "ops/costs/**"
+      - "docs/runbooks/**"
+      - ".github/workflows/platform-ops.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/ops/**"
+      - "ops/costs/**"
+      - "docs/runbooks/**"
+      - ".github/workflows/platform-ops.yml"
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Run an endpoint failover probe or generate the cost dashboard
+        required: true
+        type: choice
+        options:
+          - validate
+          - failover
+          - cost-report
+        default: validate
+      primary_health_url:
+        description: Primary region health URL (required for failover)
+        required: false
+        type: string
+      failover_health_url:
+        description: Failover region health URL (required for failover)
+        required: false
+        type: string
+      budget_file:
+        description: Repository-relative normalized budget JSON file
+        required: false
+        default: ops/costs/budget.example.json
+        type: string
+      snapshot_file:
+        description: Repository-relative normalized monthly cost snapshot JSON file
+        required: false
+        default: ops/costs/snapshot.example.json
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test operational checks
+        run: node --test scripts/ops/*.test.mjs
+
+      - name: Probe primary and failover regions
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'failover'
+        env:
+          PRIMARY_HEALTH_URL: ${{ inputs.primary_health_url }}
+          FAILOVER_HEALTH_URL: ${{ inputs.failover_health_url }}
+        run: |
+          if [ -z "$PRIMARY_HEALTH_URL" ] || [ -z "$FAILOVER_HEALTH_URL" ]; then
+            echo "::error::Both health URLs are required for a failover probe."
+            exit 1
+          fi
+          node scripts/ops/failover-check.mjs \
+            --primary "$PRIMARY_HEALTH_URL" \
+            --secondary "$FAILOVER_HEALTH_URL"
+
+      - name: Generate monthly cost dashboard and alerts
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'cost-report'
+        env:
+          BUDGET_FILE: ${{ inputs.budget_file }}
+          SNAPSHOT_FILE: ${{ inputs.snapshot_file }}
+        run: |
+          node scripts/ops/cost-report.mjs \
+            --budget "$BUDGET_FILE" \
+            --snapshot "$SNAPSHOT_FILE" \
+            --github-summary
