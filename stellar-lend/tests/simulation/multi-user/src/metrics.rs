@@ -17,6 +17,12 @@ pub struct SimulationMetrics {
     pub total_duration_s: f64,
 }
 
+impl Default for SimulationMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimulationMetrics {
     pub fn new() -> Self {
         SimulationMetrics {
@@ -34,7 +40,7 @@ impl SimulationMetrics {
         }
     }
 
-    pub fn record_success(&mut self, latency_ms: f64) {
+    pub fn record_success(&mut self, _latency_ms: f64) {
         self.total_transactions += 1;
         self.successful_transactions += 1;
     }
@@ -66,6 +72,12 @@ pub struct ThreadSafeMetrics {
     pub transactions: Arc<AtomicU64>,
     pub successes: Arc<AtomicU64>,
     pub failures: Arc<AtomicU64>,
+}
+
+impl Default for ThreadSafeMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ThreadSafeMetrics {

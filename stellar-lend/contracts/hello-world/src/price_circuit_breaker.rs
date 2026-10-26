@@ -122,9 +122,9 @@ pub enum PriceCircuitBreakerKey {
 fn load_state(env: &Env, asset: &Address) -> PriceCircuitBreakerState {
     env.storage()
         .persistent()
-        .get::<PriceCircuitBreakerKey, PriceCircuitBreakerState>(
-            &PriceCircuitBreakerKey::State(asset.clone()),
-        )
+        .get::<PriceCircuitBreakerKey, PriceCircuitBreakerState>(&PriceCircuitBreakerKey::State(
+            asset.clone(),
+        ))
         .unwrap_or_default()
 }
 
@@ -137,9 +137,9 @@ fn save_state(env: &Env, asset: &Address, state: &PriceCircuitBreakerState) {
 fn load_config(env: &Env, asset: &Address) -> PriceCircuitBreakerConfig {
     env.storage()
         .persistent()
-        .get::<PriceCircuitBreakerKey, PriceCircuitBreakerConfig>(
-            &PriceCircuitBreakerKey::Config(asset.clone()),
-        )
+        .get::<PriceCircuitBreakerKey, PriceCircuitBreakerConfig>(&PriceCircuitBreakerKey::Config(
+            asset.clone(),
+        ))
         .unwrap_or_default()
 }
 
@@ -186,10 +186,9 @@ pub fn configure_price_circuit_breaker(
         return Err(PriceCircuitBreakerError::InvalidConfig);
     }
 
-    env.storage().persistent().set(
-        &PriceCircuitBreakerKey::Config(asset.clone()),
-        &config,
-    );
+    env.storage()
+        .persistent()
+        .set(&PriceCircuitBreakerKey::Config(asset.clone()), &config);
     Ok(())
 }
 
@@ -280,10 +279,7 @@ pub fn reset_price_circuit_breaker(
     save_state(env, &asset, &state);
 
     env.events().publish(
-        (
-            soroban_sdk::Symbol::new(env, "price_cb_reset"),
-            asset,
-        ),
+        (soroban_sdk::Symbol::new(env, "price_cb_reset"), asset),
         (caller, new_reference_price),
     );
     Ok(())
@@ -299,18 +295,12 @@ pub fn is_price_circuit_breaker_open(env: &Env, asset: &Address) -> bool {
 }
 
 /// Return the current runtime state for `asset`.
-pub fn get_price_circuit_breaker_state(
-    env: &Env,
-    asset: &Address,
-) -> PriceCircuitBreakerState {
+pub fn get_price_circuit_breaker_state(env: &Env, asset: &Address) -> PriceCircuitBreakerState {
     load_state(env, asset)
 }
 
 /// Return the configuration for `asset`.
-pub fn get_price_circuit_breaker_config(
-    env: &Env,
-    asset: &Address,
-) -> PriceCircuitBreakerConfig {
+pub fn get_price_circuit_breaker_config(env: &Env, asset: &Address) -> PriceCircuitBreakerConfig {
     load_config(env, asset)
 }
 
@@ -320,7 +310,10 @@ pub fn get_price_circuit_breaker_config(
 mod tests {
     use super::*;
     use crate::deposit::DepositDataKey;
-    use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        Address, Env,
+    };
 
     fn setup() -> (Env, Address, Address) {
         let env = Env::default();

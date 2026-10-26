@@ -228,8 +228,8 @@ mod tests {
 
     use crate::testing::assert_registry;
     use crate::{
-        domains, explain, log_contract_error, ContractError, CoreError, IntoError,
-        RecoveryAction, RecoveryDecision, Severity,
+        domains, explain, log_contract_error, ContractError, CoreError, IntoError, RecoveryAction,
+        RecoveryDecision, Severity,
     };
 
     #[contracterror]
@@ -279,7 +279,10 @@ mod tests {
 
     #[test]
     fn lookup_by_local_code() {
-        assert_eq!(SampleError::from_local_code(2), Some(SampleError::InsufficientCollateral));
+        assert_eq!(
+            SampleError::from_local_code(2),
+            Some(SampleError::InsufficientCollateral)
+        );
         assert_eq!(SampleError::from_local_code(3), None);
     }
 
@@ -291,7 +294,10 @@ mod tests {
         assert_eq!(info.category, CoreError::Insufficient as u32);
         assert_eq!(info.action, RecoveryAction::AddCollateral);
         assert_eq!(info.name, String::from_str(&env, "InsufficientCollateral"));
-        assert_eq!(info.message, String::from_str(&env, "Collateral is too low"));
+        assert_eq!(
+            info.message,
+            String::from_str(&env, "Collateral is too low")
+        );
         assert_eq!(
             info.suggestion,
             String::from_str(&env, RecoveryAction::AddCollateral.suggestion())

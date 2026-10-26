@@ -22,7 +22,7 @@ pub fn safe_sub(a: i128, b: i128) -> Result<i128, MathError> {
 
 #[inline]
 pub fn safe_mul(a: i128, b: i128) -> Result<i128, MathError> {
-    a.checked_mul(b).ok_or_else(|| {
+    a.checked_mul(b).ok_or({
         if (a > 0 && b > 0) || (a < 0 && b < 0) {
             MathError::Overflow
         } else {

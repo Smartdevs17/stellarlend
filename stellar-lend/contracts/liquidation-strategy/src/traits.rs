@@ -85,7 +85,12 @@ impl LiquidationStrategyTrait for FixedDiscountStrategy {
         })
     }
 
-    fn is_applicable(&self, _collateral_value: i128, _debt_value: i128, _time_since_unhealthy: u64) -> bool {
+    fn is_applicable(
+        &self,
+        _collateral_value: i128,
+        _debt_value: i128,
+        _time_since_unhealthy: u64,
+    ) -> bool {
         true // Always applicable
     }
 
@@ -124,7 +129,12 @@ impl LiquidationStrategyTrait for DutchAuctionStrategy {
         })
     }
 
-    fn is_applicable(&self, _collateral_value: i128, _debt_value: i128, _time_since_unhealthy: u64) -> bool {
+    fn is_applicable(
+        &self,
+        _collateral_value: i128,
+        _debt_value: i128,
+        _time_since_unhealthy: u64,
+    ) -> bool {
         true
     }
 
@@ -159,7 +169,12 @@ impl LiquidationStrategyTrait for TWAPStrategy {
         })
     }
 
-    fn is_applicable(&self, _collateral_value: i128, _debt_value: i128, _time_since_unhealthy: u64) -> bool {
+    fn is_applicable(
+        &self,
+        _collateral_value: i128,
+        _debt_value: i128,
+        _time_since_unhealthy: u64,
+    ) -> bool {
         true
     }
 
@@ -206,7 +221,8 @@ impl LiquidationStrategyTrait for HybridStrategy {
         )?;
 
         // Take average
-        let avg_discount = (fixed_result.discount_bps as u64 + dutch_result.discount_bps as u64) / 2;
+        let avg_discount =
+            (fixed_result.discount_bps as u64 + dutch_result.discount_bps as u64) / 2;
         let avg_confidence = (fixed_result.confidence as u64 + dutch_result.confidence as u64) / 2;
 
         Ok(DiscountResult {
@@ -216,7 +232,12 @@ impl LiquidationStrategyTrait for HybridStrategy {
         })
     }
 
-    fn is_applicable(&self, _collateral_value: i128, _debt_value: i128, _time_since_unhealthy: u64) -> bool {
+    fn is_applicable(
+        &self,
+        _collateral_value: i128,
+        _debt_value: i128,
+        _time_since_unhealthy: u64,
+    ) -> bool {
         true
     }
 

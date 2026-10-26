@@ -815,7 +815,9 @@ mod tests {
         s.client.initialize(&s.admin, &config);
 
         let borrower = Address::generate(&s.env);
-        let result = s.client.try_record_repayment(&s.admin, &borrower, &-100, &true);
+        let result = s
+            .client
+            .try_record_repayment(&s.admin, &borrower, &-100, &true);
         assert_eq!(result.unwrap_err().unwrap(), ReputationError::InvalidAmount);
     }
 

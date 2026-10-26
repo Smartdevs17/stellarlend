@@ -162,7 +162,7 @@ impl SNSIntegration {
         env: Env,
         names: soroban_sdk::Vec<String>,
     ) -> soroban_sdk::Vec<Result<Address, SNSError>> {
-        let mut results = soroban_sdk::Vec::new();
+        let mut results = soroban_sdk::Vec::new(&env);
         for name in names.iter() {
             let result = Self::resolve_name(env.clone(), name);
             results.push_back(result);

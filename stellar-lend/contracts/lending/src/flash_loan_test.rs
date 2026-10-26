@@ -845,13 +845,7 @@ fn test_flash_loan_concurrent_same_asset_blocked() {
     // callback. The ConcurrentFlashLoan guard must reject it before the
     // reentrancy guard even fires.
     let receiver_id = env.register(ReentrantFlashLoanReceiver, ());
-    let result = client.try_flash_loan(
-        &receiver_id,
-        &asset,
-        &1_000,
-        &1_000_000,
-        &Bytes::new(&env),
-    );
+    let result = client.try_flash_loan(&receiver_id, &asset, &1_000, &1_000_000, &Bytes::new(&env));
     // The outer call should fail (reentrancy / concurrent lock violation).
     assert!(result.is_err());
 }
@@ -904,13 +898,7 @@ fn test_flash_loan_global_reentrancy_guard_blocks_second_entry() {
 
     // ReentrantFlashLoanReceiver calls back into flash_loan during the callback.
     let receiver_id = env.register(ReentrantFlashLoanReceiver, ());
-    let result = client.try_flash_loan(
-        &receiver_id,
-        &asset,
-        &1_000,
-        &1_000_000,
-        &Bytes::new(&env),
-    );
+    let result = client.try_flash_loan(&receiver_id, &asset, &1_000, &1_000_000, &Bytes::new(&env));
     // Must be blocked by reentrancy or concurrent-loan guard.
     assert!(result.is_err());
     // After the failed attempt the active flag must be clear.

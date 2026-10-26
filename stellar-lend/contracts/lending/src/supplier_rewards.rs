@@ -226,7 +226,7 @@ pub fn allocate(
         .storage()
         .persistent()
         .get(&DepositDataKey::UserCollateral(user.clone()));
-    if !position.is_some_and(|p| p.amount > 0) {
+    if position.is_none_or(|p| p.amount <= 0) {
         return Err(SupplierRewardsError::NotSupplier);
     }
     let mut pool = pool(env);

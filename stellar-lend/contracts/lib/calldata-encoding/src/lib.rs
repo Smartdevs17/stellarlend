@@ -101,7 +101,7 @@ impl CalldataEncoder {
             shared_params.extend_from_slice(shared_user);
         }
 
-        let n_ops = operations.len() as u32;
+        let n_ops = operations.len();
         let shared_len = shared_params.len() as u32;
         let original_size = n_ops * 256u32;
         let compressed_size = shared_len + (n_ops * 64u32);
@@ -130,7 +130,6 @@ impl CalldataEncoder {
 }
 
 pub mod tests {
-    use super::*;
 
     #[test]
     fn test_varint_encoding() {

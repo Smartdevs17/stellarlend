@@ -3,7 +3,7 @@ use crate::integrity_checker::{verify_state_integrity, IntegrityReport};
 use crate::rollback_validator::{verify_rollback, RollbackReport};
 use crate::state_generator::StateGenerator;
 use crate::storage::StorageContext;
-use rand::Rng;
+use rand::{Rng, RngExt};
 use soroban_sdk::Env;
 
 pub struct FuzzConfig {
@@ -95,7 +95,7 @@ pub fn run_fuzz_suite(config: FuzzConfig) -> (FuzzReport, Vec<GasProfile>) {
         let env = Env::default();
         let ctx = StorageContext::new(&env);
         let mut generator = StateGenerator::new(config.seed + iteration as u64);
-        let num_keys = generator.rng.gen_range(config.min_keys..=config.max_keys);
+        let num_keys = generator.rng.random_range(config.min_keys..=config.max_keys);
 
         let output = run_fuzz_cycle(
             &ctx,

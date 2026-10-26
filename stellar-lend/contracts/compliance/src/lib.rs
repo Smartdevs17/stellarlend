@@ -1,7 +1,5 @@
 #![no_std]
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Env, Symbol, Vec,
-};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, Symbol, Vec};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -552,7 +550,6 @@ impl ComplianceContract {
 
 #[cfg(test)]
 mod lib_test;
-
 
 // Unified error registry: protocol-wide global codes, messages and recovery
 // suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).

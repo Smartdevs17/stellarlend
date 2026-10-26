@@ -174,7 +174,10 @@ impl CollateralRegistry {
     }
 
     pub fn get(&self, asset_id: u32) -> Option<&CollateralEntry> {
-        self.entries.iter().flatten().find(|e| e.asset_id == asset_id)
+        self.entries
+            .iter()
+            .flatten()
+            .find(|e| e.asset_id == asset_id)
     }
 
     /// Iterates registered assets in registration-slot order.
@@ -355,7 +358,11 @@ mod tests {
                 b.max_liquidation_threshold_bps,
                 b.max_liquidation_bonus_bps,
             );
-            assert_eq!(validate_entry(&at_max), Ok(()), "tier maximums must be valid");
+            assert_eq!(
+                validate_entry(&at_max),
+                Ok(()),
+                "tier maximums must be valid"
+            );
         }
     }
 
@@ -382,7 +389,10 @@ mod tests {
     fn duplicate_asset_is_rejected() {
         let mut registry = CollateralRegistry::new();
         registry.register(moderate()).unwrap();
-        assert_eq!(registry.register(moderate()), Err(RegistryError::AssetExists));
+        assert_eq!(
+            registry.register(moderate()),
+            Err(RegistryError::AssetExists)
+        );
         assert_eq!(registry.len(), 1);
     }
 
@@ -399,7 +409,10 @@ mod tests {
         }
         let mut negative_cap = moderate();
         negative_cap.supply_cap = -1;
-        assert_eq!(validate_entry(&negative_cap), Err(RegistryError::InvalidParameter));
+        assert_eq!(
+            validate_entry(&negative_cap),
+            Err(RegistryError::InvalidParameter)
+        );
     }
 
     #[test]
@@ -469,7 +482,11 @@ mod tests {
         registry.update_risk_params(1, 6_000, 6_800, 400).unwrap();
         let e = registry.get(1).unwrap();
         assert_eq!(
-            (e.collateral_factor_bps, e.liquidation_threshold_bps, e.liquidation_bonus_bps),
+            (
+                e.collateral_factor_bps,
+                e.liquidation_threshold_bps,
+                e.liquidation_bonus_bps
+            ),
             (6_000, 6_800, 400)
         );
 
@@ -518,7 +535,10 @@ mod tests {
             registry.update_risk_params(1, 6_000, 6_800, 400),
             Err(RegistryError::Frozen)
         );
-        assert_eq!(registry.set_tier(1, RiskTier::Conservative), Err(RegistryError::Frozen));
+        assert_eq!(
+            registry.set_tier(1, RiskTier::Conservative),
+            Err(RegistryError::Frozen)
+        );
 
         registry.set_frozen(1, false).unwrap();
         assert_eq!(registry.borrow_capacity(1, 100_000), Ok(65_000));
@@ -530,7 +550,10 @@ mod tests {
         registry.register(moderate()).unwrap();
         assert_eq!(registry.borrow_capacity(1, 200_000), Ok(130_000)); // 65%
         assert_eq!(registry.liquidation_limit(1, 200_000), Ok(144_000)); // 72%
-        assert_eq!(registry.borrow_capacity(2, 1), Err(RegistryError::AssetNotFound));
+        assert_eq!(
+            registry.borrow_capacity(2, 1),
+            Err(RegistryError::AssetNotFound)
+        );
         assert_eq!(
             registry.borrow_capacity(1, i128::MAX),
             Err(RegistryError::Overflow)
@@ -547,7 +570,10 @@ mod tests {
             registry.set_supply_cap(1, -1),
             Err(RegistryError::InvalidParameter)
         );
-        assert_eq!(registry.set_supply_cap(3, 1), Err(RegistryError::AssetNotFound));
+        assert_eq!(
+            registry.set_supply_cap(3, 1),
+            Err(RegistryError::AssetNotFound)
+        );
     }
 
     #[test]

@@ -16,13 +16,13 @@ use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Map};
 
 pub mod amm;
 mod reentrancy;
-use crate::reentrancy::ReentrancyGuard;
 pub use crate::amm::{
     add_amm_protocol, add_liquidity, auto_swap_for_collateral, execute_swap,
     initialize_amm_settings, remove_liquidity, update_amm_settings, validate_amm_callback,
     AmmCallbackData, AmmError, AmmProtocolConfig, AmmSettings, LiquidityParams, SwapParams,
     TokenPair,
 };
+use crate::reentrancy::ReentrancyGuard;
 
 use stellarlend_common::upgrade;
 

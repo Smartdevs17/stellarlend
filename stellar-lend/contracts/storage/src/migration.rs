@@ -22,8 +22,8 @@ pub enum MigrationError {
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub enum MigrationDirection {
-    Up,    // Upgrade to newer version
-    Down,  // Downgrade to older version
+    Up,   // Upgrade to newer version
+    Down, // Downgrade to older version
 }
 
 /// Version tracking for storage
@@ -37,7 +37,11 @@ pub struct StorageVersion {
 
 impl StorageVersion {
     pub fn new(major: u32, minor: u32, patch: u32) -> Self {
-        StorageVersion { major, minor, patch }
+        StorageVersion {
+            major,
+            minor,
+            patch,
+        }
     }
 
     pub fn to_u32(&self) -> u32 {
@@ -56,10 +60,20 @@ impl StorageVersion {
 /// Migration handler trait for implementing storage migrations
 pub trait MigrationHandler {
     /// Execute migration from one version to another
-    fn migrate(&self, env: &Env, from_version: StorageVersion, to_version: StorageVersion) -> Result<(), MigrationError>;
+    fn migrate(
+        &self,
+        env: &Env,
+        from_version: StorageVersion,
+        to_version: StorageVersion,
+    ) -> Result<(), MigrationError>;
 
     /// Validate that migration is safe to proceed
-    fn validate(&self, env: &Env, from_version: StorageVersion, to_version: StorageVersion) -> Result<(), MigrationError>;
+    fn validate(
+        &self,
+        env: &Env,
+        from_version: StorageVersion,
+        to_version: StorageVersion,
+    ) -> Result<(), MigrationError>;
 
     /// Rollback migration to previous state
     fn rollback(&self, env: &Env, from_version: StorageVersion) -> Result<(), MigrationError>;
@@ -86,7 +100,10 @@ impl StorageMigration {
     }
 
     /// Calculate the steps needed for migration
-    pub fn calculate_migration_path(_from: StorageVersion, _to: StorageVersion) -> Result<(), MigrationError> {
+    pub fn calculate_migration_path(
+        _from: StorageVersion,
+        _to: StorageVersion,
+    ) -> Result<(), MigrationError> {
         // Generate list of intermediate versions
         Ok(())
     }

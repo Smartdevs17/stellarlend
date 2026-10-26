@@ -82,7 +82,9 @@ fn test_refund_stranded_funds_when_failed() {
         source_position_id: None,
     };
     env.as_contract(&contract_id, || {
-        env.storage().persistent().set(&DataKey::Migration(1), &record);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Migration(1), &record);
     });
 
     client.refund_migration(&user, &1);
@@ -140,7 +142,10 @@ fn test_upgrade_propose_and_status() {
     let proposal_id = client.upgrade_propose(&admin, &new_hash, &1);
     let status = client.upgrade_status(proposal_id);
     assert_eq!(status.target_version, 1);
-    assert_eq!(status.stage, stellarlend_common::upgrade::UpgradeStage::Approved);
+    assert_eq!(
+        status.stage,
+        stellarlend_common::upgrade::UpgradeStage::Approved
+    );
 }
 
 #[test]
@@ -160,7 +165,8 @@ fn test_upgrade_execute_and_rollback() {
 
     let proposal_id = client.upgrade_propose(&admin, &new_hash, &1);
     client.upgrade_queue_timelock(&admin, &proposal_id);
-    env.ledger().set_timestamp(env.ledger().timestamp() + 172_801);
+    env.ledger()
+        .set_timestamp(env.ledger().timestamp() + 172_801);
     client.upgrade_execute(&admin, &proposal_id);
 
     assert_eq!(client.current_version(), 1);
@@ -184,4 +190,3 @@ fn test_initialize_requires_admin_auth() {
 
     client.initialize(&admin, &lending, &bridge, &100, &2_000_000);
 }
-

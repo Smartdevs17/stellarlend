@@ -96,7 +96,8 @@ pub const SNS_INTEGRATION: ErrorDomain = ErrorDomain::new(ContractId::SnsIntegra
 /// `referral-program::ReferralError`
 pub const REFERRAL_PROGRAM: ErrorDomain = ErrorDomain::new(ContractId::ReferralProgram, 0);
 /// `insurance-marketplace::Error`
-pub const INSURANCE_MARKETPLACE: ErrorDomain = ErrorDomain::new(ContractId::InsuranceMarketplace, 0);
+pub const INSURANCE_MARKETPLACE: ErrorDomain =
+    ErrorDomain::new(ContractId::InsuranceMarketplace, 0);
 /// `token-adapter::AdapterError`
 pub const TOKEN_ADAPTER: ErrorDomain = ErrorDomain::new(ContractId::TokenAdapter, 0);
 /// `token::TokenError`

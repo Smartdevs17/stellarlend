@@ -104,7 +104,11 @@ impl InsuranceMarketplace {
         kyc_approved: bool,
     ) -> Result<(), Error> {
         owner.require_auth();
-        if env.storage().persistent().has(&Key::Provider(owner.clone())) {
+        if env
+            .storage()
+            .persistent()
+            .has(&Key::Provider(owner.clone()))
+        {
             return Err(Error::AlreadyInitialized);
         }
         if collateral <= 0 {
@@ -152,8 +156,14 @@ impl InsuranceMarketplace {
             &env.current_contract_address(),
             &amount,
         );
-        p.collateral = p.collateral.checked_add(amount).ok_or(Error::InvalidAmount)?;
-        p.available = p.available.checked_add(amount).ok_or(Error::InvalidAmount)?;
+        p.collateral = p
+            .collateral
+            .checked_add(amount)
+            .ok_or(Error::InvalidAmount)?;
+        p.available = p
+            .available
+            .checked_add(amount)
+            .ok_or(Error::InvalidAmount)?;
         env.storage().persistent().set(&Key::Provider(provider), &p);
         Ok(())
     }

@@ -2,7 +2,9 @@
 #![allow(deprecated)]
 
 use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, IntoVal, Symbol, Val};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, Address, Env, IntoVal, Symbol, Val,
+};
 
 /// Storage key for the reentrancy guard.
 #[contracttype]
@@ -354,10 +356,7 @@ impl StablecoinContract {
         }
 
         let user_debt = get_user_debt(&env, &user);
-        let max_user_debt = user_col
-            .checked_mul(rr)
-            .ok_or(StablecoinError::Overflow)?
-            / BPS;
+        let max_user_debt = user_col.checked_mul(rr).ok_or(StablecoinError::Overflow)? / BPS;
 
         let next_user_debt = user_debt
             .checked_add(mint_amount)
@@ -497,7 +496,9 @@ impl StablecoinContract {
 
 #[cfg(test)]
 mod test {
-    use super::{FractionalReserveConfig, StablecoinContract, StablecoinContractClient, StablecoinError};
+    use super::{
+        FractionalReserveConfig, StablecoinContract, StablecoinContractClient, StablecoinError,
+    };
     use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, Address, Env};
 
     fn setup() -> (
@@ -588,7 +589,10 @@ mod test {
 
         // Cannot redeem all 100 collateral while 20 debt is outstanding
         let invalid_redeem = client.try_burn_and_redeem(&user, &100);
-        assert_eq!(invalid_redeem, Err(Ok(StablecoinError::InsufficientCollateral)));
+        assert_eq!(
+            invalid_redeem,
+            Err(Ok(StablecoinError::InsufficientCollateral))
+        );
 
         // Burn and redeem 20 stablecoins -> debt drops to 0, collateral drops to 80
         let redeemed = client.burn_and_redeem(&user, &20);

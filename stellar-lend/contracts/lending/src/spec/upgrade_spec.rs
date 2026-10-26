@@ -22,7 +22,7 @@
 #[cfg(any(test, feature = "spec"))]
 mod upgrade_verification {
 
-    use alloc::{collections::BTreeSet, vec};
+    
 
     /// Specification: Version monotonicity invariant
     /// Contract version can only increase or stay same, never decrease

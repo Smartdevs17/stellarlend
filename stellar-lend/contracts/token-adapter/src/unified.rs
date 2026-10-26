@@ -142,7 +142,11 @@ pub struct UnifiedTokenAdapter;
 
 impl UnifiedTokenAdapter {
     /// Validate token according to standardized rules
-    pub fn validate_token(_env: &Env, _token: &Address, rules: &TokenValidationRules) -> Result<(), UnifiedTokenError> {
+    pub fn validate_token(
+        _env: &Env,
+        _token: &Address,
+        rules: &TokenValidationRules,
+    ) -> Result<(), UnifiedTokenError> {
         if rules.is_blacklisted {
             return Err(UnifiedTokenError::TokenBlacklisted);
         }
@@ -150,17 +154,25 @@ impl UnifiedTokenAdapter {
     }
 
     /// Normalize amount according to token decimals
-    pub fn normalize_amount(amount: i128, from_decimals: u32, to_decimals: u32) -> Result<i128, UnifiedTokenError> {
+    pub fn normalize_amount(
+        amount: i128,
+        from_decimals: u32,
+        to_decimals: u32,
+    ) -> Result<i128, UnifiedTokenError> {
         if from_decimals == to_decimals {
             return Ok(amount);
         }
 
         if from_decimals > to_decimals {
             let factor = 10i128.pow(from_decimals - to_decimals);
-            amount.checked_div(factor).ok_or(UnifiedTokenError::OperationFailed)
+            amount
+                .checked_div(factor)
+                .ok_or(UnifiedTokenError::OperationFailed)
         } else {
             let factor = 10i128.pow(to_decimals - from_decimals);
-            amount.checked_mul(factor).ok_or(UnifiedTokenError::OperationFailed)
+            amount
+                .checked_mul(factor)
+                .ok_or(UnifiedTokenError::OperationFailed)
         }
     }
 

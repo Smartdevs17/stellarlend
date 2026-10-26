@@ -220,7 +220,6 @@ impl PositionManager {
 #[cfg(test)]
 mod test;
 
-
 // Unified error registry: protocol-wide global codes, messages and recovery
 // suggestions for every variant (see `stellarlend_errors` and docs/ERROR_HANDLING.md).
 stellarlend_errors::impl_contract_error! {

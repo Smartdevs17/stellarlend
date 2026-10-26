@@ -28,7 +28,7 @@
 #[cfg(any(test, feature = "spec"))]
 mod cross_contract_verification {
 
-    use alloc::vec;
+    
     /// Specification: Reentrancy guard invariant
     /// Preventing state modification during external calls
     #[cfg(test)]

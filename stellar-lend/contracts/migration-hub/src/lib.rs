@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, log, symbol_short, Address, BytesN, Env, String, Symbol, Val, Vec,
+    contract, contractimpl, log, Address, BytesN, Env, String, Vec,
 };
 use stellarlend_common::upgrade;
 
@@ -14,7 +14,7 @@ mod test;
 use crate::adapter::{MigrationAdapter, StellarOtherLendAdapter};
 use crate::types::{
     DataKey, EmergencyRollback, MigrationAnalytics, MigrationConfig, MigrationError,
-    MigrationPreview, MigrationRecord, MigrationStatus, PartialMigrationConfig, ProtocolType,
+    MigrationPreview, MigrationRecord, MigrationStatus, ProtocolType,
 };
 use stellarlend_shared_deadline::require_deadline;
 
@@ -63,7 +63,12 @@ impl MigrationHub {
         Ok(())
     }
 
-    pub fn upgrade_init(env: Env, admin: Address, current_wasm_hash: BytesN<32>, required_approvals: u32) {
+    pub fn upgrade_init(
+        env: Env,
+        admin: Address,
+        current_wasm_hash: BytesN<32>,
+        required_approvals: u32,
+    ) {
         upgrade::UpgradeManager::init(env, admin, current_wasm_hash, required_approvals);
     }
 
@@ -75,7 +80,12 @@ impl MigrationHub {
         upgrade::UpgradeManager::remove_approver(env, caller, approver);
     }
 
-    pub fn upgrade_propose(env: Env, caller: Address, new_wasm_hash: BytesN<32>, new_version: u32) -> u64 {
+    pub fn upgrade_propose(
+        env: Env,
+        caller: Address,
+        new_wasm_hash: BytesN<32>,
+        new_version: u32,
+    ) -> u64 {
         upgrade::UpgradeManager::upgrade_propose(env, caller, new_wasm_hash, new_version)
     }
 
@@ -160,7 +170,7 @@ impl MigrationHub {
             ProtocolType::AaveMock => {
                 // Mock for Aave (simulated)
                 let token = soroban_sdk::token::Client::new(&env, &asset);
-                token.transfer(&user, &env.current_contract_address(), &amount);
+                token.transfer(&user, env.current_contract_address(), &amount);
                 Ok(())
             }
         };
@@ -174,7 +184,11 @@ impl MigrationHub {
 
         // 3. Deposit into destination lending contract (atomic push)
         let token = soroban_sdk::token::Client::new(&env, &asset);
-        token.transfer(&env.current_contract_address(), &config.lending_contract, &amount);
+        token.transfer(
+            &env.current_contract_address(),
+            &config.lending_contract,
+            &amount,
+        );
 
         record.status = MigrationStatus::Completed;
         Self::save_migration(&env, id, &record);
@@ -248,7 +262,11 @@ impl MigrationHub {
     }
 
     /// Allows a user to refund/rescue their tokens if a migration failed or is non-completed.
-    pub fn refund_migration(env: Env, user: Address, migration_id: u64) -> Result<(), MigrationError> {
+    pub fn refund_migration(
+        env: Env,
+        user: Address,
+        migration_id: u64,
+    ) -> Result<(), MigrationError> {
         user.require_auth();
         let mut record = Self::get_migration(env.clone(), migration_id)
             .ok_or(MigrationError::MigrationFailed)?;
@@ -257,7 +275,8 @@ impl MigrationHub {
             return Err(MigrationError::Unauthorized);
         }
 
-        if record.status == MigrationStatus::Completed || record.status == MigrationStatus::Refunded {
+        if record.status == MigrationStatus::Completed || record.status == MigrationStatus::Refunded
+        {
             return Err(MigrationError::RollbackFailed);
         }
 
@@ -315,7 +334,12 @@ impl MigrationHub {
         Self::save_migration(&env, id, &record);
         Self::update_analytics(&env, true, record.amount);
 
-        log!(&env, "Partial migration successful for user {} percentage {}", user, percentage);
+        log!(
+            &env,
+            "Partial migration successful for user {} percentage {}",
+            user,
+            percentage
+        );
 
         Ok(id)
     }
@@ -331,7 +355,7 @@ impl MigrationHub {
     ) -> Result<MigrationPreview, MigrationError> {
         let estimated_gas: u64 = 50_000; // Mock estimation
         let estimated_slippage_bps: u32 = 25; // 0.25%
-        let interest_impact: i128 = (amount * 1) / 1000; // Simplified: 0.1% of amount
+        let interest_impact: i128 = amount / 1000; // Simplified: 0.1% of amount
 
         Ok(MigrationPreview {
             estimated_gas,
@@ -398,7 +422,7 @@ impl MigrationHub {
             .ok_or(MigrationError::Unauthorized)?;
         admin.require_auth();
 
-        let mut migrated_count: u32 = 0;
+        let migrated_count: u32 = 0;
 
         log!(
             &env,
@@ -411,11 +435,8 @@ impl MigrationHub {
     }
 
     /// Get migration history for a user.
-    pub fn get_user_migration_history(
-        env: Env,
-        user: Address,
-    ) -> Vec<MigrationRecord> {
-        let mut history: Vec<MigrationRecord> = Vec::new(&env);
+    pub fn get_user_migration_history(env: Env, user: Address) -> Vec<MigrationRecord> {
+        let history: Vec<MigrationRecord> = Vec::new(&env);
 
         // Simplified: would iterate through all migrations and filter by user
         // For now, return empty vector as we'd need better indexing

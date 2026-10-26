@@ -18,7 +18,12 @@ macro_rules! reentrancy_guard {
 #[macro_export]
 macro_rules! cross_contract_guard {
     ($env:expr, $caller:expr) => {
-        $crate::ReentrancyGuard::new_with_caller($env, $crate::ReentrancyKey::GlobalLock, $caller, false)
+        $crate::ReentrancyGuard::new_with_caller(
+            $env,
+            $crate::ReentrancyKey::GlobalLock,
+            $caller,
+            false,
+        )
     };
 }
 

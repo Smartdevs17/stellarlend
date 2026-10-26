@@ -1,6 +1,6 @@
 #![no_std]
 
-use soroban_sdk::{contracttype, Address, Env};
+use soroban_sdk::{contracterror, contracttype, Address, Env};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -60,7 +60,7 @@ pub trait LendingError {
     fn to_u32(&self) -> u32;
 }
 
-#[contracttype]
+#[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum CommonError {

@@ -178,15 +178,16 @@ impl LiquidationStrategyTrait for FixedDiscountStrategy {
         debt_value: i128,
         _time_since_unhealthy: u64,
     ) -> LiquidationDiscount {
-        let premium_bps = if let Some(decoded) = hello_world_bridge::decode_fixed_discount_params(params) {
-            if decoded.discount_bps > 0 {
-                decoded.discount_bps
+        let premium_bps =
+            if let Some(decoded) = hello_world_bridge::decode_fixed_discount_params(params) {
+                if decoded.discount_bps > 0 {
+                    decoded.discount_bps
+                } else {
+                    1_000i128
+                }
             } else {
                 1_000i128
-            }
-        } else {
-            1_000i128
-        };
+            };
         let discount = debt_value.saturating_mul(premium_bps) / 10_000;
         LiquidationDiscount {
             base_premium_bps: premium_bps,
@@ -597,8 +598,7 @@ mod tests {
         let governance = Address::generate(&env);
         let admin = Address::generate(&env);
         let contract_id = env.register(LiquidationStrategyContract, ());
-        LiquidationStrategyContractClient::new(&env, &contract_id)
-            .initialize(&governance, &admin);
+        LiquidationStrategyContractClient::new(&env, &contract_id).initialize(&governance, &admin);
     }
 
     #[test]
@@ -689,8 +689,7 @@ mod tests {
         let pool = Address::generate(&te.env);
         // Custom 1500 bps (15%) discount parameter
         let params = hello_world_bridge::fixed_discount_params_from_liquidation_incentive_bps(
-            &te.env,
-            1_500,
+            &te.env, 1_500,
         );
 
         let strategy_id = gov_auth(

@@ -337,7 +337,10 @@ mod tests {
     #[test]
     fn jump_adds_on_top_of_linear() {
         let c = curve(RateModelKind::Jump);
-        assert_eq!(jump_rate(8_000, &c).unwrap(), linear_rate(8_000, &c).unwrap());
+        assert_eq!(
+            jump_rate(8_000, &c).unwrap(),
+            linear_rate(8_000, &c).unwrap()
+        );
         assert_eq!(
             jump_rate(9_000, &c).unwrap(),
             linear_rate(9_000, &c).unwrap() + 5_000
@@ -445,7 +448,10 @@ mod tests {
     fn rate_bounds_clamp_and_adjust() {
         assert_eq!(apply_rate_bounds(1_000, 500, 50, 10_000).unwrap(), 1_500);
         assert_eq!(apply_rate_bounds(1_000, -5_000, 50, 10_000).unwrap(), 50);
-        assert_eq!(apply_rate_bounds(1_000, 50_000, 50, 10_000).unwrap(), 10_000);
+        assert_eq!(
+            apply_rate_bounds(1_000, 50_000, 50, 10_000).unwrap(),
+            10_000
+        );
         assert_eq!(
             apply_rate_bounds(i128::MAX, 1, 0, 10_000),
             Err(MathError::Overflow)
@@ -487,7 +493,10 @@ mod tests {
     #[test]
     fn index_growth_and_accrual() {
         let scale = 1_000_000_000_000i128;
-        assert_eq!(index_growth_factor(0, SECONDS_PER_YEAR, scale).unwrap(), scale);
+        assert_eq!(
+            index_growth_factor(0, SECONDS_PER_YEAR, scale).unwrap(),
+            scale
+        );
         assert_eq!(
             index_growth_factor(1_000, SECONDS_PER_YEAR, scale).unwrap(),
             scale + scale / 10

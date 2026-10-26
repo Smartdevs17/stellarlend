@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-use soroban_sdk::{contractimport, symbol, Env, Vec as SorobanVec, token, Address};
-use flash_loan::{FlashLoan, LoanPrimitive, FlashLoanExecutor};
+use soroban_sdk::{Address, Env, Vec as SorobanVec};
+use flash_loan::{DefaultExecutor, FlashLoan, FlashLoanExecutor, LoanPrimitive};
 
 /// Wrapper for backward compatibility
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -9,7 +9,7 @@ pub struct FlashLoanContract;
 impl FlashLoanContract {
     pub fn execute_flash_loan(
         env: &Env,
-        asset: token::Token,
+        asset: Address,
         amount: i128,
         borrower: Address,
         executor: Address,

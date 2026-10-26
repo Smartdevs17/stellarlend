@@ -143,7 +143,8 @@ pub fn simulate(
             borrow_rate_delta_bps = proposed_value.saturating_sub(current_value);
         }
         ParameterType::Slope1 | ParameterType::Slope2 | ParameterType::OptimalUtilization => {
-            borrow_rate_delta_bps = project_rate_delta(parameter, current_value, proposed_value, snapshot, related);
+            borrow_rate_delta_bps =
+                project_rate_delta(parameter, current_value, proposed_value, snapshot, related);
         }
         ParameterType::DebtCeiling => {
             // Headroom against outstanding debt, not against the old ceiling.

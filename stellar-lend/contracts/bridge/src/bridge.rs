@@ -1292,7 +1292,7 @@ impl BridgeContract {
                 bridge.fee_bps,
             ),
             active_validators,
-            total_validators: validators.len() as u32,
+            total_validators: validators.len(),
             is_active: bridge.active,
         })
     }

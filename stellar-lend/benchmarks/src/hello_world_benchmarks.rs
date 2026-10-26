@@ -863,6 +863,10 @@ fn bench_execute_optimized_batch(config: &RunConfig) -> BenchmarkResult {
         1,
         false,
         get_budget(config, "hello_world::deposit_collateral"),
-        vec!["batch".into(), "calldata_optimization".into(), "compression".into()],
+        vec![
+            "batch".into(),
+            "calldata_optimization".into(),
+            "compression".into(),
+        ],
     )
 }

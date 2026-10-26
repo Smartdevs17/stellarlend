@@ -3,7 +3,10 @@
 use crate::{
     DcaDirection, DcaError, DcaExecution, DcaFrequency, DcaModule, DcaModuleClient, DcaPlanStatus,
 };
-use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env,
+};
 
 fn setup() -> (Env, DcaModuleClient<'static>, Address, Address, Address) {
     let env = Env::default();
@@ -16,7 +19,9 @@ fn setup() -> (Env, DcaModuleClient<'static>, Address, Address, Address) {
     let admin = Address::generate(&env);
     let owner = Address::generate(&env);
     let token_admin = Address::generate(&env);
-    let asset = env.register_stellar_asset_contract_v2(token_admin).address();
+    let asset = env
+        .register_stellar_asset_contract_v2(token_admin)
+        .address();
     let token = soroban_sdk::token::StellarAssetClient::new(&env, &asset);
     token.mint(&owner, &1_000_000);
 
@@ -500,4 +505,3 @@ fn test_unfunded_owner_cannot_create_plan() {
         &500,
     );
 }
-

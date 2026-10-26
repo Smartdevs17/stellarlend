@@ -72,16 +72,12 @@ pub use precision::{PrecisionLoss, PrecisionTracker};
 pub use rounding::{round_down, round_nearest, round_up, RoundingMode};
 
 pub use lending::{
-    accrue_interest, apply_reserves_to_bad_debt, bad_debt_amount, BPS_DIVISOR,
-    calculate_utilization, collateral_ratio_bps, compound_interest as lending_compound_interest,
-    health_factor_bps, is_liquidatable, InterestRateModel, liquidation_bonus,
-    liquidation_bonus_tiered, LiquidationBonusTier, ltv_bps, max_borrow_amount,
+    accrue_interest, apply_reserves_to_bad_debt, bad_debt_amount, calculate_utilization,
+    collateral_ratio_bps, compound_interest as lending_compound_interest, health_factor_bps,
+    is_liquidatable, liquidation_bonus, liquidation_bonus_tiered, ltv_bps, max_borrow_amount,
     max_liquidatable, seize_amount, simulate_health_factor, validate_close_factor_limits,
-    validate_collateral_ratio, MIN_CLOSE_FACTOR_BPS, MAX_CLOSE_FACTOR_BPS,
-    accrue_interest, calculate_utilization, collateral_ratio_bps,
-    compound_interest as lending_compound_interest, health_factor_bps, is_liquidatable,
-    liquidation_bonus, ltv_bps, max_borrow_amount, max_liquidatable, seize_amount,
-    validate_collateral_ratio, InterestRateModel, BPS_DIVISOR,
+    validate_collateral_ratio, InterestRateModel, LiquidationBonusTier, BPS_DIVISOR,
+    MAX_CLOSE_FACTOR_BPS, MIN_CLOSE_FACTOR_BPS,
 };
 
 pub use checked::{
@@ -89,9 +85,9 @@ pub use checked::{
 };
 
 pub use rates::{
-    accrue_index, apply_rate_bounds, dual_slope_rate, exponential_rate, index_growth_factor, jump_rate, kink_rate,
-    linear_rate, supply_rate_from_reserve_factor, supply_rate_from_spread, utilization_bps,
-    RateCurve, RateModelKind,
+    accrue_index, apply_rate_bounds, dual_slope_rate, exponential_rate, index_growth_factor,
+    jump_rate, kink_rate, linear_rate, supply_rate_from_reserve_factor, supply_rate_from_spread,
+    utilization_bps, RateCurve, RateModelKind,
 };
 
 pub use liquidation::{

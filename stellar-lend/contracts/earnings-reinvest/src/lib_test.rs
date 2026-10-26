@@ -316,11 +316,17 @@ fn test_sweep_rejects_zero_or_negative_earned_even_with_zero_threshold() {
 
     // Attempt zero earnings sweep
     let result_zero = client.try_sweep(&keeper, &plan_id, &pool, &0, &false, &0);
-    assert_eq!(result_zero.unwrap_err().unwrap(), ReinvestError::BelowThreshold);
+    assert_eq!(
+        result_zero.unwrap_err().unwrap(),
+        ReinvestError::BelowThreshold
+    );
 
     // Attempt negative earnings sweep
     let result_neg = client.try_sweep(&keeper, &plan_id, &pool, &-100, &false, &0);
-    assert_eq!(result_neg.unwrap_err().unwrap(), ReinvestError::BelowThreshold);
+    assert_eq!(
+        result_neg.unwrap_err().unwrap(),
+        ReinvestError::BelowThreshold
+    );
 
     // Verify schedule was not locked by the rejected zero/negative sweep
     let plan = client.get_plan(&plan_id).unwrap();
@@ -346,7 +352,10 @@ fn test_sweep_rejects_negative_gas_cost() {
     );
 
     let result = client.try_sweep(&keeper, &plan_id, &pool, &100, &false, &-1);
-    assert_eq!(result.unwrap_err().unwrap(), ReinvestError::GasExceedsEarnings);
+    assert_eq!(
+        result.unwrap_err().unwrap(),
+        ReinvestError::GasExceedsEarnings
+    );
 }
 
 #[test]

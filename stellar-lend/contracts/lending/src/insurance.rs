@@ -288,16 +288,16 @@ fn compute_dynamic_premium(env: &Env) -> i128 {
         .checked_div(pool)
         .unwrap_or(BPS_SCALE);
 
-    let dynamic = BASE_PREMIUM_BPS
+    
+
+    BASE_PREMIUM_BPS
         .saturating_add(
             utilisation_bps
                 .saturating_mul(MAX_PREMIUM_BPS - BASE_PREMIUM_BPS)
                 .checked_div(BPS_SCALE)
                 .unwrap_or(0),
         )
-        .clamp(MIN_PREMIUM_BPS, MAX_PREMIUM_BPS);
-
-    dynamic
+        .clamp(MIN_PREMIUM_BPS, MAX_PREMIUM_BPS)
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -521,7 +521,7 @@ pub fn set_coverage_limit(
 ) -> Result<(), InsuranceError> {
     require_admin(env, &admin)?;
 
-    if limit_bps < 0 || limit_bps > MAX_COVERAGE_LIMIT_BPS {
+    if !(0..=MAX_COVERAGE_LIMIT_BPS).contains(&limit_bps) {
         return Err(InsuranceError::InvalidCoverageLimit);
     }
 

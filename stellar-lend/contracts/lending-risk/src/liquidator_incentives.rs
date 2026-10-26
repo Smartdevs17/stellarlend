@@ -87,7 +87,7 @@ pub fn effective_bonus_bps(
     cumulative_volume: i128,
     asset_max_bonus_bps: i128,
 ) -> Result<i128, IncentiveError> {
-    if base_bonus_bps < 0 || asset_max_bonus_bps < 0 || asset_max_bonus_bps > MAX_TOTAL_BONUS_BPS {
+    if base_bonus_bps < 0 || !(0..=MAX_TOTAL_BONUS_BPS).contains(&asset_max_bonus_bps) {
         return Err(IncentiveError::InvalidParameter);
     }
     let total = base_bonus_bps
@@ -396,8 +396,14 @@ mod tests {
     fn guard_config_validation() {
         assert!(MevGuardConfig::new(0, 1, 0).is_ok());
         assert!(MevGuardConfig::new(2, 20, 10_000).is_ok());
-        assert_eq!(MevGuardConfig::new(2, 0, 500), Err(MevGuardError::InvalidConfig));
-        assert_eq!(MevGuardConfig::new(2, 3, -1), Err(MevGuardError::InvalidConfig));
+        assert_eq!(
+            MevGuardConfig::new(2, 0, 500),
+            Err(MevGuardError::InvalidConfig)
+        );
+        assert_eq!(
+            MevGuardConfig::new(2, 3, -1),
+            Err(MevGuardError::InvalidConfig)
+        );
         assert_eq!(
             MevGuardConfig::new(2, 3, 10_001),
             Err(MevGuardError::InvalidConfig)
@@ -407,8 +413,14 @@ mod tests {
 
     #[test]
     fn a_normal_liquidation_passes() {
-        assert_eq!(guard().check_liquidation(None, 100, 0, 1_000, 1_000), Ok(()));
-        assert_eq!(guard().check_liquidation(Some(90), 100, 2, 1_000, 1_040), Ok(()));
+        assert_eq!(
+            guard().check_liquidation(None, 100, 0, 1_000, 1_000),
+            Ok(())
+        );
+        assert_eq!(
+            guard().check_liquidation(Some(90), 100, 2, 1_000, 1_040),
+            Ok(())
+        );
     }
 
     #[test]

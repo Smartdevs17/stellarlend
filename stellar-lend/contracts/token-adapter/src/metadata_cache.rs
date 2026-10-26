@@ -33,7 +33,11 @@ impl MetadataCache {
         let cache_key = MetadataCacheKey::TokenMetadata(token.clone());
 
         // Try to get from cache
-        if let Some(cached) = env.storage().temporary().get::<MetadataCacheKey, super::unified::TokenMetadata>(&cache_key) {
+        if let Some(cached) = env
+            .storage()
+            .temporary()
+            .get::<MetadataCacheKey, super::unified::TokenMetadata>(&cache_key)
+        {
             let current_time = env.ledger().timestamp();
             if cached.is_cache_valid(current_time) {
                 return Some(cached);

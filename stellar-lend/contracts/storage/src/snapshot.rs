@@ -1,6 +1,6 @@
 //! Storage snapshots for versioning and rollback support
 
-use soroban_sdk::{contracttype, Env, Val, IntoVal, TryFromVal, Vec};
+use soroban_sdk::{contracttype, Env, IntoVal, TryFromVal, Val, Vec};
 
 /// Snapshot of a storage value with timestamp
 #[contracttype]

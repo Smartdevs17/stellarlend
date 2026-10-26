@@ -22,7 +22,7 @@
 #[cfg(any(test, feature = "spec"))]
 mod oracle_verification {
 
-    use alloc::vec;
+    
     /// Specification: Price validation invariant
     /// A price must be positive and within configured bounds
     #[cfg(test)]

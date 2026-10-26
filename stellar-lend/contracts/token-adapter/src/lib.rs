@@ -3,11 +3,11 @@ use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, IntoVal,
     Symbol, Vec,
 };
-use soroban_token_sdk::token::{Client as TokenClient, StellarAssetClient};
+use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
 
 // New modules for Issue #698
-pub mod unified;
 pub mod metadata_cache;
+pub mod unified;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]

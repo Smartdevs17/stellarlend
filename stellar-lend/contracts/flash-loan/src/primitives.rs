@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
-use soroban_sdk::{contractimport, symbol, Env, Vec as SorobanVec, token, Address};
+use soroban_sdk::{Address, Env, Vec as SorobanVec};
+
+use crate::executor::FlashLoanExecutor;
 
 /// Core abstraction for composable loan operations
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoanPrimitive<T> {
-    pub asset: token::Token,
+    pub asset: Address,
     pub amount: i128,
     pub borrower: Address,
     pub _marker: std::marker::PhantomData<T>,
 }
 
 impl<T> LoanPrimitive<T> {
-    pub fn new(env: &Env, asset: token::Token, amount: i128, borrower: Address) -> Self {
+    pub fn new(_env: &Env, asset: Address, amount: i128, borrower: Address) -> Self {
         Self {
             asset,
             amount,
@@ -26,9 +28,7 @@ impl<T> LoanPrimitive<T> {
 pub struct FlashLoan;
 
 impl FlashLoan {
-    pub fn execute<
-        E: FlashLoanExecutor,
-    >(
+    pub fn execute<E: FlashLoanExecutor>(
         env: &Env,
         executor: &E,
         primitives: &[LoanPrimitive<E::Operation>],
@@ -36,7 +36,7 @@ impl FlashLoan {
         let mut results = SorobanVec::new(env);
         for primitive in primitives {
             let result = executor.execute(env, primitive);
-            results.push_back(env, result);
+            results.push_back(result);
         }
         results
     }

@@ -304,7 +304,9 @@ impl CreditDelegationContract {
         if new_delegator == credit_line.delegate {
             panic!("cannot transfer to delegate");
         }
-        if credit_line.status == CreditStatus::Defaulted || credit_line.status == CreditStatus::Repaid {
+        if credit_line.status == CreditStatus::Defaulted
+            || credit_line.status == CreditStatus::Repaid
+        {
             panic!("cannot transfer inactive credit line");
         }
 

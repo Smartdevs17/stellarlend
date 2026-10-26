@@ -204,7 +204,9 @@ impl CoreError {
             CoreError::InvalidInput => "Input is malformed or out of range",
             CoreError::InvalidAsset => "Asset is unknown or not supported",
             CoreError::Insufficient => "Insufficient balance or liquidity",
-            CoreError::GuaranteeViolated => "Operation would violate a collateral or safety guarantee",
+            CoreError::GuaranteeViolated => {
+                "Operation would violate a collateral or safety guarantee"
+            }
             CoreError::Overflow => "Arithmetic overflow or underflow",
             CoreError::Paused => "Operation is paused",
             CoreError::Reentrancy => "Reentrant call blocked",

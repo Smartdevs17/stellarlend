@@ -159,9 +159,7 @@ pub fn initialize_pol(env: &Env, caller: Address) -> Result<(), PolError> {
     if is_initialized(env) {
         return Err(PolError::AlreadyInitialized);
     }
-    env.storage()
-        .instance()
-        .set(&PolKey::Initialized, &true);
+    env.storage().instance().set(&PolKey::Initialized, &true);
     Ok(())
 }
 
@@ -237,10 +235,7 @@ pub fn deploy_pol_liquidity(
     save_summary(env, &summary);
 
     env.events().publish(
-        (
-            soroban_sdk::Symbol::new(env, "pol_deployed"),
-            pool.clone(),
-        ),
+        (soroban_sdk::Symbol::new(env, "pol_deployed"), pool.clone()),
         (asset, amount, now),
     );
 
@@ -294,10 +289,7 @@ pub fn withdraw_pol_liquidity(
     save_summary(env, &summary);
 
     env.events().publish(
-        (
-            soroban_sdk::Symbol::new(env, "pol_withdrawn"),
-            pool,
-        ),
+        (soroban_sdk::Symbol::new(env, "pol_withdrawn"), pool),
         (amount, env.ledger().timestamp()),
     );
 
@@ -341,10 +333,7 @@ pub fn collect_pol_fees(
     save_summary(env, &summary);
 
     env.events().publish(
-        (
-            soroban_sdk::Symbol::new(env, "pol_fees_collected"),
-            pool,
-        ),
+        (soroban_sdk::Symbol::new(env, "pol_fees_collected"), pool),
         (fee_amount, env.ledger().timestamp()),
     );
 

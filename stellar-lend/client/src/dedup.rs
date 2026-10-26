@@ -8,10 +8,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 
+type InFlight = Arc<Mutex<HashMap<String, broadcast::Sender<Result<String, String>>>>>;
+
 /// A request deduplication layer that coalesces identical concurrent requests.
 #[derive(Clone)]
 pub struct RequestDedup {
-    in_flight: Arc<Mutex<HashMap<String, broadcast::Sender<Result<String, String>>>>>,
+    in_flight: InFlight,
 }
 
 impl RequestDedup {
@@ -43,7 +45,7 @@ impl RequestDedup {
                 // Subscribe to the existing broadcast channel
                 let mut rx = tx.subscribe();
                 drop(map); // Release lock before awaiting
-                // Wait for the result from the original request
+                           // Wait for the result from the original request
                 match rx.recv().await {
                     Ok(result) => return result,
                     Err(_) => {

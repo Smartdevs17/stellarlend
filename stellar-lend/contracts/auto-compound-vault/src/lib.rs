@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token::Client as TokenClient,
-    token::StellarAssetClient, Address, Env, Val, IntoVal,
+    contract, contracterror, contractevent, contractimpl, contracttype,
+    token::Client as TokenClient, token::StellarAssetClient, Address, Env, IntoVal, Val,
 };
 
 /// Storage key for the reentrancy guard.

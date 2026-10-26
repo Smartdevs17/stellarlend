@@ -105,10 +105,10 @@ impl HorizonClient {
                 }
             })
             .await
-            .map_err(|e| BlockchainError::HorizonError(e))?;
+            .map_err(BlockchainError::HorizonError)?;
 
-        let account: AccountResponse =
-            serde_json::from_str(&raw).map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
+        let account: AccountResponse = serde_json::from_str(&raw)
+            .map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
         debug!("Account retrieved: {:?}", account);
         Ok(account)
     }
@@ -264,10 +264,10 @@ impl HorizonClient {
                 }
             })
             .await
-            .map_err(|e| BlockchainError::HorizonError(e))?;
+            .map_err(BlockchainError::HorizonError)?;
 
-        let body: Value =
-            serde_json::from_str(&raw).map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
+        let body: Value = serde_json::from_str(&raw)
+            .map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
 
         let network_info = NetworkInfo {
             network_passphrase: body["network_passphrase"]

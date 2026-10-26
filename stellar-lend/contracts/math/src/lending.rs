@@ -202,10 +202,7 @@ pub fn simulate_health_factor(
     if debt_value == 0 {
         return i128::MAX;
     }
-    let scaled = 10_000i128
-        .checked_add(price_change_bps)
-        .unwrap_or(0)
-        .max(0);
+    let scaled = 10_000i128.checked_add(price_change_bps).unwrap_or(0).max(0);
     let new_collateral = collateral_value
         .checked_mul(scaled)
         .and_then(|v| v.checked_div(BPS_DIVISOR))
@@ -225,7 +222,7 @@ pub const MAX_CLOSE_FACTOR_BPS: i128 = 10_000;
 /// Validate that a close factor lies within the enforced limits
 /// ([`MIN_CLOSE_FACTOR_BPS`] ..= [`MAX_CLOSE_FACTOR_BPS`]).
 pub fn validate_close_factor_limits(bps: i128) -> Result<(), MathError> {
-    if bps < MIN_CLOSE_FACTOR_BPS || bps > MAX_CLOSE_FACTOR_BPS {
+    if !(MIN_CLOSE_FACTOR_BPS..=MAX_CLOSE_FACTOR_BPS).contains(&bps) {
         return Err(MathError::Overflow);
     }
     Ok(())
@@ -297,7 +294,7 @@ pub fn liquidation_bonus_tiered(
         }
         selected
     };
-    liquidation_bonus(repay_amount, bonus_bps)
+    Ok(liquidation_bonus(repay_amount, bonus_bps))
 }
 
 #[cfg(test)]
@@ -320,10 +317,7 @@ mod tests {
 
     #[test]
     fn simulate_health_factor_no_debt_is_max() {
-        assert_eq!(
-            simulate_health_factor(1000, 0, 8000, -5000),
-            i128::MAX
-        );
+        assert_eq!(simulate_health_factor(1000, 0, 8000, -5000), i128::MAX);
     }
 
     #[test]

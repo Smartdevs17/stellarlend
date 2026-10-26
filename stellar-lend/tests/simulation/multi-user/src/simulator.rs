@@ -30,6 +30,7 @@ pub struct Simulator {
     state: SimulationState,
 }
 
+#[derive(Default)]
 pub struct SimulationState {
     pub user_balances: HashMap<usize, i128>,
     pub user_debt: HashMap<usize, i128>,
@@ -41,20 +42,6 @@ pub struct SimulationState {
     pub repay_counts: HashMap<usize, u64>,
 }
 
-impl Default for SimulationState {
-    fn default() -> Self {
-        SimulationState {
-            user_balances: HashMap::new(),
-            user_debt: HashMap::new(),
-            total_supply: 0,
-            total_debt: 0,
-            deposit_counts: HashMap::new(),
-            withdrawal_counts: HashMap::new(),
-            borrow_counts: HashMap::new(),
-            repay_counts: HashMap::new(),
-        }
-    }
-}
 
 impl Simulator {
     pub fn new(config: SimulationConfig) -> Self {
@@ -77,8 +64,7 @@ impl Simulator {
         let start = Instant::now();
         let mut handles: Vec<JoinHandle<Vec<ActionResult>>> = Vec::new();
 
-        let chunk_size = (self.config.user_count + self.config.concurrent_users - 1)
-            / self.config.concurrent_users;
+        let chunk_size = self.config.user_count.div_ceil(self.config.concurrent_users);
 
         for chunk_idx in 0..self.config.concurrent_users {
             let start_user = chunk_idx * chunk_size;
@@ -95,7 +81,7 @@ impl Simulator {
                 let mut chunk_results = Vec::new();
                 for user_id in start_user..end_user {
                     for _ in 0..config_actions {
-                        let action = UserAction::weighted_random(&mut rand::thread_rng());
+                        let action = UserAction::weighted_random(&mut rand::rng());
                         let action_start = Instant::now();
 
                         let result = execute_action(user_id, action);

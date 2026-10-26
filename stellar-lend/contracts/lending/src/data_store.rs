@@ -693,8 +693,7 @@ impl DataStore {
         // In a real implementation, this would sum all tracked assets
         //
         // Data access goes through the shared storage abstraction layer (#707).
-        Storage::new(env)
-            .get_or(StorageTier::Persistent, &StoreKey::TotalAssets, 0i128)
+        Storage::new(env).get_or(StorageTier::Persistent, &StoreKey::TotalAssets, 0i128)
     }
 
     /// Set total assets (internal use)
@@ -704,13 +703,16 @@ impl DataStore {
 
     /// Get protocol reserves (for invariant testing)
     pub fn get_protocol_reserves(env: &Env) -> i128 {
-        Storage::new(env)
-            .get_or(StorageTier::Persistent, &StoreKey::ProtocolReserves, 0i128)
+        Storage::new(env).get_or(StorageTier::Persistent, &StoreKey::ProtocolReserves, 0i128)
     }
 
     /// Set protocol reserves (internal use)
     pub fn set_protocol_reserves(env: &Env, reserves: i128) {
-        Storage::new(env).set(StorageTier::Persistent, &StoreKey::ProtocolReserves, &reserves);
+        Storage::new(env).set(
+            StorageTier::Persistent,
+            &StoreKey::ProtocolReserves,
+            &reserves,
+        );
     }
 }
 

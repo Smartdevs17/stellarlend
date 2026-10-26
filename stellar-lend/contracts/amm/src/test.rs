@@ -894,4 +894,3 @@ fn test_unauthorized_caller_cannot_spoof_admin() {
 
     contract.initialize_amm_settings(&admin, &100, &1000, &10000);
 }
-
