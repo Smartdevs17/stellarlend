@@ -12,6 +12,7 @@
 #![allow(clippy::redundant_closure)]
 #![allow(clippy::unnecessary_lazy_evaluations)]
 #![allow(clippy::derivable_impls)]
+#![allow(clippy::enum_variant_names)]
 use soroban_sdk::{Address, Env};
 
 // ── Wired modules (previously undeclared) ─────────────────────────────
