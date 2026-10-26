@@ -5,6 +5,11 @@ version = 2
 unmaintained = "workspace"
 unsound = "workspace"
 yanked = "warn"
+ignore = [
+    # Fix requires crypto-bigint 0.7, which is not compatible with the
+    # Soroban SDK's k256/elliptic-curve 0.13 dependency chain.
+    "RUSTSEC-2026-0387",
+]
 
 [bans]
 multiple-versions = "warn"

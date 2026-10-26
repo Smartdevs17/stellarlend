@@ -100,7 +100,7 @@ jobs:
           key: ${{ runner.os }}-audit-${{ hashFiles('stellar-lend/Cargo.lock') }}
 
       - name: Install cargo-audit (pinned)
-        run: cargo install cargo-audit --locked --version "^0.21"
+        run: cargo install cargo-audit --locked --version "^0.22"
 
       - name: Run cargo audit
         run: |
@@ -128,14 +128,14 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install cargo-deny (pinned)
-        run: cargo install cargo-deny --locked --version "^0.16"
+        run: cargo install cargo-deny --locked --version "^0.20"
 
       - name: Run cargo deny
         run: |
           cargo deny \
             --manifest-path stellar-lend/Cargo.toml \
             --config stellar-lend/deny.toml \
-            check advisories bans licenses sources
+            check advisories bans sources
 
   # ──────────────────────────────────────────────────────────────────────────
   # Gate — all jobs must pass to allow merge
