@@ -1,0 +1,76 @@
+name: Deploy Soroban contracts
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: Target network
+        required: true
+        type: choice
+        options:
+          - testnet
+          - mainnet
+      deploy_amm:
+        description: Deploy the AMM contract as well
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contract-deploy-${{ inputs.network }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: stellar-${{ inputs.network }}
+    env:
+      ADMIN_SECRET_KEY: ${{ secrets.STELLAR_DEPLOYER_SECRET }}
+      ADMIN_ADDRESS: ${{ secrets.STELLAR_ADMIN_ADDRESS }}
+      STELLAR_RPC_URL: ${{ secrets.STELLAR_RPC_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install Stellar CLI
+        run: cargo install --locked stellar-cli
+
+      - name: Validate deployment credentials
+        run: |
+          if [ -z "$ADMIN_SECRET_KEY" ]; then
+            echo "::error::Configure STELLAR_DEPLOYER_SECRET in the selected GitHub environment."
+            exit 1
+          fi
+
+      - name: Build contracts
+        run: ./scripts/build.sh --release
+
+      - name: Deploy and verify contracts
+        shell: bash
+        run: |
+          args=(--network "${{ inputs.network }}" --verify)
+          if [[ "${{ inputs.deploy_amm }}" == "true" ]]; then
+            args+=(--amm)
+          fi
+          ./scripts/deploy.sh "${args[@]}"
+
+      - name: Upload deployment manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-${{ inputs.network }}-${{ github.sha }}
+          path: scripts/deployed/${{ inputs.network }}/deployment-manifest.json
+          if-no-files-found: warn
+          retention-days: 90

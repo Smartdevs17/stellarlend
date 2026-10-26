@@ -6,6 +6,12 @@ chaos experiments (see [chaos-engineering.md](chaos-engineering.md)).
 This runbook describes how the protocol and its clients recover from injected
 network failures, and how those procedures are automated in CI.
 
+For production backups, recovery objectives and regional service cutover, see
+the [disaster recovery runbook](runbooks/disaster-recovery.md) and
+[multi-region failover runbook](runbooks/multi-region.md). The chaos tests
+described here validate application behavior; they do not replace a real
+database restore or provider-router failover rehearsal.
+
 ## Automated Recovery Cycle
 
 ```bash

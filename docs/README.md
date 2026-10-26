@@ -27,6 +27,9 @@ protocol terms and the fixed-point conventions used across these documents.
 - **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Common build, test, devnet and contract-error fixes, including a map of `Error(Contract, #N)` codes for the lending contract.
 - **[Chaos Engineering](chaos-engineering.md)** - Network-failure experiment registry, steady-state hypotheses, halt criteria, and chaos CI reporting (Issue #689).
 - **[Recovery Procedures](recovery.md)** - Automated recovery runbook for partition, RPC outage, and oracle disruption scenarios (Issue #689).
+- **[Disaster recovery runbook](runbooks/disaster-recovery.md)** - Recovery objectives, restore procedure, and rehearsal.
+- **[Multi-region runbook](runbooks/multi-region.md)** - Regional health probing and controlled failover.
+- **[Cost management runbook](runbooks/cost-management.md)** - Normalized monthly dashboard, budget alerts, and review cadence.
 - **[Gas Golf Leaderboard](../scripts/gas-golf/README.md)** - Competitive gas optimization: a maintainer-owned correctness gate, a leaderboard scored on `utilizationPct`, and measurement integrity checks (Issue #1014).
 - **[Governance Lifecycle](GOVERNANCE.md)** - Proposal state machine, config knobs, invariants, E2E coverage, and gas benchmarks (Issue #690).
 - **[Lending Pool Gas Cost Estimator](../scripts/lending-gas-estimator/README.md)** - Per-entry-point storage indexing, stroop cost estimates, and storage-pattern optimization suggestions for the Soroban lending pool (Issue #1011). See [Developer Tooling](DEV_TOOLING.md) for usage.

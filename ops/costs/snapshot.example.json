@@ -1,0 +1,11 @@
+{
+  "month": "2026-10",
+  "currency": "USD",
+  "updatedAt": "2026-10-18T00:00:00.000Z",
+  "actuals": [
+    { "category": "api", "provider": "Example export", "amount": 120 },
+    { "category": "oracle", "provider": "Example export", "amount": 82.5 },
+    { "category": "database", "provider": "Example export", "amount": 60 },
+    { "category": "rpc", "provider": "Example export", "amount": 42.25 }
+  ]
+}

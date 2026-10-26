@@ -43,9 +43,9 @@ append_result() {
   RESULTS_JSON+="{\"name\":\"${ename}\",\"status\":\"${status}\",\"detail\":\"${edetail}\"}"
 }
 
-record_pass() { ((PASS++)); log_pass "$1 — $2"; append_result "$1" "pass" "$2"; }
-record_fail() { ((FAIL++)); log_fail "$1 — $2"; append_result "$1" "fail" "$2"; }
-record_skip() { ((SKIP++)); log_skip "$1 — $2"; append_result "$1" "skip" "$2"; }
+record_pass() { PASS=$((PASS + 1)); log_pass "$1 — $2"; append_result "$1" "pass" "$2"; }
+record_fail() { FAIL=$((FAIL + 1)); log_fail "$1 — $2"; append_result "$1" "fail" "$2"; }
+record_skip() { SKIP=$((SKIP + 1)); log_skip "$1 — $2"; append_result "$1" "skip" "$2"; }
 
 run_check() {
   local name="$1"; shift

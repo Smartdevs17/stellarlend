@@ -79,6 +79,27 @@ npm run build
 
 # Deploy
 
+## CI/CD Contract Deployment (per network)
+
+The `Deploy Soroban contracts` GitHub Actions workflow can be dispatched from
+`main` for either `testnet` or `mainnet`. It builds the reviewed contract source,
+deploys to the selected network, runs contract verification, and uploads the
+generated deployment manifest as a 90-day artifact. Deployments are manual; a
+push or pull request never deploys to a live network.
+
+Before enabling it, configure GitHub Environments named `stellar-testnet` and
+`stellar-mainnet`. Add `STELLAR_DEPLOYER_SECRET` to each environment and
+optionally add `STELLAR_ADMIN_ADDRESS` and `STELLAR_RPC_URL`. Restrict both
+environments to the `main` branch. Require a maintainer reviewer for
+`stellar-mainnet`; the environment approval is the production deployment gate.
+Use distinct least-privilege deployer keys for testnet and mainnet, and never
+put those values in repository files or workflow inputs.
+
+Run testnet first. Confirm the action's verification step and manifest artifact,
+then perform the post-deployment checks below. Mainnet requires a separately
+approved dispatch. Configure branch protection and GitHub Environment reviewers
+in repository settings; workflow YAML cannot enforce those repository settings.
+
 ## Deploy Smart Contracts
 ```bash
 export ADMIN_SECRET_KEY="S..."
@@ -155,6 +176,7 @@ pm2 start dist/index.js --name stellarlend-oracle
 2. API endpoint health: `curl https://api.stellarlend.com/health`
 3. Landing page loads over HTTPS
 4. Oracle updates verified via logs or transaction history
+5. Confirm the deployment manifest matches the selected network and contract IDs
 
 Automate the contract verification stage with:
 
@@ -209,7 +231,6 @@ pm2 start dist/index.js --name stellarlend-oracle
 - **Oracle not updating** → verify `ORACLE_KEY` and poll interval
 - **API landing page not loading** → check Vercel environment variables and HTTPS
 - **Clippy/fmt errors** → `cargo fmt --all && cargo clippy --fix`
-
 
 
 

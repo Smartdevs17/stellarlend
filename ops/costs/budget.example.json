@@ -1,0 +1,11 @@
+{
+  "currency": "USD",
+  "warningPercent": 80,
+  "monthlyTotal": 1000,
+  "categories": {
+    "api": 400,
+    "oracle": 250,
+    "database": 200,
+    "rpc": 150
+  }
+}
