@@ -6,7 +6,6 @@ use crate::storage::GovernanceDataKey;
 use crate::types::{MultisigConfig, Proposal, ProposalStatus};
 
 use super::execution::execute_proposal_type;
-use super::get_admin;
 
 pub fn approve_proposal(
     env: &Env,

@@ -344,7 +344,7 @@ mod tests {
         );
         assert!(impact
             .warnings
-            .contains(&Symbol::new(&env, "ltv_above_threshold")));
+            .contains(Symbol::new(&env, "ltv_above_threshold")));
     }
 
     #[test]
@@ -362,7 +362,7 @@ mod tests {
         assert_eq!(impact.severity, ImpactSeverity::High);
         assert!(impact
             .warnings
-            .contains(&Symbol::new(&env, "positions_liquidatable")));
+            .contains(Symbol::new(&env, "positions_liquidatable")));
     }
 
     #[test]
@@ -406,7 +406,7 @@ mod tests {
         );
         assert!(impact
             .warnings
-            .contains(&Symbol::new(&env, "threshold_below_ltv")));
+            .contains(Symbol::new(&env, "threshold_below_ltv")));
     }
 
     #[test]
@@ -467,7 +467,7 @@ mod tests {
         );
         assert!(impact
             .warnings
-            .contains(&Symbol::new(&env, "ceiling_below_debt")));
+            .contains(Symbol::new(&env, "ceiling_below_debt")));
         assert_eq!(impact.borrowing_power_delta, -9_000_000);
     }
 

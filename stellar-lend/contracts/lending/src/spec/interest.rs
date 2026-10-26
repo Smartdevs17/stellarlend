@@ -34,7 +34,6 @@
 //! | I-07  | Interest < principal for any Δt ≤ 1 year (5% APY bound)  |
 //! | I-08  | Stability fee adds non-negative increment when depegged   |
 
-
 // ─── Constants mirrored from implementation ───────────────────────────────────
 /// Annual interest rate in basis points (5%).
 pub const INTEREST_RATE_PER_YEAR: i128 = 500;

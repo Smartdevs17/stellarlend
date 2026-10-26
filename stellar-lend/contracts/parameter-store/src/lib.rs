@@ -1,4 +1,6 @@
+#![allow(deprecated)]
 #![no_std]
+#![allow(dead_code)]
 
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol, Vec};
 
@@ -59,12 +61,12 @@ impl ParameterType {
             ParameterType::LTV => value > 0 && value <= 9_000,
             ParameterType::LiquidationThreshold => value > 0 && value <= BPS_DIVISOR,
             ParameterType::CloseFactor => value > 0 && value <= BPS_DIVISOR,
-            ParameterType::LiquidationIncentive => value >= 1_000 && value <= 2_000,
-            ParameterType::ReserveFactor => value >= 0 && value <= BPS_DIVISOR,
+            ParameterType::LiquidationIncentive => (1_000..=2_000).contains(&value),
+            ParameterType::ReserveFactor => (0..=BPS_DIVISOR).contains(&value),
             ParameterType::DebtCeiling => value >= 0,
-            ParameterType::BaseInterestRate => value >= 0 && value <= 5_000,
-            ParameterType::Slope1 => value >= 0 && value <= BPS_DIVISOR,
-            ParameterType::Slope2 => value >= 0 && value <= 50_000,
+            ParameterType::BaseInterestRate => (0..=5_000).contains(&value),
+            ParameterType::Slope1 => (0..=BPS_DIVISOR).contains(&value),
+            ParameterType::Slope2 => (0..=50_000).contains(&value),
             ParameterType::OptimalUtilization => value > 0 && value < BPS_DIVISOR,
         }
     }
@@ -240,7 +242,7 @@ impl ParameterStoreContract {
             .instance()
             .set(&DataKey::ProposalCounter, &proposal_id);
         env.events()
-            .publish(("propose_change", &param_clone), &proposal_id);
+            .publish(("propose_change", &param_clone), proposal_id);
 
         proposal_id
     }
@@ -299,7 +301,7 @@ impl ParameterStoreContract {
             .instance()
             .set(&DataKey::ProposalCounter, &proposal_id);
         env.events()
-            .publish(("propose_emergency", &param_clone), &proposal_id);
+            .publish(("propose_emergency", &param_clone), proposal_id);
 
         proposal_id
     }
@@ -353,7 +355,7 @@ impl ParameterStoreContract {
         commit_change(&env, &proposal, current_timestamp, false);
 
         env.events()
-            .publish(("accept_proposal", &proposal.parameter), &proposal_id);
+            .publish(("accept_proposal", &proposal.parameter), proposal_id);
     }
 
     pub fn execute_emergency_override(env: Env, proposal_id: u64) {
@@ -388,7 +390,7 @@ impl ParameterStoreContract {
             .instance()
             .set(&DataKey::EmergencyOverrideActive, &true);
 
-        env.events().publish(("emergency_override",), &proposal_id);
+        env.events().publish(("emergency_override",), proposal_id);
     }
 
     pub fn clear_emergency_override(env: Env) {
@@ -397,7 +399,7 @@ impl ParameterStoreContract {
         env.storage()
             .instance()
             .set(&DataKey::EmergencyOverrideActive, &false);
-        env.events().publish(("clear_emergency",), &());
+        env.events().publish(("clear_emergency",), ());
     }
 
     pub fn reject_proposal(env: Env, proposal_id: u64) {
@@ -416,7 +418,7 @@ impl ParameterStoreContract {
         env.storage()
             .instance()
             .set(&DataKey::Proposal(proposal_id), &proposal);
-        env.events().publish(("reject_proposal",), &proposal_id);
+        env.events().publish(("reject_proposal",), proposal_id);
     }
 
     pub fn get_parameter(env: Env, parameter: ParameterType, pool: Address) -> i128 {
@@ -568,7 +570,7 @@ impl ParameterStoreContract {
         env.storage()
             .instance()
             .set(&DataKey::TotalVotingPower, &(total - previous + weight));
-        env.events().publish(("voting_power", &voter), &weight);
+        env.events().publish(("voting_power", &voter), weight);
     }
 
     /// Voting weight registered for an address.

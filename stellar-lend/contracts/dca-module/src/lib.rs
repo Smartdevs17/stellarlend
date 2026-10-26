@@ -1,4 +1,6 @@
 #![no_std]
+#![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, symbol_short, Address, Env,
@@ -181,7 +183,7 @@ impl DcaModule {
         }
 
         let token = soroban_sdk::token::Client::new(&env, &asset);
-        token.transfer(&owner, &env.current_contract_address(), &funded_amount);
+        token.transfer(&owner, env.current_contract_address(), &funded_amount);
 
         let current_ledger = env.ledger().sequence() as u64;
         let interval = Self::frequency_to_ledgers(&frequency);

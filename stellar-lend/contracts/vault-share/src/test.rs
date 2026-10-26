@@ -1,4 +1,4 @@
-#![cfg(test)]
+#![allow(unused_variables)]
 use crate::{VaultShare, VaultShareClient, VaultShareError};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 

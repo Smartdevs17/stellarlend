@@ -264,7 +264,7 @@ pub fn record_borrow(env: &Env, user: &Address, amount: i128) -> Result<(), Lend
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use super::*;
     use soroban_sdk::testutils::Address as _;

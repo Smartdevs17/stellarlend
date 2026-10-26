@@ -1,6 +1,5 @@
 use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val, Vec};
 
-#[soroban_sdk::contracttype]
 pub struct SnapshotValue {
     pub value: Val,
     pub timestamp: u64,

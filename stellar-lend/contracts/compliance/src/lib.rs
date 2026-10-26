@@ -212,7 +212,7 @@ impl ComplianceContract {
                 entry.active
                     && entry
                         .expires_at
-                        .map_or(true, |exp| exp > env.ledger().timestamp())
+                        .is_none_or(|exp| exp > env.ledger().timestamp())
             }
             None => false,
         }

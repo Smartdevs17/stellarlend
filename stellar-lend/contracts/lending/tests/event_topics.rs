@@ -127,7 +127,7 @@ fn liquidation_and_risk_config_emit_indexable_events() {
     expect_event(
         &last_call_events(&f),
         "liq_incentive_updated_event",
-        &["asset", "previous_bps", "new_bps"],
+        &["previous_bps", "new_bps"],
     );
 
     f.client

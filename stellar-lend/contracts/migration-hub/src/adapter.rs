@@ -38,6 +38,6 @@ impl MigrationAdapter for StellarOtherLendAdapter {
     fn verify_source_balance(&self, env: &Env, user: &Address, asset: &Address) -> i128 {
         // Mock: In a real scenario, this calls the source contract's get_balance.
         // For the mock, we'll return a fixed amount for testing.
-        1000_000_000 // 1000 units
+        1_000_000_000 // 1000 units
     }
 }

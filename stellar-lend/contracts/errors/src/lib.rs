@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! # StellarLend Unified Error Framework
 //!
 //! Provides one consistent error-handling foundation for every StellarLend contract

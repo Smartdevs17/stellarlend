@@ -1,3 +1,12 @@
+#![allow(deprecated)]
+#![allow(dead_code)]
+#![allow(
+    clippy::new_without_default,
+    clippy::unnecessary_cast,
+    clippy::let_and_return,
+    clippy::redundant_closure,
+    clippy::needless_borrows_for_generic_args
+)]
 #![no_std]
 
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Bytes, Env};

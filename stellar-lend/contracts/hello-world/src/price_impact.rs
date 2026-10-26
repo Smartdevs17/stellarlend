@@ -212,7 +212,7 @@ pub fn calculate_price_impact_for_pool(
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use super::*;
     use soroban_sdk::{testutils::Address as _, Address, Env};

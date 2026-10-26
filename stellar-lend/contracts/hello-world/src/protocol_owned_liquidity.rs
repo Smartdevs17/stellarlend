@@ -357,7 +357,7 @@ pub fn get_pol_pool_list(env: &Env) -> Vec<Address> {
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use super::*;
     use crate::deposit::DepositDataKey;

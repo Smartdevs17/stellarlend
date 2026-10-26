@@ -42,7 +42,6 @@ pub struct SimulationState {
     pub repay_counts: HashMap<usize, u64>,
 }
 
-
 impl Simulator {
     pub fn new(config: SimulationConfig) -> Self {
         let mut state = SimulationState::default();
@@ -64,7 +63,10 @@ impl Simulator {
         let start = Instant::now();
         let mut handles: Vec<JoinHandle<Vec<ActionResult>>> = Vec::new();
 
-        let chunk_size = self.config.user_count.div_ceil(self.config.concurrent_users);
+        let chunk_size = self
+            .config
+            .user_count
+            .div_ceil(self.config.concurrent_users);
 
         for chunk_idx in 0..self.config.concurrent_users {
             let start_user = chunk_idx * chunk_size;

@@ -1,4 +1,4 @@
-#![cfg(test)]
+#![allow(unused_variables)]
 use crate::{PrincipalToken, PrincipalTokenClient, PrincipalTokenError};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 

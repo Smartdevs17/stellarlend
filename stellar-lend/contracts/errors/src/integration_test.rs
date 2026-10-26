@@ -12,8 +12,6 @@
 //! pulling in the larger contract crate (whose test infrastructure is mid
 //! refactor and currently fails to compile).
 
-#![cfg(test)]
-
 use soroban_sdk::{contracterror, Env, Symbol};
 
 use crate::analytics::ErrorAnalytics;

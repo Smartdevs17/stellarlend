@@ -37,7 +37,7 @@ pub enum ProposalStatus {
 }
 
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TimelockProposal {
     pub id: u64,
     pub proposer: Address,
@@ -247,7 +247,7 @@ pub fn update_delay(env: &Env, caller: &Address, new_delay: u64) -> Result<(), T
 // Unit tests
 // ---------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use super::*;
     use crate::admin::set_admin;

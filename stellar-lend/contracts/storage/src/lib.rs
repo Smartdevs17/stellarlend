@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(clippy::new_without_default)]
 //! # Shared Storage Library for StellarLend
 //!
 //! This crate provides consolidated storage patterns, validation utilities, and migration support
@@ -12,7 +13,7 @@
 //! - **Performance Tracking**: Built-in metrics for storage access patterns
 //! - **Documentation**: Comprehensive storage layout documentation
 
-use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val, Vec};
+use soroban_sdk::{contracttype, Env, IntoVal, TryFromVal, Val};
 
 pub mod cache;
 pub mod keys;
@@ -148,8 +149,8 @@ mod tests {
 
     #[test]
     fn test_storage_constants() {
-        assert!(MAX_STORAGE_VALUE_SIZE > 0);
-        assert!(MAX_PERSISTENT_ENTRIES > 0);
-        assert!(MAX_TEMP_ENTRIES > 0);
+        assert_ne!(MAX_STORAGE_VALUE_SIZE, 0);
+        assert_ne!(MAX_PERSISTENT_ENTRIES, 0);
+        assert_ne!(MAX_TEMP_ENTRIES, 0);
     }
 }

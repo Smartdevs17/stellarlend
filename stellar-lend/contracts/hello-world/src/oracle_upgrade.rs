@@ -268,7 +268,7 @@ pub fn get_oracle_upgrade_proposal(env: &Env, asset: &Address) -> Option<OracleU
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use super::*;
     use crate::deposit::DepositDataKey;

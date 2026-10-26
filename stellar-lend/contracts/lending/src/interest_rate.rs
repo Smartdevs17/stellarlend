@@ -91,7 +91,7 @@ pub fn utilization_bps(env: &Env) -> Result<i128, InterestRateError> {
         .checked_div(ceiling)
         .ok_or(InterestRateError::DivisionByZero)?;
 
-    Ok(util.min(BPS_SCALE).max(0))
+    Ok(util.clamp(0, BPS_SCALE))
 }
 
 pub fn borrow_rate_bps(env: &Env) -> Result<i128, InterestRateError> {

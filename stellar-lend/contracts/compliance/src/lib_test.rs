@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, Address, Env, Symbol};
 
 use crate::{ComplianceContract, ComplianceContractClient, ComplianceError, TransactionLimits};
@@ -93,7 +91,7 @@ fn test_set_and_check_kyc() {
     assert!(client.check_kyc(&user));
 
     let kyc = client.get_kyc(&user).unwrap();
-    assert_eq!(kyc.verified, true);
+    assert!(kyc.verified);
     assert_eq!(kyc.tier, 1);
     assert_eq!(kyc.jurisdiction, jurisdiction);
     assert_eq!(kyc.kyc_provider, provider);

@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::{
     DcaDirection, DcaError, DcaExecution, DcaFrequency, DcaModule, DcaModuleClient, DcaPlanStatus,
 };

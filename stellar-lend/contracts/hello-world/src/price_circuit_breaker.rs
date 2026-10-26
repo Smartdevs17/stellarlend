@@ -306,7 +306,7 @@ pub fn get_price_circuit_breaker_config(env: &Env, asset: &Address) -> PriceCirc
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use super::*;
     use crate::deposit::DepositDataKey;

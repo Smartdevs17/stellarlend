@@ -129,7 +129,9 @@ impl CalldataEncoder {
     }
 }
 
+#[cfg(test)]
 pub mod tests {
+    use super::*;
 
     #[test]
     fn test_varint_encoding() {

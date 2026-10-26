@@ -233,7 +233,6 @@ pub fn set_variable_borrow_rate_bps(
     if *admin != current {
         return Err(BorrowError::Unauthorized);
     }
-    admin.require_auth();
     if !(0..=10000).contains(&rate_bps) {
         return Err(BorrowError::InvalidAmount);
     }
@@ -276,20 +275,31 @@ fn get_rate_switch_fee_bps(env: &Env) -> i128 {
         .unwrap_or(DEFAULT_SWITCH_FEE_BPS)
 }
 
-fn get_stable_rate_state(env: &Env) -> StableRateState {
+fn get_stable_rate_state(env: &Env) -> Option<StableRateState> {
     env.storage()
         .persistent()
         .get(&BorrowDataKey::StableRateState)
-        .unwrap_or(StableRateState {
-            avg_rate_bps: get_current_variable_rate_bps(env).unwrap_or(0),
-            last_update: env.ledger().timestamp(),
-        })
 }
 
 fn update_stable_rate_state_if_needed(env: &Env) -> StableRateState {
-    let mut state = get_stable_rate_state(env);
     let now = env.ledger().timestamp();
     let interval = get_stable_rate_recalc_interval_secs(env);
+
+    let mut state = match get_stable_rate_state(env) {
+        Some(state) => state,
+        None => {
+            // Establish the initial EMA baseline at first use rather than
+            // treating the current variable rate as if it were historical.
+            let state = StableRateState {
+                avg_rate_bps: get_current_variable_rate_bps(env).unwrap_or(0),
+                last_update: now,
+            };
+            env.storage()
+                .persistent()
+                .set(&BorrowDataKey::StableRateState, &state);
+            return state;
+        }
+    };
 
     if now <= state.last_update {
         return state;

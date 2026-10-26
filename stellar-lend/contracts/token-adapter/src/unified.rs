@@ -189,13 +189,15 @@ impl UnifiedTokenAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn test_metadata_cache_validity() {
+        let env = soroban_sdk::Env::default();
         let metadata = TokenMetadata {
-            token: unsafe { Address::from_raw_bytes(&[0u8; 32]) },
-            name: Symbol::from_str(&unsafe { soroban_sdk::Env::default() }, "TEST"),
-            symbol: Symbol::from_str(&unsafe { soroban_sdk::Env::default() }, "TST"),
+            token: Address::generate(&env),
+            name: Symbol::new(&env, "TEST"),
+            symbol: Symbol::new(&env, "TST"),
             decimals: 18,
             total_supply: None,
             updated_at: 1000,

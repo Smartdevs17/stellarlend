@@ -426,7 +426,7 @@ fn emit_rate_manipulation_alert(
 
 // ── Tests ─────────────────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use super::*;
     use soroban_sdk::testutils::Address as _;

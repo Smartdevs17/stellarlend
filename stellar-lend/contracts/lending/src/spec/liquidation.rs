@@ -180,7 +180,7 @@ fn lemma_l06_no_overflow_on_large_debt() {
         true,
     );
     // Should not panic; result may be 0 if intermediate overflow triggers the unwrap_or path
-    let expected = (total_debt as i128)
+    let expected = total_debt
         .checked_mul(DEFAULT_CLOSE_FACTOR_BPS)
         .map(|v| v / BPS_DIVISOR)
         .unwrap_or(0);

@@ -124,7 +124,7 @@ impl InsuranceMarketplace {
         }
         token::Client::new(&env, &token).transfer(
             &owner,
-            &env.current_contract_address(),
+            env.current_contract_address(),
             &collateral,
         );
         env.storage().persistent().set(
@@ -153,7 +153,7 @@ impl InsuranceMarketplace {
             .ok_or(Error::NotFound)?;
         token::Client::new(&env, &p.collateral_token).transfer(
             &provider,
-            &env.current_contract_address(),
+            env.current_contract_address(),
             &amount,
         );
         p.collateral = p

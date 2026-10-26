@@ -288,8 +288,6 @@ fn compute_dynamic_premium(env: &Env) -> i128 {
         .checked_div(pool)
         .unwrap_or(BPS_SCALE);
 
-    
-
     BASE_PREMIUM_BPS
         .saturating_add(
             utilisation_bps

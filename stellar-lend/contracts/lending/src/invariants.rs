@@ -366,13 +366,10 @@ pub fn check_inv_014_access_control(
 // Aggregate — run all stateless invariants (protocol-level).
 // Returns all violations found (does not stop on first).
 // ─────────────────────────────────────────────
-pub fn assert_all_stateless(env: &Env, exemptions: &ExemptionFlags) -> Vec<InvariantViolation> {
-    let mut violations = Vec::new();
-
+pub fn assert_all_stateless(_env: &Env, _exemptions: &ExemptionFlags) -> Vec<InvariantViolation> {
     // Note: These require snapshot data from before actions
     // Call individually with snapshots in test harness
-
-    violations
+    Vec::new()
 }
 
 // ─────────────────────────────────────────────

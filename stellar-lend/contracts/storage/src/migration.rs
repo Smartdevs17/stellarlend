@@ -1,6 +1,6 @@
 //! Storage migration framework for handling version upgrades
 
-use soroban_sdk::{contracttype, Env, Vec};
+use soroban_sdk::{contracttype, Env};
 
 /// Migration error types
 #[contracttype]

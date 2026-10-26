@@ -28,7 +28,6 @@
 #[cfg(any(test, feature = "spec"))]
 mod cross_contract_verification {
 
-    
     /// Specification: Reentrancy guard invariant
     /// Preventing state modification during external calls
     #[cfg(test)]
@@ -117,10 +116,9 @@ mod cross_contract_verification {
     /// Total supply equals sum of individual balances
     #[cfg(test)]
     mod state_consistency {
-        use alloc::vec;
         #[test]
         fn spec_total_supply_equals_sum() {
-            let balances = vec![100i128, 200i128, 300i128];
+            let balances = [100i128, 200i128, 300i128];
             let total = balances.iter().sum::<i128>();
 
             assert_eq!(total, 600i128);
@@ -226,7 +224,7 @@ mod cross_contract_verification {
 
         #[test]
         fn spec_flash_loan_fee_enforced() {
-            let loan_amount = 1000i128;
+            let loan_amount = 1_000_000i128;
             let fee_bps = 5i128;
             let fee = (loan_amount * fee_bps) / 10000i128;
             let required_repay = loan_amount + fee;

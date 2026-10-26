@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(dead_code)]
 
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env};
 
@@ -148,11 +149,7 @@ fn compute_score(total: u32, on_time: u32, defaults: u32) -> u32 {
 
     // no-default component, weight 30
     let default_penalty: u64 = (defaults as u64) * 200;
-    let no_default_component: u64 = if default_penalty >= 1000 {
-        0
-    } else {
-        1000 - default_penalty
-    };
+    let no_default_component: u64 = 1000u64.saturating_sub(default_penalty);
 
     let weighted: u64 = on_time_component * 40 + count_component * 30 + no_default_component * 30;
     let score = weighted / 100; // back to 0..1000
@@ -324,7 +321,7 @@ impl ReputationContract {
 
         // Advance last_activity_timestamp by the exact intervals accounted for,
         // preventing repeated decay within the same interval and quadratic decay compounding.
-        let elapsed_intervals_secs = (intervals as u64).saturating_mul(config.decay_interval);
+        let elapsed_intervals_secs = intervals.saturating_mul(config.decay_interval);
         rep.last_activity_timestamp = rep
             .last_activity_timestamp
             .saturating_add(elapsed_intervals_secs);
@@ -458,8 +455,7 @@ mod tests {
     fn test_initialize() {
         let s = setup();
         let config = default_config(&s.admin);
-        let result = s.client.initialize(&s.admin, &config);
-        assert_eq!(result, ());
+        s.client.initialize(&s.admin, &config);
     }
 
     #[test]

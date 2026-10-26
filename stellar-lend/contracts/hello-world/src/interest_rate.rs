@@ -267,8 +267,7 @@ pub fn calculate_utilization(env: &Env) -> Result<i128, InterestRateError> {
     // Calculate utilization: (borrows * 10000) / deposits
     // Delegates to the shared math library, which caps at 100% and treats an
     // empty pool as 0% utilization.
-    math_utilization_bps(analytics.total_borrows, analytics.total_deposits)
-        .map_err(map_math_error)
+    math_utilization_bps(analytics.total_borrows, analytics.total_deposits).map_err(map_math_error)
 }
 
 /// Calculate borrow interest rate based on utilization
@@ -910,7 +909,8 @@ pub fn get_rate_manipulation_report(env: &Env) -> RateManipulationReport {
                 0
             };
             if dir != 0 && dir == prev_dir {
-                current_run_bps = current_run_bps.saturating_add((entry.borrow_rate_bps - prev).abs());
+                current_run_bps =
+                    current_run_bps.saturating_add((entry.borrow_rate_bps - prev).abs());
             } else {
                 current_run_bps = (entry.borrow_rate_bps - prev).abs();
             }

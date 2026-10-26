@@ -1,6 +1,6 @@
 use crate::storage::StorageContext;
 use rand::rngs::StdRng;
-use rand::{Rng, RngExt, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use soroban_sdk::{Bytes, String as SorobanString};
 
 pub struct StateGenerator {
@@ -46,10 +46,10 @@ impl StateGenerator {
         count: usize,
     ) {
         let assets = ["XLM", "USDC", "BTC", "ETH", "SOL"];
-        for i in 0..count.min(assets.len()) {
+        for asset in assets.iter().copied().take(count.min(assets.len())) {
             let price: i128 = self.rng.random_range(1_000_000..100_000_000_000);
             let env = ctx.env.clone();
-            let key = SorobanString::from_str(&env, &format!("price_{}", assets[i]));
+            let key = SorobanString::from_str(&env, &format!("price_{}", asset));
             let val = Bytes::from_slice(&env, &price.to_be_bytes());
             keys.push(key);
             values.push(val);

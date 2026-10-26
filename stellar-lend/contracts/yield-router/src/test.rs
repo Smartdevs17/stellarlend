@@ -1,4 +1,3 @@
-#![cfg(test)]
 use crate::{RouterError, YieldRouter, YieldRouterClient};
 use pool_interfaces::{RiskProfile, RouterConfig};
 use soroban_sdk::{testutils::Address as _, Address, Env};

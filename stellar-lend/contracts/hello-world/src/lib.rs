@@ -1,6 +1,18 @@
-use soroban_sdk::{contractimport, Address, Env, Symbol};
-
-
+#![allow(deprecated)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(hidden_glob_reexports)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::manual_range_contains)]
+#![allow(clippy::unnecessary_cast)]
+#![allow(clippy::manual_clamp)]
+#![allow(clippy::if_same_then_else)]
+#![allow(clippy::let_and_return)]
+#![allow(clippy::redundant_closure)]
+#![allow(clippy::unnecessary_lazy_evaluations)]
+#![allow(clippy::derivable_impls)]
+use soroban_sdk::{Address, Env};
 
 // ── Wired modules (previously undeclared) ─────────────────────────────
 pub mod admin;
@@ -23,6 +35,17 @@ pub mod risk_params;
 pub mod treasury;
 pub mod withdraw;
 
+pub mod circuit_breaker;
+pub mod credit_score;
+pub mod events;
+pub mod governance;
+pub mod health;
+pub mod multi_collateral;
+pub mod oracle;
+pub mod rate_guard;
+pub mod reentrancy;
+pub mod reserve_factor;
+pub mod storage;
 pub mod timelock;
 
 // ── New feature modules ───────────────────────────────────────────────────

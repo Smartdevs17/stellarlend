@@ -13,7 +13,7 @@
 use soroban_sdk::{contracttype, Address, Env, IntoVal, Symbol, Val};
 
 /// Reentrancy guard state tracking
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[contracttype]
 pub enum GuardState {
     NotEntered = 0,
@@ -208,16 +208,16 @@ impl<'a> FlashLoanAuditShield<'a> {
     /// Enter the audit shield for flash loan execution.
     /// Rejects if shield is already active or exceeds allowed composition depth.
     pub fn enter(env: &'a Env, max_compositions: u32) -> Result<Self, u32> {
-        let key = Symbol::new(env, "fl_audit_shield").into_val(env);
-        let mut record: FlashLoanAuditRecord = env
-            .storage()
-            .temporary()
-            .get(&key)
-            .unwrap_or(FlashLoanAuditRecord {
-                active_compositions: 0,
-                max_compositions,
-                shield_active: false,
-            });
+        let key: Val = Symbol::new(env, "fl_audit_shield").into_val(env);
+        let mut record: FlashLoanAuditRecord =
+            env.storage()
+                .temporary()
+                .get(&key)
+                .unwrap_or(FlashLoanAuditRecord {
+                    active_compositions: 0,
+                    max_compositions,
+                    shield_active: false,
+                });
 
         if record.shield_active || record.active_compositions >= record.max_compositions {
             return Err(7); // Reentrancy error code
@@ -232,7 +232,7 @@ impl<'a> FlashLoanAuditShield<'a> {
 
     /// Check if audit shield is currently engaged
     pub fn is_shield_active(env: &Env) -> bool {
-        let key = Symbol::new(env, "fl_audit_shield").into_val(env);
+        let key: Val = Symbol::new(env, "fl_audit_shield").into_val(env);
         env.storage()
             .temporary()
             .get::<_, FlashLoanAuditRecord>(&key)

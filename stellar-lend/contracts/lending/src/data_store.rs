@@ -280,7 +280,7 @@ impl DataStore {
     /// * `KeyTooLong`     — key exceeds `MAX_KEY_LEN`.
     /// * `ValueTooLarge`  — value exceeds `MAX_VALUE_LEN`.
     /// * `StoreFull`      — store already has `MAX_ENTRIES` entries and this
-    ///                      is a new key.
+    ///   is a new key.
     ///
     /// # Events
     /// Emits `(ds_save, caller, key)` on success.

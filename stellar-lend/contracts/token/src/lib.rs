@@ -2,7 +2,11 @@
 
 extern crate alloc;
 
-use soroban_sdk::{contracterror, contracttype, token::{Client as TokenClient, StellarAssetClient}, Address, Env};
+use soroban_sdk::{
+    contracterror, contracttype,
+    token::{Client as TokenClient, StellarAssetClient},
+    Address, Env, Symbol, Vec,
+};
 
 // ========================================================================
 // Unified Error Type
@@ -312,7 +316,7 @@ impl UnifiedTokenAdapter {
             TokenType::SorobanToken => {
                 let client = TokenClient::new(env, &info.address);
                 let contract_addr = env.current_contract_address();
-                client.transfer_from(from, &contract_addr, &amount);
+                client.transfer_from(&contract_addr, from, &contract_addr, &amount);
                 client.transfer(&contract_addr, to, &amount);
                 Ok(())
             }
@@ -383,8 +387,12 @@ impl UnifiedTokenAdapter {
     fn do_total_supply(env: &Env, info: &TokenInfo) -> Result<i128, TokenError> {
         match info.token_type {
             TokenType::SorobanToken => {
-                let client = TokenClient::new(env, &info.address);
-                Ok(client.total_supply())
+                let total: i128 = env.invoke_contract(
+                    &info.address,
+                    &Symbol::new(env, "total_supply"),
+                    Vec::new(env),
+                );
+                Ok(total)
             }
             TokenType::NativeAsset | TokenType::WrappedAsset => {
                 let client = StellarAssetClient::new(env, &info.address);

@@ -80,7 +80,7 @@ impl CreditDelegationContract {
         if max_amount <= 0 {
             panic!("max amount must be positive");
         }
-        if interest_rate_bps < 0 || interest_rate_bps > 10000 {
+        if !(0..=10000).contains(&interest_rate_bps) {
             panic!("interest rate must be between 0 and 10000 bps");
         }
         if maturity <= u64::from(env.ledger().sequence()) {

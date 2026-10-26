@@ -38,7 +38,7 @@ fn run_all(config: &RunConfig) -> Vec<BenchmarkResult> {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn default_config(env: &Env, admin: &Address) -> ReputationConfig {
+fn default_config(_env: &Env, admin: &Address) -> ReputationConfig {
     ReputationConfig {
         admin: admin.clone(),
         silver_threshold: 250,
@@ -74,16 +74,14 @@ fn setup_initialized(env: &Env) -> (ReputationContractClient<'static>, Address) 
     let client = ReputationContractClient::new(env, &contract_id);
     let admin = Address::generate(env);
     let cfg = default_config(env, &admin);
-    client.initialize(&admin, &cfg).unwrap();
+    client.initialize(&admin, &cfg);
     (client, admin)
 }
 
 fn setup_with_repayment(env: &Env) -> (ReputationContractClient<'static>, Address, Address) {
     let (client, admin) = setup_initialized(env);
     let borrower = Address::generate(env);
-    client
-        .record_repayment(&admin, &borrower, &100_000i128, &true)
-        .unwrap();
+    client.record_repayment(&admin, &borrower, &100_000i128, &true);
     (client, admin, borrower)
 }
 
@@ -98,7 +96,7 @@ fn bench_initialize(config: &RunConfig) -> BenchmarkResult {
     let cfg = default_config(&env, &admin);
 
     let (insns, mem) = measure_instructions(&env, || {
-        client.initialize(&admin, &cfg).unwrap();
+        client.initialize(&admin, &cfg);
     });
 
     BenchmarkResult::new(
@@ -124,9 +122,7 @@ fn bench_record_repayment_cold(config: &RunConfig) -> BenchmarkResult {
     let borrower = Address::generate(&env);
 
     let (insns, mem) = measure_instructions(&env, || {
-        client
-            .record_repayment(&admin, &borrower, &100_000i128, &true)
-            .unwrap();
+        client.record_repayment(&admin, &borrower, &100_000i128, &true);
     });
 
     BenchmarkResult::new(
@@ -149,9 +145,7 @@ fn bench_record_repayment_warm(config: &RunConfig) -> BenchmarkResult {
     let (client, admin, borrower) = setup_with_repayment(&env);
 
     let (insns, mem) = measure_instructions(&env, || {
-        client
-            .record_repayment(&admin, &borrower, &50_000i128, &true)
-            .unwrap();
+        client.record_repayment(&admin, &borrower, &50_000i128, &true);
     });
 
     BenchmarkResult::new(
@@ -176,7 +170,7 @@ fn bench_record_default(config: &RunConfig) -> BenchmarkResult {
     let (client, admin, borrower) = setup_with_repayment(&env);
 
     let (insns, mem) = measure_instructions(&env, || {
-        client.record_default(&admin, &borrower).unwrap();
+        client.record_default(&admin, &borrower);
     });
 
     BenchmarkResult::new(
@@ -201,7 +195,7 @@ fn bench_get_reputation(config: &RunConfig) -> BenchmarkResult {
     let (client, _, borrower) = setup_with_repayment(&env);
 
     let (insns, mem) = measure_instructions(&env, || {
-        client.get_reputation(&borrower).unwrap();
+        client.get_reputation(&borrower);
     });
 
     BenchmarkResult::new(
@@ -224,7 +218,7 @@ fn bench_get_tier(config: &RunConfig) -> BenchmarkResult {
     let (client, _, borrower) = setup_with_repayment(&env);
 
     let (insns, mem) = measure_instructions(&env, || {
-        client.get_tier(&borrower).unwrap();
+        client.get_tier(&borrower);
     });
 
     BenchmarkResult::new(
@@ -247,7 +241,7 @@ fn bench_get_tier_benefits(config: &RunConfig) -> BenchmarkResult {
     let (client, _) = setup_initialized(&env);
 
     let (insns, mem) = measure_instructions(&env, || {
-        client.get_tier_benefits(&ReputationTier::Gold).unwrap();
+        client.get_tier_benefits(&ReputationTier::Gold);
     });
 
     BenchmarkResult::new(
@@ -272,7 +266,7 @@ fn bench_apply_decay(config: &RunConfig) -> BenchmarkResult {
     let (client, _, borrower) = setup_with_repayment(&env);
 
     let (insns, mem) = measure_instructions(&env, || {
-        client.apply_decay(&borrower).unwrap();
+        client.apply_decay(&borrower);
     });
 
     BenchmarkResult::new(

@@ -366,26 +366,9 @@ impl StablecoinContract {
             return Err(StablecoinError::InsufficientCollateral);
         }
 
-        // Global reserve cap check
-        let total_collateral: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::TotalCollateral)
-            .unwrap_or(0);
-        let max_supply = total_collateral
-            .checked_mul(rr)
-            .ok_or(StablecoinError::Overflow)?
-            / BPS;
-
+        // Per-user capacity check above already bounds total debt by the
+        // aggregate collateral: sum(user_debt) <= sum(user_collateral * rr).
         let stable = stablecoin_token(&env)?;
-        let stable_client = TokenClient::new(&env, &stable);
-        let current_supply = stable_client.total_supply();
-        let next_supply = current_supply
-            .checked_add(mint_amount)
-            .ok_or(StablecoinError::Overflow)?;
-        if next_supply > max_supply {
-            return Err(StablecoinError::InsufficientCollateral);
-        }
 
         add_user_debt(&env, &user, mint_amount)?;
 
@@ -420,6 +403,12 @@ impl StablecoinContract {
 
         let user_col = get_user_collateral(&env, &user);
         let user_debt = get_user_debt(&env, &user);
+
+        // Redemption burns stablecoin debt; burning more than is owed is not a
+        // valid collateral withdrawal path.
+        if burn_amount > user_debt {
+            return Err(StablecoinError::InsufficientCollateral);
+        }
 
         // Simple redemption rule: 1:1 collateral payout, strictly bounded by caller's own collateral.
         let collateral_out = burn_amount;

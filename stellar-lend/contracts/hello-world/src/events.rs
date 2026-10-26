@@ -38,9 +38,9 @@
 
 pub use shared_events::*;
 
-use soroban_sdk::{contractevent, contracttype, Address, Env, String, Symbol, Vec};
+use soroban_sdk::{contractevent, contracttype, Address, Env, Symbol, Vec};
 
-use crate::types::{AssetStatus, EmergencyTrigger, ProposalType, VoteType};
+use crate::types::{EmergencyTrigger, ProposalType, VoteType};
 
 /// Convert a local [`ProposalType`] into its shared-events representation.
 pub fn to_shared_proposal_type(proposal_type: &ProposalType) -> shared_events::ProposalType {
@@ -115,25 +115,15 @@ pub struct GovernanceConfigUpdatedEvent {
 // Asset-Specific Events (Carbon Asset Style)
 // ============================================================================
 
-#[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
-#[allow(dead_code)]
 // ============================================================================
 // Governance Events
 // ============================================================================
-#[allow(dead_code)]
 // ============================================================================
 // Multisig Events
 // ============================================================================
-#[allow(dead_code)]
 // ============================================================================
 // Guardian & Recovery Events
 // ============================================================================
-#[allow(dead_code)]
 
 // ============================================================================
 // Treasury Events
@@ -203,37 +193,30 @@ pub fn emit_user_activity_tracked(e: &Env, event: UserActivityTrackedEvent) {
 // Asset-Specific Emitter Helpers
 // ============================================================================
 
-#[allow(dead_code)]
 pub fn emit_mint(e: &Env, event: MintEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_transfer(e: &Env, event: TransferEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_status_change(e: &Env, event: StatusChangeEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_quality_score_updated(e: &Env, event: QualityScoreUpdatedEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_approve(e: &Env, event: ApproveEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_sep41_transfer(e: &Env, event: Sep41TransferEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_sep41_burn(e: &Env, event: Sep41BurnEvent) {
     event.publish(e);
 }
@@ -242,47 +225,38 @@ pub fn emit_sep41_burn(e: &Env, event: Sep41BurnEvent) {
 // Governance Emitter Helpers
 // ============================================================================
 
-#[allow(dead_code)]
 pub fn emit_governance_initialized(e: &Env, event: GovernanceInitializedEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_proposal_created(e: &Env, event: ProposalCreatedEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_vote_cast(e: &Env, event: VoteCastEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_proposal_queued(e: &Env, event: ProposalQueuedEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_proposal_executed(e: &Env, event: ProposalExecutedEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_proposal_failed(e: &Env, event: ProposalFailedEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_proposal_cancelled(e: &Env, event: ProposalCancelledEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_proposal_approved(e: &Env, event: ProposalApprovedEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_governance_config_updated(e: &Env, event: GovernanceConfigUpdatedEvent) {
     event.publish(e);
 }
@@ -291,7 +265,6 @@ pub fn emit_governance_config_updated(e: &Env, event: GovernanceConfigUpdatedEve
 // Multisig Emitter Helpers
 // ============================================================================
 
-#[allow(dead_code)]
 pub fn emit_multisig_config_updated(e: &Env, event: MultisigConfigUpdatedEvent) {
     event.publish(e);
 }
@@ -300,32 +273,26 @@ pub fn emit_multisig_config_updated(e: &Env, event: MultisigConfigUpdatedEvent) 
 // Guardian & Recovery Emitter Helpers
 // ============================================================================
 
-#[allow(dead_code)]
 pub fn emit_guardian_added(e: &Env, event: GuardianAddedEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_guardian_removed(e: &Env, event: GuardianRemovedEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_guardian_threshold_updated(e: &Env, event: GuardianThresholdUpdatedEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_recovery_started(e: &Env, event: RecoveryStartedEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_recovery_approved(e: &Env, event: RecoveryApprovedEvent) {
     event.publish(e);
 }
 
-#[allow(dead_code)]
 pub fn emit_recovery_executed(e: &Env, event: RecoveryExecutedEvent) {
     event.publish(e);
 }

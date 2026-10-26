@@ -82,7 +82,7 @@ pub fn liquidation_discount(
     if collateral_amount < 0 {
         return Err(MathError::NegativeValue);
     }
-    if liquidation_incentive_bps < 0 || liquidation_incentive_bps > BPS_SCALE {
+    if !(0..=BPS_SCALE).contains(&liquidation_incentive_bps) {
         return Err(MathError::InvalidParameter);
     }
 
@@ -155,7 +155,7 @@ pub fn max_borrow_amount(
     if collateral_value < 0 || current_debt < 0 {
         return Err(MathError::NegativeValue);
     }
-    if ltv_bps < 0 || ltv_bps > BPS_SCALE {
+    if !(0..=BPS_SCALE).contains(&ltv_bps) {
         return Err(MathError::InvalidParameter);
     }
 
@@ -168,7 +168,7 @@ pub fn max_borrow_amount(
     max_debt
         .checked_sub(current_debt)
         .ok_or(MathError::InvalidParameter)
-        .and_then(|x| if x < 0 { Ok(0) } else { Ok(x) })
+        .map(|x| if x < 0 { 0 } else { x })
 }
 
 /// Safe multiplication with overflow check
@@ -206,14 +206,14 @@ mod tests {
     fn test_accrue_interest() {
         // 1000 principal, 5% APR, 1 year
         let result = accrue_interest(1000, 500, SECONDS_PER_YEAR as u64).unwrap();
-        assert!(result >= 1050 && result <= 1051); // Should be ~1050
+        assert!((1050..=1051).contains(&result)); // Should be ~1050
     }
 
     #[test]
     fn test_accrue_interest_half_year() {
         // 1000 principal, 5% APR, half year
         let result = accrue_interest(1000, 500, (SECONDS_PER_YEAR / 2) as u64).unwrap();
-        assert!(result >= 1024 && result <= 1026); // Should be ~1025
+        assert!((1024..=1026).contains(&result)); // Should be ~1025
     }
 
     #[test]

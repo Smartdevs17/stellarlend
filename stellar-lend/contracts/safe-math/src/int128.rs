@@ -358,7 +358,7 @@ mod tests {
             assert!(r_sq <= n, "r²={r_sq} > n={n}");
         }
         // (r+1)² > n or overflows — both prove r is the floor.
-        assert!((r + 1).checked_mul(r + 1).map_or(true, |v| v > n));
+        assert!((r + 1).checked_mul(r + 1).is_none_or(|v| v > n));
     }
 
     // ── bps_mul ─────────────────────────────────────────────────────────────
@@ -450,7 +450,7 @@ mod tests {
             }
             // (r+1)² > n, or it overflows — either proves r is the floor.
             assert!(
-                (r + 1).checked_mul(r + 1).map_or(true, |next| next > n),
+                (r + 1).checked_mul(r + 1).is_none_or(|next| next > n),
                 "(r+1)² <= n for n={n}"
             );
         }
