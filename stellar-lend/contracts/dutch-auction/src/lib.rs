@@ -460,13 +460,9 @@ impl DutchAuctionContract {
             i += 1;
         }
 
-        let avg_premium = if settled > 0 {
-            total_premium_bps / (settled as i128)
-        } else {
-            0
-        };
+        let avg_premium = total_premium_bps.checked_div(settled as i128).unwrap_or(0);
 
-        let avg_time = if settled > 0 { total_time / settled } else { 0 };
+        let avg_time = total_time.checked_div(settled).unwrap_or(0);
 
         AuctionAnalytics {
             total_auctions: total,
