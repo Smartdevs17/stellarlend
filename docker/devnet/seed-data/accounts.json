@@ -6,7 +6,7 @@
       "alias": "admin",
       "description": "Protocol administrator -- owns all deployed contracts",
       "public_key": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
-      "secret_key": "SCZANGBA5YHTNYVVV3C7CAZMCLXPILHSE6PGYAY2TDGPMHZAPTYERMOF",
+      "secret_key": "",
       "initial_xlm": "100000",
       "roles": ["admin", "deployer"]
     },
@@ -14,7 +14,7 @@
       "alias": "liquidator",
       "description": "Liquidation bot account with pre-approved contracts",
       "public_key": "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBQ",
-      "secret_key": "SDJCZISO5M5XTQNMCY6NB5HFLCMAWJG3Z3OANDOFFMHBBP6BSLGPWRA",
+      "secret_key": "",
       "initial_xlm": "50000",
       "roles": ["liquidator"]
     },
@@ -22,7 +22,7 @@
       "alias": "user1",
       "description": "Test borrower -- has active loans",
       "public_key": "GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCQ",
-      "secret_key": "SALKIERTPFBBYMWBE4AFTSONAZM3TCPORJML3VQ5JXVXQSXM3L3VHTLA",
+      "secret_key": "",
       "initial_xlm": "10000",
       "roles": ["borrower"]
     },
@@ -30,7 +30,7 @@
       "alias": "user2",
       "description": "Test lender -- provides liquidity",
       "public_key": "GDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDQ",
-      "secret_key": "SDMCXBHPFJPSVY6AFSZZUHQVZWQBM35PUARGFITTXNMFKM7CDCNFZWWR",
+      "secret_key": "",
       "initial_xlm": "10000",
       "roles": ["lender"]
     },
@@ -38,7 +38,7 @@
       "alias": "user3",
       "description": "Test user -- mixed positions, near-liquidation",
       "public_key": "GEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEQ",
-      "secret_key": "SBGBNFKFBHH2GP6ZAB4B6FS5GKYRLOS3FPDGEIMZLRF7IYQKJVKBHSIG",
+      "secret_key": "",
       "initial_xlm": "10000",
       "roles": ["borrower", "lender"]
     },
@@ -46,7 +46,7 @@
       "alias": "user4",
       "description": "Test user -- flash loan user",
       "public_key": "GFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFQ",
-      "secret_key": "SDHPVEIC3CPGH5D5XKPIIG5IC6B5RPIMHPYUYBLSJWSMRH7VFPJHLXHW",
+      "secret_key": "",
       "initial_xlm": "10000",
       "roles": ["borrower"]
     },
@@ -54,10 +54,10 @@
       "alias": "user5",
       "description": "Test user -- institutional wallet holder",
       "public_key": "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGQ",
-      "secret_key": "SDQWCJA3Z4M3KTGHAFCXU7FQBYQQHSTBPKRUCZRVCNZSGFFR6BNWI55U",
+      "secret_key": "",
       "initial_xlm": "10000",
       "roles": ["institutional"]
     }
   },
-  "note": "These keys are for LOCAL DEVNET ONLY. They are deterministic test keys and must NEVER be used on testnet or mainnet."
+  "note": "These are LOCAL DEVNET account definitions. Keypairs are generated at runtime by genesis.sh; no secret keys are stored in this file."
 }
