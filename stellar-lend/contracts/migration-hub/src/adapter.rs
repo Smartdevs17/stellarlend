@@ -1,5 +1,5 @@
-use crate::types::{MigrationError, ProtocolType};
-use soroban_sdk::{symbol_short, Address, Env, Val, Vec};
+use crate::types::MigrationError;
+use soroban_sdk::{Address, Env};
 
 pub trait MigrationAdapter {
     fn pull_funds(
@@ -30,7 +30,7 @@ impl MigrationAdapter for StellarOtherLendAdapter {
         // For the mock, we'll just transfer tokens from the user to the Hub.
 
         let token = soroban_sdk::token::Client::new(env, asset);
-        token.transfer(user, &env.current_contract_address(), &amount);
+        token.transfer(user, env.current_contract_address(), &amount);
 
         Ok(())
     }
@@ -38,6 +38,6 @@ impl MigrationAdapter for StellarOtherLendAdapter {
     fn verify_source_balance(&self, env: &Env, user: &Address, asset: &Address) -> i128 {
         // Mock: In a real scenario, this calls the source contract's get_balance.
         // For the mock, we'll return a fixed amount for testing.
-        1000_000_000 // 1000 units
+        1_000_000_000 // 1000 units
     }
 }

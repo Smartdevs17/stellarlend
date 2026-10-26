@@ -1,5 +1,5 @@
-use crate::{AdapterError, DataKey, TokenAdapterContract, TokenType};
-use soroban_sdk::{testutils::Address as _, Address, Env, Symbol};
+use crate::{AdapterError, TokenAdapterContract, TokenType};
+use soroban_sdk::{testutils::Address as _, Address, Env, IntoVal, Symbol};
 
 fn create_test_env() -> (Env, Address) {
     let env = Env::default();
@@ -175,7 +175,13 @@ fn test_transfer_invalid_amount() {
     let from = Address::generate(&env);
     let to = Address::generate(&env);
 
-    let result = TokenAdapterContract::transfer(env, token_address, from, to, 0);
+    let result = TokenAdapterContract::transfer(
+        env.clone(),
+        token_address.clone(),
+        from.clone(),
+        to.clone(),
+        0,
+    );
     assert_eq!(result, Err(AdapterError::InvalidAmount));
 
     let result = TokenAdapterContract::transfer(env, token_address, from, to, -1);

@@ -83,7 +83,8 @@ pub struct PendingCommit {
     pub reveal_after: u64,
     pub expires_at: u64,
     pub commit_ledger: u32,
-    pub guard: Option<ExecutionGuard>,
+    pub has_guard: bool,
+    pub guard: ExecutionGuard,
     pub private_route: Option<Symbol>,
     pub auction_id: Option<u64>,
 }
@@ -375,6 +376,18 @@ fn create_commit_with_context(
 
     let id = next_commit_id(env);
     let now = env.ledger().timestamp();
+    let (guard, has_guard) = match guard {
+        Some(guard) => (guard, true),
+        None => (
+            ExecutionGuard {
+                quoted_output_amount: 0,
+                min_output_amount: 0,
+                max_slippage_bps: 0,
+                deadline: 0,
+            },
+            false,
+        ),
+    };
     let commit = PendingCommit {
         id,
         owner,
@@ -389,6 +402,7 @@ fn create_commit_with_context(
         reveal_after: now.saturating_add(cfg.commit_delay_secs),
         expires_at: now.saturating_add(cfg.commit_expiry_secs),
         commit_ledger: env.ledger().sequence(),
+        has_guard,
         guard,
         private_route,
         auction_id,
@@ -1065,7 +1079,7 @@ pub fn reveal_liquidation(
 ) -> Result<(Address, Option<Address>, Option<Address>, i128), MevProtectionError> {
     owner.require_auth();
     let commit = validate_reveal(env, &owner, commit_id, SensitiveOperation::Liquidate)?;
-    if commit.guard.is_some() {
+    if commit.has_guard {
         return Err(MevProtectionError::InvalidOperation);
     }
     validate_private_receipt_if_needed(env, &commit)?;
@@ -1342,9 +1356,10 @@ fn validate_guard_if_present(
     commit: &PendingCommit,
     actual_output_amount: i128,
 ) -> Result<(), MevProtectionError> {
-    let Some(ref guard) = commit.guard else {
+    if !commit.has_guard {
         return Ok(());
-    };
+    }
+    let guard = &commit.guard;
     if env.ledger().timestamp() > guard.deadline {
         return Err(MevProtectionError::SlippageExpired);
     }

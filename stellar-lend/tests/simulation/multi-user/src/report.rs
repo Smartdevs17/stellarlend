@@ -1,5 +1,4 @@
 use crate::metrics::SimulationMetrics;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct SimulationReport {

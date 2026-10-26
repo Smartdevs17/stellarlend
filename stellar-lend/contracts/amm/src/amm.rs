@@ -1282,4 +1282,5 @@ stellarlend_errors::impl_contract_error! {
     MinOutputNotMet => InvalidInput, "Minimum output amount not met", AdjustTolerance;
     MaxInputExceeded => LimitExceeded, "Maximum input amount exceeded", ReduceAmount;
     AlreadyInitialized => AlreadyInitialized, "Contract has already been initialized";
+    ReentrancyDetected => Reentrancy, "Re-entrant call detected";
 }

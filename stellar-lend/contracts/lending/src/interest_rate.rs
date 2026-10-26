@@ -91,7 +91,7 @@ pub fn utilization_bps(env: &Env) -> Result<i128, InterestRateError> {
         .checked_div(ceiling)
         .ok_or(InterestRateError::DivisionByZero)?;
 
-    Ok(util.min(BPS_SCALE).max(0))
+    Ok(util.clamp(0, BPS_SCALE))
 }
 
 pub fn borrow_rate_bps(env: &Env) -> Result<i128, InterestRateError> {
@@ -168,7 +168,7 @@ pub fn update_config(
     let mut next = prev.clone();
 
     if let Some(v) = update.base_rate_bps {
-        if v < 0 || v > BPS_SCALE {
+        if !(0..=BPS_SCALE).contains(&v) {
             return Err(InterestRateError::InvalidParameter);
         }
         next.base_rate_bps = v;
@@ -196,14 +196,14 @@ pub fn update_config(
     }
 
     if let Some(v) = update.rate_floor_bps {
-        if v < 0 || v > BPS_SCALE {
+        if !(0..=BPS_SCALE).contains(&v) {
             return Err(InterestRateError::InvalidParameter);
         }
         next.rate_floor_bps = v;
     }
 
     if let Some(v) = update.rate_ceiling_bps {
-        if v < 0 || v > BPS_SCALE {
+        if !(0..=BPS_SCALE).contains(&v) {
             return Err(InterestRateError::InvalidParameter);
         }
         next.rate_ceiling_bps = v;
@@ -214,7 +214,7 @@ pub fn update_config(
     }
 
     if let Some(v) = update.spread_bps {
-        if v < 0 || v > BPS_SCALE {
+        if !(0..=BPS_SCALE).contains(&v) {
             return Err(InterestRateError::InvalidParameter);
         }
         next.spread_bps = v;

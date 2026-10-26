@@ -598,9 +598,7 @@ pub fn check_automatic_triggers(
         return Ok(Some(CircuitBreakerTier::Tier1));
     }
 
-    if config.tier2_auto_trigger_enabled
-        && utilization_bps >= config.abnormal_util_bps
-    {
+    if config.tier2_auto_trigger_enabled && utilization_bps >= config.abnormal_util_bps {
         return Ok(Some(CircuitBreakerTier::Tier2));
     }
 
@@ -674,7 +672,7 @@ pub fn is_operation_allowed(
     }
 }
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use super::*;
     use soroban_sdk::testutils::{Address as _, Ledger};

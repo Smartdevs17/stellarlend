@@ -251,7 +251,10 @@ mod tests {
     fn global_code_layout() {
         let d = ErrorDomain::new(ContractId::Lending, 1);
         assert_eq!(d.global_code(1), 2_010_001);
-        assert_eq!(ErrorDomain::primary(ContractId::Amm).global_code(7), 3_000_007);
+        assert_eq!(
+            ErrorDomain::primary(ContractId::Amm).global_code(7),
+            3_000_007
+        );
     }
 
     #[test]

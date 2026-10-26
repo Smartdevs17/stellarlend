@@ -42,7 +42,8 @@ impl StrategyPerformance {
         if self.total_liquidations == 1 {
             self.average_discount_bps = discount_bps;
         } else {
-            self.average_discount_bps = (self.average_discount_bps as u64).saturating_add(discount_bps as u64)
+            self.average_discount_bps = (self.average_discount_bps as u64)
+                .saturating_add(discount_bps as u64)
                 .checked_div(2)
                 .unwrap_or(0) as u32;
         }
@@ -51,7 +52,8 @@ impl StrategyPerformance {
         if self.total_liquidations == 1 {
             self.avg_gas_cost = gas_used;
         } else {
-            self.avg_gas_cost = (self.avg_gas_cost as u64).saturating_add(gas_used)
+            self.avg_gas_cost = (self.avg_gas_cost as u64)
+                .saturating_add(gas_used)
                 .checked_div(2)
                 .unwrap_or(0);
         }

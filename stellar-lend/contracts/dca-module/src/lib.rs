@@ -1,4 +1,6 @@
 #![no_std]
+#![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, symbol_short, Address, Env,
@@ -143,8 +145,12 @@ impl DcaModule {
             return Err(DcaError::AlreadyInitialized);
         }
         admin.require_auth();
-        env.storage().instance().set(&symbol_short!("admin"), &admin);
-        env.storage().instance().set(&symbol_short!("next_id"), &1u64);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("admin"), &admin);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("next_id"), &1u64);
         Ok(())
     }
 
@@ -177,7 +183,7 @@ impl DcaModule {
         }
 
         let token = soroban_sdk::token::Client::new(&env, &asset);
-        token.transfer(&owner, &env.current_contract_address(), &funded_amount);
+        token.transfer(&owner, env.current_contract_address(), &funded_amount);
 
         let current_ledger = env.ledger().sequence() as u64;
         let interval = Self::frequency_to_ledgers(&frequency);
@@ -259,11 +265,12 @@ impl DcaModule {
         // Anti-drift execution scheduling:
         // If keeper executes within the normal period, advance exactly by `interval` to avoid cumulative drift.
         // If execution is critically delayed by >= full interval, catch up to current_ledger + interval.
-        plan.next_execution_ledger = if current_ledger >= plan.next_execution_ledger.saturating_add(interval) {
-            current_ledger.saturating_add(interval)
-        } else {
-            plan.next_execution_ledger.saturating_add(interval)
-        };
+        plan.next_execution_ledger =
+            if current_ledger >= plan.next_execution_ledger.saturating_add(interval) {
+                current_ledger.saturating_add(interval)
+            } else {
+                plan.next_execution_ledger.saturating_add(interval)
+            };
 
         if plan.total_executions >= plan.max_executions {
             plan.status = DcaPlanStatus::Completed;
@@ -400,9 +407,15 @@ impl DcaModule {
     }
 
     fn next_id(env: &Env) -> u64 {
-        let id: u64 = env.storage().instance().get(&symbol_short!("next_id")).unwrap_or(1);
+        let id: u64 = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("next_id"))
+            .unwrap_or(1);
         let next = id.checked_add(1).unwrap_or(id);
-        env.storage().instance().set(&symbol_short!("next_id"), &next);
+        env.storage()
+            .instance()
+            .set(&symbol_short!("next_id"), &next);
         id
     }
 

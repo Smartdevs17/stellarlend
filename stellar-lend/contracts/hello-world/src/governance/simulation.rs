@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, String, Vec};
+use soroban_sdk::{Env, String, Vec};
 
 use crate::errors::GovernanceError;
 use crate::storage::GovernanceDataKey;
@@ -7,8 +7,6 @@ use crate::types::{
     ProposalDryRunResult, ProposalSimulationResult, ProposalType, StateDiffEntry,
     BASIS_POINTS_SCALE,
 };
-
-use super::get_admin;
 
 fn compute_simulation(env: &Env, proposal: &Proposal) -> ProposalSimulationResult {
     let now = env.ledger().timestamp();

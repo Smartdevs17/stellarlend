@@ -1,7 +1,8 @@
 #![no_std]
 extern crate alloc;
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, IntoVal, Val, Vec,
+    contract, contracterror, contractimpl, contracttype, token, Address, Bytes, BytesN, Env,
+    IntoVal, Val, Vec,
 };
 
 /// Storage key for the reentrancy guard.

@@ -12,8 +12,6 @@
 //! pulling in the larger contract crate (whose test infrastructure is mid
 //! refactor and currently fails to compile).
 
-#![cfg(test)]
-
 use soroban_sdk::{contracterror, Env, Symbol};
 
 use crate::analytics::ErrorAnalytics;
@@ -82,9 +80,7 @@ impl From<BorrowError> for LendingError {
             BorrowError::InsufficientCollateral => LendingError::InsufficientCollateral,
             BorrowError::Reentrancy => LendingError::Reentrancy,
             BorrowError::BorrowPaused => LendingError::ProtocolPaused,
-            BorrowError::InsufficientCollateralRatio => {
-                LendingError::InsufficientCollateralRatio
-            }
+            BorrowError::InsufficientCollateralRatio => LendingError::InsufficientCollateralRatio,
             BorrowError::Overflow => LendingError::Overflow,
             BorrowError::MaxBorrowExceeded => LendingError::LimitExceeded,
             BorrowError::AssetNotEnabled => LendingError::AssetNotEnabled,

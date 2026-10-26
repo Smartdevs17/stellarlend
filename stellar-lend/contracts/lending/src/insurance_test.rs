@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::*;
 use soroban_sdk::{testutils::Address as _, Address, Env};
 
@@ -146,7 +144,7 @@ fn test_premium_rate_is_dynamic() {
     let payer = Address::generate(&env);
     client.insurance_collect_premium(&payer, &asset, &100_000);
     let rate = client.insurance_get_premium_rate(&asset);
-    assert!(rate >= 10 && rate <= 500);
+    assert!((10..=500).contains(&rate));
 }
 
 // ─── Claim submission ─────────────────────────────────────────────────────────

@@ -80,7 +80,7 @@ impl CreditDelegationContract {
         if max_amount <= 0 {
             panic!("max amount must be positive");
         }
-        if interest_rate_bps < 0 || interest_rate_bps > 10000 {
+        if !(0..=10000).contains(&interest_rate_bps) {
             panic!("interest rate must be between 0 and 10000 bps");
         }
         if maturity <= u64::from(env.ledger().sequence()) {
@@ -304,7 +304,9 @@ impl CreditDelegationContract {
         if new_delegator == credit_line.delegate {
             panic!("cannot transfer to delegate");
         }
-        if credit_line.status == CreditStatus::Defaulted || credit_line.status == CreditStatus::Repaid {
+        if credit_line.status == CreditStatus::Defaulted
+            || credit_line.status == CreditStatus::Repaid
+        {
             panic!("cannot transfer inactive credit line");
         }
 

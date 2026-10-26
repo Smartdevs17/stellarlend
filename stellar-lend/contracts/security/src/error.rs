@@ -22,19 +22,14 @@ pub enum ReentrancyError {
 }
 
 /// How the guard behaves in read-only contexts.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
 pub enum GuardBehavior {
     /// Read-only functions may re-enter, but the re-entrancy is tracked and
     /// surfaced through [`ReentrancyGuard::is_read_only_reentrancy`].
+    #[default]
     AllowReadOnlyReentry,
     /// Read-only re-entrancy is rejected outright.
     RejectReadOnlyReentry,
-}
-
-impl Default for GuardBehavior {
-    fn default() -> Self {
-        GuardBehavior::AllowReadOnlyReentry
-    }
 }
 
 // Unified error registry: protocol-wide global codes, messages and recovery

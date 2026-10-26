@@ -11,4 +11,3 @@ fn initialize_requires_admin_auth() {
 
     client.initialize(&admin, &1_000_000_000, &1_000);
 }
-

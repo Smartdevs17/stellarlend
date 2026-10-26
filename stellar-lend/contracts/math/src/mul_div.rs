@@ -177,7 +177,7 @@ mod proptests {
         ) {
             let e = Env::default();
             let result = mul_div(&e, a, b, d).unwrap();
-            let expected = (a as i128).saturating_mul(b as i128) / d;
+            let expected = a.saturating_mul(b) / d;
             assert_eq!(result, expected);
         }
 

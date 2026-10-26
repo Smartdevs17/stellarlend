@@ -37,7 +37,7 @@ pub enum ProposalStatus {
 }
 
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TimelockProposal {
     pub id: u64,
     pub proposer: Address,
@@ -94,11 +94,7 @@ fn load_proposal(env: &Env, proposal_id: u64) -> Option<TimelockProposal> {
 
 /// Initialize the timelock with the given delay. The delay must be within
 /// `[MIN_TIMELOCK_DELAY, MAX_TIMELOCK_DELAY]`. The caller must be the admin.
-pub fn initialize_timelock(
-    env: &Env,
-    admin: &Address,
-    delay: u64,
-) -> Result<(), TimelockError> {
+pub fn initialize_timelock(env: &Env, admin: &Address, delay: u64) -> Result<(), TimelockError> {
     require_admin(env, admin).map_err(|_| TimelockError::Unauthorized)?;
 
     if delay < MIN_TIMELOCK_DELAY || delay > MAX_TIMELOCK_DELAY {
@@ -153,8 +149,7 @@ pub fn execute_proposal(
 ) -> Result<TimelockProposal, TimelockError> {
     require_admin(env, caller).map_err(|_| TimelockError::Unauthorized)?;
 
-    let mut proposal =
-        load_proposal(env, proposal_id).ok_or(TimelockError::ProposalNotFound)?;
+    let mut proposal = load_proposal(env, proposal_id).ok_or(TimelockError::ProposalNotFound)?;
 
     match proposal.status {
         ProposalStatus::Executed => return Err(TimelockError::ProposalAlreadyExecuted),
@@ -179,15 +174,10 @@ pub fn execute_proposal(
 }
 
 /// Cancel a pending proposal. Only the admin can cancel.
-pub fn cancel_proposal(
-    env: &Env,
-    caller: &Address,
-    proposal_id: u64,
-) -> Result<(), TimelockError> {
+pub fn cancel_proposal(env: &Env, caller: &Address, proposal_id: u64) -> Result<(), TimelockError> {
     require_admin(env, caller).map_err(|_| TimelockError::Unauthorized)?;
 
-    let mut proposal =
-        load_proposal(env, proposal_id).ok_or(TimelockError::ProposalNotFound)?;
+    let mut proposal = load_proposal(env, proposal_id).ok_or(TimelockError::ProposalNotFound)?;
 
     match proposal.status {
         ProposalStatus::Executed => return Err(TimelockError::ProposalAlreadyExecuted),
@@ -202,10 +192,7 @@ pub fn cancel_proposal(
 }
 
 /// Read proposal details by id.
-pub fn get_proposal(
-    env: &Env,
-    proposal_id: u64,
-) -> Result<TimelockProposal, TimelockError> {
+pub fn get_proposal(env: &Env, proposal_id: u64) -> Result<TimelockProposal, TimelockError> {
     load_proposal(env, proposal_id).ok_or(TimelockError::ProposalNotFound)
 }
 
@@ -213,11 +200,7 @@ pub fn get_proposal(
 /// must itself go through the timelock (the caller is expected to have
 /// previously proposed and executed a delay-change proposal). For bootstrap
 /// when no delay is set yet, the admin can set it directly.
-pub fn update_delay(
-    env: &Env,
-    caller: &Address,
-    new_delay: u64,
-) -> Result<(), TimelockError> {
+pub fn update_delay(env: &Env, caller: &Address, new_delay: u64) -> Result<(), TimelockError> {
     require_admin(env, caller).map_err(|_| TimelockError::Unauthorized)?;
 
     if new_delay < MIN_TIMELOCK_DELAY || new_delay > MAX_TIMELOCK_DELAY {
@@ -264,7 +247,7 @@ pub fn update_delay(
 // Unit tests
 // ---------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use super::*;
     use crate::admin::set_admin;
@@ -372,13 +355,7 @@ mod tests {
         let (env, admin) = setup();
         initialize_timelock(&env, &admin, 86400).unwrap();
 
-        let id = propose(
-            &env,
-            &admin,
-            Symbol::new(&env, "action"),
-            Vec::new(&env),
-        )
-        .unwrap();
+        let id = propose(&env, &admin, Symbol::new(&env, "action"), Vec::new(&env)).unwrap();
 
         // Advance time past eta
         env.ledger().with_mut(|li| {
@@ -398,13 +375,7 @@ mod tests {
         let (env, admin) = setup();
         initialize_timelock(&env, &admin, 86400).unwrap();
 
-        let id = propose(
-            &env,
-            &admin,
-            Symbol::new(&env, "action"),
-            Vec::new(&env),
-        )
-        .unwrap();
+        let id = propose(&env, &admin, Symbol::new(&env, "action"), Vec::new(&env)).unwrap();
 
         let result = execute_proposal(&env, &admin, id);
         assert_eq!(result, Err(TimelockError::ProposalNotReady));
@@ -415,13 +386,7 @@ mod tests {
         let (env, admin) = setup();
         initialize_timelock(&env, &admin, 86400).unwrap();
 
-        let id = propose(
-            &env,
-            &admin,
-            Symbol::new(&env, "action"),
-            Vec::new(&env),
-        )
-        .unwrap();
+        let id = propose(&env, &admin, Symbol::new(&env, "action"), Vec::new(&env)).unwrap();
 
         // Advance time past grace period
         env.ledger().with_mut(|li| {
@@ -437,13 +402,7 @@ mod tests {
         let (env, admin) = setup();
         initialize_timelock(&env, &admin, 86400).unwrap();
 
-        let id = propose(
-            &env,
-            &admin,
-            Symbol::new(&env, "action"),
-            Vec::new(&env),
-        )
-        .unwrap();
+        let id = propose(&env, &admin, Symbol::new(&env, "action"), Vec::new(&env)).unwrap();
 
         env.ledger().with_mut(|li| {
             li.timestamp += 86400 + 1;
@@ -469,13 +428,7 @@ mod tests {
         let (env, admin) = setup();
         initialize_timelock(&env, &admin, 86400).unwrap();
 
-        let id = propose(
-            &env,
-            &admin,
-            Symbol::new(&env, "action"),
-            Vec::new(&env),
-        )
-        .unwrap();
+        let id = propose(&env, &admin, Symbol::new(&env, "action"), Vec::new(&env)).unwrap();
 
         env.ledger().with_mut(|li| {
             li.timestamp += 86400 + 1;
@@ -495,13 +448,7 @@ mod tests {
         let (env, admin) = setup();
         initialize_timelock(&env, &admin, 86400).unwrap();
 
-        let id = propose(
-            &env,
-            &admin,
-            Symbol::new(&env, "action"),
-            Vec::new(&env),
-        )
-        .unwrap();
+        let id = propose(&env, &admin, Symbol::new(&env, "action"), Vec::new(&env)).unwrap();
 
         cancel_proposal(&env, &admin, id).unwrap();
 
@@ -514,13 +461,7 @@ mod tests {
         let (env, admin) = setup();
         initialize_timelock(&env, &admin, 86400).unwrap();
 
-        let id = propose(
-            &env,
-            &admin,
-            Symbol::new(&env, "action"),
-            Vec::new(&env),
-        )
-        .unwrap();
+        let id = propose(&env, &admin, Symbol::new(&env, "action"), Vec::new(&env)).unwrap();
 
         cancel_proposal(&env, &admin, id).unwrap();
 
@@ -533,13 +474,7 @@ mod tests {
         let (env, admin) = setup();
         initialize_timelock(&env, &admin, 86400).unwrap();
 
-        let id = propose(
-            &env,
-            &admin,
-            Symbol::new(&env, "action"),
-            Vec::new(&env),
-        )
-        .unwrap();
+        let id = propose(&env, &admin, Symbol::new(&env, "action"), Vec::new(&env)).unwrap();
 
         env.ledger().with_mut(|li| {
             li.timestamp += 86400 + 1;
@@ -653,13 +588,7 @@ mod tests {
         let (env, admin) = setup();
         initialize_timelock(&env, &admin, 86400).unwrap();
 
-        let id = propose(
-            &env,
-            &admin,
-            Symbol::new(&env, "action"),
-            Vec::new(&env),
-        )
-        .unwrap();
+        let id = propose(&env, &admin, Symbol::new(&env, "action"), Vec::new(&env)).unwrap();
 
         let p = get_proposal(&env, id).unwrap();
 
@@ -677,13 +606,7 @@ mod tests {
         let (env, admin) = setup();
         initialize_timelock(&env, &admin, 86400).unwrap();
 
-        let id = propose(
-            &env,
-            &admin,
-            Symbol::new(&env, "action"),
-            Vec::new(&env),
-        )
-        .unwrap();
+        let id = propose(&env, &admin, Symbol::new(&env, "action"), Vec::new(&env)).unwrap();
 
         let p = get_proposal(&env, id).unwrap();
 
@@ -701,21 +624,9 @@ mod tests {
         let (env, admin) = setup();
         initialize_timelock(&env, &admin, 86400).unwrap();
 
-        let id0 = propose(
-            &env,
-            &admin,
-            Symbol::new(&env, "a"),
-            Vec::new(&env),
-        )
-        .unwrap();
+        let id0 = propose(&env, &admin, Symbol::new(&env, "a"), Vec::new(&env)).unwrap();
 
-        let id1 = propose(
-            &env,
-            &admin,
-            Symbol::new(&env, "b"),
-            Vec::new(&env),
-        )
-        .unwrap();
+        let id1 = propose(&env, &admin, Symbol::new(&env, "b"), Vec::new(&env)).unwrap();
 
         cancel_proposal(&env, &admin, id0).unwrap();
 

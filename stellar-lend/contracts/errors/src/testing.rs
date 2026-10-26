@@ -28,12 +28,30 @@ pub fn assert_registry<E: ContractError + core::fmt::Debug + PartialEq>() {
     assert!(!variants.is_empty(), "error registry is empty");
     for v in variants {
         let d = v.describe();
-        assert_eq!(E::from_local_code(d.local_code), Some(*v), "{:?} does not round-trip", v);
+        assert_eq!(
+            E::from_local_code(d.local_code),
+            Some(*v),
+            "{:?} does not round-trip",
+            v
+        );
         let (domain, local) =
             decode_global_code(d.global_code).expect("global code has unknown contract");
-        assert_eq!(domain, E::DOMAIN, "{:?} global code decodes to wrong domain", v);
-        assert_eq!(local, d.local_code, "{:?} global code decodes to wrong local code", v);
-        assert!(!d.name.is_empty() && !d.message.is_empty(), "{:?} has no message", v);
+        assert_eq!(
+            domain,
+            E::DOMAIN,
+            "{:?} global code decodes to wrong domain",
+            v
+        );
+        assert_eq!(
+            local, d.local_code,
+            "{:?} global code decodes to wrong local code",
+            v
+        );
+        assert!(
+            !d.name.is_empty() && !d.message.is_empty(),
+            "{:?} has no message",
+            v
+        );
         assert!(!d.suggestion().is_empty(), "{:?} has no suggestion", v);
     }
 }

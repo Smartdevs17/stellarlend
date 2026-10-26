@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UserAction {
@@ -16,12 +16,12 @@ impl UserAction {
             UserAction::Borrow,
             UserAction::Repay,
         ];
-        choices[rng.gen_range(0..choices.len())]
+        choices[rng.random_range(0..choices.len())]
     }
 
     pub fn weighted_random<R: Rng>(rng: &mut R) -> Self {
         // Realistic distribution: more deposits and borrows, fewer withdraws/repays
-        let rand = rng.gen_range(0..100);
+        let rand = rng.random_range(0..100);
         match rand {
             0..=35 => UserAction::Deposit, // 36%
             36..=55 => UserAction::Borrow, // 20%
@@ -48,7 +48,7 @@ mod tests {
 
     #[test]
     fn test_random_action_generation() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for _ in 0..100 {
             let action = UserAction::random(&mut rng);
             assert!(matches!(
@@ -60,7 +60,7 @@ mod tests {
 
     #[test]
     fn test_weighted_distribution() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut counts = [0, 0, 0, 0];
         for _ in 0..10000 {
             match UserAction::weighted_random(&mut rng) {

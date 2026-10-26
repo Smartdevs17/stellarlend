@@ -151,9 +151,7 @@ pub fn deposit_state(env: &Env) -> DepositHotState {
 
 /// `true` once the packed deposit slot has been materialised in storage.
 pub fn is_deposit_state_initialized(env: &Env) -> bool {
-    env.storage()
-        .persistent()
-        .has(&HotStorageKey::DepositState)
+    env.storage().persistent().has(&HotStorageKey::DepositState)
 }
 
 /// Eagerly migrate legacy per-field entries into the packed slot.

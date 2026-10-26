@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 extern crate alloc;
 
 use alloc::string::ToString as _;

@@ -110,7 +110,7 @@ cmd_report() {
     (
         cd "${SL_DIR}"
         cargo run -p stellarlend-benchmarks --bin run_benchmarks --release -- \
-            --output "../${RESULTS}" 2>&1 | sed 's/^/[bench] /' >&2
+            --output "${RESULTS}" 2>&1 | sed 's/^/[bench] /' >&2
     )
     if [[ ! -f "${RESULTS}" ]]; then
         log "ERROR: benchmark suite produced no report at ${RESULTS}"
@@ -169,7 +169,7 @@ with open(sidecar, "w") as f:
     json.dump({"total": len(rows), "improvements": improvements,
                "regressions": regressions, "average_change": average,
                "rows": rows}, f, indent=2)
-log(f"wrote {sidecar}")
+print(f"[gas-report] wrote {sidecar}", file=sys.stderr)
 PY
 }
 

@@ -1,6 +1,7 @@
+#![allow(deprecated)]
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, Val, IntoVal};
+use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, IntoVal, Val};
 
 const BPS_BASE: i128 = 10_000;
 

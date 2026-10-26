@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! # StellarLend Unified Error Framework
 //!
 //! Provides one consistent error-handling foundation for every StellarLend contract
@@ -88,7 +89,7 @@ pub use contract_error::{explain, ContractError};
 pub use domain::{decode_global_code, ContractId, ErrorDomain};
 pub use logging::{log_contract_error, log_error, log_error_with_tag};
 pub use mapping::{lending_code_to_core, lending_code_to_core_or_internal, LendingCode};
-pub use recovery::{recover, hint, RecoveryDecision};
+pub use recovery::{hint, recover, RecoveryDecision};
 
 /// Canonical, namespace-agnostic error categories shared across all contracts.
 ///

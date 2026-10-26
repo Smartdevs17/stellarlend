@@ -70,15 +70,13 @@ mod tests {
     fn function_guard_blocks_then_releases() {
         let env = Env::default();
         in_contract(&env, || {
-            let _g = ReentrancyGuard::new_with_key(&env, ReentrancyKey::DepositLock, false)
-                .unwrap();
+            let _g =
+                ReentrancyGuard::new_with_key(&env, ReentrancyKey::DepositLock, false).unwrap();
             assert!(
                 ReentrancyGuard::new_with_key(&env, ReentrancyKey::DepositLock, false).is_err()
             );
             drop(_g);
-            assert!(
-                ReentrancyGuard::new_with_key(&env, ReentrancyKey::DepositLock, false).is_ok()
-            );
+            assert!(ReentrancyGuard::new_with_key(&env, ReentrancyKey::DepositLock, false).is_ok());
         });
     }
 
@@ -109,17 +107,23 @@ mod tests {
                 ReentrancyGuard::new_with_caller(&env, ReentrancyKey::GlobalLock, &caller, false)
                     .unwrap();
             // Same caller re-entry is rejected while `_g` is held (GlobalLock+cross-contract armed).
-            assert!(
-                ReentrancyGuard::new_with_caller(&env, ReentrancyKey::GlobalLock, &caller, false)
-                    .is_err()
-            );
+            assert!(ReentrancyGuard::new_with_caller(
+                &env,
+                ReentrancyKey::GlobalLock,
+                &caller,
+                false
+            )
+            .is_err());
             drop(_g);
             // After release, a different caller acquires a fresh guard.
             let other = Address::generate(&env);
-            assert!(
-                ReentrancyGuard::new_with_caller(&env, ReentrancyKey::GlobalLock, &other, false)
-                    .is_ok()
-            );
+            assert!(ReentrancyGuard::new_with_caller(
+                &env,
+                ReentrancyKey::GlobalLock,
+                &other,
+                false
+            )
+            .is_ok());
         });
     }
 
@@ -135,7 +139,8 @@ mod tests {
 
     #[test]
     fn configure_reports_bundle() {
-        let cfg = ReentrancyGuard::configure(&[("deposit", false), ("withdraw", false), ("query", true)]);
+        let cfg =
+            ReentrancyGuard::configure(&[("deposit", false), ("withdraw", false), ("query", true)]);
         assert_eq!(cfg.function_guards, 2);
         assert_eq!(cfg.read_only_guards, 1);
         assert_eq!(cfg.cross_contract_guards, 0);

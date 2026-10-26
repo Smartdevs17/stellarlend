@@ -355,7 +355,7 @@ pub fn write_markdown(results: &[BenchmarkResult], path: &str) {
         );
         for finding in &findings {
             markdown.push_str(&format!(
-                "| {:?} | {} | {:,} | {} | {} |\n",
+                "| {:?} | {} | {} | {} | {} |\n",
                 finding.severity,
                 finding.operation,
                 finding.instruction_overage,
@@ -363,7 +363,7 @@ pub fn write_markdown(results: &[BenchmarkResult], path: &str) {
                 finding.recommendation
             ));
         }
-        markdown.push_str("\n");
+        markdown.push('\n');
     }
 
     // Group by contract
@@ -386,11 +386,11 @@ pub fn write_markdown(results: &[BenchmarkResult], path: &str) {
             let storage = format!("R:{} W:{}", r.storage_reads, r.storage_writes);
             let cold_tag = if r.cold_storage { " (cold)" } else { "" };
             markdown.push_str(&format!(
-                "| {}{} | {:,} | {:,} | {} | {} |\n",
+                "| {}{} | {} | {} | {} | {} |\n",
                 r.operation, cold_tag, r.instructions, r.memory_bytes, storage, status
             ));
         }
-        markdown.push_str("\n");
+        markdown.push('\n');
     }
 
     fs::write(path, markdown).expect("Failed to write markdown report");

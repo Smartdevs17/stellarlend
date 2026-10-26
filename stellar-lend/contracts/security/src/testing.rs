@@ -37,14 +37,20 @@ pub fn assert_function_guard_blocks_reentry(env: &Env, key: crate::ReentrancyKey
 /// Assert that a cross-contract guard bound to `caller` blocks a second
 /// cross-contract acquisition for the same caller, but allows a different one.
 pub fn assert_cross_contract_guard(env: &Env, caller: &Address) {
-    let guard = ReentrancyGuard::new_with_caller(env, crate::ReentrancyKey::GlobalLock, caller, false);
-    assert!(guard.is_ok(), "first cross-contract acquisition should succeed");
+    let guard =
+        ReentrancyGuard::new_with_caller(env, crate::ReentrancyKey::GlobalLock, caller, false);
+    assert!(
+        guard.is_ok(),
+        "first cross-contract acquisition should succeed"
+    );
 
     let other = Address::generate(env);
-    let same = ReentrancyGuard::new_with_caller(env, crate::ReentrancyKey::GlobalLock, caller, false);
+    let same =
+        ReentrancyGuard::new_with_caller(env, crate::ReentrancyKey::GlobalLock, caller, false);
     assert!(same.is_err(), "same caller reentry should be blocked");
 
-    let diff = ReentrancyGuard::new_with_caller(env, crate::ReentrancyKey::GlobalLock, &other, false);
+    let diff =
+        ReentrancyGuard::new_with_caller(env, crate::ReentrancyKey::GlobalLock, &other, false);
     assert!(diff.is_ok(), "different caller should be allowed");
 
     drop(guard);

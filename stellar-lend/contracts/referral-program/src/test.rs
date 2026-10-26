@@ -23,8 +23,14 @@ fn referral_records_and_stats_are_scoped_to_addresses() {
     client.register_referral(&referee_a, &referrer_a);
     client.register_referral(&referee_b, &referrer_b);
 
-    assert_eq!(client.get_referral(&referee_a).unwrap().referrer, referrer_a);
-    assert_eq!(client.get_referral(&referee_b).unwrap().referrer, referrer_b);
+    assert_eq!(
+        client.get_referral(&referee_a).unwrap().referrer,
+        referrer_a
+    );
+    assert_eq!(
+        client.get_referral(&referee_b).unwrap().referrer,
+        referrer_b
+    );
     assert_eq!(client.get_referrer_stats(&referrer_a).total_referrals, 1);
     assert_eq!(client.get_referrer_stats(&referrer_b).total_referrals, 1);
 }
@@ -43,4 +49,3 @@ fn accrue_fee_requires_referee_auth() {
     env.set_auths(&[]);
     client.accrue_fee(&referee, &100);
 }
-

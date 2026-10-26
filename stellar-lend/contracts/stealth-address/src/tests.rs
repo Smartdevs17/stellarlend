@@ -238,10 +238,14 @@ fn test_stealth_address_persisted_by_key_no_overwrite() {
     assert_ne!(addr1.stealth_public_key, addr2.stealth_public_key);
 
     // Both addresses are safely preserved and retrievable by their unique stealth public key
-    let retrieved1 = client.get_stealth_address_by_key(&addr1.stealth_public_key).unwrap();
+    let retrieved1 = client
+        .get_stealth_address_by_key(&addr1.stealth_public_key)
+        .unwrap();
     assert_eq!(retrieved1.ephemeral_public_key, eph1);
 
-    let retrieved2 = client.get_stealth_address_by_key(&addr2.stealth_public_key).unwrap();
+    let retrieved2 = client
+        .get_stealth_address_by_key(&addr2.stealth_public_key)
+        .unwrap();
     assert_eq!(retrieved2.ephemeral_public_key, eph2);
 
     // Latest stealth address for user points to addr2

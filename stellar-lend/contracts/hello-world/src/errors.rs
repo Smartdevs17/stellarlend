@@ -176,8 +176,7 @@ macro_rules! impl_from_error {
 
 impl_from_error!(AdminError, {
     AdminError::Unauthorized => LendingError::Unauthorized,
-    AdminError::InvalidParameter => LendingError::InvalidParameter,
-    AdminError::AdminAlreadySet => LendingError::AlreadyInitialized,
+    AdminError::InvalidAdmin => LendingError::InvalidParameter,
 });
 
 impl_from_error!(AnalyticsError, {
@@ -403,6 +402,7 @@ impl_from_error!(DebtTokenError, {
 impl From<CrossAssetError> for LendingError {
     fn from(error: CrossAssetError) -> Self {
         match error {
+            CrossAssetError::InvalidAmount => LendingError::InvalidAmount,
             CrossAssetError::AssetNotConfigured => LendingError::DataNotFound,
             CrossAssetError::AssetDisabled => LendingError::AssetNotEnabled,
             CrossAssetError::InsufficientCollateral => LendingError::InsufficientCollateral,

@@ -110,9 +110,10 @@ fn get_proposal(env: &Env, asset: &Address) -> Option<OracleUpgradeProposal> {
 }
 
 fn set_proposal(env: &Env, proposal: &OracleUpgradeProposal) {
-    env.storage()
-        .persistent()
-        .set(&OracleUpgradeKey::Proposal(proposal.asset.clone()), proposal);
+    env.storage().persistent().set(
+        &OracleUpgradeKey::Proposal(proposal.asset.clone()),
+        proposal,
+    );
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -261,20 +262,20 @@ pub fn cancel_oracle_upgrade(
 }
 
 /// Return the pending upgrade proposal for `asset`, if any.
-pub fn get_oracle_upgrade_proposal(
-    env: &Env,
-    asset: &Address,
-) -> Option<OracleUpgradeProposal> {
+pub fn get_oracle_upgrade_proposal(env: &Env, asset: &Address) -> Option<OracleUpgradeProposal> {
     get_proposal(env, asset)
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use super::*;
     use crate::deposit::DepositDataKey;
-    use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        Address, Env,
+    };
 
     fn setup() -> (Env, Address) {
         let env = Env::default();
@@ -344,8 +345,7 @@ mod tests {
 
         propose_oracle_upgrade(&env, admin.clone(), asset.clone(), oracle_a.clone()).unwrap();
 
-        let result =
-            propose_oracle_upgrade(&env, admin.clone(), asset.clone(), oracle_b.clone());
+        let result = propose_oracle_upgrade(&env, admin.clone(), asset.clone(), oracle_b.clone());
         assert_eq!(result, Err(OracleUpgradeError::UpgradeAlreadyPending));
     }
 

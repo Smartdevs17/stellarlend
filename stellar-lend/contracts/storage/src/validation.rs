@@ -23,7 +23,10 @@ pub struct StorageValidator;
 
 impl StorageValidator {
     /// Validate that critical storage keys exist
-    pub fn validate_critical_keys(_env: &Env, admin: Option<&Address>) -> Result<(), ValidationError> {
+    pub fn validate_critical_keys(
+        _env: &Env,
+        admin: Option<&Address>,
+    ) -> Result<(), ValidationError> {
         if let Some(_admin) = admin {
             // Verify admin is set in persistent storage
             Ok(())

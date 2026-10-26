@@ -492,18 +492,54 @@ mod tests {
     #[test]
     fn test_letter_grade_thresholds() {
         let t = TestEnv::new();
-        assert_eq!(score_to_letter_grade(&t.env, 1000), String::from_str(&t.env, "A+"));
-        assert_eq!(score_to_letter_grade(&t.env, 950), String::from_str(&t.env, "A+"));
-        assert_eq!(score_to_letter_grade(&t.env, 920), String::from_str(&t.env, "A"));
-        assert_eq!(score_to_letter_grade(&t.env, 870), String::from_str(&t.env, "A-"));
-        assert_eq!(score_to_letter_grade(&t.env, 820), String::from_str(&t.env, "B+"));
-        assert_eq!(score_to_letter_grade(&t.env, 770), String::from_str(&t.env, "B"));
-        assert_eq!(score_to_letter_grade(&t.env, 720), String::from_str(&t.env, "B-"));
-        assert_eq!(score_to_letter_grade(&t.env, 670), String::from_str(&t.env, "C+"));
-        assert_eq!(score_to_letter_grade(&t.env, 620), String::from_str(&t.env, "C"));
-        assert_eq!(score_to_letter_grade(&t.env, 570), String::from_str(&t.env, "C-"));
-        assert_eq!(score_to_letter_grade(&t.env, 500), String::from_str(&t.env, "D"));
-        assert_eq!(score_to_letter_grade(&t.env, 250), String::from_str(&t.env, "D"));
+        assert_eq!(
+            score_to_letter_grade(&t.env, 1000),
+            String::from_str(&t.env, "A+")
+        );
+        assert_eq!(
+            score_to_letter_grade(&t.env, 950),
+            String::from_str(&t.env, "A+")
+        );
+        assert_eq!(
+            score_to_letter_grade(&t.env, 920),
+            String::from_str(&t.env, "A")
+        );
+        assert_eq!(
+            score_to_letter_grade(&t.env, 870),
+            String::from_str(&t.env, "A-")
+        );
+        assert_eq!(
+            score_to_letter_grade(&t.env, 820),
+            String::from_str(&t.env, "B+")
+        );
+        assert_eq!(
+            score_to_letter_grade(&t.env, 770),
+            String::from_str(&t.env, "B")
+        );
+        assert_eq!(
+            score_to_letter_grade(&t.env, 720),
+            String::from_str(&t.env, "B-")
+        );
+        assert_eq!(
+            score_to_letter_grade(&t.env, 670),
+            String::from_str(&t.env, "C+")
+        );
+        assert_eq!(
+            score_to_letter_grade(&t.env, 620),
+            String::from_str(&t.env, "C")
+        );
+        assert_eq!(
+            score_to_letter_grade(&t.env, 570),
+            String::from_str(&t.env, "C-")
+        );
+        assert_eq!(
+            score_to_letter_grade(&t.env, 500),
+            String::from_str(&t.env, "D")
+        );
+        assert_eq!(
+            score_to_letter_grade(&t.env, 250),
+            String::from_str(&t.env, "D")
+        );
     }
 }
 

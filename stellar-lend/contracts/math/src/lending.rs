@@ -202,10 +202,7 @@ pub fn simulate_health_factor(
     if debt_value == 0 {
         return i128::MAX;
     }
-    let scaled = 10_000i128
-        .checked_add(price_change_bps)
-        .unwrap_or(0)
-        .max(0);
+    let scaled = 10_000i128.checked_add(price_change_bps).unwrap_or(0).max(0);
     let new_collateral = collateral_value
         .checked_mul(scaled)
         .and_then(|v| v.checked_div(BPS_DIVISOR))
@@ -225,7 +222,7 @@ pub const MAX_CLOSE_FACTOR_BPS: i128 = 10_000;
 /// Validate that a close factor lies within the enforced limits
 /// ([`MIN_CLOSE_FACTOR_BPS`] ..= [`MAX_CLOSE_FACTOR_BPS`]).
 pub fn validate_close_factor_limits(bps: i128) -> Result<(), MathError> {
-    if bps < MIN_CLOSE_FACTOR_BPS || bps > MAX_CLOSE_FACTOR_BPS {
+    if !(MIN_CLOSE_FACTOR_BPS..=MAX_CLOSE_FACTOR_BPS).contains(&bps) {
         return Err(MathError::Overflow);
     }
     Ok(())
@@ -250,7 +247,7 @@ pub fn bad_debt_amount(
         .checked_mul(liquidation_threshold_bps)
         .and_then(|v| v.checked_div(BPS_DIVISOR))
         .unwrap_or(0);
-    debt_value.saturating_sub(collateral_at_threshold)
+    debt_value.saturating_sub(collateral_at_threshold).max(0)
 }
 
 /// Apply protocol reserves to cover bad debt.
@@ -288,16 +285,20 @@ pub fn liquidation_bonus_tiered(
     let bonus_bps = if tiers.is_empty() {
         0
     } else {
-        let mut selected = tiers.last().unwrap().bonus_bps;
+        // Pick the tightest tier whose ceiling is above the health factor.
+        let mut selected: Option<&LiquidationBonusTier> = None;
         for tier in tiers.iter() {
-            if health_factor_bps < tier.max_health_factor_bps {
-                selected = tier.bonus_bps;
-                break;
+            if health_factor_bps < tier.max_health_factor_bps
+                && selected.is_none_or(|s| tier.max_health_factor_bps < s.max_health_factor_bps)
+            {
+                selected = Some(tier);
             }
         }
         selected
+            .map(|t| t.bonus_bps)
+            .unwrap_or_else(|| tiers.last().unwrap().bonus_bps)
     };
-    liquidation_bonus(repay_amount, bonus_bps)
+    Ok(liquidation_bonus(repay_amount, bonus_bps))
 }
 
 #[cfg(test)]
@@ -320,10 +321,7 @@ mod tests {
 
     #[test]
     fn simulate_health_factor_no_debt_is_max() {
-        assert_eq!(
-            simulate_health_factor(1000, 0, 8000, -5000),
-            i128::MAX
-        );
+        assert_eq!(simulate_health_factor(1000, 0, 8000, -5000), i128::MAX);
     }
 
     #[test]
@@ -376,17 +374,14 @@ mod tests {
                 bonus_bps: 2000,
             },
         ];
-        // hf 12_000 -> first tier (15_000) -> 500
-        assert_eq!(liquidation_bonus_tiered(1000, 12_000, &tiers).unwrap(), 500);
-        // hf 8_000 -> second tier (10_000) -> 1000
-        assert_eq!(liquidation_bonus_tiered(1000, 8_000, &tiers).unwrap(), 1000);
-        // hf 3_000 -> third tier (5_000) -> 2000
-        assert_eq!(liquidation_bonus_tiered(1000, 3_000, &tiers).unwrap(), 2000);
-        // hf 20_000 -> no tier matches -> last tier default 2000
-        assert_eq!(
-            liquidation_bonus_tiered(1000, 20_000, &tiers).unwrap(),
-            2000
-        );
+        // hf 12_000 -> first tier (15_000) -> 500 bps on 1000 = 50
+        assert_eq!(liquidation_bonus_tiered(1000, 12_000, &tiers).unwrap(), 50);
+        // hf 8_000 -> second tier (10_000) -> 1000 bps on 1000 = 100
+        assert_eq!(liquidation_bonus_tiered(1000, 8_000, &tiers).unwrap(), 100);
+        // hf 3_000 -> third tier (5_000) -> 2000 bps on 1000 = 200
+        assert_eq!(liquidation_bonus_tiered(1000, 3_000, &tiers).unwrap(), 200);
+        // hf 20_000 -> no tier matches -> last tier default 2000 bps = 200
+        assert_eq!(liquidation_bonus_tiered(1000, 20_000, &tiers).unwrap(), 200);
     }
 
     #[test]

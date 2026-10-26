@@ -34,6 +34,7 @@ pub struct ProtocolAccountingState {
 }
 
 impl ProtocolAccountingState {
+    #[allow(dead_code)]
     pub fn new(
         total_deposits: i128,
         total_debt: i128,

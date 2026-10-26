@@ -141,10 +141,14 @@ pub struct CongestionState {
     pub factor_bps: i128,
     /// Which signal produced `congestion_bps`.
     pub source: Symbol,
-    /// The keeper report currently on file, if any (may be stale).
-    pub report: Option<CongestionReport>,
-    /// The ledger-interval sample currently on file, if any.
-    pub sample: Option<LedgerIntervalSample>,
+    /// Whether a keeper report is currently on file.
+    pub has_report: bool,
+    /// The keeper report currently on file (zeroed when absent; may be stale).
+    pub report: CongestionReport,
+    /// Whether a ledger-interval sample is currently on file.
+    pub has_sample: bool,
+    /// The ledger-interval sample currently on file (zeroed when absent).
+    pub sample: LedgerIntervalSample,
 }
 
 #[contracttype]
@@ -389,13 +393,27 @@ pub fn get_congestion_state(env: &Env) -> CongestionState {
     let cfg = get_congestion_config(env);
     let (congestion_bps, source) = resolve_congestion_bps(env, &cfg);
     let factor_bps = factor_bps_from_congestion(&cfg, congestion_bps);
+    let report = get_report(env);
+    let sample = get_sample(env);
+    let has_report = report.is_some();
+    let has_sample = sample.is_some();
     CongestionState {
         config: cfg,
         congestion_bps,
         factor_bps,
         source,
-        report: get_report(env),
-        sample: get_sample(env),
+        has_report,
+        report: report.unwrap_or(CongestionReport {
+            congestion_bps: 0,
+            reported_at: 0,
+            reporter: env.current_contract_address(),
+        }),
+        has_sample,
+        sample: sample.unwrap_or(LedgerIntervalSample {
+            anchor_sequence: 0,
+            anchor_timestamp: 0,
+            observed_secs_per_ledger: 0,
+        }),
     }
 }
 

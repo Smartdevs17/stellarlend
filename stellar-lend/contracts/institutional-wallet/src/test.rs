@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use super::*;
 use crate::types::{ProposalStatus, Transaction};
 use soroban_sdk::{
@@ -159,15 +157,8 @@ fn test_recovery_flow() {
     client.start_recovery(&guardian, &new_admins, &1);
 
     // Fast forward 25 hours
-    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
-        timestamp: 86400 + 3600,
-        protocol_version: 20,
-        sequence_number: 10,
-        network_id: [0u8; 32],
-        base_reserve: 10,
-        min_persistent_entry_ttl: 100,
-        min_temp_entry_ttl: 10,
-        max_entry_ttl: 1000,
+    env.ledger().with_mut(|li| {
+        li.timestamp = 86400 + 3600;
     });
 
     client.execute_recovery(&guardian);

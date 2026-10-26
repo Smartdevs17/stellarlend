@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::setup::{PositionSetup, TestEnvironment};
+    use crate::setup::PositionSetup;
     use crate::test_scenarios::ScenarioConfig;
 
     #[test]
@@ -30,7 +30,7 @@ mod tests {
 
     #[test]
     fn test_flash_loan_at_boundary_health_factor() {
-        let scenario = ScenarioConfig::boundary_health_factor();
+        let _scenario = ScenarioConfig::boundary_health_factor();
         let setup = PositionSetup::create_boundary_position();
 
         // Position should be at the edge of liquidatability
@@ -50,7 +50,7 @@ mod tests {
 
     #[test]
     fn test_liquidation_across_multiple_positions() {
-        let scenario = ScenarioConfig::profitable_liquidation();
+        let _scenario = ScenarioConfig::profitable_liquidation();
 
         // With 5M flash loan, can potentially liquidate multiple positions
         let position1 = PositionSetup::create_profitable_liquidation();
@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn test_partial_liquidation_insufficient_collateral() {
-        let scenario = ScenarioConfig::partial_liquidation();
+        let _scenario = ScenarioConfig::partial_liquidation();
         let setup = PositionSetup::create_unprofitable_liquidation();
 
         // Unprofitable position should not be liquidatable
@@ -105,7 +105,6 @@ mod tests {
         let setup = PositionSetup::create_profitable_liquidation();
 
         let initial_collateral = setup.collateral_amount;
-        let initial_debt = setup.borrowed_amount;
 
         // After liquidation, state should be consistent
         let collateral_seized = (initial_collateral * scenario.liquidation_incentive_bps) / 10_000;

@@ -1,6 +1,6 @@
 use crate::storage::StorageContext;
 use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use soroban_sdk::{Bytes, String as SorobanString};
 
 pub struct StateGenerator {
@@ -22,8 +22,8 @@ impl StateGenerator {
         count: usize,
     ) {
         for i in 0..count {
-            let collateral: i128 = self.rng.gen_range(100_000_000..10_000_000_000_000);
-            let debt: i128 = self.rng.gen_range(0..collateral / 2);
+            let collateral: i128 = self.rng.random_range(100_000_000..10_000_000_000_000);
+            let debt: i128 = self.rng.random_range(0..collateral / 2);
 
             let env = ctx.env.clone();
             let key = SorobanString::from_str(&env, &format!("user_{}_collateral", i));
@@ -46,10 +46,10 @@ impl StateGenerator {
         count: usize,
     ) {
         let assets = ["XLM", "USDC", "BTC", "ETH", "SOL"];
-        for i in 0..count.min(assets.len()) {
-            let price: i128 = self.rng.gen_range(1_000_000..100_000_000_000);
+        for asset in assets.iter().copied().take(count.min(assets.len())) {
+            let price: i128 = self.rng.random_range(1_000_000..100_000_000_000);
             let env = ctx.env.clone();
-            let key = SorobanString::from_str(&env, &format!("price_{}", assets[i]));
+            let key = SorobanString::from_str(&env, &format!("price_{}", asset));
             let val = Bytes::from_slice(&env, &price.to_be_bytes());
             keys.push(key);
             values.push(val);
@@ -64,13 +64,13 @@ impl StateGenerator {
     ) {
         let env = ctx.env.clone();
         let configs: Vec<(&str, u32)> = vec![
-            ("config_ltv", self.rng.gen_range(5000..8000)),
+            ("config_ltv", self.rng.random_range(5000..8000)),
             (
                 "config_liquidation_threshold",
-                self.rng.gen_range(8000..9500),
+                self.rng.random_range(8000..9500),
             ),
-            ("config_interest_rate", self.rng.gen_range(100..2000)),
-            ("config_reserve_factor", self.rng.gen_range(500..2000)),
+            ("config_interest_rate", self.rng.random_range(100..2000)),
+            ("config_reserve_factor", self.rng.random_range(500..2000)),
         ];
         for (name, val) in configs {
             let key = SorobanString::from_str(&env, name);

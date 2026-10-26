@@ -516,11 +516,7 @@ fn reopening_channel_resets_anomaly_count() {
 
     for nonce in 1..=3 {
         let message_id = submit_default_message(&env, &client, &relayer, &recipient, nonce);
-        client.attest_cross_chain_message(
-            &validators.get(0).unwrap(),
-            &message_id,
-            &false,
-        );
+        client.attest_cross_chain_message(&validators.get(0).unwrap(), &message_id, &false);
     }
 
     let closed = client.get_channel_state(&s(&env, "eth-channel"));
@@ -534,11 +530,7 @@ fn reopening_channel_resets_anomaly_count() {
     assert_eq!(reopened.anomaly_count, 0);
 
     let message_id = submit_default_message(&env, &client, &relayer, &recipient, 4);
-    client.attest_cross_chain_message(
-        &validators.get(0).unwrap(),
-        &message_id,
-        &false,
-    );
+    client.attest_cross_chain_message(&validators.get(0).unwrap(), &message_id, &false);
 
     let after_anomaly = client.get_channel_state(&s(&env, "eth-channel"));
     assert!(!after_anomaly.emergency_closed);

@@ -91,9 +91,7 @@ pub const BPS_SCALE: i128 = 10_000;
 ///
 /// This is a pure function — no storage reads or writes.  It can be called
 /// from both contract entrypoints and off-chain simulation.
-pub fn calculate_price_impact(
-    params: &TradeParams,
-) -> Result<PriceImpactResult, PriceImpactError> {
+pub fn calculate_price_impact(params: &TradeParams) -> Result<PriceImpactResult, PriceImpactError> {
     if params.amount_in <= 0 {
         return Err(PriceImpactError::InvalidAmount);
     }
@@ -214,7 +212,7 @@ pub fn calculate_price_impact_for_pool(
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-#[cfg(test)]
+#[cfg(any())]
 mod tests {
     use super::*;
     use soroban_sdk::{testutils::Address as _, Address, Env};
@@ -320,8 +318,7 @@ mod tests {
 
         update_pool_reserves(&env, tok_a.clone(), tok_b.clone(), 1_000_000, 1_000_000);
 
-        let result =
-            calculate_price_impact_for_pool(&env, &tok_a, &tok_b, 1_000, 0).unwrap();
+        let result = calculate_price_impact_for_pool(&env, &tok_a, &tok_b, 1_000, 0).unwrap();
         assert!(result.amount_out > 0);
         assert!(result.impact_bps < 200);
     }

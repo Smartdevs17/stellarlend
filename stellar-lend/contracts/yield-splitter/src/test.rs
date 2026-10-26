@@ -1,8 +1,6 @@
 #![cfg(test)]
 use crate::{YieldSplitter, YieldSplitterClient, YieldSplitterError};
-use soroban_sdk::{
-    testutils::Address as _, token::StellarAssetClient, Address, Env,
-};
+use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, Address, Env};
 
 fn setup() -> (Env, Address, YieldSplitterClient<'static>) {
     let env = Env::default();
@@ -121,8 +119,14 @@ fn test_split_requires_and_custodies_underlying() {
     let splitter_balance = token.balance(&contract_id);
     assert_eq!(splitter_balance, amount);
     assert_eq!(token.balance(&owner), 0);
-    assert_eq!(StellarAssetClient::new(&env, &principal_token).balance(&owner), amount);
-    assert_eq!(StellarAssetClient::new(&env, &yield_token).balance(&owner), amount);
+    assert_eq!(
+        StellarAssetClient::new(&env, &principal_token).balance(&owner),
+        amount
+    );
+    assert_eq!(
+        StellarAssetClient::new(&env, &yield_token).balance(&owner),
+        amount
+    );
 
     env.ledger().set_timestamp(maturity);
     let returned = client.merge_tokens(&owner, &position_id);
@@ -222,4 +226,3 @@ fn test_multi_user_solvency_and_no_principal_drain() {
     assert_eq!(token.balance(&bob), 100);
     assert_eq!(token.balance(&contract_id), 0);
 }
-

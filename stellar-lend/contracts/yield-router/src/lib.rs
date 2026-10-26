@@ -149,7 +149,7 @@ impl YieldRouter {
             .get(&DataKey::RegisteredPools)
             .unwrap_or(Vec::new(&env));
 
-        if (pools.len() as u32) >= config.max_pools {
+        if pools.len() >= config.max_pools {
             return Err(RouterError::MaxPoolsExceeded);
         }
 
@@ -196,7 +196,7 @@ impl YieldRouter {
 
         let allocations = Self::compute_allocation(&env, &asset, amount, &risk_profile)?;
 
-        if allocations.len() == 0 {
+        if allocations.is_empty() {
             return Err(RouterError::NoPoolsConfigured);
         }
 
@@ -442,7 +442,7 @@ impl YieldRouter {
         let new_allocations =
             Self::compute_allocation(&env, &asset, position.total_deposited, &profile)?;
 
-        if new_allocations.len() == 0 {
+        if new_allocations.is_empty() {
             return Err(RouterError::NoPoolsConfigured);
         }
 
@@ -584,7 +584,7 @@ impl YieldRouter {
             }
         }
 
-        if pools.len() == 0 {
+        if pools.is_empty() {
             return Err(RouterError::NoPoolsConfigured);
         }
 
@@ -594,7 +594,7 @@ impl YieldRouter {
             RiskProfile::Aggressive => (800u32, MAX_BPS),
         };
 
-        let pool_count = pools.len() as u32;
+        let pool_count = pools.len();
         if pool_count > 1 && pool_count.checked_mul(max_allocation_pct).unwrap_or(0) < MAX_BPS {
             return Err(RouterError::RiskProfileMismatch);
         }
@@ -610,7 +610,9 @@ impl YieldRouter {
             let weight_bps = if pool_count == 1 {
                 MAX_BPS
             } else if i == pools.len() - 1 {
-                let rem = MAX_BPS.checked_sub(allocated_bps).ok_or(RouterError::Overflow)?;
+                let rem = MAX_BPS
+                    .checked_sub(allocated_bps)
+                    .ok_or(RouterError::Overflow)?;
                 if rem > max_allocation_pct {
                     return Err(RouterError::RiskProfileMismatch);
                 }

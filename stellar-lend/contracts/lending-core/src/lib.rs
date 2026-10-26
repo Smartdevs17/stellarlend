@@ -1,6 +1,6 @@
 #![no_std]
 
-use lending_types::{CommonError, Position, ProtocolConfig, UserPosition};
+use lending_types::{CommonError, Position, ProtocolConfig};
 use soroban_sdk::{contract, contractimpl, Address, Env};
 
 #[contract]
@@ -62,8 +62,7 @@ mod tests {
         let contract_id = test_env.env.register(LendingCoreContract, ());
         let client = LendingCoreContractClient::new(&test_env.env, &contract_id);
 
-        let result = client.initialize(&test_env.admin, &1_000_000_000);
-        assert!(result.is_ok());
+        client.initialize(&test_env.admin, &1_000_000_000);
     }
 
     #[test]

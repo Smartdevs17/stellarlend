@@ -100,7 +100,9 @@ impl SorobanRpcClient {
         let client = Client::builder()
             .timeout(config.request_timeout)
             .pool_max_idle_per_host(config.pool_max_idle_per_host)
-            .pool_idle_timeout(std::time::Duration::from_secs(config.pool_idle_timeout_secs))
+            .pool_idle_timeout(std::time::Duration::from_secs(
+                config.pool_idle_timeout_secs,
+            ))
             .build()
             .map_err(BlockchainError::NetworkError)?;
 
@@ -196,10 +198,10 @@ impl SorobanRpcClient {
                 }
             })
             .await
-            .map_err(|e| BlockchainError::SorobanRpcError(e))?;
+            .map_err(BlockchainError::SorobanRpcError)?;
 
-        let result: Value =
-            serde_json::from_str(&raw).map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
+        let result: Value = serde_json::from_str(&raw)
+            .map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
 
         let sequence = result["sequence"].as_u64().ok_or_else(|| {
             BlockchainError::InvalidResponse("Missing sequence in ledger response".to_string())
@@ -300,10 +302,10 @@ impl SorobanRpcClient {
                 }
             })
             .await
-            .map_err(|e| BlockchainError::SorobanRpcError(e))?;
+            .map_err(BlockchainError::SorobanRpcError)?;
 
-        let result: Value =
-            serde_json::from_str(&raw).map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
+        let result: Value = serde_json::from_str(&raw)
+            .map_err(|e| BlockchainError::InvalidResponse(e.to_string()))?;
 
         let status_str = result["status"].as_str().ok_or_else(|| {
             BlockchainError::InvalidResponse("Missing status in transaction response".to_string())
@@ -347,7 +349,7 @@ impl SorobanRpcClient {
                 }
             })
             .await
-            .map_err(|e| BlockchainError::SorobanRpcError(e))?;
+            .map_err(BlockchainError::SorobanRpcError)?;
 
         serde_json::from_str(&raw).map_err(|e| BlockchainError::InvalidResponse(e.to_string()))
     }
@@ -369,7 +371,7 @@ impl SorobanRpcClient {
                 }
             })
             .await
-            .map_err(|e| BlockchainError::SorobanRpcError(e))?;
+            .map_err(BlockchainError::SorobanRpcError)?;
 
         serde_json::from_str(&raw).map_err(|e| BlockchainError::InvalidResponse(e.to_string()))
     }

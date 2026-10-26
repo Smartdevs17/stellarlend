@@ -415,8 +415,7 @@ mod tests {
 
     #[test]
     fn test_pool_config_builder() {
-        let config = BlockchainConfig::testnet()
-            .with_pool_config(20, 120, 200);
+        let config = BlockchainConfig::testnet().with_pool_config(20, 120, 200);
 
         assert_eq!(config.pool_max_idle_per_host, 20);
         assert_eq!(config.pool_idle_timeout_secs, 120);

@@ -22,8 +22,6 @@
 #[cfg(any(test, feature = "spec"))]
 mod upgrade_verification {
 
-    use alloc::{collections::BTreeSet, vec};
-
     /// Specification: Version monotonicity invariant
     /// Contract version can only increase or stay same, never decrease
     #[cfg(test)]
@@ -111,7 +109,7 @@ mod upgrade_verification {
             // CLAIM: approvals >= required_approvals before execute
             // PROOF: UpgradeManager checks approval count in execute_proposal
             let required = 3u32;
-            let approvals = vec!["admin1", "admin2", "admin3"];
+            let approvals = ["admin1", "admin2", "admin3"];
 
             assert!(approvals.len() as u32 >= required);
         }

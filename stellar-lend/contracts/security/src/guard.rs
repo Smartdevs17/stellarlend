@@ -69,7 +69,13 @@ impl<'a> ReentrancyGuard<'a> {
         key: ReentrancyKey,
         is_read_only: bool,
     ) -> Result<Self, ReentrancyError> {
-        Self::with_config(env, key, is_read_only, ReentrancyGuardConfig::default(), None)
+        Self::with_config(
+            env,
+            key,
+            is_read_only,
+            ReentrancyGuardConfig::default(),
+            None,
+        )
     }
 
     /// Create a guard with explicit configuration.

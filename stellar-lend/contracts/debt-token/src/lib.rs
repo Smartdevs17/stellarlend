@@ -1,11 +1,16 @@
+#![allow(deprecated)]
 #![no_std]
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(clippy::needless_question_mark)]
+#![allow(clippy::let_and_return)]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, Symbol,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env, String,
 };
 
 mod token {
-    use soroban_sdk::symbol_short;
+    use soroban_sdk::{symbol_short, Symbol};
 
     pub const NAME: Symbol = symbol_short!("NAME");
     pub const SYMBOL: Symbol = symbol_short!("SYMBOL");
@@ -16,7 +21,7 @@ mod token {
 }
 
 mod storage {
-    use soroban_sdk::symbol_short;
+    use soroban_sdk::{symbol_short, Symbol};
 
     pub const CONFIG: Symbol = symbol_short!("CONFIG");
     pub const INITIALIZED: Symbol = symbol_short!("INIT");
@@ -139,8 +144,6 @@ impl StellarLendDebtToken {
         if env.storage().instance().has(&storage::INITIALIZED) {
             return Err(DebtTokenError::AlreadyInitialized);
         }
-        admin.require_auth();
-
         admin.require_auth();
 
         let config = DebtTokenConfig {
@@ -327,9 +330,9 @@ impl StellarLendDebtToken {
             },
         );
 
-        Ok(principal_to_redeem
+        principal_to_redeem
             .checked_add(interest_earned)
-            .ok_or(DebtTokenError::Overflow)?)
+            .ok_or(DebtTokenError::Overflow)
     }
 
     pub fn transfer(
@@ -487,14 +490,14 @@ impl StellarLendDebtToken {
         env.storage()
             .instance()
             .get(&token::NAME)
-            .unwrap_or_else(|| symbol_short!("DEBT").into())
+            .unwrap_or_else(|| String::from_str(&env, "DEBT"))
     }
 
     pub fn symbol(env: Env) -> String {
         env.storage()
             .instance()
             .get(&token::SYMBOL)
-            .unwrap_or_else(|| symbol_short!("dToken").into())
+            .unwrap_or_else(|| String::from_str(&env, "dToken"))
     }
 
     pub fn decimals(env: Env) -> u32 {
@@ -510,7 +513,7 @@ impl StellarLendDebtToken {
             None => return 0,
         };
 
-        let position_key = (storage::POSITIONS, account);
+        let position_key = (storage::POSITIONS, account.clone());
         let position: Position = match env.storage().persistent().get(&position_key) {
             Some(p) => p,
             None => return 0,
@@ -527,7 +530,7 @@ impl StellarLendDebtToken {
     }
 
     pub fn get_position(env: Env, account: Address) -> Position {
-        let position_key = (storage::POSITIONS, account);
+        let position_key = (storage::POSITIONS, account.clone());
         env.storage()
             .persistent()
             .get(&position_key)
@@ -596,11 +599,11 @@ impl StellarLendDebtToken {
                 .instance()
                 .get(&storage::CONFIG)
                 .unwrap_or(DebtTokenConfig {
-                    admin: Address::from_str(&env, &soroban_sdk::Bytes::new()),
-                    lending_pool: Address::from_str(&env, &soroban_sdk::Bytes::new()),
-                    underlying_asset: Address::from_str(&env, &soroban_sdk::Bytes::new()),
-                    name: symbol_short!("DEBT"),
-                    symbol: symbol_short!("dToken"),
+                    admin: env.current_contract_address(),
+                    lending_pool: env.current_contract_address(),
+                    underlying_asset: env.current_contract_address(),
+                    name: String::from_str(&env, "DEBT"),
+                    symbol: String::from_str(&env, "dToken"),
                     decimals: 9,
                     interest_index: ONE,
                     total_principal: 0,
@@ -900,8 +903,7 @@ impl StellarLendDebtToken {
         }
 
         let current_time = env.ledger().timestamp();
-        let avg_period = current_time / (holders as u64).max(1);
-        avg_period
+        current_time / (holders as u64).max(1)
     }
 }
 
@@ -914,7 +916,7 @@ mod tests {
         Env::default()
     }
 
-    fn setup_contract(env: &Env) -> (Address, Address, Address) {
+    fn setup_contract(env: &Env) -> (Address, Address, Address, Address) {
         env.mock_all_auths();
 
         let admin = Address::generate(env);
@@ -929,7 +931,7 @@ mod tests {
 
         client.initialize(&admin, &lending_pool, &underlying_asset, &name, &symbol);
 
-        (admin, lending_pool, underlying_asset)
+        (admin, lending_pool, underlying_asset, contract_id)
     }
 
     #[test]
@@ -954,9 +956,7 @@ mod tests {
     #[test]
     fn test_initialize() {
         let env = create_env();
-        let (admin, lending_pool, underlying_asset) = setup_contract(&env);
-
-        let contract_id = env.register_contract(None, StellarLendDebtToken);
+        let (admin, lending_pool, underlying_asset, contract_id) = setup_contract(&env);
         let client = StellarLendDebtTokenClient::new(&env, &contract_id);
 
         assert_eq!(
@@ -971,9 +971,7 @@ mod tests {
     #[test]
     fn test_deposit_and_mint() {
         let env = create_env();
-        let (admin, lending_pool, underlying_asset) = setup_contract(&env);
-
-        let contract_id = env.register_contract(None, StellarLendDebtToken);
+        let (admin, lending_pool, underlying_asset, contract_id) = setup_contract(&env);
         let client = StellarLendDebtTokenClient::new(&env, &contract_id);
 
         let depositor = Address::generate(&env);
@@ -993,9 +991,7 @@ mod tests {
     #[test]
     fn test_transfer() {
         let env = create_env();
-        let (admin, lending_pool, underlying_asset) = setup_contract(&env);
-
-        let contract_id = env.register_contract(None, StellarLendDebtToken);
+        let (admin, lending_pool, underlying_asset, contract_id) = setup_contract(&env);
         let client = StellarLendDebtTokenClient::new(&env, &contract_id);
 
         let from = Address::generate(&env);
@@ -1013,9 +1009,7 @@ mod tests {
     #[test]
     fn test_approve_and_transfer_from() {
         let env = create_env();
-        let (admin, lending_pool, underlying_asset) = setup_contract(&env);
-
-        let contract_id = env.register_contract(None, StellarLendDebtToken);
+        let (admin, lending_pool, underlying_asset, contract_id) = setup_contract(&env);
         let client = StellarLendDebtTokenClient::new(&env, &contract_id);
 
         let owner = Address::generate(&env);
@@ -1038,9 +1032,7 @@ mod tests {
     #[test]
     fn test_redeem() {
         let env = create_env();
-        let (admin, lending_pool, underlying_asset) = setup_contract(&env);
-
-        let contract_id = env.register_contract(None, StellarLendDebtToken);
+        let (admin, lending_pool, underlying_asset, contract_id) = setup_contract(&env);
         let client = StellarLendDebtTokenClient::new(&env, &contract_id);
 
         let redeemer = Address::generate(&env);
@@ -1058,9 +1050,7 @@ mod tests {
     #[test]
     fn test_lock_transfers() {
         let env = create_env();
-        let (admin, lending_pool, underlying_asset) = setup_contract(&env);
-
-        let contract_id = env.register_contract(None, StellarLendDebtToken);
+        let (admin, lending_pool, underlying_asset, contract_id) = setup_contract(&env);
         let client = StellarLendDebtTokenClient::new(&env, &contract_id);
 
         client.lock_transfers(&true);
@@ -1078,9 +1068,7 @@ mod tests {
     #[test]
     fn test_insufficient_balance() {
         let env = create_env();
-        let (admin, lending_pool, underlying_asset) = setup_contract(&env);
-
-        let contract_id = env.register_contract(None, StellarLendDebtToken);
+        let (admin, lending_pool, underlying_asset, contract_id) = setup_contract(&env);
         let client = StellarLendDebtTokenClient::new(&env, &contract_id);
 
         let from = Address::generate(&env);
@@ -1093,9 +1081,7 @@ mod tests {
     #[test]
     fn test_analytics() {
         let env = create_env();
-        let (admin, lending_pool, underlying_asset) = setup_contract(&env);
-
-        let contract_id = env.register_contract(None, StellarLendDebtToken);
+        let (admin, lending_pool, underlying_asset, contract_id) = setup_contract(&env);
         let client = StellarLendDebtTokenClient::new(&env, &contract_id);
 
         let depositor = Address::generate(&env);
@@ -1111,9 +1097,7 @@ mod tests {
     #[test]
     fn test_nav_per_token() {
         let env = create_env();
-        let (admin, lending_pool, underlying_asset) = setup_contract(&env);
-
-        let contract_id = env.register_contract(None, StellarLendDebtToken);
+        let (admin, lending_pool, underlying_asset, contract_id) = setup_contract(&env);
         let client = StellarLendDebtTokenClient::new(&env, &contract_id);
 
         let nav = client.nav_per_token();
@@ -1131,9 +1115,7 @@ mod tests {
     #[test]
     fn test_get_position() {
         let env = create_env();
-        let (admin, lending_pool, underlying_asset) = setup_contract(&env);
-
-        let contract_id = env.register_contract(None, StellarLendDebtToken);
+        let (admin, lending_pool, underlying_asset, contract_id) = setup_contract(&env);
         let client = StellarLendDebtTokenClient::new(&env, &contract_id);
 
         let account = Address::generate(&env);

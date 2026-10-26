@@ -102,7 +102,7 @@ impl PrecisionTracker {
     }
 
     pub fn log_count(&self) -> u32 {
-        self.logs.len() as u32
+        self.logs.len()
     }
 
     pub fn logs(&self) -> &soroban_sdk::Vec<PrecisionLoss> {

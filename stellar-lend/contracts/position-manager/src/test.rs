@@ -1,12 +1,7 @@
-﻿#![cfg(test)]
+#![cfg(test)]
 
-use crate::{
-    PositionError, PositionManager, PositionManagerClient, PositionMetadata,
-};
-use soroban_sdk::{
-    testutils::Address as _,
-    Address, Env,
-};
+use crate::{PositionError, PositionManager, PositionManagerClient, PositionMetadata};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 fn setup() -> (Env, PositionManagerClient<'static>, Address, Address) {
     let env = Env::default();

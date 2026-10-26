@@ -39,7 +39,7 @@ pub fn batch_read_health_data(env: &Env, user: &Address) -> HealthBatch {
         .unwrap_or(Map::new(env));
 
     let mut positions = Vec::new(env);
-    let mut storage_reads = 3u32;
+    let storage_reads = 3u32;
     let mut price_reads = 0u32;
 
     for i in 0..asset_list.len() {

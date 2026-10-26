@@ -11,6 +11,7 @@ pub mod upgrade;
 /// already depend on `stellarlend-common` don't have to add
 /// `stellarlend-errors` as a separate dependency just to normalize errors.
 pub mod errors {
+    pub use stellarlend_errors::mapping;
     pub use stellarlend_errors::{
         assert_error_code, decode_global_code, domains, explain, impl_contract_error,
         lending_code_to_core, lending_code_to_core_or_internal, log_contract_error, log_error,
@@ -18,7 +19,6 @@ pub mod errors {
         ErrorDescriptor, ErrorDomain, ErrorInfo, IntoError, LendingCode, RecoveryAction,
         RecoveryDecision, Severity,
     };
-    pub use stellarlend_errors::mapping as mapping;
 
     pub mod recovery {
         pub use stellarlend_errors::recovery::{hint, recover, RecoveryDecision};

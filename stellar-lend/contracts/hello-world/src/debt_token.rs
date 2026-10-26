@@ -26,7 +26,9 @@
 //! - Audit trail through events
 
 #![allow(unused)]
-use soroban_sdk::{contracterror, contractevent, contracttype, Address, Env, Map, String, Symbol, Vec};
+use soroban_sdk::{
+    contracterror, contractevent, contracttype, Address, Env, Map, String, Symbol, Vec,
+};
 
 /// Canonical all-zero ed25519 account address, used as the "null recipient"
 /// sentinel. `soroban_sdk::Address` has no `zero()` constructor, so the

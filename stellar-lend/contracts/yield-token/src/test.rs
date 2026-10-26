@@ -1,4 +1,4 @@
-#![cfg(test)]
+#![allow(unused_variables)]
 use crate::{YieldToken, YieldTokenClient, YieldTokenError};
 use soroban_sdk::{testutils::Address as _, Address, Env, String};
 

@@ -128,8 +128,14 @@ fn test_juror_selection_excludes_liquidator_and_disputer() {
     let dispute_id = client.file_dispute(&disputer, &liquidator, &tx, &5_000, &tx);
 
     // Attempt to pass disputer and liquidator in selected list
-    let selected = vec![&env, disputer.clone(), liquidator.clone(), juror1.clone(), juror2.clone()];
-    
+    let selected = vec![
+        &env,
+        disputer.clone(),
+        liquidator.clone(),
+        juror1.clone(),
+        juror2.clone(),
+    ];
+
     // Disputer and liquidator are filtered out, leaving only juror1 and juror2 (2 jurors < 3 required)
     // which panics with "insufficient jurors"
     client.select_jurors(&dispute_id, &selected);
@@ -153,7 +159,7 @@ fn test_juror_selection_deduplicates_addresses() {
 
     // Pass the same juror 3 times
     let selected = vec![&env, juror1.clone(), juror1.clone(), juror1.clone()];
-    
+
     // Deduplication reduces list to 1, failing "insufficient jurors" (< 3)
     client.select_jurors(&dispute_id, &selected);
 }
@@ -181,20 +187,55 @@ fn test_voting_deadlock_resolution_when_all_voted() {
     let tx = BytesN::random(&env);
     let dispute_id = client.file_dispute(&disputer, &liquidator, &tx, &10_000, &tx);
 
-    let selected = vec![&env, j1.clone(), j2.clone(), j3.clone(), j4.clone(), j5.clone()];
+    let selected = vec![
+        &env,
+        j1.clone(),
+        j2.clone(),
+        j3.clone(),
+        j4.clone(),
+        j5.clone(),
+    ];
     client.select_jurors(&dispute_id, &selected);
 
     // Votes: 3 Valid, 2 Invalid (60% valid, 40% invalid; neither reaches >= 66% supermajority)
-    client.cast_vote(&dispute_id, &j1, &VoteChoice::Valid, &String::from_str(&env, "ok"));
-    client.cast_vote(&dispute_id, &j2, &VoteChoice::Invalid, &String::from_str(&env, "no"));
-    client.cast_vote(&dispute_id, &j3, &VoteChoice::Valid, &String::from_str(&env, "ok"));
-    client.cast_vote(&dispute_id, &j4, &VoteChoice::Invalid, &String::from_str(&env, "no"));
+    client.cast_vote(
+        &dispute_id,
+        &j1,
+        &VoteChoice::Valid,
+        &String::from_str(&env, "ok"),
+    );
+    client.cast_vote(
+        &dispute_id,
+        &j2,
+        &VoteChoice::Invalid,
+        &String::from_str(&env, "no"),
+    );
+    client.cast_vote(
+        &dispute_id,
+        &j3,
+        &VoteChoice::Valid,
+        &String::from_str(&env, "ok"),
+    );
+    client.cast_vote(
+        &dispute_id,
+        &j4,
+        &VoteChoice::Invalid,
+        &String::from_str(&env, "no"),
+    );
 
     // Dispute should still be voting after 4 votes (2 vs 2)
-    assert_eq!(client.get_dispute(&dispute_id).unwrap().status, DisputeStatus::Voting);
+    assert_eq!(
+        client.get_dispute(&dispute_id).unwrap().status,
+        DisputeStatus::Voting
+    );
 
     // 5th juror votes Valid -> all 5 have voted (3 Valid, 2 Invalid)
-    client.cast_vote(&dispute_id, &j5, &VoteChoice::Valid, &String::from_str(&env, "ok"));
+    client.cast_vote(
+        &dispute_id,
+        &j5,
+        &VoteChoice::Valid,
+        &String::from_str(&env, "ok"),
+    );
 
     // Deadlock resolved via simple majority since all selected jurors voted
     let resolved = client.get_dispute(&dispute_id).unwrap();
@@ -226,9 +267,24 @@ fn test_unauthorized_third_party_cannot_appeal() {
     client.select_jurors(&dispute_id, &selected);
 
     // Resolve as Invalid (3 votes)
-    client.cast_vote(&dispute_id, &j1, &VoteChoice::Invalid, &String::from_str(&env, "no"));
-    client.cast_vote(&dispute_id, &j2, &VoteChoice::Invalid, &String::from_str(&env, "no"));
-    client.cast_vote(&dispute_id, &j3, &VoteChoice::Invalid, &String::from_str(&env, "no"));
+    client.cast_vote(
+        &dispute_id,
+        &j1,
+        &VoteChoice::Invalid,
+        &String::from_str(&env, "no"),
+    );
+    client.cast_vote(
+        &dispute_id,
+        &j2,
+        &VoteChoice::Invalid,
+        &String::from_str(&env, "no"),
+    );
+    client.cast_vote(
+        &dispute_id,
+        &j3,
+        &VoteChoice::Invalid,
+        &String::from_str(&env, "no"),
+    );
 
     let dispute = client.get_dispute(&dispute_id).unwrap();
     assert_eq!(dispute.status, DisputeStatus::Resolved);
@@ -259,9 +315,24 @@ fn test_authorized_appeal_succeeds() {
     client.select_jurors(&dispute_id, &selected);
 
     // Resolve as Invalid (3 votes)
-    client.cast_vote(&dispute_id, &j1, &VoteChoice::Invalid, &String::from_str(&env, "no"));
-    client.cast_vote(&dispute_id, &j2, &VoteChoice::Invalid, &String::from_str(&env, "no"));
-    client.cast_vote(&dispute_id, &j3, &VoteChoice::Invalid, &String::from_str(&env, "no"));
+    client.cast_vote(
+        &dispute_id,
+        &j1,
+        &VoteChoice::Invalid,
+        &String::from_str(&env, "no"),
+    );
+    client.cast_vote(
+        &dispute_id,
+        &j2,
+        &VoteChoice::Invalid,
+        &String::from_str(&env, "no"),
+    );
+    client.cast_vote(
+        &dispute_id,
+        &j3,
+        &VoteChoice::Invalid,
+        &String::from_str(&env, "no"),
+    );
 
     let dispute = client.get_dispute(&dispute_id).unwrap();
     assert_eq!(dispute.status, DisputeStatus::Resolved);

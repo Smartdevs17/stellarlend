@@ -314,7 +314,7 @@ impl StateMachineExplorer {
             }
             StateAction::AdvanceTime { delta, .. } => {
                 // Simulate interest accrual
-                new_state.interest_index += (*delta as i128);
+                new_state.interest_index += *delta as i128;
             }
             _ => {}
         }

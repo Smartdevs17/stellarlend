@@ -128,9 +128,7 @@ fn test_initialize_requires_admin_auth() {
         },
     }]);
 
-    assert!(client
-        .try_initialize(&admin, &asset, &20, &false)
-        .is_err());
+    assert!(client.try_initialize(&admin, &asset, &20, &false).is_err());
     assert!(client.try_get_config().is_err());
 }
 

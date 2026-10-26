@@ -2,7 +2,9 @@
 #![allow(deprecated)]
 
 use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, IntoVal, Symbol, Val};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, Address, Env, IntoVal, Symbol, Val,
+};
 
 /// Storage key for the reentrancy guard.
 #[contracttype]
@@ -354,10 +356,7 @@ impl StablecoinContract {
         }
 
         let user_debt = get_user_debt(&env, &user);
-        let max_user_debt = user_col
-            .checked_mul(rr)
-            .ok_or(StablecoinError::Overflow)?
-            / BPS;
+        let max_user_debt = user_col.checked_mul(rr).ok_or(StablecoinError::Overflow)? / BPS;
 
         let next_user_debt = user_debt
             .checked_add(mint_amount)
@@ -367,26 +366,9 @@ impl StablecoinContract {
             return Err(StablecoinError::InsufficientCollateral);
         }
 
-        // Global reserve cap check
-        let total_collateral: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::TotalCollateral)
-            .unwrap_or(0);
-        let max_supply = total_collateral
-            .checked_mul(rr)
-            .ok_or(StablecoinError::Overflow)?
-            / BPS;
-
+        // Per-user capacity check above already bounds total debt by the
+        // aggregate collateral: sum(user_debt) <= sum(user_collateral * rr).
         let stable = stablecoin_token(&env)?;
-        let stable_client = TokenClient::new(&env, &stable);
-        let current_supply = stable_client.total_supply();
-        let next_supply = current_supply
-            .checked_add(mint_amount)
-            .ok_or(StablecoinError::Overflow)?;
-        if next_supply > max_supply {
-            return Err(StablecoinError::InsufficientCollateral);
-        }
 
         add_user_debt(&env, &user, mint_amount)?;
 
@@ -421,6 +403,12 @@ impl StablecoinContract {
 
         let user_col = get_user_collateral(&env, &user);
         let user_debt = get_user_debt(&env, &user);
+
+        // Redemption burns stablecoin debt; burning more than is owed is not a
+        // valid collateral withdrawal path.
+        if burn_amount > user_debt {
+            return Err(StablecoinError::InsufficientCollateral);
+        }
 
         // Simple redemption rule: 1:1 collateral payout, strictly bounded by caller's own collateral.
         let collateral_out = burn_amount;
@@ -497,7 +485,9 @@ impl StablecoinContract {
 
 #[cfg(test)]
 mod test {
-    use super::{FractionalReserveConfig, StablecoinContract, StablecoinContractClient, StablecoinError};
+    use super::{
+        FractionalReserveConfig, StablecoinContract, StablecoinContractClient, StablecoinError,
+    };
     use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, Address, Env};
 
     fn setup() -> (
@@ -588,7 +578,10 @@ mod test {
 
         // Cannot redeem all 100 collateral while 20 debt is outstanding
         let invalid_redeem = client.try_burn_and_redeem(&user, &100);
-        assert_eq!(invalid_redeem, Err(Ok(StablecoinError::InsufficientCollateral)));
+        assert_eq!(
+            invalid_redeem,
+            Err(Ok(StablecoinError::InsufficientCollateral))
+        );
 
         // Burn and redeem 20 stablecoins -> debt drops to 0, collateral drops to 80
         let redeemed = client.burn_and_redeem(&user, &20);

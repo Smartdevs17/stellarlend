@@ -446,7 +446,9 @@ fn test_max_liquidatable_still_computable_when_liquidation_paused() {
 /// Helper: set up a borrower in an unhealthy position ready for partial
 /// liquidation. Returns (client, admin, liquidator, borrower, debt_asset,
 /// collateral_asset).
-fn setup_unhealthy_position(env: &Env) -> (
+fn setup_unhealthy_position(
+    env: &Env,
+) -> (
     LendingContractClient<'_>,
     Address, // admin
     Address, // liquidator
@@ -472,7 +474,14 @@ fn setup_unhealthy_position(env: &Env) -> (
     // borrower puts up 15_000 collateral and borrows 10_000
     client.borrow(&borrower, &debt_asset, &10_000, &collateral_asset, &15_000);
 
-    (client, admin, liquidator, borrower, debt_asset, collateral_asset)
+    (
+        client,
+        admin,
+        liquidator,
+        borrower,
+        debt_asset,
+        collateral_asset,
+    )
 }
 
 /// partial_liquidate with an amount equal to the close-factor max should succeed
@@ -527,13 +536,8 @@ fn test_partial_liquidate_rejects_zero_amount() {
     let (client, _admin, liquidator, borrower, debt_asset, collateral_asset) =
         setup_unhealthy_position(&env);
 
-    let result = client.try_partial_liquidate(
-        &liquidator,
-        &borrower,
-        &debt_asset,
-        &collateral_asset,
-        &0,
-    );
+    let result =
+        client.try_partial_liquidate(&liquidator, &borrower, &debt_asset, &collateral_asset, &0);
     assert!(result.is_err(), "zero repayment should be rejected");
 }
 
@@ -652,5 +656,8 @@ fn test_partial_liquidate_blocked_when_paused() {
         &collateral_asset,
         &2_000,
     );
-    assert!(result.is_err(), "partial_liquidate must be blocked when paused");
+    assert!(
+        result.is_err(),
+        "partial_liquidate must be blocked when paused"
+    );
 }
