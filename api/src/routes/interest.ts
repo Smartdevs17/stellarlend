@@ -8,7 +8,7 @@ const router: Router = Router();
  * /interest/current:
  *   get:
  *     summary: Current interest rates for the protocol
- *     description: Returns current borrow and supply rates in basis points
+ *     description: Returns current borrow and supply rates in basis moints
  *     tags:
  *       - Interest
  *     responses:

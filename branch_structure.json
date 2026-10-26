@@ -1,0 +1,18 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "fix/issue-1431-add-property-based-tests-for-interest-accrual",
+    "main",
+    "origin"
+  ],
+  "parent": {
+    "fix/issue-1431-add-property-based-tests-for-interest-accrual": "main",
+    "main": null,
+    "origin": "main"
+  },
+  "order": [
+    "main",
+    "fix/issue-1431-add-property-based-tests-for-interest-accrual",
+    "origin"
+  ]
+}
