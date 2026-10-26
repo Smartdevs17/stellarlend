@@ -1,7 +1,5 @@
 #![no_std]
 
-extern crate alloc;
-
 use soroban_sdk::{
     contracterror, contracttype,
     token::{Client as TokenClient, StellarAssetClient},

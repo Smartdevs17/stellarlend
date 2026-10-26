@@ -61,8 +61,11 @@ impl StrategyPerformance {
 
     /// Update success rate
     pub fn update_success_rate(&mut self, successes: u64, total: u64) {
-        if total > 0 {
-            self.success_rate = ((successes * 100) / total) as u32;
+        if let Some(rate) = successes
+            .checked_mul(100)
+            .and_then(|v| v.checked_div(total))
+        {
+            self.success_rate = rate as u32;
         }
     }
 
