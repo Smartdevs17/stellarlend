@@ -11,6 +11,7 @@ use crate::flash_loan::FlashLoanError;
 use crate::interest_rate::InterestRateError;
 use crate::liquidate::LiquidationError;
 use crate::mev_protection::MevProtectionError;
+use crate::pause::PauseGuardianError;
 use crate::rate_limiter::RateLimitError;
 use crate::rebalancing::RebalancingError;
 use crate::repay::RepayError;
@@ -18,6 +19,7 @@ use crate::reserve::ReserveError;
 use crate::risk_management::RiskManagementError;
 use crate::risk_params::RiskParamsError;
 use crate::treasury::TreasuryError;
+use crate::upgrade::UpgradeError;
 use crate::withdraw::WithdrawError;
 
 #[contracterror]
@@ -177,6 +179,20 @@ macro_rules! impl_from_error {
 impl_from_error!(AdminError, {
     AdminError::Unauthorized => LendingError::Unauthorized,
     AdminError::InvalidAdmin => LendingError::InvalidParameter,
+});
+
+impl_from_error!(UpgradeError, {
+    UpgradeError::Unauthorized => LendingError::Unauthorized,
+    UpgradeError::HashNotRegistered => LendingError::InvalidParameter,
+    UpgradeError::InvalidHash => LendingError::InvalidParameter,
+});
+
+impl_from_error!(PauseGuardianError, {
+    PauseGuardianError::Unauthorized => LendingError::Unauthorized,
+    PauseGuardianError::GuardianNotFound => LendingError::Unauthorized,
+    PauseGuardianError::InvalidOverride => LendingError::InvalidParameter,
+    PauseGuardianError::BadNonce => LendingError::InvalidParameter,
+    PauseGuardianError::Expired => LendingError::InvalidParameter,
 });
 
 impl_from_error!(AnalyticsError, {

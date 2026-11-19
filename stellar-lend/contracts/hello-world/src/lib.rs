@@ -43,11 +43,13 @@ pub mod governance;
 pub mod health;
 pub mod multi_collateral;
 pub mod oracle;
+pub mod pause;
 pub mod rate_guard;
 pub mod reentrancy;
 pub mod reserve_factor;
 pub mod storage;
 pub mod timelock;
+pub mod upgrade;
 
 // ── New feature modules ───────────────────────────────────────────────────
 /// Oracle upgrade mechanism with time delay (issue #1039)
@@ -120,4 +122,40 @@ pub fn execute_optimized_batch(
     caller.require_auth();
     // Return count of unpacked operations processed
     Ok(batch.operations.len())
+}
+
+#[no_mangle]
+pub fn attest_admin_wallet(
+    env: Env,
+    admin: Address,
+    wallet: Address,
+    expires_at: u64,
+) -> Result<admin::WalletAttestation, errors::LendingError> {
+    admin::attest_wallet(&env, admin, wallet, expires_at).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn register_upgrade_hash(
+    env: Env,
+    caller: Address,
+    wasm_hash: soroban_sdk::BytesN<32>,
+) -> Result<(), errors::LendingError> {
+    upgrade::register_hash(&env, caller, wasm_hash).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn require_registered_upgrade_hash(
+    env: Env,
+    wasm_hash: soroban_sdk::BytesN<32>,
+) -> Result<(), errors::LendingError> {
+    upgrade::require_registered_hash(&env, &wasm_hash).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn add_pause_guardian(
+    env: Env,
+    admin: Address,
+    guardian: Address,
+) -> Result<(), errors::LendingError> {
+    pause::add_guardian(&env, admin, guardian).map_err(Into::into)
 }

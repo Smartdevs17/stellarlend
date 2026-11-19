@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, IntoVal, TryFromVal, Val, Vec};
+use soroban_sdk::{contracttype, Address, Env, IntoVal, Symbol, TryFromVal, Val, Vec};
 
 pub struct SnapshotValue {
     pub value: Val,
@@ -323,4 +323,43 @@ pub fn set_temp_lending_index(env: &Env, index: crate::interest_rate::LendingInd
     env.storage()
         .temporary()
         .set(&TempDataKey::LendingIndexCache, &index);
+}
+
+/// Detect duplicate namespace tags before a module key is added to storage.
+pub fn validate_namespace_tags(tags: &Vec<Symbol>) -> bool {
+    for (i, tag) in tags.iter().enumerate() {
+        if tags.iter().skip(i + 1).any(|other| other == tag) {
+            return false;
+        }
+    }
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn namespace_audit_rejects_duplicate_tags() {
+        let env = Env::default();
+        let tags = Vec::from_array(
+            &env,
+            [Symbol::new(&env, "admin"), Symbol::new(&env, "admin")],
+        );
+        assert!(!validate_namespace_tags(&tags));
+    }
+
+    #[test]
+    fn namespace_audit_accepts_distinct_tags() {
+        let env = Env::default();
+        let tags = Vec::from_array(
+            &env,
+            [
+                Symbol::new(&env, "admin"),
+                Symbol::new(&env, "storage"),
+                Symbol::new(&env, "upgrade"),
+            ],
+        );
+        assert!(validate_namespace_tags(&tags));
+    }
 }
