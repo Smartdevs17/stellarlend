@@ -122,6 +122,80 @@ Response:
 ```
 Sign with `recommendedFee` as the transaction fee. A failed simulation returns `422`.
 
+### Pool Utilization Time Series (Issue #1650)
+
+Pre-aggregated hourly utilization data served from the `pool_utilization_timeseries` materialized view.  Replaces the previous full-table scan on `pool_snapshots` that was the measured tail-latency source.
+
+#### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/pool-performance/utilization-timeseries/:poolAddress` | Hourly utilization buckets for a single pool |
+| `GET` | `/api/pool-performance/utilization-timeseries` | Hourly utilization buckets for all pools |
+| `POST` | `/api/pool-performance/utilization-timeseries/refresh` | Trigger a manual view refresh (admin) |
+
+#### Query parameters
+
+| Parameter | Values | Default | Description |
+|-----------|--------|---------|-------------|
+| `period` | `7d`, `30d`, `90d`, `1y` | `30d` | Time window |
+
+#### Single-pool response
+
+```json
+{
+  "success": true,
+  "data": {
+    "poolAddress": "GABCDEF...",
+    "period": "30d",
+    "servedFromView": true,
+    "buckets": [
+      {
+        "bucket":            "2026-11-19T10:00:00.000Z",
+        "poolAddress":       "GABCDEF...",
+        "avgUtilization":    0.65,
+        "minUtilization":    0.60,
+        "maxUtilization":    0.70,
+        "medianUtilization": 0.65,
+        "stddevUtilization": 0.03,
+        "avgTvl":            2000000,
+        "avgTotalBorrows":   1300000,
+        "avgTotalDeposits":  2000000,
+        "avgBorrowApy":      0.08,
+        "avgSupplyApy":      0.055,
+        "sampleCount":       3
+      }
+    ]
+  }
+}
+```
+
+#### Database migration
+
+The view is created by:
+
+```
+api/src/db/migrations/20261119000000_pool_utilization_timeseries_mv.sql
+```
+
+The migration also installs a throttled `AFTER INSERT` trigger on `pool_snapshots` that calls `REFRESH MATERIALIZED VIEW CONCURRENTLY pool_utilization_timeseries` at most once every 55 minutes, matching the hourly snapshot cadence of the cron job (`api/src/jobs/poolSnapshot.job.ts`).
+
+To apply the migration manually:
+
+```bash
+psql "$DATABASE_URL" -f api/src/db/migrations/20261119000000_pool_utilization_timeseries_mv.sql
+```
+
+To force a refresh outside the automatic cadence:
+
+```sql
+SELECT refresh_pool_utilization_timeseries();
+-- or via the API:
+-- POST /api/pool-performance/utilization-timeseries/refresh
+```
+
+Refresh history is tracked in `pool_mv_refresh_log`.
+
 ### Cache and Prefetch
 `GET /api/cache/stats` reports read cache hit rates per kind, store counters and the prefetch scheduler state. `POST /api/cache/invalidate` (operator) drops cached read data. Read-heavy GET endpoints answer with an `X-Cache` header; send `Cache-Control: no-cache` to bypass. See [docs/api/read-cache-and-prefetch.md](../docs/api/read-cache-and-prefetch.md).
 
