@@ -37,6 +37,38 @@ mod token_receiver;
 mod utilization_breaker;
 mod withdraw;
 
+// ── Issue #1630: Wire up orphaned feature modules ────────────────────────────
+// These modules were fully implemented but never declared in the crate root,
+// making them unreachable from the contract ABI and from the test harness.
+mod commitments;
+mod cross_asset;
+mod mev_protection;
+mod rate_guard;
+mod rewards;
+mod sandwich_protection;
+mod simulation_cache;
+mod yield_curve;
+
+pub use commitments::{
+    BorrowCommitment, CommitmentError, CommitmentStatus, PriceTrigger, TriggerCombiner,
+};
+pub use cross_asset::{AssetParams, CrossAssetError, PositionSummary, UserCrossPosition};
+pub use mev_protection::{LendingGasBidStats, LendingMevCommitment, MevGuardError};
+pub use rate_guard::{
+    RateGuardConfig, RateGuardError, RateManipulationAttempt, RateSnapshot, RateTwap,
+};
+pub use rewards::RewardKey;
+pub use sandwich_protection::{
+    Commitment as SandwichCommitment, PendingTransaction, ProtectionLevel, SandwichConfig,
+    SandwichDetection, SandwichError,
+};
+pub use simulation_cache::{
+    SimCacheConfig, SimCacheError, SimCacheStats, SimulationResult,
+};
+pub use yield_curve::{
+    CurveType, RateOptimizationResult, YieldCurveError, YieldCurveParams, YieldPrediction,
+};
+
 // Property-based fuzzing and invariant-testing support. These modules existed in
 // the tree but were never declared here, so `invariant_prop_test.rs` could not
 // resolve `crate::proptest_helpers` / `crate::invariant_test_suite` and the whole
@@ -170,6 +202,9 @@ mod token_receiver_test;
 mod views_test;
 // #[cfg(test)]
 // mod withdraw_test; // disabled: stale API drift (pre-existing)
+
+#[cfg(test)]
+mod issue_1630_test;
 
 #[contract]
 pub struct LendingContract;
@@ -1004,5 +1039,511 @@ impl LendingContract {
     /// Get all claims (full history).
     pub fn insurance_get_all_claims(env: Env) -> Vec<InsuranceClaim> {
         insurance_get_all_claims(&env)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Issue #1630 — Wire orphaned modules as contract entrypoints
+    // ═══════════════════════════════════════════════════════════════════
+
+    // ─── Borrow commitments ──────────────────────────────────────────
+
+    /// Create a conditional borrow commitment with up to 4 price triggers.
+    ///
+    /// A keeper may execute the commitment once all trigger conditions are met
+    /// and the commitment has not expired.  The owner signs at creation time;
+    /// no second signature is required at execution.
+    ///
+    /// Returns the new commitment ID.
+    pub fn create_borrow_commitment(
+        env: Env,
+        owner: Address,
+        triggers: Vec<commitments::PriceTrigger>,
+        combiner: commitments::TriggerCombiner,
+        borrow_asset: Address,
+        collateral_asset: Address,
+        borrow_amount: i128,
+        collateral_amount: i128,
+        min_fill_bps: u32,
+        expiry_timestamp: u64,
+    ) -> Result<u64, commitments::CommitmentError> {
+        commitments::create_borrow_commitment(
+            &env,
+            owner,
+            triggers,
+            combiner,
+            borrow_asset,
+            collateral_asset,
+            borrow_amount,
+            collateral_amount,
+            min_fill_bps,
+            expiry_timestamp,
+        )
+    }
+
+    /// Cancel a pending borrow commitment (owner only).
+    pub fn cancel_borrow_commitment(
+        env: Env,
+        owner: Address,
+        commitment_id: u64,
+    ) -> Result<(), commitments::CommitmentError> {
+        commitments::cancel_borrow_commitment(&env, owner, commitment_id)
+    }
+
+    /// Execute a pending commitment whose triggers have been met (permissionless keeper call).
+    pub fn execute_borrow_commitment(
+        env: Env,
+        commitment_id: u64,
+    ) -> Result<(), commitments::CommitmentError> {
+        commitments::execute_borrow_commitment(&env, commitment_id)
+    }
+
+    /// Fetch a commitment by ID (returns `None` when not found).
+    pub fn get_borrow_commitment(
+        env: Env,
+        commitment_id: u64,
+    ) -> Option<commitments::BorrowCommitment> {
+        commitments::get_borrow_commitment(&env, commitment_id)
+    }
+
+    // ─── Cross-asset positions ───────────────────────────────────────
+
+    /// Configure parameters for a cross-asset collateral/debt asset (admin only).
+    pub fn set_cross_asset_params(
+        env: Env,
+        asset: Address,
+        params: cross_asset::AssetParams,
+    ) -> Result<(), cross_asset::CrossAssetError> {
+        let admin = get_borrow_admin(&env).ok_or(cross_asset::CrossAssetError::Unauthorized)?;
+        admin.require_auth();
+        cross_asset::set_asset_params(&env, asset, params)
+    }
+
+    /// Deposit collateral into a cross-asset position.
+    pub fn cross_deposit_collateral(
+        env: Env,
+        user: Address,
+        asset: Address,
+        amount: i128,
+    ) -> Result<(), cross_asset::CrossAssetError> {
+        cross_asset::deposit_collateral_asset(&env, user, asset, amount)
+    }
+
+    /// Borrow an asset from a cross-asset position.
+    pub fn cross_borrow(
+        env: Env,
+        user: Address,
+        asset: Address,
+        amount: i128,
+    ) -> Result<(), cross_asset::CrossAssetError> {
+        cross_asset::borrow_asset(&env, user, asset, amount)
+    }
+
+    /// Repay a cross-asset debt.
+    pub fn cross_repay(
+        env: Env,
+        user: Address,
+        asset: Address,
+        amount: i128,
+    ) -> Result<(), cross_asset::CrossAssetError> {
+        cross_asset::repay_asset(&env, user, asset, amount)
+    }
+
+    /// Withdraw collateral from a cross-asset position.
+    pub fn cross_withdraw(
+        env: Env,
+        user: Address,
+        asset: Address,
+        amount: i128,
+    ) -> Result<(), cross_asset::CrossAssetError> {
+        cross_asset::withdraw_asset(&env, user, asset, amount)
+    }
+
+    /// Get the full position summary (collateral/debt values, health factor) for
+    /// a cross-asset position.
+    pub fn get_cross_position_summary(
+        env: Env,
+        user: Address,
+    ) -> Result<cross_asset::PositionSummary, cross_asset::CrossAssetError> {
+        cross_asset::get_cross_position_summary(&env, user)
+    }
+
+    // ─── MEV protection ──────────────────────────────────────────────
+
+    /// Commit a large transaction for MEV protection (commit-reveal).
+    ///
+    /// Returns the commit ID. The caller must reveal within
+    /// `deadline` seconds using `reveal_large_tx`.
+    pub fn commit_large_tx(
+        env: Env,
+        owner: Address,
+        operation: soroban_sdk::Symbol,
+        amount: i128,
+        quoted_output: i128,
+        min_output: i128,
+        max_slippage_bps: i128,
+        deadline: u64,
+    ) -> Result<u64, mev_protection::MevGuardError> {
+        mev_protection::commit_large_tx(
+            &env,
+            owner,
+            operation,
+            amount,
+            quoted_output,
+            min_output,
+            max_slippage_bps,
+            deadline,
+        )
+    }
+
+    /// Reveal and validate a committed large transaction.
+    ///
+    /// Verifies slippage bounds and returns the original commitment on success.
+    pub fn reveal_large_tx(
+        env: Env,
+        owner: Address,
+        commit_id: u64,
+        actual_output: i128,
+    ) -> Result<mev_protection::LendingMevCommitment, mev_protection::MevGuardError> {
+        mev_protection::reveal_large_tx(&env, owner, commit_id, actual_output)
+    }
+
+    /// Fetch a large-tx commitment by ID.
+    pub fn get_large_tx_commit(
+        env: Env,
+        commit_id: u64,
+    ) -> Option<mev_protection::LendingMevCommitment> {
+        mev_protection::get_commit(&env, commit_id)
+    }
+
+    /// Record a gas bid observation for an operation (permissioned reporter).
+    ///
+    /// Updates a running gas-bid statistics aggregate per operation symbol.
+    pub fn record_gas_bid(
+        env: Env,
+        reporter: Address,
+        operation: soroban_sdk::Symbol,
+        bid_microlumens: i128,
+        inclusion_delay_ledgers: u64,
+    ) -> Result<mev_protection::LendingGasBidStats, mev_protection::MevGuardError> {
+        mev_protection::record_gas_bid(
+            &env,
+            reporter,
+            operation,
+            bid_microlumens,
+            inclusion_delay_ledgers,
+        )
+    }
+
+    /// Get gas bid statistics for an operation symbol.
+    pub fn get_gas_bid_stats(
+        env: Env,
+        operation: soroban_sdk::Symbol,
+    ) -> mev_protection::LendingGasBidStats {
+        mev_protection::get_gas_bid_stats(&env, operation)
+    }
+
+    // ─── Rate manipulation guard ─────────────────────────────────────
+
+    /// Configure the rate manipulation guard thresholds (admin only).
+    pub fn set_rate_guard_config(
+        env: Env,
+        admin: Address,
+        config: rate_guard::RateGuardConfig,
+    ) -> Result<rate_guard::RateGuardConfig, rate_guard::RateGuardError> {
+        rate_guard::set_config(&env, admin, config)
+    }
+
+    /// Current rate guard configuration.
+    pub fn get_rate_guard_config(env: Env) -> rate_guard::RateGuardConfig {
+        rate_guard::get_config(&env)
+    }
+
+    /// Record a new rate observation and check for manipulation.
+    ///
+    /// Returns the per-block deviation in basis points.
+    /// Reverts with `RateChangeExceedsPauseThreshold` if the rate change is
+    /// too large.
+    pub fn record_rate_change(
+        env: Env,
+        new_rate_bps: i128,
+        caller: Address,
+        amount: i128,
+    ) -> Result<i128, rate_guard::RateGuardError> {
+        rate_guard::record_rate_change(&env, new_rate_bps, &caller, amount)
+    }
+
+    /// Simulate whether a rate would trigger an alert or pause (read-only).
+    ///
+    /// Returns `(deviation_bps, will_alert, will_pause)`.
+    pub fn check_rate(
+        env: Env,
+        new_rate_bps: i128,
+    ) -> Result<(i128, bool, bool), rate_guard::RateGuardError> {
+        rate_guard::check_rate(&env, new_rate_bps)
+    }
+
+    /// Get the TWAP accumulator for the rate guard.
+    pub fn get_rate_guard_twap(env: Env) -> rate_guard::RateTwap {
+        rate_guard::get_twap(&env)
+    }
+
+    /// Get the last rate snapshot recorded by the guard.
+    pub fn get_rate_guard_snapshot(env: Env) -> Option<rate_guard::RateSnapshot> {
+        rate_guard::get_last_snapshot(&env)
+    }
+
+    /// Get the rate manipulation attempt log.
+    pub fn get_rate_manipulation_log(
+        env: Env,
+    ) -> soroban_sdk::Vec<rate_guard::RateManipulationAttempt> {
+        rate_guard::get_attempt_log(&env)
+    }
+
+    /// Whitelist or un-whitelist a price aggregator address (admin only).
+    pub fn set_whitelisted_rate_aggregator(
+        env: Env,
+        admin: Address,
+        aggregator: Address,
+        whitelisted: bool,
+    ) -> Result<(), rate_guard::RateGuardError> {
+        rate_guard::set_whitelisted_aggregator(&env, admin, aggregator, whitelisted)
+    }
+
+    // ─── Sandwich protection ─────────────────────────────────────────
+
+    /// Configure sandwich protection parameters (admin only).
+    pub fn set_sandwich_config(
+        env: Env,
+        admin: Address,
+        config: sandwich_protection::SandwichConfig,
+    ) -> Result<sandwich_protection::SandwichConfig, sandwich_protection::SandwichError> {
+        sandwich_protection::set_config(&env, admin, config)
+    }
+
+    /// Current sandwich protection configuration.
+    pub fn get_sandwich_config(env: Env) -> sandwich_protection::SandwichConfig {
+        sandwich_protection::get_config(&env)
+    }
+
+    /// Set the caller's preferred protection level.
+    pub fn set_sandwich_protection_level(
+        env: Env,
+        user: Address,
+        level: sandwich_protection::ProtectionLevel,
+    ) -> Result<(), sandwich_protection::SandwichError> {
+        sandwich_protection::set_user_protection(&env, user, level)
+    }
+
+    /// Get the protection level configured for a user.
+    pub fn get_sandwich_protection_level(
+        env: Env,
+        user: Address,
+    ) -> sandwich_protection::ProtectionLevel {
+        sandwich_protection::get_user_protection(&env, &user)
+    }
+
+    /// Commit a transaction for sandwich protection (Max level, commit-reveal).
+    ///
+    /// Returns a commitment hash the user presents during `reveal_sandwich_tx`.
+    pub fn commit_sandwich_tx(
+        env: Env,
+        user: Address,
+        asset: Address,
+        amount: i128,
+        operation_type: u32,
+    ) -> Result<soroban_sdk::BytesN<32>, sandwich_protection::SandwichError> {
+        let hash = sandwich_protection::commit_transaction(&env, user, asset, amount, operation_type)?;
+        // Convert Hash (alias of BytesN<32>) directly — the type is the same.
+        Ok(hash.into())
+    }
+
+    /// Reveal a committed sandwich-protection transaction.
+    pub fn reveal_sandwich_tx(
+        env: Env,
+        user: Address,
+        commit_hash: soroban_sdk::BytesN<32>,
+        nonce: u64,
+    ) -> Result<(), sandwich_protection::SandwichError> {
+        let hash: soroban_sdk::Hash = commit_hash.into();
+        sandwich_protection::reveal_transaction(&env, user, hash, nonce)
+    }
+
+    /// Submit a transaction to the pending batch for ordered execution.
+    pub fn submit_pending_tx(
+        env: Env,
+        user: Address,
+        operation_type: u32,
+        asset: Address,
+        amount: i128,
+        level: sandwich_protection::ProtectionLevel,
+    ) -> Result<u32, sandwich_protection::SandwichError> {
+        sandwich_protection::submit_pending_transaction(&env, user, operation_type, asset, amount, level)
+    }
+
+    /// Get the randomised execution order for the current block's pending txs.
+    pub fn get_sandwich_execution_order(env: Env) -> soroban_sdk::Vec<u32> {
+        sandwich_protection::get_execution_order(&env)
+    }
+
+    /// Clear the current block's pending transaction queue.
+    pub fn clear_sandwich_pending_txs(env: Env) {
+        sandwich_protection::clear_pending_transactions(&env)
+    }
+
+    /// Get the sandwich detection log.
+    pub fn get_sandwich_detection_log(
+        env: Env,
+    ) -> soroban_sdk::Vec<sandwich_protection::SandwichDetection> {
+        sandwich_protection::get_detection_log(&env)
+    }
+
+    // ─── Transaction simulation cache ────────────────────────────────
+
+    /// Configure the transaction simulation cache (admin only).
+    pub fn set_sim_cache_config(env: Env, config: simulation_cache::SimCacheConfig) {
+        let admin = get_borrow_admin(&env);
+        if let Some(a) = admin {
+            a.require_auth();
+        }
+        simulation_cache::set_config(&env, config)
+    }
+
+    /// Current simulation cache configuration.
+    pub fn get_sim_cache_config(env: Env) -> simulation_cache::SimCacheConfig {
+        simulation_cache::get_config(&env)
+    }
+
+    /// Look up a cached simulation result.
+    ///
+    /// Returns `None` if the cache is cold, disabled, or the block has changed.
+    pub fn sim_cache_lookup(
+        env: Env,
+        operation_type: u32,
+        pool: Address,
+        user: Address,
+        asset: Address,
+        amount: i128,
+    ) -> Option<simulation_cache::SimulationResult> {
+        simulation_cache::cache_lookup(&env, operation_type, &pool, &user, &asset, amount)
+    }
+
+    /// Insert a simulation result into the cache.
+    pub fn sim_cache_insert(
+        env: Env,
+        operation_type: u32,
+        pool: Address,
+        user: Address,
+        asset: Address,
+        amount: i128,
+        health_after: i128,
+        collateral_value_after: i128,
+        debt_value_after: i128,
+        would_succeed: bool,
+    ) -> Result<(), simulation_cache::SimCacheError> {
+        simulation_cache::cache_insert(
+            &env,
+            operation_type,
+            &pool,
+            &user,
+            &asset,
+            amount,
+            health_after,
+            collateral_value_after,
+            debt_value_after,
+            would_succeed,
+        )
+    }
+
+    /// Clear the entire simulation cache.
+    pub fn sim_cache_clear(env: Env) {
+        simulation_cache::cache_clear(&env)
+    }
+
+    /// Get cache hit/miss/eviction statistics.
+    pub fn get_sim_cache_stats(env: Env) -> simulation_cache::SimCacheStats {
+        simulation_cache::get_stats(&env)
+    }
+
+    // ─── Yield curve ─────────────────────────────────────────────────
+
+    /// Predict borrow and supply rates, spread, projected revenue and
+    /// liquidity risk score at the given utilization level.
+    pub fn predict_yield(
+        env: Env,
+        params: yield_curve::YieldCurveParams,
+        utilization_bps: i128,
+    ) -> Result<yield_curve::YieldPrediction, yield_curve::YieldCurveError> {
+        yield_curve::predict_yield_at_utilization(&params, utilization_bps)
+    }
+
+    /// Compute the borrow rate for the supplied curve parameters and utilization.
+    pub fn yield_curve_borrow_rate(
+        env: Env,
+        params: yield_curve::YieldCurveParams,
+        utilization_bps: i128,
+    ) -> Result<i128, yield_curve::YieldCurveError> {
+        yield_curve::calculate_borrow_rate(&params, utilization_bps)
+    }
+
+    /// Compute the supply rate for the supplied curve parameters and utilization.
+    pub fn yield_curve_supply_rate(
+        env: Env,
+        params: yield_curve::YieldCurveParams,
+        utilization_bps: i128,
+    ) -> Result<i128, yield_curve::YieldCurveError> {
+        yield_curve::calculate_supply_rate(&params, utilization_bps)
+    }
+
+    /// Compute the liquidity risk score (0–100) for a utilization level.
+    pub fn yield_curve_risk_score(env: Env, utilization_bps: i128) -> u32 {
+        yield_curve::calculate_liquidity_risk_score(utilization_bps)
+    }
+
+    /// Recommend curve parameters that maximise projected revenue at a target utilization.
+    pub fn optimize_yield_curve(
+        env: Env,
+        current_params: yield_curve::YieldCurveParams,
+        target_utilization_bps: i128,
+    ) -> Result<yield_curve::RateOptimizationResult, yield_curve::YieldCurveError> {
+        yield_curve::optimize_yield_curve_params(&current_params, target_utilization_bps)
+    }
+
+    /// Run stress scenarios for given utilization shocks and return a prediction per shock.
+    pub fn yield_curve_stress_scenarios(
+        env: Env,
+        params: yield_curve::YieldCurveParams,
+        utilization_shocks: soroban_sdk::Vec<i128>,
+    ) -> Result<soroban_sdk::Vec<yield_curve::YieldPrediction>, yield_curve::YieldCurveError> {
+        yield_curve::simulate_stress_scenarios(&env, &params, utilization_shocks)
+    }
+
+    // ─── Generic rewards index ────────────────────────────────────────
+
+    /// Set the emission rate for the generic rewards index (tokens per second, admin only).
+    pub fn set_rewards_emission_rate(env: Env, admin: Address, rate: i128) {
+        let current_admin = get_borrow_admin(&env);
+        if let Some(a) = current_admin {
+            if a == admin {
+                admin.require_auth();
+                rewards::set_emission_rate(&env, rate);
+            }
+        }
+    }
+
+    /// Update the global rewards index to the current ledger timestamp.
+    pub fn update_rewards_index(env: Env) {
+        rewards::update_global_index(&env)
+    }
+
+    /// Snapshot a user's accrued rewards given their current liquidity balance.
+    pub fn update_user_rewards(env: Env, user: Address, balance: i128) {
+        rewards::update_user(&env, &user, balance)
+    }
+
+    /// Claim all accrued rewards for `user`. Returns the amount claimed.
+    /// Caller must supply their own auth; this is a user-facing function.
+    pub fn claim_rewards(env: Env, user: Address) -> i128 {
+        user.require_auth();
+        rewards::claim(&env, &user)
     }
 }
