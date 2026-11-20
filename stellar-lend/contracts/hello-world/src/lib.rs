@@ -64,6 +64,9 @@ pub mod protocol_owned_liquidity;
 pub mod errors;
 pub mod types;
 
+/// Per-block memoized borrow-rate curve evaluations (issue #1640)
+pub mod rates;
+
 #[no_mangle]
 pub fn transfer_admin(
     env: Env,
