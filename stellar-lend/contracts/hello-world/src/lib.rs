@@ -41,6 +41,7 @@ pub mod credit_score;
 pub mod events;
 pub mod governance;
 pub mod health;
+pub mod math;
 pub mod multi_collateral;
 pub mod oracle;
 pub mod pause;
