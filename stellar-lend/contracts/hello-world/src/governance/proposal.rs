@@ -22,45 +22,14 @@ use crate::events::{
 };
 use crate::storage::{GovernanceDataKey, GuardianConfig};
 use crate::types::{
-    GovernanceConfig, MultisigConfig, Proposal, ProposalOutcome, ProposalStatus, ProposalType,
+    Proposal, ProposalOutcome, ProposalStatus, ProposalType,
     BASIS_POINTS_SCALE, MAX_DESCRIPTION_LEN,
 };
 
 use super::analytics::{enforce_proposal_rate_limit, update_analytics_proposal_created};
 use super::execute_proposal_type;
 use super::power::{get_past_total_locked, get_past_votes};
-
-fn get_config(env: &Env) -> Result<GovernanceConfig, GovernanceError> {
-    env.storage()
-        .instance()
-        .get(&GovernanceDataKey::Config)
-        .ok_or(GovernanceError::NotInitialized)
-}
-
-fn load_proposal(env: &Env, proposal_id: u64) -> Result<Proposal, GovernanceError> {
-    env.storage()
-        .persistent()
-        .get(&GovernanceDataKey::Proposal(proposal_id))
-        .ok_or(GovernanceError::ProposalNotFound)
-}
-
-fn save_proposal(env: &Env, proposal: &Proposal) {
-    env.storage()
-        .persistent()
-        .set(&GovernanceDataKey::Proposal(proposal.id), proposal);
-}
-
-fn next_proposal_id(env: &Env) -> u64 {
-    let id: u64 = env
-        .storage()
-        .instance()
-        .get(&GovernanceDataKey::NextProposalId)
-        .unwrap_or(0);
-    env.storage()
-        .instance()
-        .set(&GovernanceDataKey::NextProposalId, &(id + 1));
-    id
-}
+use super::state::{get_config, load_proposal, save_proposal, next_proposal_id, get_admin, get_multisig_config};
 
 /// Result of counting a proposal's votes against its quorum and threshold.
 pub(crate) struct Tally {
@@ -282,20 +251,12 @@ fn require_multisig_approvals(
     executor: &Address,
     proposal_id: u64,
 ) -> Result<(), GovernanceError> {
-    let multisig: MultisigConfig = env
-        .storage()
-        .instance()
-        .get(&GovernanceDataKey::MultisigConfig)
-        .ok_or(GovernanceError::NotInitialized)?;
+    let multisig = get_multisig_config(env)?;
     if !multisig.admins.contains(executor) {
         return Err(GovernanceError::Unauthorized);
     }
 
-    let approvals: Vec<Address> = env
-        .storage()
-        .persistent()
-        .get(&GovernanceDataKey::ProposalApprovals(proposal_id))
-        .unwrap_or_else(|| Vec::new(env));
+    let approvals = super::state::get_proposal_approvals(env, proposal_id);
     // Count only approvals from current admins, so removing an admin also
     // withdraws their approval.
     let valid = approvals
@@ -372,11 +333,7 @@ pub fn create_admin_proposal(
         return Err(GovernanceError::InputTooLong);
     }
 
-    let stored_admin: Address = env
-        .storage()
-        .instance()
-        .get(&GovernanceDataKey::Admin)
-        .ok_or(GovernanceError::NotInitialized)?;
+    let stored_admin = get_admin(env)?;
 
     if admin != stored_admin {
         return Err(GovernanceError::Unauthorized);
@@ -407,7 +364,16 @@ pub fn create_admin_proposal(
     };
     save_proposal(env, &proposal);
 
-    super::emit_proposal_created_event(env, &proposal_id, &admin);
+    ProposalCreatedEvent {
+        proposal_id,
+        proposer: admin,
+        proposal_type: crate::events::to_shared_proposal_type(&proposal.proposal_type),
+        description: proposal.description.clone(),
+        start_time: proposal.start_time,
+        end_time: proposal.end_time,
+        created_at: now,
+    }
+    .publish(env);
 
     let topics = (
         soroban_sdk::Symbol::new(env, "proposal_queued"),
@@ -433,11 +399,7 @@ pub fn create_emergency_proposal(
         return Err(GovernanceError::InputTooLong);
     }
 
-    let multisig_config: MultisigConfig = env
-        .storage()
-        .instance()
-        .get(&GovernanceDataKey::MultisigConfig)
-        .ok_or(GovernanceError::NotInitialized)?;
+    let multisig_config = get_multisig_config(env)?;
 
     if !multisig_config.admins.contains(&caller) {
         return Err(GovernanceError::Unauthorized);
@@ -468,12 +430,18 @@ pub fn create_emergency_proposal(
 
     let mut approvals = Vec::new(env);
     approvals.push_back(caller.clone());
-    env.storage().persistent().set(
-        &GovernanceDataKey::ProposalApprovals(proposal_id),
-        &approvals,
-    );
+    super::state::save_proposal_approvals(env, proposal_id, &approvals);
 
-    super::emit_proposal_created_event(env, &proposal_id, &caller);
+    ProposalCreatedEvent {
+        proposal_id,
+        proposer: caller,
+        proposal_type: crate::events::to_shared_proposal_type(&proposal.proposal_type),
+        description: proposal.description.clone(),
+        start_time: proposal.start_time,
+        end_time: proposal.end_time,
+        created_at: now,
+    }
+    .publish(env);
 
     Ok(proposal_id)
 }
@@ -488,11 +456,7 @@ pub fn cancel_proposal(
 ) -> Result<(), GovernanceError> {
     caller.require_auth();
 
-    let admin: Address = env
-        .storage()
-        .instance()
-        .get(&GovernanceDataKey::Admin)
-        .ok_or(GovernanceError::NotInitialized)?;
+    let admin = get_admin(env)?;
 
     let mut proposal = load_proposal(env, proposal_id)?;
 

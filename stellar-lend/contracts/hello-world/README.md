@@ -78,3 +78,27 @@ Current note:
 - The separate upgrade approval manager documented in [`../../../docs/upgrade-mechanism.md`](../../../docs/upgrade-mechanism.md) lives under `stellar-lend/contracts/lending`.
 
 Refer to `src/lib.rs` for the current public entrypoints and to [`../../../docs/event-indexing.md`](../../../docs/event-indexing.md) for event topics and indexing guidance.
+
+## Governance Module Refactoring (`src/governance/`)
+
+### Structure Improvements
+
+The governance module has been refactored to eliminate duplication and clarify intent:
+
+**New centralized state module** (`src/governance/state.rs`):
+- Single source of truth for all storage access patterns
+- Functions: `get_config`, `load_proposal`, `save_proposal`, `next_proposal_id`, `get_admin`, `get_multisig_config`, `get_proposal_approvals`, `save_proposal_approvals`
+- All errors use consistent patterns (`NotInitialized` for missing config/admin/multisig, `ProposalNotFound` for missing proposals)
+
+**Eliminated duplication**:
+- Removed duplicate `get_config` implementations from `proposal.rs` and `power.rs`
+- Removed 80+ lines of bare event emitters from `mod.rs` (now uses type-safe events)
+- All modules now use state module for storage operations
+- ~60 net lines of code eliminated
+
+**Testability**:
+- 14 unit tests in state module cover success and error paths
+- Each storage function tested in isolation
+- Tests verify correct behavior on initialization, overwrite, and missing data
+
+See [`docs/GOVERNANCE_REFACTORING.md`](docs/GOVERNANCE_REFACTORING.md) for detailed migration guide and design rationale.

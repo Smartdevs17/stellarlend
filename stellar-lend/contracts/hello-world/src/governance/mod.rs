@@ -6,6 +6,7 @@ pub mod power;
 pub mod proposal;
 pub mod recovery;
 pub mod simulation;
+pub mod state;
 pub mod voting;
 
 use soroban_sdk::{Address, Env, Symbol};
@@ -58,8 +59,6 @@ pub use crate::types::{
     MAX_EXECUTION_DELAY, MAX_TIMELOCK_DURATION, MAX_VOTING_PERIOD, MIN_TIMELOCK_DELAY,
     MIN_VOTING_PERIOD, PROPOSAL_RATE_LIMIT, PROPOSAL_RATE_WINDOW,
 };
-
-pub const MAX_DESCRIPTION_LEN: u32 = 256;
 
 /// Initialize the governance module.
 pub fn initialize(
@@ -160,7 +159,7 @@ pub fn validate_config(config: &GovernanceConfig) -> Result<(), GovernanceError>
 /// executing an `UpdateGovernanceConfig` proposal, so the rules can only
 /// change through the timelock.
 pub(crate) fn update_config(env: &Env, params: &GovernanceParams) -> Result<(), GovernanceError> {
-    let mut config = get_config(env).ok_or(GovernanceError::NotInitialized)?;
+    let mut config = state::get_config(env)?;
 
     if let Some(v) = params.voting_period {
         config.voting_period = v;
@@ -214,91 +213,4 @@ pub fn get_vote(env: &Env, proposal_id: u64, voter: Address) -> Option<crate::ty
         .get(&GovernanceDataKey::Vote(proposal_id, voter))
 }
 
-/// Query the governance config.
-pub fn get_config(env: &Env) -> Option<GovernanceConfig> {
-    env.storage().instance().get(&GovernanceDataKey::Config)
-}
 
-/// Query the admin address.
-pub fn get_admin(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&GovernanceDataKey::Admin)
-}
-
-// ============================================================================
-// Event Emitters
-// ============================================================================
-
-pub fn emit_proposal_created_event(env: &Env, proposal_id: &u64, proposer: &Address) {
-    let topics = (
-        Symbol::new(env, "proposal_created"),
-        *proposal_id,
-        proposer.clone(),
-    );
-    env.events().publish(topics, ());
-}
-
-pub fn emit_proposal_executed_event(env: &Env, proposal_id: &u64, executor: &Address) {
-    let topics = (
-        Symbol::new(env, "proposal_executed"),
-        *proposal_id,
-        executor.clone(),
-    );
-    env.events().publish(topics, ());
-}
-
-pub fn emit_guardian_added_event(env: &Env, guardian: &Address) {
-    let topics = (Symbol::new(env, "guardian_added"), guardian.clone());
-    env.events().publish(topics, ());
-}
-
-pub fn emit_guardian_removed_event(env: &Env, guardian: &Address) {
-    let topics = (Symbol::new(env, "guardian_removed"), guardian.clone());
-    env.events().publish(topics, ());
-}
-
-pub fn emit_recovery_started_event(
-    env: &Env,
-    old_admin: &Address,
-    new_admin: &Address,
-    initiator: &Address,
-) {
-    let topics = (
-        Symbol::new(env, "recovery_started"),
-        old_admin.clone(),
-        new_admin.clone(),
-    );
-    env.events().publish(topics, initiator.clone());
-}
-
-pub fn emit_recovery_approved_event(env: &Env, approver: &Address) {
-    let topics = (Symbol::new(env, "recovery_approved"), approver.clone());
-    env.events().publish(topics, ());
-}
-
-pub fn emit_recovery_executed_event(
-    env: &Env,
-    old_admin: &Address,
-    new_admin: &Address,
-    executor: &Address,
-) {
-    let topics = (
-        Symbol::new(env, "recovery_executed"),
-        old_admin.clone(),
-        new_admin.clone(),
-    );
-    env.events().publish(topics, executor.clone());
-}
-
-pub fn emit_recovery_cancelled_event(
-    env: &Env,
-    old_admin: &Address,
-    new_admin: &Address,
-    caller: &Address,
-) {
-    let topics = (
-        Symbol::new(env, "recovery_cancelled"),
-        old_admin.clone(),
-        new_admin.clone(),
-    );
-    env.events().publish(topics, caller.clone());
-}

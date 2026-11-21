@@ -2,10 +2,13 @@ use soroban_sdk::{Address, Env, Vec};
 
 use crate::errors::GovernanceError;
 use crate::events::ProposalApprovedEvent;
-use crate::storage::GovernanceDataKey;
-use crate::types::{MultisigConfig, Proposal, ProposalStatus};
+use crate::types::ProposalStatus;
 
 use super::execution::execute_proposal_type;
+use super::state::{
+    get_admin, get_multisig_config, get_proposal_approvals, load_proposal, save_proposal,
+    save_proposal_approvals,
+};
 
 pub fn approve_proposal(
     env: &Env,
@@ -14,34 +17,22 @@ pub fn approve_proposal(
 ) -> Result<(), GovernanceError> {
     approver.require_auth();
 
-    let multisig_config: MultisigConfig = env
-        .storage()
-        .instance()
-        .get(&GovernanceDataKey::MultisigConfig)
-        .ok_or(GovernanceError::NotInitialized)?;
+    let multisig_config = get_multisig_config(env)?;
 
     if !multisig_config.admins.contains(&approver) {
         return Err(GovernanceError::Unauthorized);
     }
 
-    let proposal_key = GovernanceDataKey::Proposal(proposal_id);
-    if !env.storage().persistent().has(&proposal_key) {
-        return Err(GovernanceError::ProposalNotFound);
-    }
+    load_proposal(env, proposal_id)?;
 
-    let approvals_key = GovernanceDataKey::ProposalApprovals(proposal_id);
-    let mut approvals: Vec<Address> = env
-        .storage()
-        .persistent()
-        .get(&approvals_key)
-        .unwrap_or_else(|| Vec::new(env));
+    let mut approvals = get_proposal_approvals(env, proposal_id);
 
     if approvals.contains(&approver) {
         return Err(GovernanceError::AlreadyVoted);
     }
 
     approvals.push_back(approver.clone());
-    env.storage().persistent().set(&approvals_key, &approvals);
+    save_proposal_approvals(env, proposal_id, &approvals);
 
     ProposalApprovedEvent {
         proposal_id,
@@ -61,11 +52,7 @@ pub fn set_multisig_config(
 ) -> Result<(), GovernanceError> {
     caller.require_auth();
 
-    let admin: Address = env
-        .storage()
-        .instance()
-        .get(&GovernanceDataKey::Admin)
-        .ok_or(GovernanceError::NotInitialized)?;
+    let admin = get_admin(env)?;
 
     if caller != admin {
         return Err(GovernanceError::Unauthorized);
@@ -82,31 +69,36 @@ pub fn set_multisig_config(
         }
     }
 
-    let config = MultisigConfig { admins, threshold };
+    let config = crate::types::MultisigConfig { admins, threshold };
     env.storage()
         .instance()
-        .set(&GovernanceDataKey::MultisigConfig, &config);
+        .set(&crate::storage::GovernanceDataKey::MultisigConfig, &config);
 
     Ok(())
 }
 
 pub fn get_proposal_approvals(env: &Env, proposal_id: u64) -> Option<Vec<Address>> {
-    let approvals_key = GovernanceDataKey::ProposalApprovals(proposal_id);
-    env.storage().persistent().get(&approvals_key)
+    let approvals = super::state::get_proposal_approvals(env, proposal_id);
+    if approvals.is_empty() {
+        None
+    } else {
+        Some(approvals)
+    }
 }
 
-pub fn get_multisig_config(env: &Env) -> Option<MultisigConfig> {
-    env.storage()
-        .instance()
-        .get(&GovernanceDataKey::MultisigConfig)
+pub fn get_multisig_config(env: &Env) -> Option<crate::types::MultisigConfig> {
+    super::state::get_multisig_config(env).ok()
 }
 
 pub fn get_multisig_admins(env: &Env) -> Option<Vec<Address>> {
-    get_multisig_config(env).map(|c| c.admins)
+    super::state::get_multisig_config(env).ok().map(|c| c.admins)
 }
 
 pub fn get_multisig_threshold(env: &Env) -> u32 {
-    get_multisig_config(env).map(|c| c.threshold).unwrap_or(1)
+    super::state::get_multisig_config(env)
+        .ok()
+        .map(|c| c.threshold)
+        .unwrap_or(1)
 }
 
 pub fn set_multisig_admins(
@@ -139,29 +131,24 @@ pub fn execute_multisig_proposal(
         return Err(GovernanceError::Unauthorized);
     }
 
-    let mut proposal: Proposal = env
-        .storage()
-        .persistent()
-        .get(&GovernanceDataKey::Proposal(proposal_id))
-        .ok_or(GovernanceError::ProposalNotFound)?;
+    let mut proposal = load_proposal(env, proposal_id)?;
 
     if proposal.status != ProposalStatus::Pending {
         return Err(GovernanceError::InvalidProposalStatus);
     }
 
     let approvals = get_proposal_approvals(env, proposal_id).unwrap_or_else(|| Vec::new(env));
-    if approvals.len() < multisig_config.threshold {
+    if (approvals.len() as u32) < multisig_config.threshold {
         return Err(GovernanceError::InsufficientApprovals);
     }
 
     execute_proposal_type(env, &proposal.proposal_type)?;
 
     proposal.status = ProposalStatus::Executed;
-    env.storage()
-        .persistent()
-        .set(&GovernanceDataKey::Proposal(proposal_id), &proposal);
+    save_proposal(env, &proposal);
 
-    super::emit_proposal_executed_event(env, &proposal_id, &executor);
+    let topics = (soroban_sdk::Symbol::new(env, "proposal_executed"), proposal_id);
+    env.events().publish(topics, executor);
 
     Ok(())
 }

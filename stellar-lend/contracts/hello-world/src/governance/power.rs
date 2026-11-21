@@ -22,8 +22,9 @@ use crate::events::{
     GovTokensLockedEvent, GovTokensUnlockedEvent, VoteDelegatedEvent, VoteDelegationRevokedEvent,
 };
 use crate::storage::GovernanceDataKey;
-use crate::types::{DelegationRecord, GovernanceConfig, VotingCheckpoint};
+use crate::types::{DelegationRecord, VotingCheckpoint};
 
+use super::state::get_config;
 use super::voting::is_vote_locked;
 
 /// A checkpointed series: one account's voting power, or the total locked.
@@ -112,14 +113,6 @@ impl Series<'_> {
     }
 }
 
-fn get_config(env: &Env) -> Result<GovernanceConfig, GovernanceError> {
-    env.storage()
-        .instance()
-        .get(&GovernanceDataKey::Config)
-        .ok_or(GovernanceError::NotInitialized)
-}
-
-/// The account whose voting power `owner`'s locked tokens count toward.
 fn voting_account(env: &Env, owner: &Address) -> Address {
     get_delegation(env, owner)
         .map(|record| record.delegatee)
