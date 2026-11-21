@@ -1,0 +1,12 @@
+{
+  "name": "@stellarlend/config",
+  "version": "1.0.0",
+  "description": "Shared configuration loader for all StellarLend services (bots, api, scripts, oracle)",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["stellarlend", "config"],
+  "license": "MIT"
+}

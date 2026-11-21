@@ -7,6 +7,190 @@ pub const RAY: i128 = 1_000_000_000_000_000_000_000_000_000;
 pub const HALF_WAD: i128 = 500_000_000_000_000_000;
 pub const SECONDS_PER_YEAR: u64 = 31_536_000;
 
+// ── FixedPoint<W> wrapper type ────────────────────────────────────────────────
+//
+// Issue #1598: Replace raw `i128` arithmetic with a typed wrapper so callers
+// cannot accidentally mix WAD and RAY values, or raw token amounts with
+// scaled prices, without an explicit conversion.
+//
+// ## Design
+//
+// `FixedPoint<W>` is a newtype over `i128` parameterised by a const `W: i128`
+// that carries the scale factor (WAD = 1e18, RAY = 1e27, BPS = 10_000, …).
+// The scale is part of the type and never stored at run time, so the memory
+// layout is identical to a bare `i128`.
+//
+// All arithmetic that requires widening goes through `I256` (one `Env` call per
+// op), consistent with the rest of this module.  Addition and subtraction stay
+// in `i128` via `safe_add` / `safe_sub`.
+//
+// The `From<FixedPoint<W>> for i128` impl intentionally exposes the inner value
+// so hot paths in contracts can drop back to raw arithmetic when needed.
+
+/// A fixed-point number with scale `W`.
+///
+/// # Type-level scale
+///
+/// | Alias          | `W`   | Use it for                              |
+/// |----------------|-------|------------------------------------------|
+/// | [`WadFP`]      | 1e18  | most per-unit fractions and prices       |
+/// | [`RayFP`]      | 1e27  | cumulative interest indices              |
+/// | [`BpsFP`]      | 10000 | basis-points ratios (rates, factors)     |
+///
+/// # Arithmetic
+///
+/// `add` / `sub` are scale-preserving and checked.
+/// `mul` / `div` produce a result at the same scale by intermediate widening.
+/// Mixing scales requires an explicit [`FixedPoint::to_scale`] conversion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FixedPoint<const W: i128>(i128);
+
+/// WAD-scaled fixed-point (1e18).
+pub type WadFP = FixedPoint<WAD>;
+/// RAY-scaled fixed-point (1e27).
+pub type RayFP = FixedPoint<RAY>;
+/// Basis-points fixed-point (1e4 = 10 000).
+pub type BpsFP = FixedPoint<10_000>;
+
+impl<const W: i128> FixedPoint<W> {
+    /// Construct from a raw scaled integer.
+    ///
+    /// The caller is responsible for the value being expressed in scale `W`.
+    #[inline]
+    pub const fn from_raw(raw: i128) -> Self {
+        Self(raw)
+    }
+
+    /// Construct from an integer by multiplying by the scale.
+    ///
+    /// `FixedPoint::<WAD>::from_int(1)` → `1e18` (represents 1.0 in WAD).
+    pub fn from_int(integer: i128) -> Result<Self, MathError> {
+        integer
+            .checked_mul(W)
+            .map(Self)
+            .ok_or(MathError::Overflow)
+    }
+
+    /// Raw inner value (already multiplied by the scale).
+    #[inline]
+    pub const fn raw(self) -> i128 {
+        self.0
+    }
+
+    /// Integer part (truncates toward zero).
+    #[inline]
+    pub const fn floor(self) -> i128 {
+        self.0 / W
+    }
+
+    /// `true` if the value is zero.
+    #[inline]
+    pub const fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+
+    /// `true` if the value is strictly positive.
+    #[inline]
+    pub const fn is_positive(self) -> bool {
+        self.0 > 0
+    }
+
+    /// Checked addition, preserving scale `W`.
+    pub fn add(self, rhs: Self) -> Result<Self, MathError> {
+        crate::int128::safe_add(self.0, rhs.0).map(Self)
+    }
+
+    /// Checked subtraction, preserving scale `W`.
+    pub fn sub(self, rhs: Self) -> Result<Self, MathError> {
+        crate::int128::safe_sub(self.0, rhs.0).map(Self)
+    }
+
+    /// Multiply two `FixedPoint<W>` values, returning a `FixedPoint<W>`.
+    ///
+    /// Uses `I256` for the intermediate product to avoid overflow on large
+    /// WAD-scaled values, then divides by `W` to restore the scale.
+    pub fn mul(self, env: &Env, rhs: Self) -> Result<Self, MathError> {
+        let a = I256::from_i128(env, self.0);
+        let b = I256::from_i128(env, rhs.0);
+        let w = I256::from_i128(env, W);
+        let product = a.mul(&b).div(&w);
+        product.to_i128().map(Self).ok_or(MathError::Overflow)
+    }
+
+    /// Divide two `FixedPoint<W>` values, returning a `FixedPoint<W>`.
+    ///
+    /// Uses `I256` to avoid losing precision in the numerator shift.
+    pub fn div(self, env: &Env, rhs: Self) -> Result<Self, MathError> {
+        if rhs.0 == 0 {
+            return Err(MathError::DivisionByZero);
+        }
+        let a = I256::from_i128(env, self.0);
+        let w = I256::from_i128(env, W);
+        let b = I256::from_i128(env, rhs.0);
+        let result = a.mul(&w).div(&b);
+        result.to_i128().map(Self).ok_or(MathError::Overflow)
+    }
+
+    /// Multiply a `FixedPoint<W>` by a plain `i128` scalar (not scaled).
+    ///
+    /// Useful for multiplying a WAD price by a raw token amount.
+    pub fn scale_by(self, scalar: i128) -> Result<Self, MathError> {
+        self.0
+            .checked_mul(scalar)
+            .map(Self)
+            .ok_or(MathError::Overflow)
+    }
+
+    /// Convert this value from scale `W` to scale `V`.
+    ///
+    /// Performs the conversion as `(raw * V) / W` using `I256` to avoid
+    /// intermediate overflow.  The result is truncated (floor toward zero).
+    pub fn to_scale<const V: i128>(&self, env: &Env) -> Result<FixedPoint<V>, MathError> {
+        if V == W {
+            return Ok(FixedPoint::<V>(self.0));
+        }
+        let raw = I256::from_i128(env, self.0);
+        let v = I256::from_i128(env, V);
+        let w = I256::from_i128(env, W);
+        let result = raw.mul(&v).div(&w);
+        result
+            .to_i128()
+            .map(FixedPoint::<V>)
+            .ok_or(MathError::Overflow)
+    }
+
+    /// Square root, returning a `FixedPoint<W>`.
+    ///
+    /// For WAD: `sqrt(4e18)` → `2e18`.
+    pub fn sqrt(self, env: &Env) -> Result<Self, MathError> {
+        fp_sqrt(env, self.0).map(Self)
+    }
+
+    /// Raise to a non-negative integer power using square-and-multiply.
+    pub fn pow(self, env: &Env, exp: u32) -> Result<Self, MathError> {
+        fp_pow(env, self.0, exp).map(Self)
+    }
+}
+
+impl<const W: i128> From<FixedPoint<W>> for i128 {
+    #[inline]
+    fn from(fp: FixedPoint<W>) -> i128 {
+        fp.0
+    }
+}
+
+impl<const W: i128> core::fmt::Display for FixedPoint<W> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // Show as "integer.fraction" at scale W.
+        let sign = if self.0 < 0 { "-" } else { "" };
+        let abs = self.0.unsigned_abs();
+        let w = W.unsigned_abs() as u128;
+        let integer = abs / w;
+        let frac = abs % w;
+        write!(f, "{sign}{integer}.{frac:0>18}")
+    }
+}
+
 // ── WAD operations ───────────────────────────────────────────────────────────
 
 pub fn fp_mul(env: &Env, a: i128, b: i128) -> Result<i128, MathError> {
@@ -329,5 +513,135 @@ mod tests {
         let just_under = WAD - 1;
         let result = fp_sqrt(&e, just_under).unwrap();
         assert!(result <= WAD);
+    }
+
+    // ── FixedPoint<W> wrapper tests ───────────────────────────────────────────
+
+    #[test]
+    fn fixed_point_from_int_round_trip() {
+        let one = WadFP::from_int(1).unwrap();
+        assert_eq!(one.raw(), WAD);
+        assert_eq!(one.floor(), 1);
+    }
+
+    #[test]
+    fn fixed_point_add() {
+        let a = WadFP::from_raw(WAD);
+        let b = WadFP::from_raw(WAD / 2);
+        let sum = a.add(b).unwrap();
+        assert_eq!(sum.raw(), WAD + WAD / 2);
+    }
+
+    #[test]
+    fn fixed_point_sub() {
+        let a = WadFP::from_raw(3 * WAD);
+        let b = WadFP::from_raw(WAD);
+        assert_eq!(a.sub(b).unwrap().raw(), 2 * WAD);
+    }
+
+    #[test]
+    fn fixed_point_mul_identity() {
+        let e = env();
+        let a = WadFP::from_raw(3 * WAD);
+        let one = WadFP::from_raw(WAD);
+        assert_eq!(a.mul(&e, one).unwrap().raw(), 3 * WAD);
+    }
+
+    #[test]
+    fn fixed_point_mul_half() {
+        let e = env();
+        let a = WadFP::from_raw(4 * WAD);
+        let half = WadFP::from_raw(WAD / 2);
+        assert_eq!(a.mul(&e, half).unwrap().raw(), 2 * WAD);
+    }
+
+    #[test]
+    fn fixed_point_div_identity() {
+        let e = env();
+        let a = WadFP::from_raw(3 * WAD);
+        let one = WadFP::from_raw(WAD);
+        assert_eq!(a.div(&e, one).unwrap().raw(), 3 * WAD);
+    }
+
+    #[test]
+    fn fixed_point_div_by_zero() {
+        let e = env();
+        let a = WadFP::from_raw(WAD);
+        let zero = WadFP::from_raw(0);
+        assert_eq!(a.div(&e, zero), Err(MathError::DivisionByZero));
+    }
+
+    #[test]
+    fn fixed_point_scale_by() {
+        let a = WadFP::from_raw(WAD);
+        assert_eq!(a.scale_by(5).unwrap().raw(), 5 * WAD);
+    }
+
+    #[test]
+    fn fixed_point_to_scale_wad_to_bps() {
+        let e = env();
+        // 1.0 in WAD → 10_000 in BPS
+        let one_wad = WadFP::from_raw(WAD);
+        let one_bps: BpsFP = one_wad.to_scale::<10_000>(&e).unwrap();
+        assert_eq!(one_bps.raw(), 10_000);
+    }
+
+    #[test]
+    fn fixed_point_sqrt() {
+        let e = env();
+        let four = WadFP::from_raw(4 * WAD);
+        assert_eq!(four.sqrt(&e).unwrap().raw(), 2 * WAD);
+    }
+
+    #[test]
+    fn fixed_point_pow_square() {
+        let e = env();
+        let two = WadFP::from_raw(2 * WAD);
+        assert_eq!(two.pow(&e, 2).unwrap().raw(), 4 * WAD);
+    }
+
+    #[test]
+    fn fixed_point_pow_zero() {
+        let e = env();
+        let two = WadFP::from_raw(2 * WAD);
+        // x^0 = 1.0
+        assert_eq!(two.pow(&e, 0).unwrap().raw(), WAD);
+    }
+
+    #[test]
+    fn fixed_point_is_zero() {
+        assert!(WadFP::from_raw(0).is_zero());
+        assert!(!WadFP::from_raw(1).is_zero());
+    }
+
+    #[test]
+    fn fixed_point_is_positive() {
+        assert!(WadFP::from_raw(1).is_positive());
+        assert!(!WadFP::from_raw(0).is_positive());
+        assert!(!WadFP::from_raw(-1).is_positive());
+    }
+
+    #[test]
+    fn fixed_point_into_i128() {
+        let fp = WadFP::from_raw(42);
+        let raw: i128 = fp.into();
+        assert_eq!(raw, 42);
+    }
+
+    #[test]
+    fn fixed_point_ray_mul_identity() {
+        let e = env();
+        let a = RayFP::from_raw(RAY);
+        let b = RayFP::from_raw(RAY);
+        assert_eq!(a.mul(&e, b).unwrap().raw(), RAY);
+    }
+
+    #[test]
+    fn fixed_point_mixed_scale_via_to_scale() {
+        let e = env();
+        // Convert 2.0 WAD → RAY scale
+        let two_wad = WadFP::from_raw(2 * WAD);
+        let two_ray: RayFP = two_wad.to_scale::<{ RAY }>(&e).unwrap();
+        assert_eq!(two_ray.raw(), 2 * RAY);
     }
 }

@@ -59,7 +59,8 @@ pub use int128::{
 
 pub use fixed_point::{
     bps_ratio, fp_add, fp_div, fp_mul, fp_pow, fp_sqrt, fp_sub, ray_div, ray_mul, ray_to_wad,
-    simple_interest, wad_to_ray, HALF_WAD, RAY, SECONDS_PER_YEAR, WAD,
+    simple_interest, wad_to_ray, BpsFP, FixedPoint, RayFP, WadFP, HALF_WAD, RAY, SECONDS_PER_YEAR,
+    WAD,
 };
 
 pub use compound::{compound_interest, compound_interest_continuous};

@@ -20,6 +20,79 @@ pub const EMERGENCY_TIMELOCK_SECONDS: u64 = 4 * 3600;
 /// absurd `effective_at`, while still leaving generous room for staged changes.
 pub const MAX_TIMELOCK_SECONDS: u64 = 180 * 24 * 3600;
 
+// ── Issue #1604: Per-asset on-chain configurable risk constants ───────────────
+//
+// Each asset accepted as collateral has four independent risk levers:
+//
+// | Constant              | Unit   | Allowed range            | Description                              |
+// |----------------------|--------|--------------------------|------------------------------------------|
+// | `collateral_factor`  | bps    | 1 – 9 000                | Maximum LTV (Loan-to-Value) for the asset|
+// | `liquidation_threshold` | bps | 1 – 10 000               | HF drops below 1 when this is breached   |
+// | `debt_ceiling`       | raw    | 0 – i128::MAX            | Protocol-wide cap on debt denominated in this asset |
+// | `reserve_factor`     | bps    | 0 – 10 000               | Fraction of interest that goes to the reserve |
+//
+// ## Invariants
+//
+// * `collateral_factor < liquidation_threshold`  — prevents instant-liquidation
+//   positions at origination.
+// * `collateral_factor > 0` — zero means the asset is not accepted as
+//   collateral (use `deregister_asset` or set `debt_ceiling = 0` for a
+//   soft-off instead).
+//
+// ## Governance flow
+//
+// `set_asset_risk_config` requires governance authorisation and emits the
+// `asset_risk_config` event so an indexer can maintain a live mirror.
+// An explicit `get_asset_risk_config` read path is provided for contracts that
+// need to gate operations on the current parameters.
+
+/// Per-asset risk constants stored and enforced on-chain.
+///
+/// All basis-point fields use the range `[0, 10_000]` where `10_000` = 100 %.
+#[derive(Clone, Debug, PartialEq)]
+#[contracttype]
+pub struct AssetRiskConfig {
+    /// Maximum LTV allowed when opening a new position, in basis points.
+    /// Must be strictly less than `liquidation_threshold`.
+    /// Range: 1 – 9 000.
+    pub collateral_factor: i128,
+    /// Health-factor threshold: a position is liquidatable when
+    /// `debt / (collateral × liquidation_threshold)` ≥ 1.
+    /// Range: 1 – 10 000.
+    pub liquidation_threshold: i128,
+    /// Hard protocol-wide cap on the total debt denominated in this asset.
+    /// `0` effectively disables new borrows.
+    pub debt_ceiling: i128,
+    /// Fraction of accrued interest allocated to the protocol reserve,
+    /// in basis points.  Range: 0 – 10 000.
+    pub reserve_factor: i128,
+    /// Ledger timestamp when this config was last committed.
+    pub updated_at: u64,
+    /// Governance address that wrote this config.
+    pub updated_by: Address,
+}
+
+impl AssetRiskConfig {
+    /// Validates all fields in combination.
+    ///
+    /// Returns `false` for any individually out-of-range value *or* for the
+    /// cross-invariant `collateral_factor >= liquidation_threshold`.
+    pub fn is_valid(&self) -> bool {
+        let cf = self.collateral_factor;
+        let lt = self.liquidation_threshold;
+        let rf = self.reserve_factor;
+        let dc = self.debt_ceiling;
+
+        cf > 0
+            && cf <= 9_000
+            && lt > 0
+            && lt <= BPS_DIVISOR
+            && cf < lt               // core invariant
+            && (0..=BPS_DIVISOR).contains(&rf)
+            && dc >= 0
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub enum ParameterType {
@@ -666,6 +739,54 @@ impl ParameterStoreContract {
         }
     }
 
+    // -------------------------------------------------------- per-asset risk config (#1604)
+
+    /// Sets the per-asset risk constants for `asset`.
+    ///
+    /// Governance must authorise the call.  The config is validated before
+    /// being committed — invalid configs (out-of-range fields or the
+    /// `collateral_factor >= liquidation_threshold` invariant) are rejected
+    /// with a panic.
+    ///
+    /// An `asset_risk_config` event is emitted after every successful write so
+    /// off-chain indexers can maintain a live mirror without polling.
+    pub fn set_asset_risk_config(
+        env: Env,
+        asset: Address,
+        collateral_factor: i128,
+        liquidation_threshold: i128,
+        debt_ceiling: i128,
+        reserve_factor: i128,
+    ) {
+        let governance: Address = env.storage().instance().get(&DataKey::Governance).unwrap();
+        governance.require_auth();
+
+        let cfg = AssetRiskConfig {
+            collateral_factor,
+            liquidation_threshold,
+            debt_ceiling,
+            reserve_factor,
+            updated_at: env.ledger().timestamp(),
+            updated_by: governance.clone(),
+        };
+
+        assert!(cfg.is_valid(), "AssetRiskConfig invariant violated");
+
+        env.storage()
+            .instance()
+            .set(&DataKey::AssetRiskConfig(asset.clone()), &cfg);
+
+        env.events()
+            .publish((Symbol::new(&env, "asset_risk_config"), asset), cfg);
+    }
+
+    /// Returns the risk constants for `asset`, or `None` if none have been set.
+    pub fn get_asset_risk_config(env: Env, asset: Address) -> Option<AssetRiskConfig> {
+        env.storage()
+            .instance()
+            .get(&DataKey::AssetRiskConfig(asset))
+    }
+
     // --------------------------------------------------------------- simulation
 
     /// Projects the effect of a proposed value against a snapshot of pool state.
@@ -866,6 +987,8 @@ enum DataKey {
     TotalVotingPower,
     /// Votes cast on a proposal.
     Votes(u64),
+    /// Per-asset risk constants (issue #1604).
+    AssetRiskConfig(Address),
 }
 
 #[cfg(test)]
@@ -1471,5 +1594,174 @@ mod tests {
         let prop = client(&te).get_proposal(&1);
         assert!(prop.accepted);
         assert_eq!(client(&te).get_parameter(&ParameterType::LTV, &pool), 7_500);
+    }
+
+    // ── AssetRiskConfig tests (#1604) ─────────────────────────────────────────
+
+    #[test]
+    fn test_set_and_get_asset_risk_config() {
+        let te = setup();
+        let asset = Address::generate(&te.env);
+
+        with_governance_auth(
+            &te,
+            "set_asset_risk_config",
+            (&asset, &7_500i128, &8_500i128, &1_000_000i128, &1_000i128),
+            || {
+                client(&te).set_asset_risk_config(&asset, &7_500, &8_500, &1_000_000, &1_000);
+            },
+        );
+
+        let cfg = client(&te)
+            .get_asset_risk_config(&asset)
+            .expect("config should be present");
+        assert_eq!(cfg.collateral_factor, 7_500);
+        assert_eq!(cfg.liquidation_threshold, 8_500);
+        assert_eq!(cfg.debt_ceiling, 1_000_000);
+        assert_eq!(cfg.reserve_factor, 1_000);
+    }
+
+    #[test]
+    fn test_get_asset_risk_config_none_when_unset() {
+        let te = setup();
+        let asset = Address::generate(&te.env);
+        assert!(client(&te).get_asset_risk_config(&asset).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "AssetRiskConfig invariant violated")]
+    fn test_set_asset_risk_config_rejects_cf_gte_lt() {
+        let te = setup();
+        let asset = Address::generate(&te.env);
+        // collateral_factor (8000) >= liquidation_threshold (7500) → invalid
+        with_governance_auth(
+            &te,
+            "set_asset_risk_config",
+            (&asset, &8_000i128, &7_500i128, &0i128, &0i128),
+            || {
+                client(&te).set_asset_risk_config(&asset, &8_000, &7_500, &0, &0);
+            },
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "AssetRiskConfig invariant violated")]
+    fn test_set_asset_risk_config_rejects_cf_zero() {
+        let te = setup();
+        let asset = Address::generate(&te.env);
+        with_governance_auth(
+            &te,
+            "set_asset_risk_config",
+            (&asset, &0i128, &8_000i128, &0i128, &0i128),
+            || {
+                client(&te).set_asset_risk_config(&asset, &0, &8_000, &0, &0);
+            },
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "AssetRiskConfig invariant violated")]
+    fn test_set_asset_risk_config_rejects_cf_too_high() {
+        let te = setup();
+        let asset = Address::generate(&te.env);
+        // collateral_factor 9500 > 9000 max
+        with_governance_auth(
+            &te,
+            "set_asset_risk_config",
+            (&asset, &9_500i128, &9_800i128, &0i128, &0i128),
+            || {
+                client(&te).set_asset_risk_config(&asset, &9_500, &9_800, &0, &0);
+            },
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "AssetRiskConfig invariant violated")]
+    fn test_set_asset_risk_config_rejects_rf_too_high() {
+        let te = setup();
+        let asset = Address::generate(&te.env);
+        // reserve_factor 10_001 > 10_000
+        with_governance_auth(
+            &te,
+            "set_asset_risk_config",
+            (&asset, &5_000i128, &8_000i128, &0i128, &10_001i128),
+            || {
+                client(&te).set_asset_risk_config(&asset, &5_000, &8_000, &0, &10_001);
+            },
+        );
+    }
+
+    #[test]
+    fn test_set_asset_risk_config_allows_zero_debt_ceiling() {
+        let te = setup();
+        let asset = Address::generate(&te.env);
+        with_governance_auth(
+            &te,
+            "set_asset_risk_config",
+            (&asset, &5_000i128, &8_000i128, &0i128, &500i128),
+            || {
+                client(&te).set_asset_risk_config(&asset, &5_000, &8_000, &0, &500);
+            },
+        );
+        let cfg = client(&te).get_asset_risk_config(&asset).unwrap();
+        assert_eq!(cfg.debt_ceiling, 0);
+    }
+
+    #[test]
+    fn test_set_asset_risk_config_can_be_updated() {
+        let te = setup();
+        let asset = Address::generate(&te.env);
+
+        with_governance_auth(
+            &te,
+            "set_asset_risk_config",
+            (&asset, &6_000i128, &8_000i128, &500_000i128, &500i128),
+            || {
+                client(&te).set_asset_risk_config(&asset, &6_000, &8_000, &500_000, &500);
+            },
+        );
+
+        // Update to tighter parameters
+        with_governance_auth(
+            &te,
+            "set_asset_risk_config",
+            (&asset, &5_000i128, &7_500i128, &200_000i128, &1_000i128),
+            || {
+                client(&te).set_asset_risk_config(&asset, &5_000, &7_500, &200_000, &1_000);
+            },
+        );
+
+        let cfg = client(&te).get_asset_risk_config(&asset).unwrap();
+        assert_eq!(cfg.collateral_factor, 5_000);
+        assert_eq!(cfg.liquidation_threshold, 7_500);
+        assert_eq!(cfg.debt_ceiling, 200_000);
+        assert_eq!(cfg.reserve_factor, 1_000);
+    }
+
+    #[test]
+    fn test_asset_risk_config_is_valid_boundary() {
+        // Minimum valid: cf=1, lt=2, dc=0, rf=0
+        let dummy = soroban_sdk::Env::default();
+        let addr = Address::generate(&dummy);
+        let cfg = AssetRiskConfig {
+            collateral_factor: 1,
+            liquidation_threshold: 2,
+            debt_ceiling: 0,
+            reserve_factor: 0,
+            updated_at: 0,
+            updated_by: addr.clone(),
+        };
+        assert!(cfg.is_valid());
+
+        // Maximum valid: cf=9000, lt=10000
+        let cfg2 = AssetRiskConfig {
+            collateral_factor: 9_000,
+            liquidation_threshold: 10_000,
+            debt_ceiling: i128::MAX,
+            reserve_factor: BPS_DIVISOR,
+            updated_at: 0,
+            updated_by: addr,
+        };
+        assert!(cfg2.is_valid());
     }
 }

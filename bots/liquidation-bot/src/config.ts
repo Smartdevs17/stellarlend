@@ -1,25 +1,42 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-export interface BotConfig {
-  stellarNetwork: string;
+// Issue #1602: shared network + bot fields come from @stellarlend/config.
+// Bot-specific fields (minProfitThresholdXlm, etc.) are added below.
+import {
+  BotSharedConfig,
+  StellarNetworkConfig,
+  loadBotSharedConfig,
+  loadStellarConfig,
+  envInt,
+  envBool,
+} from '../../../packages/config/src/index';
+
+/** Full config for the liquidation bot. */
+export interface BotConfig extends BotSharedConfig {
+  // ── Stellar connection (from shared package) ──────────────────────────────
+  stellarNetwork: StellarNetworkConfig['network'];
   stellarRpcUrl: string;
   stellarHorizonUrl: string;
+  networkPassphrase: string;
+
+  // ── Signing keys ──────────────────────────────────────────────────────────
   botSecretKey: string;
   botPublicKey: string;
+
+  // ── Liquidation bot-specific ──────────────────────────────────────────────
   minProfitThresholdXlm: number;
   maxGasPriceStroops: number;
   liquidationTargetStrategy: 'highest_profit' | 'highest_risk' | 'lowest_hf';
   pollIntervalMs: number;
-  dryRun: boolean;
   maxConcurrentLiquidations: number;
-  wsUrl: string;
-  apiBaseUrl: string;
+
+  // ── Webhook ───────────────────────────────────────────────────────────────
   liquidationWebhookUrl: string;
   liquidationWebhookSecret: string;
   webhookMaxAttempts: number;
   webhookRetryDelayMs: number;
-  logLevel: string;
+
   /**
    * Minimum discount (in basis points) required before the auction bidder
    * considers placing a bid.  Default: 500 bps (5%).
@@ -28,26 +45,37 @@ export interface BotConfig {
 }
 
 export function loadConfig(): BotConfig {
+  const stellar = loadStellarConfig();
+  const shared  = loadBotSharedConfig();
+
   return {
-    stellarNetwork: process.env.STELLAR_NETWORK || 'testnet',
-    stellarRpcUrl: process.env.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org',
-    stellarHorizonUrl: process.env.STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org',
-    botSecretKey: process.env.BOT_SECRET_KEY || '',
-    botPublicKey: process.env.BOT_PUBLIC_KEY || '',
-    minProfitThresholdXlm: parseFloat(process.env.MIN_PROFIT_THRESHOLD_XLM || '1.0'),
-    maxGasPriceStroops: parseInt(process.env.MAX_GAS_PRICE_STROOPS || '100000', 10),
-    liquidationTargetStrategy: (process.env.LIQUIDATION_TARGET_STRATEGY || 'highest_profit') as BotConfig['liquidationTargetStrategy'],
-    pollIntervalMs: parseInt(process.env.POLL_INTERVAL_MS || '5000', 10),
-    dryRun: process.env.DRY_RUN !== 'false',
-    maxConcurrentLiquidations: parseInt(process.env.MAX_CONCURRENT_LIQUIDATIONS || '3', 10),
-    wsUrl: process.env.WS_URL || 'ws://localhost:3000/api/ws/health-updates',
-    apiBaseUrl: process.env.API_BASE_URL || 'http://localhost:3000/api',
-    liquidationWebhookUrl: process.env.LIQUIDATION_WEBHOOK_URL || '',
-    liquidationWebhookSecret: process.env.LIQUIDATION_WEBHOOK_SECRET || '',
-    webhookMaxAttempts: parseInt(process.env.WEBHOOK_MAX_ATTEMPTS || '3', 10),
-    webhookRetryDelayMs: parseInt(process.env.WEBHOOK_RETRY_DELAY_MS || '500', 10),
-    logLevel: process.env.LOG_LEVEL || 'info',
-    minDiscountBps: parseInt(process.env.MIN_DISCOUNT_BPS || '500', 10),
+    // Shared fields
+    ...shared,
+
+    // Stellar connection
+    stellarNetwork:    stellar.network,
+    stellarRpcUrl:     stellar.rpcUrl,
+    stellarHorizonUrl: stellar.horizonUrl,
+    networkPassphrase: stellar.networkPassphrase,
+
+    // Signing keys
+    botSecretKey: process.env.BOT_SECRET_KEY ?? '',
+    botPublicKey:  process.env.BOT_PUBLIC_KEY  ?? '',
+
+    // Liquidation bot-specific
+    minProfitThresholdXlm:    parseFloat(process.env.MIN_PROFIT_THRESHOLD_XLM  ?? '1.0'),
+    maxGasPriceStroops:       envInt('MAX_GAS_PRICE_STROOPS', 100_000),
+    liquidationTargetStrategy: (process.env.LIQUIDATION_TARGET_STRATEGY ?? 'highest_profit') as BotConfig['liquidationTargetStrategy'],
+    pollIntervalMs:            envInt('POLL_INTERVAL_MS', 5_000),
+    maxConcurrentLiquidations: envInt('MAX_CONCURRENT_LIQUIDATIONS', 3),
+
+    // Webhook
+    liquidationWebhookUrl:    process.env.LIQUIDATION_WEBHOOK_URL    ?? '',
+    liquidationWebhookSecret: process.env.LIQUIDATION_WEBHOOK_SECRET ?? '',
+    webhookMaxAttempts:       envInt('WEBHOOK_MAX_ATTEMPTS', 3),
+    webhookRetryDelayMs:      envInt('WEBHOOK_RETRY_DELAY_MS', 500),
+
+    minDiscountBps: envInt('MIN_DISCOUNT_BPS', 500),
   };
 }
 
