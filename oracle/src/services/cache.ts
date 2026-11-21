@@ -393,6 +393,26 @@ export function createCache(config?: Partial<CacheConfig>): Cache {
 }
 
 /**
+ * Read-through helper: returns the cached value for `key`, or invokes `loader`,
+ * stores its result with the given TTL, and returns it. Loader errors propagate
+ * and nothing is cached on failure.
+ */
+export async function readThrough<T>(
+  cache: Cache,
+  key: string,
+  loader: () => Promise<T>,
+  ttlSeconds?: number
+): Promise<T> {
+  const cached = await cache.get<T>(key);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const value = await loader();
+  await cache.set(key, value, ttlSeconds);
+  return value;
+}
+
+/**
  * Create a price-specific cache
  */
 export function createPriceCache(ttlSeconds?: number, redisUrl?: string): PriceCache {
