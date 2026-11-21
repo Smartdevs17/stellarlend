@@ -26,6 +26,7 @@ delegation-registry = { path = "../delegation-registry" }
 proptest = "1"
 serde_json = "1"
 test-utils = { path = "../test-utils" }
+contract-test-utils = { path = "../contract-test-utils" }
 
 [features]
 testutils = ["soroban-sdk/testutils"]

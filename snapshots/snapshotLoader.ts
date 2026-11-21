@@ -38,6 +38,7 @@ import type {
 } from './schema';
 import { CURRENT_SNAPSHOT_VERSION } from './schema';
 import { validateSnapshot } from './validate';
+import { canonicalizeSnapshot } from './format';
 import {
   computeDiff,
   applyDiff,
@@ -225,7 +226,7 @@ export function loadSnapshot(filePath = SNAP_FILE): LoadResult {
   }
 
   const needsMigration = result.snapshot.version !== CURRENT_SNAPSHOT_VERSION;
-  const current = migrate(result.snapshot);
+  const current = canonicalizeSnapshot(migrate(result.snapshot));
 
   loadCache = { snapshot: current, mtimeMs: mtime };
 
@@ -323,7 +324,8 @@ export function writeSnapshot(
     state: nextState,
   };
 
-  const snapJson = JSON.stringify(nextSnap, null, 2);
+  const canonicalSnap = canonicalizeSnapshot(nextSnap);
+  const snapJson = JSON.stringify(canonicalSnap, null, 2) + '\n';
   fs.writeFileSync(snapFile, snapJson, 'utf8');
   metrics.writes++;
 

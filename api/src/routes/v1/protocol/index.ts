@@ -8,12 +8,6 @@
  * - Audit logging and integrity verification
  */
 
-import { Router } from 'express';
-import protocolRoutes from '../../protocol.routes';
+import protocolFeatureRoutes from '../../features/protocol.module';
 
-const router = Router();
-
-// Protocol: /v1/protocol/*
-router.use('/', protocolRoutes);
-
-export default router;
+export default protocolFeatureRoutes;

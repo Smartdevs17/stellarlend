@@ -10,6 +10,7 @@ import { bodySizeLimitMiddleware } from './middleware/bodySizeLimit';
 import v1Routes from './routes/v1';
 
 // Legacy route imports for backward compatibility
+import { lendingFeatureRoutes, eventsFeatureRoutes, protocolFeatureRoutes } from './routes/features';
 import lendingRoutes from './routes/lending.routes';
 import healthRoutes from './routes/health.routes';
 import healthScoreRoutes from './routes/health';
@@ -75,6 +76,7 @@ import bridgeRoutes from './routes/bridge.routes';
 import complianceRoutes from './routes/v1/compliance';
 import interestRoutes from './routes/interest';
 import eventsRoutes from './routes/events';
+// Feature-based modules (issue #1614): keep legacy route files, expose feature entrypoints.
 import parametersRoutes from './routes/parameters';
 
 import compression from 'compression';
@@ -245,14 +247,14 @@ app.use('/api/developer', legacySystemCompat, developerRoutes);
 app.use('/api/sandbox', sandboxRoutes);
 app.use('/api/health', legacySystemCompat, healthRoutes);
 app.use('/api/health', legacySystemCompat, healthScoreRoutes);
-app.use('/api/protocol', legacyProtocolCompat, protocolRoutes);
+app.use('/api/protocol', legacyProtocolCompat, protocolFeatureRoutes);
 app.use(
   '/api/lending',
   legacyLendingCompat,
   idempotencyMiddleware,
   userRateLimiter,
   sensitiveOperationRateLimiter,
-  lendingRoutes
+  lendingFeatureRoutes
 );
 app.use('/api/subscriptions', legacyAccountCompat, subscriptionRoutes);
 app.use('/api/portfolio', legacyAccountCompat, portfolioRoutes);
@@ -308,7 +310,7 @@ app.use('/api/rate-limit', rateLimitRoutes);
 app.use('/api/debt-token', debtTokenRoutes);
 app.use('/api/bridge', bridgeRoutes);
 app.use('/api/interest', interestRoutes);
-app.use('/api/events', eventsRoutes);
+app.use('/api/events', eventsFeatureRoutes);
 app.use('/api/parameters', legacyGovernanceCompat, parametersRoutes);
 app.use('/api/cache', legacySystemCompat, cacheRoutes);
 

@@ -14,6 +14,7 @@ import {
   formatIndexerMetricsAsJson,
   formatIndexerMetricsAsPrometheus,
 } from '../services/eventIndex';
+import { getDomainEventBus } from '../events';
 import type { EventQuery } from '../services/eventIndex/types';
 import type { ReplaySource } from '../services/eventIndex/replay';
 import { NotFoundError, ValidationError } from '../utils/errors';
@@ -139,7 +140,8 @@ export class EventsController {
 
   async getIndexerStatus(_req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      res.json(await getEventIndexer().status());
+      const status = await getEventIndexer().status();
+      res.json({ ...status, bus: getDomainEventBus().stats() });
     } catch (error) {
       next(error);
     }

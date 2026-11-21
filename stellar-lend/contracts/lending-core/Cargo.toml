@@ -12,6 +12,7 @@ lending-types = { path = "../lending-types" }
 
 [dev-dependencies]
 test-utils = { path = "../test-utils" }
+contract-test-utils = { path = "../contract-test-utils" }
 
 [features]
 default = []

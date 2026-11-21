@@ -1,0 +1,19 @@
+[package]
+name = "contract-test-utils"
+version = "0.1.0"
+edition = "2021"
+description = "Shared Soroban contract test fixtures and helpers for StellarLend. Re-exports the unified test-utils crate under a contract-focused package name."
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+test-utils = { path = "../test-utils" }
+
+[dev-dependencies]
+
+[features]
+default = []
+
+[lints]
+workspace = true

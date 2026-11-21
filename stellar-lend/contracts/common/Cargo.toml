@@ -12,6 +12,7 @@ stellarlend-errors = { path = "../errors" }
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
 test-utils = { path = "../test-utils" }
+contract-test-utils = { path = "../contract-test-utils" }
 
 [features]
 testutils = []

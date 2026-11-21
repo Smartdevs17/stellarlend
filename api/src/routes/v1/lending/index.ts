@@ -8,26 +8,6 @@
  * - Cross-asset operations
  */
 
-import { Router } from 'express';
-import lendingRoutes from '../../lending.routes';
-import gasRoutes from '../../gas.routes';
-import debtTokenRoutes from '../../debtToken.routes';
-import crossAssetRoutes from '../../crossAsset.routes';
-import flashLoanRoutes from '../../flashLoan.routes';
+import lendingFeatureRoutes from '../../features/lending.module';
 
-const router = Router();
-
-// Core lending: /v1/lending/*
-router.use('/', lendingRoutes);
-
-// Gas estimation: /v1/lending/gas/*
-router.use('/gas', gasRoutes);
-
-// Debt tokens: /v1/lending/debt-token/*
-router.use('/debt-token', debtTokenRoutes);
-
-// Cross-asset: /v1/lending/cross-asset/*
-router.use('/cross-asset', crossAssetRoutes);
-router.use('/flash-loan', flashLoanRoutes);
-
-export default router;
+export default lendingFeatureRoutes;

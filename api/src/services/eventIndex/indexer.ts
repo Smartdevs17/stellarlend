@@ -26,6 +26,10 @@ import type {
 } from './types';
 import { IndexerAlertManager, IndexerAlert, AlertThresholds } from './alerts';
 
+export interface IndexedEventPublisher {
+  publishIndexedEvent(event: IndexedEvent): Promise<unknown>;
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Where events come from — implemented by `StellarService` for Soroban RPC. */
@@ -92,6 +96,8 @@ export interface EventIndexerOptions {
   archiver: EventArchiver;
   store?: EventStore;
   sinks?: EventSink[];
+  /** Optional domain-event publisher notified after events are stored. */
+  publisher?: IndexedEventPublisher;
   /** Events older than this stay hot; older ones are archivable. */
   hotRetentionMs?: number;
   /** Ledgers to look back on first sync when no start ledger is configured. */
@@ -120,6 +126,7 @@ export class EventIndexer {
   private readonly source: EventSource;
   private readonly archiver: EventArchiver;
   private readonly sinks: EventSink[];
+  private readonly publisher?: IndexedEventPublisher;
   private readonly hotRetentionMs: number;
   private readonly initialLookbackLedgers: number;
   private readonly startLedger?: number;
@@ -148,6 +155,7 @@ export class EventIndexer {
     this.archiver = options.archiver;
     this.store = options.store ?? new EventStore();
     this.sinks = options.sinks ?? [];
+    this.publisher = options.publisher;
     this.hotRetentionMs = options.hotRetentionMs ?? 30 * DAY_MS;
     this.initialLookbackLedgers = options.initialLookbackLedgers ?? 17_280; // ~1 day
     this.startLedger = options.startLedger;
@@ -173,10 +181,30 @@ export class EventIndexer {
     const events = raw
       .filter((r) => r.inSuccessfulContractCall !== false)
       .map((r) => normalizeEvent(r));
+    const newlyAdded = events.filter((event) => !this.store.get(event.id));
     const added = this.store.add(events);
     this.totalIngested += added;
-    if (added) await this.writeSinks(events);
+    if (added) {
+      await this.writeSinks(newlyAdded);
+      await this.publishDomainEvents(newlyAdded);
+    }
     return added;
+  }
+
+  private async publishDomainEvents(events: IndexedEvent[]): Promise<void> {
+    if (!this.publisher || events.length === 0) return;
+    await Promise.all(
+      events.map(async (event) => {
+        try {
+          await this.publisher!.publishIndexedEvent(event);
+        } catch (err) {
+          logger.warn('Domain event publish failed', {
+            eventId: event.id,
+            error: (err as Error).message,
+          });
+        }
+      })
+    );
   }
 
   start(intervalMs: number): void {

@@ -129,6 +129,15 @@ function validateV1(raw: Record<string, unknown>, errors: string[]): boolean {
   ok = validateArray(state['positions'], 'state.positions', validatePosition, errors) && ok;
   ok = validateArray(state['pools'], 'state.pools', validatePool, errors) && ok;
   ok = validateArray(state['governance'], 'state.governance', validateGovernance, errors) && ok;
+
+  // Canonical format (issue #1618): known top-level keys only.
+  const allowedTopLevel = new Set(['version', 'kind', 'recordedAt', 'state', 'seq']);
+  for (const key of Object.keys(raw)) {
+    if (!allowedTopLevel.has(key)) {
+      errors.push(`${key}: unknown top-level field; snapshot format is version/kind/recordedAt/seq/state`);
+      ok = false;
+    }
+  }
   return ok;
 }
 

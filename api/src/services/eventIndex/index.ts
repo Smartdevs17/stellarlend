@@ -15,6 +15,7 @@
 
 import path from 'path';
 import { StellarService } from '../stellar.service';
+import { getDomainEventBus } from '../../events';
 import { EventArchiver, FileSystemColdStorage } from './archive';
 import { ElasticsearchEventSink, EventSink } from './elasticsearch';
 import { EventIndexer } from './indexer';
@@ -27,6 +28,7 @@ export { ElasticsearchEventSink } from './elasticsearch';
 export { CURRENT_SCHEMA_VERSION, normalizeEvent, upcast } from './schema';
 export { IndexerAlertManager, IndexerAlert, AlertThresholds, DEFAULT_ALERT_THRESHOLDS } from './alerts';
 export { formatIndexerMetricsAsPrometheus, formatIndexerMetricsAsJson } from './metrics';
+export { getDomainEventBus } from '../../events';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -59,6 +61,7 @@ function createDefaultIndexer(): EventIndexer {
       )
     ),
     sinks,
+    publisher: getDomainEventBus(),
     hotRetentionMs: (optionalInt(process.env.EVENT_HOT_RETENTION_DAYS) ?? 30) * DAY_MS,
     startLedger: optionalInt(process.env.EVENT_INDEXER_START_LEDGER),
   });
