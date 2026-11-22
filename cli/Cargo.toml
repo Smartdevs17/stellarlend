@@ -1,0 +1,26 @@
+[package]
+name = "sllend"
+version = "0.2.0"
+edition = "2021"
+authors = ["StellarLend Contributors"]
+description = "StellarLend developer CLI tool using clap subcommand derive"
+license = "MIT"
+
+[workspace]
+
+[[bin]]
+name = "sllend"
+path = "src/main.rs"
+
+[lib]
+name = "sllend"
+path = "src/lib.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive", "env"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+toml = "0.8"
