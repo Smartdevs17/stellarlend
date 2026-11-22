@@ -6,12 +6,13 @@
  */
 
 import { fileURLToPath } from 'node:url';
+import { CachedPriceProvider } from './providers/cached-provider.js';
 import { loadConfig, getSafeConfig, type OracleServiceConfig } from './config.js';
 import { configureLogger, logger, logProviderHealth, logStalenessAlert } from './utils/logger.js';
 import {
   createCoinGeckoProvider,
   createBinanceProvider,
-  type BasePriceProvider,
+  type PriceProvider,
 } from './providers/index.js';
 import {
   createValidator,
@@ -403,21 +404,28 @@ export class OracleService {
     return providers.map((provider) => ({ ...provider }) as ProviderConfig);
   }
 
-  private createRuntimeProviders(configuredProviders: ProviderConfig[]): BasePriceProvider[] {
-    const runtimeProviders: BasePriceProvider[] = [];
+  private createRuntimeProviders(configuredProviders: ProviderConfig[]): PriceProvider[] {
+    const runtimeProviders: PriceProvider[] = [];
 
     for (const provider of configuredProviders) {
       if (!provider.enabled) {
         continue;
       }
 
+      let live: PriceProvider | undefined;
       if (provider.name === 'coingecko') {
-        runtimeProviders.push(createCoinGeckoProvider(provider.apiKey));
-        continue;
+        live = createCoinGeckoProvider(provider.apiKey);
+      } else if (provider.name === 'binance') {
+        live = createBinanceProvider();
       }
-
-      if (provider.name === 'binance') {
-        runtimeProviders.push(createBinanceProvider());
+      if (live) {
+        runtimeProviders.push(
+          new CachedPriceProvider(live, {
+            // Direct service configs historically treat negative TTLs as disabled.
+            ttlSeconds: Math.max(0, this.config.cacheTtlSeconds),
+            maxStalenessSeconds: Math.max(0, this.config.priceStaleThresholdSeconds),
+          })
+        );
       }
     }
 

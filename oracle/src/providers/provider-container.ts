@@ -1,15 +1,7 @@
-import type { HealthStatus, RawPriceData } from '../types/index.js';
-import { BasePriceProvider } from './base-provider.js';
+import type { HealthStatus } from '../types/index.js';
 
-export interface PriceProvider {
-  readonly name: string;
-  readonly priority: number;
-  readonly weight: number;
-  readonly isEnabled: boolean;
-  fetchPrice(asset: string): Promise<RawPriceData>;
-  fetchPrices(assets: string[]): Promise<RawPriceData[]>;
-  healthCheck(): Promise<HealthStatus>;
-}
+export type { PriceProvider } from './price-provider.js';
+import type { PriceProvider } from './price-provider.js';
 
 export type ProviderFactory = () => PriceProvider;
 
@@ -49,6 +41,6 @@ export function createProviderContainer(): ProviderContainer {
   return new ProviderContainer();
 }
 
-export function asPriceProvider(provider: BasePriceProvider): PriceProvider {
+export function asPriceProvider(provider: PriceProvider): PriceProvider {
   return provider;
 }

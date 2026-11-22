@@ -6,6 +6,7 @@
  */
 
 import axios from 'axios';
+import type { PriceProvider } from './price-provider.js';
 import https from 'https';
 import type { RawPriceData, ProviderConfig, HealthStatus } from '../types/index.js';
 import { logger } from '../utils/logger.js';
@@ -22,7 +23,7 @@ const httpsAgent = new https.Agent({
 /**
  * Abstract base class for price providers
  */
-export abstract class BasePriceProvider {
+export abstract class BasePriceProvider implements PriceProvider {
   protected config: ProviderConfig;
   // Sliding-window rate limit state: store timestamps (ms) for recent requests.
   // We keep timestamps for requests that are still within the active window.

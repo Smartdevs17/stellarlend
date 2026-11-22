@@ -6,7 +6,7 @@
  */
 
 import type { RawPriceData, PriceData, AggregatedPrice } from '@/types';
-import { BasePriceProvider } from '@/providers/base-provider';
+import type { PriceProvider } from '@/providers/price-provider';
 import { PriceValidator } from './price-validator';
 import { PriceCache } from './cache';
 import { PriceHistoryService } from './price-history';
@@ -54,7 +54,7 @@ const DEFAULT_CONFIG: AggregatorConfig = {
  * Price Aggregator
  */
 export class PriceAggregator {
-  private providers: BasePriceProvider[];
+  private providers: PriceProvider[];
   private validator: PriceValidator;
   private cache: PriceCache;
   private priceHistory: PriceHistoryService;
@@ -62,7 +62,7 @@ export class PriceAggregator {
   private circuitBreakers: Map<string, CircuitBreaker>;
 
   constructor(
-    providers: BasePriceProvider[],
+    providers: PriceProvider[],
     validator: PriceValidator,
     cache: PriceCache,
     priceHistory: PriceHistoryService,
@@ -261,7 +261,7 @@ export class PriceAggregator {
    * the round agreed on.
    */
   private async fetchFromAllProviders(asset: string): Promise<PriceData[]> {
-    const quotes: { provider: BasePriceProvider; raw: RawPriceData }[] = [];
+    const quotes: { provider: PriceProvider; raw: RawPriceData }[] = [];
     const errors: Map<string, Error> = new Map();
 
     // ── Phase 1: collect quotes ───────────────────────────────────────────
@@ -335,8 +335,8 @@ export class PriceAggregator {
    */
   private screenAgainstConsensus(
     asset: string,
-    quotes: { provider: BasePriceProvider; raw: RawPriceData }[]
-  ): { provider: BasePriceProvider; raw: RawPriceData }[] {
+    quotes: { provider: PriceProvider; raw: RawPriceData }[]
+  ): { provider: PriceProvider; raw: RawPriceData }[] {
     if (quotes.length < 3) {
       return quotes;
     }
@@ -527,7 +527,7 @@ function isPriceHistoryService(value: unknown): value is PriceHistoryService {
  * Create a price aggregator
  */
 export function createAggregator(
-  providers: BasePriceProvider[],
+  providers: PriceProvider[],
   validator: PriceValidator,
   cache: PriceCache,
   priceHistoryOrConfig?: PriceHistoryService | Partial<AggregatorConfig>,

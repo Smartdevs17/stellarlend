@@ -4,11 +4,13 @@
 //! guards, caching, multi-source aggregation, circuit breakers, TWAP, and
 //! historical tracking.
 //!
-//! ## Price Resolution Order
-//! 1. **Cache**: returns a cached price if the TTL has not expired.
-//! 2. **Primary feed**: reads the on-chain `PriceFeed` entry; rejects if stale.
-//! 3. **Fallback oracle**: if the primary is stale or missing, queries a
-//!    configured fallback oracle address.
+//! ## Price Resolution
+//! Primary, configured fallback and additional feed slots implement the shared
+//! `PriceOracle` trait. Fresh, valid quotes contribute to median/outlier filtering
+//! and quorum checks before TWAP and circuit-breaker policy runs.
+//! `get_price` and spot reads resolve current feeds. Liquidation reads may use
+//! the finalized-price cache, but only after checking the circuit breaker.
+//! The shared `PriceCache` bridge retains the existing CachedPrice storage layout.
 //!
 //! ## Safety
 //! - Price deviation between consecutive updates is bounded (default ±5%).
@@ -24,10 +26,12 @@
 
 #![allow(unused)]
 use crate::admin::get_admin;
-use crate::deposit::DepositDataKey;
 use crate::events::{emit_price_updated, PriceUpdatedEvent};
 use soroban_sdk::{contracterror, contracttype, Address, Env, IntoVal, Map, Symbol, Val, Vec};
-use stellarlend_oracle_client::{validate_price as validate_client_price, OraclePrice};
+use stellarlend_oracle_client::{
+    validate_price as validate_client_price, CachedOraclePrice, OracleClientError, OraclePrice,
+    PriceCache, PriceOracle, PRICE_ORACLE_INTERFACE_VERSION,
+};
 
 /// Errors that can occur during oracle operations
 #[contracterror]
@@ -828,68 +832,88 @@ fn filter_outliers(env: &Env, median: i128, prices: Vec<i128>) -> Result<Vec<i12
     Ok(kept)
 }
 
+/// Storage-backed adapter shared by primary, fallback and additional feed slots.
+/// It preserves the source timestamp and reports stale feeds through the existing
+/// incident channel. Source selection and aggregation policy remain separate.
+struct StoredFeedAdapter {
+    key: OracleDataKey,
+    expected_source: Option<Address>,
+}
+
+impl PriceOracle for StoredFeedAdapter {
+    fn interface_version(&self) -> u32 {
+        PRICE_ORACLE_INTERFACE_VERSION
+    }
+
+    fn price(&self, env: &Env, asset: &Address) -> Result<OraclePrice, OracleClientError> {
+        let feed = env
+            .storage()
+            .persistent()
+            .get::<_, PriceFeed>(&self.key)
+            .ok_or(OracleClientError::NoPriceAvailable)?;
+        let price = OraclePrice {
+            price: feed.price,
+            updated_at: feed.last_updated,
+            source: feed.oracle.clone(),
+        };
+        let validation =
+            validate_client_price(env, &price, get_oracle_config(env).max_staleness_seconds);
+        if validation == Err(OracleClientError::StalePrice) {
+            note_stale_feed(env, asset, &feed);
+            return Err(OracleClientError::StalePrice);
+        }
+        if self
+            .expected_source
+            .as_ref()
+            .map(|source| source != &price.source)
+            .unwrap_or(false)
+        {
+            return Err(OracleClientError::PrimaryUnavailable);
+        }
+        validation?;
+        Ok(price)
+    }
+}
+
 fn aggregate_spot_price(env: &Env, asset: &Address) -> Result<i128, OracleError> {
     let config = get_oracle_config(env);
 
     let mut candidates: Vec<i128> = Vec::new(env);
-    let mut saw_any_feed: bool = false;
-    let mut saw_stale_feed: bool = false;
-
-    // Primary feed (if present and fresh)
-    let primary_feed_key = OracleDataKey::PriceFeed(asset.clone());
-    if let Some(feed) = env
-        .storage()
-        .persistent()
-        .get::<OracleDataKey, PriceFeed>(&primary_feed_key)
-    {
-        saw_any_feed = true;
-        if !is_price_stale(env, feed.last_updated) {
-            candidates.push_back(feed.price);
-        } else {
-            note_stale_feed(env, asset, &feed);
-            saw_stale_feed = true;
+    let mut saw_stale_feed = false;
+    let mut saw_invalid_feed = false;
+    let mut collect = |adapter: StoredFeedAdapter| {
+        match adapter.price(env, asset) {
+            Ok(price) => candidates.push_back(price.price),
+            Err(OracleClientError::StalePrice) => saw_stale_feed = true,
+            Err(OracleClientError::InvalidPrice) => saw_invalid_feed = true,
+            // Missing or mismatched feeds cannot contribute to the quorum.
+            Err(_) => (),
         }
+    };
+    collect(StoredFeedAdapter {
+        key: OracleDataKey::PriceFeed(asset.clone()),
+        expected_source: None,
+    });
+    if let Some(source) = get_fallback_oracle(env, asset) {
+        collect(StoredFeedAdapter {
+            key: OracleDataKey::FallbackFeed(asset.clone()),
+            expected_source: Some(source),
+        });
     }
-
-    // Fallback feed (if present and fresh and from configured fallback oracle)
-    if let Some(fallback_oracle) = get_fallback_oracle(env, asset) {
-        let fallback_key = OracleDataKey::FallbackFeed(asset.clone());
-        if let Some(feed) = env
-            .storage()
-            .persistent()
-            .get::<OracleDataKey, PriceFeed>(&fallback_key)
-        {
-            saw_any_feed = true;
-            if feed.oracle == fallback_oracle && !is_price_stale(env, feed.last_updated) {
-                candidates.push_back(feed.price);
-            } else if is_price_stale(env, feed.last_updated) {
-                note_stale_feed(env, asset, &feed);
-                saw_stale_feed = true;
-            }
-        }
+    for source in get_oracle_sources(env, asset).iter() {
+        collect(StoredFeedAdapter {
+            key: OracleDataKey::SourceFeed(asset.clone(), source),
+            expected_source: None,
+        });
     }
-
-    // Additional source feeds (configured by admin)
-    let sources = get_oracle_sources(env, asset);
-    for src in sources.iter() {
-        if let Some(feed) = get_source_feed(env, asset, &src) {
-            saw_any_feed = true;
-            if !is_price_stale(env, feed.last_updated) {
-                candidates.push_back(feed.price);
-            } else {
-                note_stale_feed(env, asset, &feed);
-                saw_stale_feed = true;
-            }
-        }
-    }
-
     if candidates.is_empty() {
-        // Preserve historical behavior: if we saw feeds but they were stale, return StalePrice.
-        if saw_any_feed && saw_stale_feed {
-            return Err(OracleError::StalePrice);
-        }
-        // No feeds at all (or only mismatched fallback oracle); treat as missing.
-        return Err(OracleError::FallbackNotConfigured);
+        return Err(if saw_stale_feed {
+            OracleError::StalePrice
+        } else if saw_invalid_feed {
+            OracleError::InvalidPrice
+        } else {
+            OracleError::FallbackNotConfigured
+        });
     }
 
     let med = median_i128(env, candidates.clone())?;
@@ -998,34 +1022,59 @@ fn compute_twap(env: &Env, asset: &Address, spot_price: i128) -> Result<i128, Or
         .ok_or(OracleError::Overflow)
 }
 
-/// Get cached price if valid
-fn get_cached_price(env: &Env, asset: &Address) -> Option<i128> {
-    let cache_key = OracleDataKey::PriceCache(asset.clone());
-    if let Some(cached) = env
-        .storage()
-        .persistent()
-        .get::<OracleDataKey, CachedPrice>(&cache_key)
-    {
-        let current_time = env.ledger().timestamp();
-        if current_time >= cached.cached_at
-            && current_time <= cached.cached_at.saturating_add(cached.ttl)
-        {
-            return Some(cached.price);
+/// Bridge the shared cache trait to the existing finalized-price storage layout.
+/// CachedPrice and its inclusive TTL boundary remain migration-compatible.
+struct StoredPriceCache;
+
+impl PriceCache for StoredPriceCache {
+    fn cached_price(&self, env: &Env, asset: &Address) -> Option<CachedOraclePrice> {
+        let cached = env
+            .storage()
+            .persistent()
+            .get::<_, CachedPrice>(&OracleDataKey::PriceCache(asset.clone()))?;
+        let now = env.ledger().timestamp();
+        if now < cached.cached_at || now > cached.cached_at.saturating_add(cached.ttl) {
+            return None;
         }
+        Some(CachedOraclePrice {
+            price: OraclePrice {
+                price: cached.price,
+                // This is a finalized spot/TWAP result, not an upstream quote.
+                updated_at: cached.cached_at,
+                source: env.current_contract_address(),
+            },
+            cached_at: cached.cached_at,
+        })
     }
-    None
+
+    fn cache_price(&self, env: &Env, asset: &Address, price: &OraclePrice) {
+        env.storage().persistent().set(
+            &OracleDataKey::PriceCache(asset.clone()),
+            &CachedPrice {
+                price: price.price,
+                cached_at: env.ledger().timestamp(),
+                ttl: get_oracle_config(env).cache_ttl_seconds,
+            },
+        );
+    }
 }
 
-/// Cache price
+fn get_cached_price(env: &Env, asset: &Address) -> Option<i128> {
+    StoredPriceCache
+        .cached_price(env, asset)
+        .map(|cached| cached.price.price)
+}
+
 fn cache_price(env: &Env, asset: &Address, price: i128) {
-    let config = get_oracle_config(env);
-    let cache_key = OracleDataKey::PriceCache(asset.clone());
-    let cached = CachedPrice {
-        price,
-        cached_at: env.ledger().timestamp(),
-        ttl: config.cache_ttl_seconds,
-    };
-    env.storage().persistent().set(&cache_key, &cached);
+    StoredPriceCache.cache_price(
+        env,
+        asset,
+        &OraclePrice {
+            price,
+            updated_at: env.ledger().timestamp(),
+            source: env.current_contract_address(),
+        },
+    );
 }
 
 /// Update price feed from oracle
@@ -1300,28 +1349,15 @@ pub fn get_twap_view(env: &Env, asset: &Address) -> Result<i128, OracleError> {
 
 /// Get price from fallback oracle
 fn get_fallback_price(env: &Env, asset: &Address) -> Result<i128, OracleError> {
-    let fallback_key = OracleDataKey::FallbackOracle(asset.clone());
-    if let Some(fallback_oracle) = env
-        .storage()
-        .persistent()
-        .get::<OracleDataKey, Address>(&fallback_key)
-    {
-        // Get price from fallback oracle feed slot
-        let feed_key = OracleDataKey::FallbackFeed(asset.clone());
-        if let Some(feed) = env
-            .storage()
-            .persistent()
-            .get::<OracleDataKey, PriceFeed>(&feed_key)
-        {
-            // Check if fallback price is valid and from authorized oracle
-            if feed.oracle == fallback_oracle && !is_price_stale(env, feed.last_updated) {
-                cache_price(env, asset, feed.price);
-                return Ok(feed.price);
-            }
-        }
+    let source = get_fallback_oracle(env, asset).ok_or(OracleError::FallbackNotConfigured)?;
+    let price = StoredFeedAdapter {
+        key: OracleDataKey::FallbackFeed(asset.clone()),
+        expected_source: Some(source),
     }
-
-    Err(OracleError::FallbackNotConfigured)
+    .price(env, asset)
+    .map_err(|_| OracleError::FallbackNotConfigured)?;
+    cache_price(env, asset, price.price);
+    Ok(price.price)
 }
 
 /// Set primary oracle for an asset
@@ -1672,4 +1708,256 @@ pub fn get_consecutive_failures(env: &Env, asset: &Address) -> u32 {
         .persistent()
         .get::<OracleHealthKey, u32>(&key)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod adapter_tests {
+    use super::*;
+    use soroban_sdk::{
+        contract, contractimpl,
+        testutils::{Address as _, Ledger},
+    };
+
+    #[contract]
+    struct AdapterTestContract;
+    #[contractimpl]
+    impl AdapterTestContract {
+        pub fn marker() {}
+    }
+
+    fn setup() -> (Env, Address, Address, Address) {
+        let env = Env::default();
+        env.ledger().with_mut(|ledger| ledger.timestamp = 1000);
+        let contract = env.register(AdapterTestContract, ());
+        let asset = Address::generate(&env);
+        let source = Address::generate(&env);
+        env.as_contract(&contract, || {
+            let mut config = get_default_config();
+            config.max_staleness_seconds = 60;
+            config.cache_ttl_seconds = 10;
+            config.twap_window_seconds = 0;
+            env.storage()
+                .persistent()
+                .set(&OracleDataKey::OracleConfig, &config);
+        });
+        (env, contract, asset, source)
+    }
+
+    fn feed(env: &Env, key: &OracleDataKey, source: &Address, price: i128, timestamp: u64) {
+        env.storage().persistent().set(
+            key,
+            &PriceFeed {
+                price,
+                last_updated: timestamp,
+                oracle: source.clone(),
+                decimals: 8,
+            },
+        );
+    }
+
+    #[test]
+    fn adapter_preserves_source_metadata_and_interface_version() {
+        let (env, contract, asset, source) = setup();
+        env.as_contract(&contract, || {
+            let key = OracleDataKey::PriceFeed(asset.clone());
+            feed(&env, &key, &source, 100, 990);
+            let adapter = StoredFeedAdapter {
+                key,
+                expected_source: None,
+            };
+            assert_eq!(adapter.interface_version(), PRICE_ORACLE_INTERFACE_VERSION);
+            assert_eq!(
+                adapter.price(&env, &asset),
+                Ok(OraclePrice {
+                    price: 100,
+                    updated_at: 990,
+                    source,
+                })
+            );
+        });
+    }
+
+    #[test]
+    fn adapter_rejects_stale_and_future_feeds_and_emits_incidents() {
+        let (env, contract, asset, source) = setup();
+        env.as_contract(&contract, || {
+            let adapter = StoredFeedAdapter {
+                key: OracleDataKey::PriceFeed(asset.clone()),
+                expected_source: None,
+            };
+            // Existing source freshness accepts the exact age boundary.
+            feed(&env, &adapter.key, &source, 100, 940);
+            assert!(adapter.price(&env, &asset).is_ok());
+            for timestamp in [939, 1001] {
+                feed(&env, &adapter.key, &source, 100, timestamp);
+                assert_eq!(
+                    adapter.price(&env, &asset),
+                    Err(OracleClientError::StalePrice)
+                );
+                assert_eq!(
+                    get_oracle_incident_report(&env, &asset).unwrap().kind,
+                    OracleIncidentKind::StalePrice
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn adapter_rejects_missing_mismatched_and_invalid_quotes() {
+        let (env, contract, asset, source) = setup();
+        env.as_contract(&contract, || {
+            let adapter = StoredFeedAdapter {
+                key: OracleDataKey::FallbackFeed(asset.clone()),
+                expected_source: Some(source.clone()),
+            };
+            assert_eq!(
+                adapter.price(&env, &asset),
+                Err(OracleClientError::NoPriceAvailable)
+            );
+            feed(&env, &adapter.key, &Address::generate(&env), 100, 1000);
+            assert_eq!(
+                adapter.price(&env, &asset),
+                Err(OracleClientError::PrimaryUnavailable)
+            );
+            feed(&env, &adapter.key, &source, 0, 1000);
+            assert_eq!(
+                adapter.price(&env, &asset),
+                Err(OracleClientError::InvalidPrice)
+            );
+        });
+    }
+
+    #[test]
+    fn every_feed_slot_uses_the_same_aggregation_and_quorum_policy() {
+        let (env, contract, asset, primary) = setup();
+        env.as_contract(&contract, || {
+            let fallback = Address::generate(&env);
+            let additional = Address::generate(&env);
+            env.storage()
+                .persistent()
+                .set(&OracleDataKey::FallbackOracle(asset.clone()), &fallback);
+            let mut sources = Vec::new(&env);
+            sources.push_back(additional.clone());
+            set_oracle_sources_internal(&env, &asset, &sources);
+            feed(
+                &env,
+                &OracleDataKey::PriceFeed(asset.clone()),
+                &primary,
+                100,
+                1000,
+            );
+            feed(
+                &env,
+                &OracleDataKey::FallbackFeed(asset.clone()),
+                &fallback,
+                102,
+                1000,
+            );
+            feed(
+                &env,
+                &OracleDataKey::SourceFeed(asset.clone(), additional.clone()),
+                &additional,
+                101,
+                1000,
+            );
+            assert_eq!(aggregate_spot_price(&env, &asset), Ok(101));
+            // A fallback quote from an unconfigured source is never counted.
+            feed(
+                &env,
+                &OracleDataKey::FallbackFeed(asset.clone()),
+                &primary,
+                999,
+                1000,
+            );
+            let mut config = get_oracle_config(&env);
+            config.min_sources = 3;
+            env.storage()
+                .persistent()
+                .set(&OracleDataKey::OracleConfig, &config);
+            assert_eq!(
+                aggregate_spot_price(&env, &asset),
+                Err(OracleError::NotEnoughSources)
+            );
+        });
+    }
+
+    #[test]
+    fn cache_bridge_preserves_layout_asset_isolation_and_ttl_boundaries() {
+        let (env, contract, asset, _) = setup();
+        env.as_contract(&contract, || {
+            cache_price(&env, &asset, 100);
+            let stored: CachedPrice = env
+                .storage()
+                .persistent()
+                .get(&OracleDataKey::PriceCache(asset.clone()))
+                .unwrap();
+            assert_eq!(
+                stored,
+                CachedPrice {
+                    price: 100,
+                    cached_at: 1000,
+                    ttl: 10
+                }
+            );
+            assert!(StoredPriceCache
+                .cached_price(&env, &Address::generate(&env))
+                .is_none());
+            env.ledger().with_mut(|ledger| ledger.timestamp = 1010);
+            assert_eq!(get_cached_price(&env, &asset), Some(100));
+            env.ledger().with_mut(|ledger| ledger.timestamp = 1011);
+            assert_eq!(get_cached_price(&env, &asset), None);
+            env.ledger().with_mut(|ledger| ledger.timestamp = 999);
+            assert_eq!(get_cached_price(&env, &asset), None);
+        });
+    }
+
+    #[test]
+    fn liquidation_cache_never_bypasses_an_open_circuit_breaker() {
+        let (env, contract, asset, source) = setup();
+        env.as_contract(&contract, || {
+            cache_price(&env, &asset, 99);
+            feed(
+                &env,
+                &OracleDataKey::PriceFeed(asset.clone()),
+                &source,
+                100,
+                1000,
+            );
+            assert_eq!(get_liquidation_price(&env, &asset), Ok(99));
+            assert_eq!(get_spot_price(&env, &asset), Ok(100));
+            set_breaker_state(
+                &env,
+                &asset,
+                &CircuitBreakerState {
+                    open_until: 1100,
+                    last_safe_price: 100,
+                    last_trip_timestamp: 1000,
+                },
+            );
+            assert_eq!(
+                get_liquidation_price(&env, &asset),
+                Err(OracleError::CircuitBreakerOpen)
+            );
+            assert_eq!(
+                get_spot_price(&env, &asset),
+                Err(OracleError::CircuitBreakerOpen)
+            );
+        });
+    }
+
+    #[test]
+    fn failed_source_resolution_does_not_populate_the_price_cache() {
+        let (env, contract, asset, source) = setup();
+        env.as_contract(&contract, || {
+            feed(
+                &env,
+                &OracleDataKey::PriceFeed(asset.clone()),
+                &source,
+                100,
+                900,
+            );
+            assert_eq!(get_price(&env, &asset), Err(OracleError::StalePrice));
+            assert!(StoredPriceCache.cached_price(&env, &asset).is_none());
+        });
+    }
 }

@@ -238,3 +238,55 @@ npm run openapi:check      # CI: fails if the committed spec is stale
 
 The test suite (`tests/openapi.test.ts`) asserts that the committed
 `oracle/openapi.json` matches generated output, so `npm test` fails on drift.
+
+
+## Oracle adapters and caching
+
+`PriceProvider` in `src/providers/price-provider.ts` is the common service adapter
+interface. CoinGecko and Binance implement it through `BasePriceProvider`;
+`ProviderContainer` and `PriceAggregator` accept structural implementations as
+well. A new integration supplies metadata, single/batch fetches and a health
+probe, without depending on the aggregator's internals.
+
+The service wraps each live provider in `CachedPriceProvider` using
+`CACHE_TTL_SECONDS` and the configured source-staleness threshold. For custom
+adapters:
+
+```typescript
+const cached = new CachedPriceProvider(provider, {
+  ttlSeconds: 30,
+  maxStalenessSeconds: 300,
+  maxEntries: 1000,
+});
+```
+
+- Cache keys are normalized asset names within one provider instance. Capacity
+  is bounded with least-recently-used eviction.
+- Quotes keep their original timestamp and source; cache hits never make an old
+  quote appear fresh. Entries expire at the earlier of TTL or source-age limit.
+  The TTL boundary is exclusive, and clock rollback invalidates a cached entry.
+- Concurrent single-asset requests share one fetch. Batch requests retain the
+  provider's batch endpoint and partial-success behavior, fetching only misses.
+- Failed fetches and invalid or already-stale responses are not cached. A failed
+  fetch remains visible to the aggregator's existing fallback/circuit breaker.
+- Zero TTL disables retained quotes. Health checks always probe the live adapter.
+- Structured debug logs identify adapter cache hits/misses by provider and asset;
+  existing provider, circuit-breaker and service metrics remain available.
+
+The on-chain module (`stellar-lend/contracts/hello-world/src/oracle.rs`) reuses
+`stellarlend_oracle_client::PriceOracle` for every stored feed slot and
+`PriceCache` for finalized-price storage. Source timestamps and the configured fallback source
+identity are checked before a quote contributes to quorum. Stale feeds still
+produce the existing incident records/events. Median filtering, TWAP and breaker
+policy stay outside the adapters. The contract cache retains the existing
+`CachedPrice` layout and inclusive TTL boundary; liquidation checks the breaker
+before reading it, while spot/general reads resolve feeds again. No storage
+migration or contract entry-point change is required.
+
+Run service regressions with `npm test` in `oracle/`. Contract adapter tests are
+in `oracle::adapter_tests` and run with:
+
+```bash
+cd stellar-lend
+cargo test -p hello-world --lib oracle::adapter_tests
+```
