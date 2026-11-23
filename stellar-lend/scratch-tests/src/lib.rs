@@ -37,3 +37,6 @@ mod withdraw_queue_tests;
 
 #[cfg(test)]
 mod strategy_tests;
+
+#[cfg(test)]
+mod vault_tests;

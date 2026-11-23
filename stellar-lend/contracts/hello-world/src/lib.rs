@@ -75,6 +75,9 @@ pub mod withdraw_queue;
 /// Strategy registry for yield-routing adapters (issue #1580)
 pub mod strategy;
 
+/// ERC-4626-style vault interface for stablecoin pools (issue #1608)
+pub mod vault;
+
 #[no_mangle]
 pub fn transfer_admin(
     env: Env,
@@ -366,4 +369,254 @@ pub fn get_strategy_registry_stats(env: Env) -> strategy::RegistryStats {
 #[no_mangle]
 pub fn get_strategy_target_allocations(env: Env) -> soroban_sdk::Map<u64, i128> {
     strategy::get_target_allocations(&env)
+}
+
+// ── ERC-4626 vault interface for stablecoin pools (issue #1608) ────────────
+
+#[no_mangle]
+pub fn initialize_pool_vault(
+    env: Env,
+    caller: Address,
+    pool: Option<Address>,
+    asset: Address,
+    config: vault::VaultConfig,
+) -> Result<(), errors::LendingError> {
+    vault::initialize_vault(&env, &caller, pool, asset, config)
+}
+
+#[no_mangle]
+pub fn set_pool_vault_config(
+    env: Env,
+    caller: Address,
+    pool: Option<Address>,
+    config: vault::VaultConfig,
+) -> Result<(), errors::LendingError> {
+    vault::set_vault_config(&env, &caller, pool, config)
+}
+
+#[no_mangle]
+pub fn get_pool_vault_config(
+    env: Env,
+    pool: Option<Address>,
+) -> Option<vault::VaultConfig> {
+    vault::get_vault_config(&env, pool)
+}
+
+#[no_mangle]
+pub fn vault_asset(
+    env: Env,
+    pool: Option<Address>,
+) -> Result<Address, errors::LendingError> {
+    vault::get_asset(&env, pool)
+}
+
+#[no_mangle]
+pub fn vault_total_assets(
+    env: Env,
+    pool: Option<Address>,
+) -> Result<i128, errors::LendingError> {
+    vault::total_assets(&env, pool)
+}
+
+#[no_mangle]
+pub fn vault_total_shares(
+    env: Env,
+    pool: Option<Address>,
+) -> Result<i128, errors::LendingError> {
+    vault::total_shares(&env, pool)
+}
+
+#[no_mangle]
+pub fn vault_convert_to_shares(
+    env: Env,
+    pool: Option<Address>,
+    assets: i128,
+) -> Result<i128, errors::LendingError> {
+    vault::convert_to_shares(&env, pool, assets)
+}
+
+#[no_mangle]
+pub fn vault_convert_to_assets(
+    env: Env,
+    pool: Option<Address>,
+    shares: i128,
+) -> Result<i128, errors::LendingError> {
+    vault::convert_to_assets(&env, pool, shares)
+}
+
+#[no_mangle]
+pub fn vault_max_deposit(
+    env: Env,
+    pool: Option<Address>,
+    receiver: Address,
+) -> Result<i128, errors::LendingError> {
+    vault::max_deposit(&env, pool, &receiver)
+}
+
+#[no_mangle]
+pub fn vault_preview_deposit(
+    env: Env,
+    pool: Option<Address>,
+    assets: i128,
+) -> Result<i128, errors::LendingError> {
+    vault::preview_deposit(&env, pool, assets)
+}
+
+#[no_mangle]
+pub fn vault_deposit(
+    env: Env,
+    caller: Address,
+    assets: i128,
+    receiver: Address,
+    pool: Option<Address>,
+) -> Result<i128, errors::LendingError> {
+    vault::deposit(&env, &caller, assets, &receiver, pool)
+}
+
+#[no_mangle]
+pub fn vault_max_mint(
+    env: Env,
+    pool: Option<Address>,
+    receiver: Address,
+) -> Result<i128, errors::LendingError> {
+    vault::max_mint(&env, pool, &receiver)
+}
+
+#[no_mangle]
+pub fn vault_preview_mint(
+    env: Env,
+    pool: Option<Address>,
+    shares: i128,
+) -> Result<i128, errors::LendingError> {
+    vault::preview_mint(&env, pool, shares)
+}
+
+#[no_mangle]
+pub fn vault_mint(
+    env: Env,
+    caller: Address,
+    shares: i128,
+    receiver: Address,
+    pool: Option<Address>,
+) -> Result<i128, errors::LendingError> {
+    vault::mint(&env, &caller, shares, &receiver, pool)
+}
+
+#[no_mangle]
+pub fn vault_max_withdraw(
+    env: Env,
+    pool: Option<Address>,
+    owner: Address,
+) -> Result<i128, errors::LendingError> {
+    vault::max_withdraw(&env, pool, &owner)
+}
+
+#[no_mangle]
+pub fn vault_preview_withdraw(
+    env: Env,
+    pool: Option<Address>,
+    assets: i128,
+) -> Result<i128, errors::LendingError> {
+    vault::preview_withdraw(&env, pool, assets)
+}
+
+#[no_mangle]
+pub fn vault_withdraw(
+    env: Env,
+    caller: Address,
+    assets: i128,
+    receiver: Address,
+    owner: Address,
+    pool: Option<Address>,
+) -> Result<i128, errors::LendingError> {
+    vault::withdraw(&env, &caller, assets, &receiver, &owner, pool)
+}
+
+#[no_mangle]
+pub fn vault_max_redeem(
+    env: Env,
+    pool: Option<Address>,
+    owner: Address,
+) -> Result<i128, errors::LendingError> {
+    vault::max_redeem(&env, pool, &owner)
+}
+
+#[no_mangle]
+pub fn vault_preview_redeem(
+    env: Env,
+    pool: Option<Address>,
+    shares: i128,
+) -> Result<i128, errors::LendingError> {
+    vault::preview_redeem(&env, pool, shares)
+}
+
+#[no_mangle]
+pub fn vault_redeem(
+    env: Env,
+    caller: Address,
+    shares: i128,
+    receiver: Address,
+    owner: Address,
+    pool: Option<Address>,
+) -> Result<i128, errors::LendingError> {
+    vault::redeem(&env, &caller, shares, &receiver, &owner, pool)
+}
+
+#[no_mangle]
+pub fn vault_share_balance_of(
+    env: Env,
+    pool: Option<Address>,
+    user: Address,
+) -> i128 {
+    vault::share_balance_of(&env, pool, &user)
+}
+
+#[no_mangle]
+pub fn vault_share_allowance(
+    env: Env,
+    pool: Option<Address>,
+    owner: Address,
+    spender: Address,
+) -> i128 {
+    vault::share_allowance(&env, pool, &owner, &spender)
+}
+
+#[no_mangle]
+pub fn vault_approve_shares(
+    env: Env,
+    owner: Address,
+    spender: Address,
+    pool: Option<Address>,
+    amount: i128,
+) -> Result<(), errors::LendingError> {
+    vault::approve_shares(&env, &owner, &spender, pool, amount)
+}
+
+#[no_mangle]
+pub fn vault_transfer_shares(
+    env: Env,
+    from: Address,
+    to: Address,
+    pool: Option<Address>,
+    amount: i128,
+) -> Result<(), errors::LendingError> {
+    vault::transfer_shares(&env, &from, &to, pool, amount)
+}
+
+#[no_mangle]
+pub fn vault_accrue_yield(
+    env: Env,
+    caller: Address,
+    pool: Option<Address>,
+    yield_amount: i128,
+) -> Result<i128, errors::LendingError> {
+    vault::accrue_yield(&env, &caller, pool, yield_amount)
+}
+
+#[no_mangle]
+pub fn vault_get_stats(
+    env: Env,
+    pool: Option<Address>,
+) -> Result<vault::VaultStats, errors::LendingError> {
+    vault::get_vault_stats(&env, pool)
 }

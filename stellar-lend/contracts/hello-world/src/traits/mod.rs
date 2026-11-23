@@ -1,3 +1,5 @@
+pub use crate::vault::{ERC4626Vault, StablecoinVault};
+
 use soroban_sdk::{Address, Env};
 
 pub trait InterestModel {

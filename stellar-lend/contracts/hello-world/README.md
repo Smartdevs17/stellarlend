@@ -16,6 +16,7 @@ This contract exposes the current public API for the main StellarLend protocol c
 - Bribe market: `bribe_deposit`, `bribe_settle`, `bribe_claim`, `get_bribe_epoch`, `get_bribe_reward`
 - Cross-chain collateral: `register_eth_attestation`, `wrap_eth_collateral`, `unwrap_eth_collateral`, `get_wrapped_collateral`
 - Bulk repayment: `bulk_repay`, `get_bulk_repay_quote`
+- ERC-4626 stablecoin vaults: `initialize_pool_vault`, `set_pool_vault_config`, `get_pool_vault_config`, `vault_asset`, `vault_total_assets`, `vault_total_shares`, `vault_convert_to_shares`, `vault_convert_to_assets`, `vault_max_deposit`, `vault_preview_deposit`, `vault_deposit`, `vault_max_mint`, `vault_preview_mint`, `vault_mint`, `vault_max_withdraw`, `vault_preview_withdraw`, `vault_withdraw`, `vault_max_redeem`, `vault_preview_redeem`, `vault_redeem`, `vault_share_balance_of`, `vault_share_allowance`, `vault_approve_shares`, `vault_transfer_shares`, `vault_accrue_yield`, `vault_get_stats`
 
 ---
 
@@ -216,3 +217,32 @@ The governance module has been refactored to eliminate duplication and clarify i
 - Tests verify correct behavior on initialization, overwrite, and missing data
 
 See [`docs/GOVERNANCE_REFACTORING.md`](docs/GOVERNANCE_REFACTORING.md) for detailed migration guide and design rationale.
+
+---
+
+## ERC-4626 Tokenized Vault Interface for Stablecoin Pools (`src/vault.rs`)
+
+### Overview & Motivation (#1608)
+
+Stablecoin pools (such as USDC, EURC, USDS) often require a clean, standardized abstraction to represent yield-bearing deposits. Previously, pool logic and share tracking were ad-hoc, duplicating conversion math and limit checks across multiple contracts.
+
+The `vault` module extracts a canonical **ERC-4626 Tokenized Vault Interface** implemented natively in Soroban. It wraps pool reserves into standard share accounting and provides:
+
+1. **Standard Trait (`ERC4626Vault`)**: Standardized methods (`asset`, `total_assets`, `total_shares`, `convert_to_shares`, `convert_to_assets`, `max_deposit`, `preview_deposit`, `deposit`, `max_mint`, `preview_mint`, `mint`, `max_withdraw`, `preview_withdraw`, `withdraw`, `max_redeem`, `preview_redeem`, `redeem`).
+2. **Virtual Offset Inflation Protection**: Mitigates the first-depositor inflation / donation attack by employing virtual offsets (`VIRTUAL_OFFSET = 1`) on total assets and total shares.
+3. **ERC-4626 Compliant Rounding**:
+   - `convert_to_shares`, `preview_deposit`, and `preview_redeem` round **down** (in favor of vault).
+   - `preview_mint` and `preview_withdraw` round **up** (in favor of vault).
+4. **Third-Party Delegations**: Standard allowance approvals (`approve_shares`, `share_allowance`) allowing routers and custodians to execute withdrawals and redemptions on behalf of vault share owners.
+5. **Multi-Pool Isolation**: Parameterized by `pool: Option<Address>` (`None` for default pool, `Some(address)` for individual stablecoin pools).
+
+### Events Emitted
+
+| Event | Topics | Payload |
+|---|---|---|
+| `VaultDepositEvent` | `("vault", "deposit")` | `pool, caller, receiver, assets, shares, timestamp` |
+| `VaultWithdrawEvent` | `("vault", "withdraw")` | `pool, caller, receiver, owner, assets, shares, timestamp` |
+| `VaultConfiguredEvent` | `("vault", "configured")` | `pool, caller, deposit_cap, deposit_paused, withdraw_paused, timestamp` |
+| `VaultApprovalEvent` | `("vault", "approval")` | `pool, owner, spender, amount, timestamp` |
+| `VaultYieldAccruedEvent` | `("vault", "yield_accrued")` | `pool, yield_amount, new_total_assets, timestamp` |
+
