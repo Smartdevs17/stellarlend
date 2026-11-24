@@ -1,0 +1,14 @@
+[package]
+name = "stellarlend-params"
+version = "0.1.0"
+edition = "2021"
+description = "Typed per-asset parameter registry shared by the pool contracts"
+license = "MIT"
+
+# Standalone workspace; see contracts/params/README.md.
+[workspace]
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
