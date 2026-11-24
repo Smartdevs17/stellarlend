@@ -78,6 +78,8 @@ import interestRoutes from './routes/interest';
 import eventsRoutes from './routes/events';
 // Feature-based modules (issue #1614): keep legacy route files, expose feature entrypoints.
 import parametersRoutes from './routes/parameters';
+// Pool whitelisting gated by risk-council quorum (issue #1528)
+import poolsRoutes from './routes/pools';
 
 import compression from 'compression';
 import { errorHandler } from './middleware/errorHandler';
@@ -312,6 +314,7 @@ app.use('/api/bridge', bridgeRoutes);
 app.use('/api/interest', interestRoutes);
 app.use('/api/events', eventsFeatureRoutes);
 app.use('/api/parameters', legacyGovernanceCompat, parametersRoutes);
+app.use('/api/pools', poolsRoutes);
 app.use('/api/cache', legacySystemCompat, cacheRoutes);
 
 app.use(errorHandler);
