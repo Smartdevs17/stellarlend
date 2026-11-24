@@ -20,6 +20,7 @@ use crate::risk_management::RiskManagementError;
 use crate::risk_params::RiskParamsError;
 use crate::treasury::TreasuryError;
 use crate::upgrade::UpgradeError;
+use crate::fee_switch::FeeSwitchError;
 use crate::withdraw::WithdrawError;
 
 #[contracterror]
@@ -383,6 +384,19 @@ impl_from_error!(WithdrawError, {
     WithdrawError::Undercollateralized => LendingError::InvalidState,
 });
 
+impl_from_error!(FeeSwitchError, {
+    FeeSwitchError::Unauthorized => LendingError::Unauthorized,
+    FeeSwitchError::InvalidFeeRate => LendingError::InvalidFee,
+    FeeSwitchError::InvalidShare => LendingError::InvalidParameter,
+    FeeSwitchError::SharesExceed100 => LendingError::LimitExceeded,
+    FeeSwitchError::RecipientNotFound => LendingError::NotFound,
+    FeeSwitchError::RecipientAlreadyExists => LendingError::AlreadyExists,
+    FeeSwitchError::NoRecipients => LendingError::NotFound,
+    FeeSwitchError::Overflow => LendingError::Overflow,
+    FeeSwitchError::FeeSwitchOff => LendingError::InvalidState,
+    FeeSwitchError::InvalidAmount => LendingError::InvalidAmount,
+});
+
 impl_from_error!(RebalancingError, {
     RebalancingError::Unauthorized => LendingError::Unauthorized,
     RebalancingError::InvalidConfig => LendingError::InvalidParameter,
@@ -515,3 +529,4 @@ impl_into_core!(RiskParamsError, RiskParamsError);
 impl_into_core!(TreasuryError, TreasuryError);
 impl_into_core!(WithdrawError, WithdrawError);
 impl_into_core!(GovernanceError, GovernanceError);
+impl_into_core!(FeeSwitchError, FeeSwitchError);

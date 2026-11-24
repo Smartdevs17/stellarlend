@@ -90,6 +90,9 @@ pub mod bad_debt;
 /// Vote-escrow ledger with a time-decaying boost for governance tokens (issue #1532)
 pub mod vote_escrow;
 
+/// Fee-switch mechanism with revenue-share distribution (issue #1564)
+pub mod fee_switch;
+
 #[no_mangle]
 pub fn transfer_admin(
     env: Env,
@@ -631,4 +634,71 @@ pub fn vault_get_stats(
     pool: Option<Address>,
 ) -> Result<vault::VaultStats, errors::LendingError> {
     vault::get_vault_stats(&env, pool)
+}
+
+// ── Fee-switch mechanism with revenue-share distribution (issue #1564) ──────
+
+#[no_mangle]
+pub fn set_fee_switch(
+    env: Env,
+    admin: Address,
+    enabled: bool,
+) -> Result<(), errors::LendingError> {
+    fee_switch::set_fee_switch(&env, admin, enabled).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn set_fee_rate(
+    env: Env,
+    admin: Address,
+    fee_rate_bps: i128,
+) -> Result<(), errors::LendingError> {
+    fee_switch::set_fee_rate(&env, admin, fee_rate_bps).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn is_fee_switch_on(env: Env) -> bool {
+    fee_switch::is_fee_switch_on(&env)
+}
+
+#[no_mangle]
+pub fn get_fee_rate(env: Env) -> i128 {
+    fee_switch::get_fee_rate(&env)
+}
+
+#[no_mangle]
+pub fn get_accumulated_fees(env: Env) -> i128 {
+    fee_switch::get_accumulated_fees(&env)
+}
+
+#[no_mangle]
+pub fn add_revenue_recipient(
+    env: Env,
+    admin: Address,
+    recipient: Address,
+    share_bps: i128,
+) -> Result<(), errors::LendingError> {
+    fee_switch::add_recipient(&env, admin, recipient, share_bps).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn remove_revenue_recipient(
+    env: Env,
+    admin: Address,
+    recipient: Address,
+) -> Result<(), errors::LendingError> {
+    fee_switch::remove_recipient(&env, admin, recipient).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn list_revenue_recipients(env: Env) -> soroban_sdk::Vec<fee_switch::RevenueShareRecipient> {
+    fee_switch::list_recipients(&env)
+}
+
+#[no_mangle]
+pub fn distribute_revenue(
+    env: Env,
+    amount: i128,
+) -> Result<fee_switch::DistributionResult, errors::LendingError> {
+    fee_switch::distribute_revenue(&env, amount).map_err(Into::into)
 }
