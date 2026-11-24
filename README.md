@@ -309,6 +309,7 @@ For a complete list of entrypoints including AMM, flash loans, bridge, governanc
 - **[Fuzzing Strategy](docs/fuzzing.md)**: Coverage-guided, property-based fuzzing harnesses (cargo-fuzz/libFuzzer) for contract edge cases
 - **[Keeper Slashing](docs/KEEPER_SLASHING.md)**: One-shot slashing path for misbehaving keeper submissions and the backend review flow
 - **[Contract README](stellar-lend/contracts/hello-world/README.md)**: Contract-specific documentation and entrypoint reference
+- **[Oracle Adapter and Mock Bindings](contracts/oracle/README.md)**: Trait-based price source layer and mock-friendly contract binding
 - **[CI/CD Documentation](ci-doc.md)**: Continuous integration setup and local reproduction guide
 - **[Examples](examples/README.md)**: Runnable, tested SDK examples and an index of every example in the repo
 - **[Example Reports](docs/examples/)**: Example JSON outputs for protocol and user analytics
