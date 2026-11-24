@@ -87,6 +87,9 @@ pub mod loan_nft;
 /// Bad debt socialisation workflow with on-chain votes (issue #1544)
 pub mod bad_debt;
 
+/// Vote-escrow ledger with a time-decaying boost for governance tokens (issue #1532)
+pub mod vote_escrow;
+
 #[no_mangle]
 pub fn transfer_admin(
     env: Env,
