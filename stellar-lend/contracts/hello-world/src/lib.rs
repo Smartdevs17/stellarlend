@@ -90,6 +90,9 @@ pub mod bad_debt;
 /// Vote-escrow ledger with a time-decaying boost for governance tokens (issue #1532)
 pub mod vote_escrow;
 
+/// Pending-liquidation Dutch auction with configurable decay (issue #1566)
+pub mod auction;
+
 #[no_mangle]
 pub fn transfer_admin(
     env: Env,
@@ -631,4 +634,72 @@ pub fn vault_get_stats(
     pool: Option<Address>,
 ) -> Result<vault::VaultStats, errors::LendingError> {
     vault::get_vault_stats(&env, pool)
+}
+
+// ── Pending-liquidation Dutch auction with configurable decay (issue #1566) ─
+
+#[no_mangle]
+pub fn set_auction_config(
+    env: Env,
+    admin: Address,
+    config: auction::AuctionConfig,
+) -> Result<(), errors::LendingError> {
+    auction::set_auction_config(&env, admin, config).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn get_auction_config(env: Env) -> auction::AuctionConfig {
+    auction::get_auction_config(&env)
+}
+
+#[no_mangle]
+pub fn create_liquidation_auction(
+    env: Env,
+    caller: Address,
+    borrower: Address,
+    collateral_amount: i128,
+    start_price: i128,
+) -> Result<auction::PendingAuction, errors::LendingError> {
+    auction::create_auction(&env, caller, borrower, collateral_amount, start_price)
+        .map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn get_auction_current_price(
+    env: Env,
+    auction_id: u64,
+) -> Result<i128, errors::LendingError> {
+    auction::get_current_price(&env, auction_id).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn buy_liquidation_auction(
+    env: Env,
+    buyer: Address,
+    auction_id: u64,
+    collateral_amount: i128,
+) -> Result<(i128, i128), errors::LendingError> {
+    auction::buy_auction(&env, buyer, auction_id, collateral_amount).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn cancel_liquidation_auction(
+    env: Env,
+    caller: Address,
+    auction_id: u64,
+) -> Result<(), errors::LendingError> {
+    auction::cancel_auction(&env, caller, auction_id).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn get_liquidation_auction(
+    env: Env,
+    auction_id: u64,
+) -> Result<auction::PendingAuction, errors::LendingError> {
+    auction::get_auction(&env, auction_id).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn get_pending_auction_id(env: Env, borrower: Address) -> Option<u64> {
+    auction::get_pending_auction_id(&env, &borrower)
 }
