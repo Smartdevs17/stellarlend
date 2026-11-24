@@ -798,7 +798,16 @@ fn median_i128(env: &Env, mut values: Vec<i128>) -> Result<i128, OracleError> {
     }
 
     let mid = n / 2;
-    Ok(values.get(mid).unwrap())
+    if n % 2 == 1 {
+        return Ok(values.get(mid).unwrap());
+    }
+
+    // Even count: average the two middle quotes. Returning only the upper one
+    // biased every two- or four-source round upward, which overvalues collateral.
+    let lower = values.get(mid - 1).unwrap();
+    let upper = values.get(mid).unwrap();
+    let half_gap = upper.checked_sub(lower).ok_or(OracleError::Overflow)? / 2;
+    lower.checked_add(half_gap).ok_or(OracleError::Overflow)
 }
 
 fn filter_outliers(env: &Env, median: i128, prices: Vec<i128>) -> Result<Vec<i128>, OracleError> {
@@ -1958,6 +1967,135 @@ mod adapter_tests {
             );
             assert_eq!(get_price(&env, &asset), Err(OracleError::StalePrice));
             assert!(StoredPriceCache.cached_price(&env, &asset).is_none());
+        });
+    }
+
+    #[test]
+    fn two_source_round_uses_the_average_of_both_quotes() {
+        let (env, contract, asset, primary) = setup();
+        env.as_contract(&contract, || {
+            let fallback = Address::generate(&env);
+            env.storage()
+                .persistent()
+                .set(&OracleDataKey::FallbackOracle(asset.clone()), &fallback);
+            feed(
+                &env,
+                &OracleDataKey::PriceFeed(asset.clone()),
+                &primary,
+                100,
+                1000,
+            );
+            feed(
+                &env,
+                &OracleDataKey::FallbackFeed(asset.clone()),
+                &fallback,
+                102,
+                1000,
+            );
+            // The median of an even round is the midpoint, not the upper quote.
+            assert_eq!(aggregate_spot_price(&env, &asset), Ok(101));
+        });
+    }
+
+    #[test]
+    fn wild_quote_is_dropped_from_a_four_source_round() {
+        let (env, contract, asset, primary) = setup();
+        env.as_contract(&contract, || {
+            let fallback = Address::generate(&env);
+            let first = Address::generate(&env);
+            let second = Address::generate(&env);
+            env.storage()
+                .persistent()
+                .set(&OracleDataKey::FallbackOracle(asset.clone()), &fallback);
+            let mut sources = Vec::new(&env);
+            sources.push_back(first.clone());
+            sources.push_back(second.clone());
+            set_oracle_sources_internal(&env, &asset, &sources);
+            feed(
+                &env,
+                &OracleDataKey::PriceFeed(asset.clone()),
+                &primary,
+                100,
+                1000,
+            );
+            feed(
+                &env,
+                &OracleDataKey::FallbackFeed(asset.clone()),
+                &fallback,
+                101,
+                1000,
+            );
+            feed(
+                &env,
+                &OracleDataKey::SourceFeed(asset.clone(), first.clone()),
+                &first,
+                99,
+                1000,
+            );
+            // A 10x quote sits far outside the outlier band and must not move the price.
+            feed(
+                &env,
+                &OracleDataKey::SourceFeed(asset.clone(), second.clone()),
+                &second,
+                1_000,
+                1000,
+            );
+            assert_eq!(aggregate_spot_price(&env, &asset), Ok(100));
+        });
+    }
+
+    #[test]
+    fn outlier_rejection_cannot_drop_a_round_below_min_sources() {
+        let (env, contract, asset, primary) = setup();
+        env.as_contract(&contract, || {
+            let fallback = Address::generate(&env);
+            let first = Address::generate(&env);
+            let second = Address::generate(&env);
+            env.storage()
+                .persistent()
+                .set(&OracleDataKey::FallbackOracle(asset.clone()), &fallback);
+            let mut sources = Vec::new(&env);
+            sources.push_back(first.clone());
+            sources.push_back(second.clone());
+            set_oracle_sources_internal(&env, &asset, &sources);
+            feed(
+                &env,
+                &OracleDataKey::PriceFeed(asset.clone()),
+                &primary,
+                100,
+                1000,
+            );
+            feed(
+                &env,
+                &OracleDataKey::FallbackFeed(asset.clone()),
+                &fallback,
+                101,
+                1000,
+            );
+            feed(
+                &env,
+                &OracleDataKey::SourceFeed(asset.clone(), first.clone()),
+                &first,
+                99,
+                1000,
+            );
+            feed(
+                &env,
+                &OracleDataKey::SourceFeed(asset.clone(), second.clone()),
+                &second,
+                1_000,
+                1000,
+            );
+            // Three quotes survive the outlier band; a floor of four must refuse the price.
+            let mut config = get_oracle_config(&env);
+            config.min_sources = 4;
+            env.storage()
+                .persistent()
+                .set(&OracleDataKey::OracleConfig, &config);
+            assert_eq!(
+                aggregate_spot_price(&env, &asset),
+                Err(OracleError::NotEnoughSources)
+            );
         });
     }
 }

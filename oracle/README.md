@@ -133,6 +133,14 @@ This script will:
 - Public market data API
 - Priority: 2, Weight: 40%
 
+### Aggregation and outlier rejection
+
+On-chain, when several sources quote the same asset, the price is the median of their quotes, not a single source's value. With an odd number of quotes the median is the middle one. With an even number it is the average of the two middle quotes, so a two- or four-source round is not biased toward its higher quote (`stellar-lend/contracts/hello-world/src/oracle.rs`).
+
+Quotes that disagree with the round's median by more than the configured outlier band (`outlier_deviation_bps`, 10% by default) are dropped, and the median is taken again over the survivors. A single wildly wrong quote therefore cannot move the price. If fewer than `min_sources` quotes survive, no price is produced and the caller receives `NotEnoughSources`.
+
+The TypeScript aggregator in `src/services/price-aggregator.ts` screens each round against its own median before validation, and logs every quote it rejects against consensus. Its default is a weighted median, so the even-count averaging above describes the on-chain rule.
+
 ## Programmatic Usage
 
 ```typescript
