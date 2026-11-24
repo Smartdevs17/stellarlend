@@ -61,6 +61,7 @@ stellar-lend/fuzz/coverage/
 **/*.snap.new
 **/test-snapshots/
 **/testsnapshots/
+**/testsnapshot*/
 **/__snapshots__/
 **/coverage/
 **/.nyc_output/
