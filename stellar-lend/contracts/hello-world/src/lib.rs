@@ -90,6 +90,9 @@ pub mod bad_debt;
 /// Vote-escrow ledger with a time-decaying boost for governance tokens (issue #1532)
 pub mod vote_escrow;
 
+/// Per-user max-borrow hard cap with KYC attestation gate (issue #1562)
+pub mod user_cap;
+
 #[no_mangle]
 pub fn transfer_admin(
     env: Env,
@@ -631,4 +634,94 @@ pub fn vault_get_stats(
     pool: Option<Address>,
 ) -> Result<vault::VaultStats, errors::LendingError> {
     vault::get_vault_stats(&env, pool)
+}
+
+// ── Per-user max-borrow hard cap with KYC attestation gate (issue #1562) ────
+
+#[no_mangle]
+pub fn set_user_default_cap(
+    env: Env,
+    admin: Address,
+    cap: i128,
+) -> Result<(), errors::LendingError> {
+    user_cap::set_default_cap(&env, admin, cap).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn set_user_kyc_cap(
+    env: Env,
+    admin: Address,
+    cap: i128,
+) -> Result<(), errors::LendingError> {
+    user_cap::set_kyc_cap(&env, admin, cap).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn authorize_kyc_provider(
+    env: Env,
+    admin: Address,
+    provider: Address,
+) -> Result<(), errors::LendingError> {
+    user_cap::authorize_kyc_provider(&env, admin, provider).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn revoke_kyc_provider(
+    env: Env,
+    admin: Address,
+    provider: Address,
+) -> Result<(), errors::LendingError> {
+    user_cap::revoke_kyc_provider(&env, admin, provider).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn attest_user_kyc(
+    env: Env,
+    provider: Address,
+    user: Address,
+    expires_at: u64,
+) -> Result<user_cap::KycAttestation, errors::LendingError> {
+    user_cap::attest_user(&env, provider, user, expires_at).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn revoke_user_kyc(
+    env: Env,
+    provider: Address,
+    user: Address,
+) -> Result<(), errors::LendingError> {
+    user_cap::revoke_attestation(&env, provider, user).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn is_user_kyc_attested(env: Env, user: Address) -> bool {
+    user_cap::is_kyc_attested(&env, &user)
+}
+
+#[no_mangle]
+pub fn get_user_effective_cap(env: Env, user: Address) -> i128 {
+    user_cap::get_effective_cap(&env, &user)
+}
+
+#[no_mangle]
+pub fn get_user_borrowed(env: Env, user: Address) -> i128 {
+    user_cap::get_user_borrowed(&env, &user)
+}
+
+#[no_mangle]
+pub fn enforce_user_borrow_cap(
+    env: Env,
+    user: Address,
+    additional_borrow: i128,
+) -> Result<(), errors::LendingError> {
+    user_cap::enforce_borrow_cap(&env, &user, additional_borrow).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn update_user_borrowed(
+    env: Env,
+    user: Address,
+    new_amount: i128,
+) -> Result<(), errors::LendingError> {
+    user_cap::update_user_borrowed(&env, &user, new_amount).map_err(Into::into)
 }

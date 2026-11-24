@@ -20,6 +20,7 @@ use crate::risk_management::RiskManagementError;
 use crate::risk_params::RiskParamsError;
 use crate::treasury::TreasuryError;
 use crate::upgrade::UpgradeError;
+use crate::user_cap::UserCapError;
 use crate::withdraw::WithdrawError;
 
 #[contracterror]
@@ -383,6 +384,19 @@ impl_from_error!(WithdrawError, {
     WithdrawError::Undercollateralized => LendingError::InvalidState,
 });
 
+impl_from_error!(UserCapError, {
+    UserCapError::Unauthorized => LendingError::Unauthorized,
+    UserCapError::InvalidCap => LendingError::InvalidParameter,
+    UserCapError::CapExceeded => LendingError::LimitExceeded,
+    UserCapError::KycNotAttested => LendingError::Unauthorized,
+    UserCapError::KycExpired => LendingError::Unauthorized,
+    UserCapError::InvalidProvider => LendingError::Unauthorized,
+    UserCapError::ProviderAlreadyAuthorized => LendingError::AlreadyExists,
+    UserCapError::ProviderNotAuthorized => LendingError::NotFound,
+    UserCapError::InvalidExpiry => LendingError::InvalidParameter,
+    UserCapError::Overflow => LendingError::Overflow,
+});
+
 impl_from_error!(RebalancingError, {
     RebalancingError::Unauthorized => LendingError::Unauthorized,
     RebalancingError::InvalidConfig => LendingError::InvalidParameter,
@@ -515,3 +529,4 @@ impl_into_core!(RiskParamsError, RiskParamsError);
 impl_into_core!(TreasuryError, TreasuryError);
 impl_into_core!(WithdrawError, WithdrawError);
 impl_into_core!(GovernanceError, GovernanceError);
+impl_into_core!(UserCapError, UserCapError);
