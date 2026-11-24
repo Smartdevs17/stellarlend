@@ -1,0 +1,51 @@
+{
+  "name": "stellarlend-workers",
+  "version": "1.0.0",
+  "description": "Indexer-worker domain-event handlers for StellarLend",
+  "private": true,
+  "main": "dist/handlers/index.js",
+  "types": "dist/handlers/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "jest --coverage --verbose",
+    "test:run": "jest --coverage --verbose --forceExit",
+    "lint": "eslint src --ext .ts"
+  },
+  "keywords": ["stellar", "defi", "lending", "workers", "events"],
+  "license": "MIT",
+  "dependencies": {
+    "prom-client": "^15.1.2",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.11",
+    "@types/node": "^20.10.5",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.9.3"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": [
+      "<rootDir>/src/**/__tests__/**/*.test.ts"
+    ],
+    "moduleNameMapper": {
+      "^../../../../api/src/(.*)$": "<rootDir>/../api/src/$1"
+    },
+    "collectCoverageFrom": [
+      "src/**/*.ts",
+      "!src/**/__tests__/**"
+    ],
+    "coverageDirectory": "coverage",
+    "coverageThresholds": {
+      "global": {
+        "branches": 80,
+        "functions": 90,
+        "lines": 90,
+        "statements": 90
+      }
+    }
+  }
+}

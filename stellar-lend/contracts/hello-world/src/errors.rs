@@ -21,6 +21,8 @@ use crate::risk_params::RiskParamsError;
 use crate::treasury::TreasuryError;
 use crate::upgrade::UpgradeError;
 use crate::auction::DutchAuctionError;
+use crate::user_cap::UserCapError;
+use crate::fee_switch::FeeSwitchError;
 use crate::withdraw::WithdrawError;
 
 #[contracterror]
@@ -194,6 +196,9 @@ impl_from_error!(PauseGuardianError, {
     PauseGuardianError::InvalidOverride => LendingError::InvalidParameter,
     PauseGuardianError::BadNonce => LendingError::InvalidParameter,
     PauseGuardianError::Expired => LendingError::InvalidParameter,
+    PauseGuardianError::TargetNotAuthorized => LendingError::Unauthorized,
+    PauseGuardianError::RoleAlreadyAssigned => LendingError::AlreadyExists,
+    PauseGuardianError::RoleNotAssigned => LendingError::NotFound,
 });
 
 impl_from_error!(AnalyticsError, {
@@ -396,6 +401,28 @@ impl_from_error!(DutchAuctionError, {
     DutchAuctionError::Overflow => LendingError::Overflow,
     DutchAuctionError::PositionHealthy => LendingError::InvalidState,
     DutchAuctionError::AuctionAlreadyExists => LendingError::AlreadyExists,
+impl_from_error!(UserCapError, {
+    UserCapError::Unauthorized => LendingError::Unauthorized,
+    UserCapError::InvalidCap => LendingError::InvalidParameter,
+    UserCapError::CapExceeded => LendingError::LimitExceeded,
+    UserCapError::KycNotAttested => LendingError::Unauthorized,
+    UserCapError::KycExpired => LendingError::Unauthorized,
+    UserCapError::InvalidProvider => LendingError::Unauthorized,
+    UserCapError::ProviderAlreadyAuthorized => LendingError::AlreadyExists,
+    UserCapError::ProviderNotAuthorized => LendingError::NotFound,
+    UserCapError::InvalidExpiry => LendingError::InvalidParameter,
+    UserCapError::Overflow => LendingError::Overflow,
+impl_from_error!(FeeSwitchError, {
+    FeeSwitchError::Unauthorized => LendingError::Unauthorized,
+    FeeSwitchError::InvalidFeeRate => LendingError::InvalidFee,
+    FeeSwitchError::InvalidShare => LendingError::InvalidParameter,
+    FeeSwitchError::SharesExceed100 => LendingError::LimitExceeded,
+    FeeSwitchError::RecipientNotFound => LendingError::NotFound,
+    FeeSwitchError::RecipientAlreadyExists => LendingError::AlreadyExists,
+    FeeSwitchError::NoRecipients => LendingError::NotFound,
+    FeeSwitchError::Overflow => LendingError::Overflow,
+    FeeSwitchError::FeeSwitchOff => LendingError::InvalidState,
+    FeeSwitchError::InvalidAmount => LendingError::InvalidAmount,
 });
 
 impl_from_error!(RebalancingError, {
@@ -531,3 +558,5 @@ impl_into_core!(TreasuryError, TreasuryError);
 impl_into_core!(WithdrawError, WithdrawError);
 impl_into_core!(GovernanceError, GovernanceError);
 impl_into_core!(DutchAuctionError, DutchAuctionError);
+impl_into_core!(UserCapError, UserCapError);
+impl_into_core!(FeeSwitchError, FeeSwitchError);

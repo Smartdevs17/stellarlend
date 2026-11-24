@@ -92,6 +92,10 @@ pub mod vote_escrow;
 
 /// Pending-liquidation Dutch auction with configurable decay (issue #1566)
 pub mod auction;
+/// Per-user max-borrow hard cap with KYC attestation gate (issue #1562)
+pub mod user_cap;
+/// Fee-switch mechanism with revenue-share distribution (issue #1564)
+pub mod fee_switch;
 
 #[no_mangle]
 pub fn transfer_admin(
@@ -187,6 +191,61 @@ pub fn add_pause_guardian(
     guardian: Address,
 ) -> Result<(), errors::LendingError> {
     pause::add_guardian(&env, admin, guardian).map_err(Into::into)
+}
+
+// ── Role-scoped pause guardian (issue #1568) ────────────────────────────────
+
+#[no_mangle]
+pub fn assign_guardian_role(
+    env: Env,
+    admin: Address,
+    guardian: Address,
+    target: soroban_sdk::Symbol,
+) -> Result<(), errors::LendingError> {
+    pause::assign_guardian_role(&env, admin, guardian, target).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn revoke_guardian_role(
+    env: Env,
+    admin: Address,
+    guardian: Address,
+    target: soroban_sdk::Symbol,
+) -> Result<(), errors::LendingError> {
+    pause::revoke_guardian_role(&env, admin, guardian, target).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn get_guardian_targets(
+    env: Env,
+    guardian: Address,
+) -> soroban_sdk::Vec<soroban_sdk::Symbol> {
+    pause::get_guardian_targets(&env, &guardian)
+}
+
+#[no_mangle]
+pub fn is_guardian_for_target(
+    env: Env,
+    guardian: Address,
+    target: soroban_sdk::Symbol,
+) -> bool {
+    pause::is_guardian_for_target(&env, &guardian, &target)
+}
+
+#[no_mangle]
+pub fn require_guardian_target_override(
+    env: Env,
+    guardian: Address,
+    target: soroban_sdk::Symbol,
+    paused: bool,
+    nonce: u64,
+    expires_at: u64,
+    args: soroban_sdk::Vec<soroban_sdk::Val>,
+) -> Result<(), errors::LendingError> {
+    pause::require_guardian_override_for_target(
+        &env, &guardian, &target, paused, nonce, expires_at, args,
+    )
+    .map_err(Into::into)
 }
 
 // ── Per-pool withdrawal queue (issue #1586) ────────────────────────────────
@@ -702,4 +761,157 @@ pub fn get_liquidation_auction(
 #[no_mangle]
 pub fn get_pending_auction_id(env: Env, borrower: Address) -> Option<u64> {
     auction::get_pending_auction_id(&env, &borrower)
+// ── Per-user max-borrow hard cap with KYC attestation gate (issue #1562) ────
+
+#[no_mangle]
+pub fn set_user_default_cap(
+    env: Env,
+    admin: Address,
+    cap: i128,
+) -> Result<(), errors::LendingError> {
+    user_cap::set_default_cap(&env, admin, cap).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn set_user_kyc_cap(
+    env: Env,
+    admin: Address,
+    cap: i128,
+) -> Result<(), errors::LendingError> {
+    user_cap::set_kyc_cap(&env, admin, cap).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn authorize_kyc_provider(
+    env: Env,
+    admin: Address,
+    provider: Address,
+) -> Result<(), errors::LendingError> {
+    user_cap::authorize_kyc_provider(&env, admin, provider).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn revoke_kyc_provider(
+    env: Env,
+    admin: Address,
+    provider: Address,
+) -> Result<(), errors::LendingError> {
+    user_cap::revoke_kyc_provider(&env, admin, provider).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn attest_user_kyc(
+    env: Env,
+    provider: Address,
+    user: Address,
+    expires_at: u64,
+) -> Result<user_cap::KycAttestation, errors::LendingError> {
+    user_cap::attest_user(&env, provider, user, expires_at).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn revoke_user_kyc(
+    env: Env,
+    provider: Address,
+    user: Address,
+) -> Result<(), errors::LendingError> {
+    user_cap::revoke_attestation(&env, provider, user).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn is_user_kyc_attested(env: Env, user: Address) -> bool {
+    user_cap::is_kyc_attested(&env, &user)
+}
+
+#[no_mangle]
+pub fn get_user_effective_cap(env: Env, user: Address) -> i128 {
+    user_cap::get_effective_cap(&env, &user)
+}
+
+#[no_mangle]
+pub fn get_user_borrowed(env: Env, user: Address) -> i128 {
+    user_cap::get_user_borrowed(&env, &user)
+}
+
+#[no_mangle]
+pub fn enforce_user_borrow_cap(
+    env: Env,
+    user: Address,
+    additional_borrow: i128,
+) -> Result<(), errors::LendingError> {
+    user_cap::enforce_borrow_cap(&env, &user, additional_borrow).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn update_user_borrowed(
+    env: Env,
+    user: Address,
+    new_amount: i128,
+) -> Result<(), errors::LendingError> {
+    user_cap::update_user_borrowed(&env, &user, new_amount).map_err(Into::into)
+// ── Fee-switch mechanism with revenue-share distribution (issue #1564) ──────
+
+#[no_mangle]
+pub fn set_fee_switch(
+    env: Env,
+    admin: Address,
+    enabled: bool,
+) -> Result<(), errors::LendingError> {
+    fee_switch::set_fee_switch(&env, admin, enabled).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn set_fee_rate(
+    env: Env,
+    admin: Address,
+    fee_rate_bps: i128,
+) -> Result<(), errors::LendingError> {
+    fee_switch::set_fee_rate(&env, admin, fee_rate_bps).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn is_fee_switch_on(env: Env) -> bool {
+    fee_switch::is_fee_switch_on(&env)
+}
+
+#[no_mangle]
+pub fn get_fee_rate(env: Env) -> i128 {
+    fee_switch::get_fee_rate(&env)
+}
+
+#[no_mangle]
+pub fn get_accumulated_fees(env: Env) -> i128 {
+    fee_switch::get_accumulated_fees(&env)
+}
+
+#[no_mangle]
+pub fn add_revenue_recipient(
+    env: Env,
+    admin: Address,
+    recipient: Address,
+    share_bps: i128,
+) -> Result<(), errors::LendingError> {
+    fee_switch::add_recipient(&env, admin, recipient, share_bps).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn remove_revenue_recipient(
+    env: Env,
+    admin: Address,
+    recipient: Address,
+) -> Result<(), errors::LendingError> {
+    fee_switch::remove_recipient(&env, admin, recipient).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn list_revenue_recipients(env: Env) -> soroban_sdk::Vec<fee_switch::RevenueShareRecipient> {
+    fee_switch::list_recipients(&env)
+}
+
+#[no_mangle]
+pub fn distribute_revenue(
+    env: Env,
+    amount: i128,
+) -> Result<fee_switch::DistributionResult, errors::LendingError> {
+    fee_switch::distribute_revenue(&env, amount).map_err(Into::into)
 }
