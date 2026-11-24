@@ -11,6 +11,7 @@ jest.mock('../services/treasury-rebalancer.service', () => ({
     checkRebalanceTrigger: jest.fn(),
     simulateRebalance: jest.fn(),
     executeRebalance: jest.fn(),
+    getAssetPrices: jest.fn(() => ({})),
   },
 }));
 
@@ -65,6 +66,7 @@ describe('declarative rebalance job', () => {
     expect(schedule.schedules.map((entry) => entry.name)).toEqual([
       'treasury-daily',
       'pool-weekly',
+      'stablecoin-peg',
     ]);
     expect(validateRebalanceSchedule(schedule)).toEqual([]);
     expect(getRebalanceSchedule()).toEqual(DEFAULT_REBALANCE_SCHEDULE);

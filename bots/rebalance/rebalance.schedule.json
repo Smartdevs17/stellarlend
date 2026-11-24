@@ -20,6 +20,17 @@
       "slippageTolerancePercent": 0.3,
       "dryRun": false,
       "targetQueue": "rebalance-pools"
+    },
+    {
+      "name": "stablecoin-peg",
+      "enabled": true,
+      "cron": "*/5 * * * *",
+      "timezone": "UTC",
+      "deviationThresholdPercent": 1,
+      "slippageTolerancePercent": 0.3,
+      "dryRun": false,
+      "targetQueue": "rebalance-stablecoin-peg",
+      "assets": ["USDC", "USDT"]
     }
   ]
 }

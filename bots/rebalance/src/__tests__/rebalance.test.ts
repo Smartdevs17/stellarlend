@@ -17,7 +17,21 @@ describe("rebalance schedule", () => {
     assert.equal(schedule.version, 1);
     assert.deepEqual(
       enabledSchedules(schedule).map((entry) => entry.name),
-      ["treasury-daily", "pool-weekly"],
+      ["treasury-daily", "pool-weekly", "stablecoin-peg"],
+    );
+  });
+
+  it("requires a non-empty asset list for the stablecoin peg job", () => {
+    const peg = defaultRebalanceSchedule.schedules.find(
+      (entry) => entry.name === "stablecoin-peg",
+    );
+    assert.deepEqual(peg?.assets, ["USDC", "USDT"]);
+
+    const missing = structuredClone(defaultRebalanceSchedule);
+    const pegEntry = missing.schedules.find((entry) => entry.name === "stablecoin-peg")!;
+    pegEntry.assets = [];
+    assert.ok(
+      validateSchedule(missing).some((error) => error.includes("stablecoin-peg requires assets")),
     );
   });
 
@@ -59,12 +73,12 @@ describe("rebalance runner", () => {
     });
 
     const results = await bot.run();
-    assert.equal(results.length, 2);
+    assert.equal(results.length, 3);
     assert.equal(results[0]?.executed, true);
     assert.equal(results[0]?.simulatedActions, 2);
     assert.deepEqual(
       events.map((event) => event.type),
-      ["start", "success", "start", "success"],
+      ["start", "success", "start", "success", "start", "success"],
     );
   });
 

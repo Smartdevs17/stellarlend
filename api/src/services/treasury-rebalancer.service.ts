@@ -85,6 +85,11 @@ export const treasuryRebalancerService = {
     });
   },
 
+  /** Snapshot of the prices the rebalancer and the stablecoin peg monitor read. */
+  getAssetPrices(): Record<string, number> {
+    return Object.fromEntries(rebalancerStore.assetPrices);
+  },
+
   setCurrentAllocations(allocations: CurrentAllocation[]): void {
     const totalValue = allocations.reduce((sum, a) => sum + a.currentValue, 0);
 

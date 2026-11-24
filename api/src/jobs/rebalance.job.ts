@@ -12,6 +12,7 @@ import { resolve } from 'node:path';
 
 import logger from '../utils/logger';
 import { treasuryRebalancerService } from '../services/treasury-rebalancer.service';
+import { runStablecoinPegCheck, STABLECOIN_PEG_JOB } from './stablecoinPeg.job';
 
 export interface RebalanceScheduleEntry {
   name: string;
@@ -22,6 +23,7 @@ export interface RebalanceScheduleEntry {
   slippageTolerancePercent: number;
   dryRun: boolean;
   targetQueue: string;
+  assets?: string[];
 }
 
 export interface RebalanceSchedule {
@@ -66,6 +68,12 @@ export function validateRebalanceSchedule(schedule: RebalanceSchedule): string[]
     if (entry.slippageTolerancePercent < 0 || entry.slippageTolerancePercent > 100) {
       errors.push(`slippageTolerancePercent out of range for ${entry.name}`);
     }
+    if (entry.assets !== undefined && (!Array.isArray(entry.assets) || entry.assets.length === 0)) {
+      errors.push(`assets must be a non-empty list for ${entry.name}`);
+    }
+    if (entry.name === STABLECOIN_PEG_JOB && !entry.assets?.length) {
+      errors.push(`stablecoin-peg requires assets for ${entry.name}`);
+    }
   }
   return errors;
 }
@@ -92,6 +100,20 @@ export async function processRebalanceJob(name?: string): Promise<RebalanceJobRe
   for (const entry of selected) {
     const timestamp = new Date().toISOString();
     try {
+      // The peg monitor reads prices and rebalances on depeg; it must not fall through
+      // to the treasury drift logic below.
+      if (entry.name === STABLECOIN_PEG_JOB) {
+        const outcome = await runStablecoinPegCheck(entry);
+        results.push({
+          name: entry.name,
+          triggered: outcome.triggered,
+          simulatedActions: outcome.simulatedActions,
+          executed: outcome.executed,
+          timestamp,
+        });
+        continue;
+      }
+
       const trigger = treasuryRebalancerService.checkRebalanceTrigger(
         entry.deviationThresholdPercent
       );

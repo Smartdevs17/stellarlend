@@ -1,14 +1,24 @@
-export type RebalanceScheduleName = "treasury-daily" | "pool-weekly";
+export type RebalanceScheduleName =
+  | "treasury-daily"
+  | "pool-weekly"
+  | "stablecoin-peg";
 
 export interface RebalanceScheduleEntry {
   name: RebalanceScheduleName;
   enabled: boolean;
   cron: string;
   timezone: string;
+  /**
+   * For treasury and pool jobs: allocation drift that triggers a rebalance.
+   * For `stablecoin-peg`: how far a stablecoin may sit from its $1 peg before
+   * the job rebalances. The warning level is half of this value.
+   */
   deviationThresholdPercent: number;
   slippageTolerancePercent: number;
   dryRun: boolean;
   targetQueue: string;
+  /** Asset codes a job watches. Required for `stablecoin-peg`. */
+  assets?: string[];
 }
 
 export interface RebalanceSchedule {
@@ -103,6 +113,18 @@ export function validateSchedule(schedule: RebalanceSchedule): string[] {
     ) {
       errors.push(`slippageTolerancePercent out of range for ${entry.name}`);
     }
+    if (entry.assets !== undefined) {
+      if (
+        !Array.isArray(entry.assets) ||
+        entry.assets.length === 0 ||
+        entry.assets.some((asset) => typeof asset !== "string" || asset.trim() === "")
+      ) {
+        errors.push(`assets must be a non-empty list of asset codes for ${entry.name}`);
+      }
+    }
+    if (entry.name === "stablecoin-peg" && (entry.assets?.length ?? 0) === 0) {
+      errors.push(`stablecoin-peg requires assets for ${entry.name}`);
+    }
   }
 
   return errors;
@@ -148,6 +170,17 @@ export const defaultRebalanceSchedule: RebalanceSchedule = {
       slippageTolerancePercent: 0.3,
       dryRun: false,
       targetQueue: "rebalance-pools",
+    },
+    {
+      name: "stablecoin-peg",
+      enabled: true,
+      cron: "*/5 * * * *",
+      timezone: "UTC",
+      deviationThresholdPercent: 1,
+      slippageTolerancePercent: 0.3,
+      dryRun: false,
+      targetQueue: "rebalance-stablecoin-peg",
+      assets: ["USDC", "USDT"],
     },
   ],
 };
