@@ -40,6 +40,9 @@ protocol terms and the fixed-point conventions used across these documents.
 - **[Real-Time Price Feed with Anomaly Detection](REALTIME_PRICE_FEED.md)** - Production-ready oracle aggregation pipeline with Z-score/IQR/velocity anomaly detection, cross-feed correlation, TWAP smoothing, health monitoring, integration tests, and performance benchmarks
 - **[Transaction Simulation Cache](TRANSACTION_SIMULATION_CACHE.md)** - Short-lived cache of Soroban simulations for deposit/borrow/repay/withdraw estimates, with invalidation on submission
 - **[Offline Support and Push Notifications](OFFLINE_AND_PUSH_NOTIFICATIONS.md)** - Service worker caching for offline use and Web Push liquidation warnings
+- **[Vote-escrow boost](VOTE_ESCROW.md)** - Lock governance tokens for 1 week to 4 years for a voting boost that decays linearly to zero at expiry
+- **[Pool whitelisting gated by risk council](POOL_WHITELIST_COUNCIL.md)** - Pools are whitelisted only after a quorum of risk-council members approves them
+- **[Stablecoin peg monitor](STABLECOIN_PEG_MONITOR.md)** - Scheduled $1 peg checks for watched stablecoins that trigger a cooldown-guarded rebalance on depeg
 - Interest rate model with smoothing
 - Risk config and scoring
 - Cross-asset positions and oracle support
