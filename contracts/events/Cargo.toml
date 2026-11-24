@@ -1,0 +1,14 @@
+[package]
+name = "stellarlend-events"
+version = "0.1.0"
+edition = "2021"
+description = "Normalised event payloads shared by pool, risk and liquidation modules"
+license = "MIT"
+
+# Standalone workspace; the live Soroban workspace is under stellar-lend/.
+[workspace]
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]

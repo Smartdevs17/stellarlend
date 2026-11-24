@@ -71,6 +71,8 @@ pub mod rates;
 
 /// Oracle freshness attestations with staking slash (issue #1570)
 pub mod oracle_stake;
+/// Interest capitalisation compounding at per-block cadence (issue #1574)
+pub mod interest;
 
 /// Per-pool withdrawal queue when utilization is pinned (issue #1586)
 pub mod withdraw_queue;
@@ -996,4 +998,42 @@ pub fn get_total_oracle_staked(env: Env) -> i128 {
 #[no_mangle]
 pub fn get_oracle_slash_count(env: Env, oracle: Address) -> u32 {
     oracle_stake::get_slash_count(&env, &oracle)
+// ── Interest capitalisation compounding at per-block cadence (issue #1574) ──
+
+#[no_mangle]
+pub fn set_compounding_interval(
+    env: Env,
+    admin: Address,
+    interval_ledgers: u32,
+) -> Result<(), errors::LendingError> {
+    interest::set_compounding_interval(&env, admin, interval_ledgers)
+        .map_err(|e| match e {
+            interest::CompoundingError::Unauthorized => errors::LendingError::Unauthorized,
+            interest::CompoundingError::InvalidInterval => errors::LendingError::InvalidParameter,
+            _ => errors::LendingError::InvalidParameter,
+        })
+}
+
+#[no_mangle]
+pub fn compound_interest(env: Env) -> Result<interest::CompoundingResult, errors::LendingError> {
+    interest::compound_interest(&env).map_err(|e| match e {
+        interest::CompoundingError::Unauthorized => errors::LendingError::Unauthorized,
+        interest::CompoundingError::InvalidInterval => errors::LendingError::InvalidParameter,
+        _ => errors::LendingError::Overflow,
+    })
+}
+
+#[no_mangle]
+pub fn is_compounding_due(env: Env) -> bool {
+    interest::is_compounding_due(&env)
+}
+
+#[no_mangle]
+pub fn get_compounding_config(env: Env) -> interest::CompoundingConfig {
+    interest::get_compounding_config(&env)
+}
+
+#[no_mangle]
+pub fn get_total_capitalised(env: Env) -> i128 {
+    interest::get_total_capitalised(&env)
 }

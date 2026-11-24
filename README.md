@@ -307,6 +307,7 @@ For a complete list of entrypoints including AMM, flash loans, bridge, governanc
 - **[Upgrade Authorization](docs/UPGRADE_AUTHORIZATION.md)**: Strict upgrade authorization boundaries, key rotation workflow, and security assumptions
 - **[Storage Layout and Migration](docs/storage.md)**: Detailed documentation of the contract's persistent storage structure, keys, types, and upgrade/migration strategies
 - **[Fuzzing Strategy](docs/fuzzing.md)**: Coverage-guided, property-based fuzzing harnesses (cargo-fuzz/libFuzzer) for contract edge cases
+- **[Keeper Slashing](docs/KEEPER_SLASHING.md)**: One-shot slashing path for misbehaving keeper submissions and the backend review flow
 - **[Contract README](stellar-lend/contracts/hello-world/README.md)**: Contract-specific documentation and entrypoint reference
 - **[CI/CD Documentation](ci-doc.md)**: Continuous integration setup and local reproduction guide
 - **[Examples](examples/README.md)**: Runnable, tested SDK examples and an index of every example in the repo

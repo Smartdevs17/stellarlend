@@ -1,0 +1,16 @@
+[package]
+name = "stellarlend-pool-math"
+version = "0.1.0"
+edition = "2021"
+description = "no_std pool arithmetic shared by contracts and off-chain consumers"
+license = "MIT"
+
+# Standalone workspace: the canonical Soroban workspace lives in stellar-lend/
+# and must not be altered by this change. Keeping this crate as its own
+# workspace also avoids the stale root workspace manifest.
+[workspace]
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]

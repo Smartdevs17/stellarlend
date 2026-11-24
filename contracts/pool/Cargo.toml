@@ -1,0 +1,16 @@
+[package]
+name = "stellarlend-pool"
+version = "0.1.0"
+edition = "2021"
+description = "Typed pool configuration and normalised pool events"
+license = "MIT"
+
+# Standalone workspace; the live Soroban workspace is under stellar-lend/.
+[workspace]
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+stellarlend-events = { path = "../events" }
+stellarlend-params = { path = "../params" }

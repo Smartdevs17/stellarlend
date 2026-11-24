@@ -358,4 +358,83 @@ router.get('/dashboard/volume', analyticsController.volumeSummary);
  */
 router.post('/dashboard/alerts/config', analyticsController.setAlertThreshold);
 
+// ─── Pool utilization and borrow histograms (Issue #1572) ────────────────────
+
+/**
+ * @openapi
+ * /analytics/pool-utilization-histogram:
+ *   get:
+ *     summary: Pool utilization histogram
+ *     description: >
+ *       Returns a histogram of pool utilization rates bucketed into ranges
+ *       (0-25%, 25-50%, 50-75%, 75-90%, 90-100%). Useful for identifying
+ *       pools that are over- or under-utilized.
+ *     tags: [Analytics, Histograms]
+ *     parameters:
+ *       - in: query
+ *         name: timeRange
+ *         schema:
+ *           type: string
+ *           enum: [1d, 7d, 30d, 1y]
+ *           default: 7d
+ *       - in: query
+ *         name: poolAddress
+ *         schema:
+ *           type: string
+ */
+router.get('/pool-utilization-histogram', analyticsController.poolUtilizationHistogram);
+
+/**
+ * @openapi
+ * /analytics/borrow-amount-histogram:
+ *   get:
+ *     summary: Borrow amount histogram
+ *     description: >
+ *       Returns a histogram of borrow amounts bucketed into logarithmic ranges.
+ *       Helps identify the distribution of loan sizes across the protocol.
+ *     tags: [Analytics, Histograms]
+ *     parameters:
+ *       - in: query
+ *         name: timeRange
+ *         schema:
+ *           type: string
+ *           enum: [1d, 7d, 30d, 1y]
+ *           default: 7d
+ *       - in: query
+ *         name: poolAddress
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: bucketCount
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *           minimum: 3
+ *           maximum: 20
+ */
+router.get('/borrow-amount-histogram', analyticsController.borrowAmountHistogram);
+
+/**
+ * @openapi
+ * /analytics/borrow-rate-histogram:
+ *   get:
+ *     summary: Borrow rate histogram
+ *     description: >
+ *       Returns a histogram of borrow APY rates bucketed into ranges.
+ *       Useful for understanding rate distribution across the protocol.
+ *     tags: [Analytics, Histograms]
+ *     parameters:
+ *       - in: query
+ *         name: timeRange
+ *         schema:
+ *           type: string
+ *           enum: [1d, 7d, 30d, 1y]
+ *           default: 7d
+ *       - in: query
+ *         name: poolAddress
+ *         schema:
+ *           type: string
+ */
+router.get('/borrow-rate-histogram', analyticsController.borrowRateHistogram);
+
 export default router;

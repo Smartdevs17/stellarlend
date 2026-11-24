@@ -427,3 +427,114 @@ export const setAlertThreshold = async (
     next(error);
   }
 };
+
+// ─── Pool utilization and borrow histograms (Issue #1572) ────────────────────
+
+export const poolUtilizationHistogram = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const timeRange = (req.query.timeRange as string) || '7d';
+    const poolAddress = req.query.poolAddress as string | undefined;
+
+    logger.info('Pool utilization histogram requested', { timeRange, poolAddress });
+
+    const buckets = [
+      { range: '0-25%', min: 0, max: 2500, count: 0 },
+      { range: '25-50%', min: 2500, max: 5000, count: 0 },
+      { range: '50-75%', min: 5000, max: 7500, count: 0 },
+      { range: '75-90%', min: 7500, max: 9000, count: 0 },
+      { range: '90-100%', min: 9000, max: 10000, count: 0 },
+    ];
+
+    // In production, this would query the analytics service for actual pool data.
+    // For now, return the histogram structure with zero counts as a placeholder
+    // that the frontend can populate once the analytics service is connected.
+    res.status(200).json({
+      timeRange,
+      poolAddress: poolAddress || 'all',
+      buckets,
+      totalPools: 0,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const borrowAmountHistogram = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const timeRange = (req.query.timeRange as string) || '7d';
+    const poolAddress = req.query.poolAddress as string | undefined;
+    const bucketCount = Math.min(20, Math.max(3, Number(req.query.bucketCount) || 10));
+
+    logger.info('Borrow amount histogram requested', { timeRange, poolAddress, bucketCount });
+
+    // Generate logarithmic buckets for borrow amounts.
+    const buckets = Array.from({ length: bucketCount }, (_, i) => {
+      const lower = Math.pow(10, i) * 100; // 100, 1K, 10K, 100K, ...
+      const upper = Math.pow(10, i + 1) * 100;
+      return {
+        range: `${formatAmount(lower)} - ${formatAmount(upper)}`,
+        min: lower,
+        max: upper,
+        count: 0,
+      };
+    });
+
+    res.status(200).json({
+      timeRange,
+      poolAddress: poolAddress || 'all',
+      bucketCount,
+      buckets,
+      totalBorrows: 0,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const borrowRateHistogram = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const timeRange = (req.query.timeRange as string) || '7d';
+    const poolAddress = req.query.poolAddress as string | undefined;
+
+    logger.info('Borrow rate histogram requested', { timeRange, poolAddress });
+
+    const buckets = [
+      { range: '0-2%', min: 0, max: 200, count: 0 },
+      { range: '2-5%', min: 200, max: 500, count: 0 },
+      { range: '5-10%', min: 500, max: 1000, count: 0 },
+      { range: '10-20%', min: 1000, max: 2000, count: 0 },
+      { range: '20-50%', min: 2000, max: 5000, count: 0 },
+      { range: '50%+', min: 5000, max: 10000, count: 0 },
+    ];
+
+    res.status(200).json({
+      timeRange,
+      poolAddress: poolAddress || 'all',
+      buckets,
+      totalPools: 0,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+function formatAmount(amount: number): string {
+  if (amount >= 1_000_000) return `${(amount / 1_000_000).toFixed(1)}M`;
+  if (amount >= 1_000) return `${(amount / 1_000).toFixed(0)}K`;
+  return amount.toString();
+}

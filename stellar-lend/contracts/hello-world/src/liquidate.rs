@@ -9,6 +9,19 @@
 //! - The maximum liquidatable amount (controlled by the close factor)
 //! - The liquidation incentive awarded to the liquidator
 //!
+//! ## State Machine
+//! All liquidation paths (single and batch) flow through a single
+//! `LiquidationStateMachine` with explicit phases:
+//! 1. **PreChecks** — amount, reentrancy, pause, asset validation
+//! 2. **LoadPosition** — fetch position, accrue interest
+//! 3. **Eligibility** — verify position is undercollateralized
+//! 4. **Calculate** — close factor, incentive, collateral seized
+//! 5. **Execute** — token transfers, state mutations
+//! 6. **Finalize** — analytics, events, credit score
+//!
+//! This eliminates duplicated validation/execution logic between single and
+//! batch paths — both go through the same state machine.
+//!
 //! ## Cross-Asset Liquidation
 //! When debt and collateral are different assets, oracle prices are used to
 //! convert between asset values. A default price of 1.0 (8 decimals) is used
@@ -47,6 +60,361 @@ use crate::risk_params::{
     can_be_liquidated, get_close_factor, get_liquidation_incentive,
     get_liquidation_incentive_amount, get_max_liquidatable_amount, get_risk_params,
 };
+
+// ── Liquidation State Machine ──────────────────────────────────────────────
+
+/// Explicit phases of the liquidation state machine.
+/// Both single and batch liquidations flow through these phases in order.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LiquidationPhase {
+    PreChecks,
+    LoadPosition,
+    Eligibility,
+    Calculate,
+    Execute,
+    Finalize,
+}
+
+/// Context carried through the liquidation state machine.
+struct LiquidationContext {
+    liquidator: Address,
+    borrower: Address,
+    debt_asset: Option<Address>,
+    collateral_asset: Option<Address>,
+    debt_amount: i128,
+    timestamp: u64,
+    position: Position,
+    total_debt: i128,
+    collateral_balance: i128,
+    collateral_value: i128,
+    actual_debt_liquidated: i128,
+    actual_collateral_seized: i128,
+    incentive_amount: i128,
+    protocol_fee: i128,
+    is_multi_asset: bool,
+}
+
+/// Result of a completed liquidation.
+pub struct LiquidationOutcome {
+    pub debt_liquidated: i128,
+    pub collateral_seized: i128,
+    pub incentive_amount: i128,
+}
+
+/// State machine driver — executes all phases in order.
+fn run_liquidation_sm(
+    env: &Env,
+    ctx: &mut LiquidationContext,
+) -> Result<LiquidationOutcome, LiquidationError> {
+    // Phase 1: PreChecks (amount, reentrancy, pause, asset validation)
+    pre_checks(env, ctx)?;
+    // Phase 2: LoadPosition (fetch + accrue interest)
+    load_position(env, ctx)?;
+    // Phase 3: Eligibility (undercollateralized check)
+    check_eligibility(env, ctx)?;
+    // Phase 4: Calculate (close factor, incentive, collateral)
+    calculate_amounts(env, ctx)?;
+    // Phase 5: Execute (transfers + state mutations)
+    execute_transfers(env, ctx)?;
+    // Phase 6: Finalize (analytics, events)
+    finalize(env, ctx)?;
+
+    Ok(LiquidationOutcome {
+        debt_liquidated: ctx.actual_debt_liquidated,
+        collateral_seized: ctx.actual_collateral_seized,
+        incentive_amount: ctx.incentive_amount,
+    })
+}
+
+fn pre_checks(env: &Env, ctx: &LiquidationContext) -> Result<(), LiquidationError> {
+    if ctx.debt_amount <= 0 {
+        return Err(LiquidationError::InvalidAmount);
+    }
+    let _guard =
+        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| LiquidationError::Reentrancy)?;
+    let liquidation_allowed =
+        crate::circuit_breaker::is_liquidation_allowed(env, &ctx.liquidator).unwrap_or(true);
+    if !liquidation_allowed {
+        return Err(LiquidationError::LiquidationPaused);
+    }
+    if is_emergency_paused(env) {
+        return Err(LiquidationError::LiquidationPaused);
+    }
+    require_operation_not_paused(env, Symbol::new(env, "pause_liquidate")).map_err(|e| {
+        match e {
+            RiskManagementError::OperationPaused => LiquidationError::LiquidationPaused,
+            RiskManagementError::EmergencyPaused => LiquidationError::LiquidationPaused,
+            _ => LiquidationError::LiquidationPaused,
+        }
+    })?;
+    if let Some(ref debt_addr) = ctx.debt_asset {
+        if debt_addr == &env.current_contract_address() {
+            return Err(LiquidationError::InvalidDebtAsset);
+        }
+    }
+    if let Some(ref collateral_addr) = ctx.collateral_asset {
+        if collateral_addr == &env.current_contract_address() {
+            return Err(LiquidationError::InvalidCollateralAsset);
+        }
+    }
+    Ok(())
+}
+
+fn load_position(env: &Env, ctx: &mut LiquidationContext) -> Result<(), LiquidationError> {
+    let position_key = DepositDataKey::Position(ctx.borrower.clone());
+    let mut position = env
+        .storage()
+        .persistent()
+        .get::<DepositDataKey, Position>(&position_key)
+        .ok_or(LiquidationError::NotLiquidatable)?;
+    accrue_interest(env, &ctx.borrower, &mut position)?;
+    ctx.position = position;
+    ctx.total_debt = calculate_debt_value(ctx.position.debt, ctx.position.borrow_interest)?;
+    ctx.is_multi_asset = crate::multi_collateral::has_multi_asset_collateral(env, &ctx.borrower);
+
+    ctx.collateral_balance = if let Some(ref collateral_addr) = ctx.collateral_asset {
+        if ctx.is_multi_asset {
+            crate::multi_collateral::get_user_asset_collateral(env, &ctx.borrower, collateral_addr)
+        } else {
+            let key = DepositDataKey::CollateralBalance(ctx.borrower.clone());
+            env.storage().persistent().get::<DepositDataKey, i128>(&key).unwrap_or(0)
+        }
+    } else {
+        let key = DepositDataKey::CollateralBalance(ctx.borrower.clone());
+        env.storage().persistent().get::<DepositDataKey, i128>(&key).unwrap_or(0)
+    };
+    Ok(())
+}
+
+fn check_eligibility(env: &Env, ctx: &mut LiquidationContext) -> Result<(), LiquidationError> {
+    ctx.collateral_value = if ctx.is_multi_asset {
+        crate::multi_collateral::calculate_total_collateral_value(env, &ctx.borrower)
+            .map_err(|_| LiquidationError::Overflow)?
+    } else if ctx.debt_asset.is_none() && ctx.collateral_asset.is_none() {
+        ctx.collateral_balance
+    } else {
+        let d = if let Some(ref debt_addr) = ctx.debt_asset {
+            get_asset_price(env, debt_addr)?
+        } else {
+            1i128
+        };
+        let c = if let Some(ref collateral_addr) = ctx.collateral_asset {
+            get_asset_price(env, collateral_addr)?
+        } else {
+            1i128
+        };
+        calculate_collateral_value(ctx.collateral_balance, c, d)?
+    };
+    let can_liquidate = can_be_liquidated(env, ctx.collateral_value, ctx.total_debt)
+        .map_err(|_| LiquidationError::NotLiquidatable)?;
+    if !can_liquidate {
+        return Err(LiquidationError::NotLiquidatable);
+    }
+    Ok(())
+}
+
+fn calculate_amounts(env: &Env, ctx: &mut LiquidationContext) -> Result<(), LiquidationError> {
+    let max_liquidatable =
+        get_max_liquidatable_amount(env, ctx.total_debt).map_err(|_| LiquidationError::Overflow)?;
+    if ctx.debt_amount > max_liquidatable {
+        return Err(LiquidationError::ExceedsCloseFactor);
+    }
+    ctx.actual_debt_liquidated = if ctx.debt_amount > ctx.total_debt {
+        ctx.total_debt
+    } else {
+        ctx.debt_amount
+    };
+    let incentive_bps = calculate_dynamic_penalty(env, ctx.collateral_value, ctx.total_debt)?;
+    ctx.incentive_amount = apply_bps(ctx.actual_debt_liquidated, incentive_bps)
+        .map_err(map_math_error)?;
+    let collateral_value_liquidated =
+        if ctx.debt_asset.is_none() && ctx.collateral_asset.is_none() {
+            ctx.actual_debt_liquidated
+        } else {
+            let d = if let Some(ref debt_addr) = ctx.debt_asset {
+                get_asset_price(env, debt_addr)?
+            } else {
+                1i128
+            };
+            let c = if let Some(ref collateral_addr) = ctx.collateral_asset {
+                get_asset_price(env, collateral_addr)?
+            } else {
+                1i128
+            };
+            math_debt_value_in_collateral(ctx.actual_debt_liquidated, d, c)
+                .map_err(map_math_error)?
+        };
+    let collateral_seized =
+        math_seize_amount(collateral_value_liquidated, incentive_bps)
+            .map_err(map_math_error)?;
+    ctx.actual_collateral_seized = if collateral_seized > ctx.collateral_balance {
+        ctx.collateral_balance
+    } else {
+        collateral_seized
+    };
+    let fee_config = crate::treasury::get_fee_config(env);
+    ctx.protocol_fee =
+        apply_bps(ctx.incentive_amount, fee_config.liquidation_fee_bps)
+            .map_err(map_math_error)?;
+    abort_if_unprofitable(
+        ctx.actual_debt_liquidated,
+        collateral_seized,
+        ctx.protocol_fee,
+    )?;
+    Ok(())
+}
+
+fn execute_transfers(env: &Env, ctx: &mut LiquidationContext) -> Result<(), LiquidationError> {
+    // Debt transfer from liquidator
+    if let Some(ref debt_addr) = ctx.debt_asset {
+        let liquidator_balance = if let Some(cached) =
+            crate::storage::get_temp_token_balance(env, debt_addr, &ctx.liquidator)
+        {
+            cached
+        } else {
+            let token_client = soroban_sdk::token::Client::new(env, debt_addr);
+            let balance = token_client.balance(&ctx.liquidator);
+            crate::storage::set_temp_token_balance(env, debt_addr, &ctx.liquidator, balance);
+            balance
+        };
+        if liquidator_balance < ctx.actual_debt_liquidated {
+            return Err(LiquidationError::InsufficientBalance);
+        }
+        let token_client = soroban_sdk::token::Client::new(env, debt_addr);
+        token_client.transfer_from(
+            &env.current_contract_address(),
+            &ctx.liquidator,
+            &env.current_contract_address(),
+            &ctx.actual_debt_liquidated,
+        );
+    }
+    // Collateral transfer to liquidator
+    let liquidator_collateral = ctx.actual_collateral_seized
+        .checked_sub(ctx.protocol_fee)
+        .ok_or(LiquidationError::Overflow)?;
+    if let Some(ref collateral_addr) = ctx.collateral_asset {
+        let contract_balance = if let Some(cached) = crate::storage::get_temp_token_balance(
+            env, collateral_addr, &env.current_contract_address(),
+        ) {
+            cached
+        } else {
+            let token_client = soroban_sdk::token::Client::new(env, collateral_addr);
+            let balance = token_client.balance(&env.current_contract_address());
+            crate::storage::set_temp_token_balance(
+                env, collateral_addr, &env.current_contract_address(), balance,
+            );
+            balance
+        };
+        if contract_balance < ctx.actual_collateral_seized {
+            return Err(LiquidationError::InsufficientBalance);
+        }
+        let token_client = soroban_sdk::token::Client::new(env, collateral_addr);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &ctx.liquidator,
+            &liquidator_collateral,
+        );
+    }
+    // Credit protocol fee
+    if ctx.protocol_fee > 0 {
+        let reserve_key = DepositDataKey::ProtocolReserve(ctx.collateral_asset.clone());
+        let current_reserve = env
+            .storage()
+            .persistent()
+            .get::<DepositDataKey, i128>(&reserve_key)
+            .unwrap_or(0);
+        let new_reserve = current_reserve
+            .checked_add(ctx.protocol_fee)
+            .ok_or(LiquidationError::Overflow)?;
+        env.storage().persistent().set(&reserve_key, &new_reserve);
+        emit_liquidation_fee_collected(
+            env,
+            LiquidationFeeCollectedEvent {
+                asset: ctx.collateral_asset.clone(),
+                fee_amount: ctx.protocol_fee,
+                timestamp: ctx.timestamp,
+            },
+        );
+    }
+    // Update borrower position
+    let interest_to_pay = if ctx.actual_debt_liquidated <= ctx.position.borrow_interest {
+        ctx.actual_debt_liquidated
+    } else {
+        ctx.position.borrow_interest
+    };
+    let principal_to_pay = ctx.actual_debt_liquidated
+        .checked_sub(interest_to_pay)
+        .ok_or(LiquidationError::Overflow)?;
+    ctx.position.borrow_interest = ctx.position.borrow_interest
+        .checked_sub(interest_to_pay)
+        .unwrap_or(0);
+    ctx.position.debt = ctx.position.debt
+        .checked_sub(principal_to_pay)
+        .unwrap_or(0);
+    ctx.position.last_accrual_time = ctx.timestamp;
+    let aggregate_collateral_key = DepositDataKey::CollateralBalance(ctx.borrower.clone());
+    let aggregate_collateral = if ctx.is_multi_asset {
+        env.storage()
+            .persistent()
+            .get::<DepositDataKey, i128>(&aggregate_collateral_key)
+            .unwrap_or(0)
+    } else {
+        ctx.collateral_balance
+    };
+    let new_aggregate_collateral = aggregate_collateral
+        .checked_sub(ctx.actual_collateral_seized)
+        .unwrap_or(0);
+    env.storage().persistent().set(&aggregate_collateral_key, &new_aggregate_collateral);
+    if let Some(ref collateral_addr) = ctx.collateral_asset {
+        if ctx.is_multi_asset {
+            crate::deposit::record_asset_withdrawal(
+                env, &ctx.borrower, collateral_addr, ctx.actual_collateral_seized,
+            ).map_err(|_| LiquidationError::Overflow)?;
+        }
+    }
+    ctx.position.collateral = new_aggregate_collateral;
+    let position_key = DepositDataKey::Position(ctx.borrower.clone());
+    env.storage().persistent().set(&position_key, &ctx.position);
+    Ok(())
+}
+
+fn finalize(env: &Env, ctx: &LiquidationContext) -> Result<(), LiquidationError> {
+    update_liquidation_analytics(
+        env, &ctx.borrower, &ctx.liquidator,
+        ctx.actual_debt_liquidated, ctx.actual_collateral_seized, ctx.timestamp,
+    )?;
+    add_activity_log(
+        env, &ctx.borrower, Symbol::new(env, "liquidate"),
+        ctx.actual_debt_liquidated, ctx.debt_asset.clone(), ctx.timestamp,
+    ).map_err(|e| match e {
+        crate::deposit::DepositError::Overflow => LiquidationError::Overflow,
+        _ => LiquidationError::Overflow,
+    })?;
+    emit_liquidation(
+        env,
+        LiquidationEvent {
+            liquidator: ctx.liquidator.clone(),
+            borrower: ctx.borrower.clone(),
+            debt_asset: ctx.debt_asset.clone(),
+            collateral_asset: ctx.collateral_asset.clone(),
+            debt_liquidated: ctx.actual_debt_liquidated,
+            collateral_seized: ctx.actual_collateral_seized,
+            incentive_amount: ctx.incentive_amount,
+            timestamp: ctx.timestamp,
+        },
+    );
+    let _ = crate::credit_score::update_score_on_liquidation(env, &ctx.borrower);
+    emit_position_updated_event(env, &ctx.borrower, &ctx.position);
+    emit_analytics_updated_event(
+        env, &ctx.borrower, "liquidate",
+        ctx.actual_debt_liquidated, ctx.timestamp,
+    );
+    emit_user_activity_tracked_event(
+        env, &ctx.borrower, Symbol::new(env, "liquidate"),
+        ctx.actual_debt_liquidated, ctx.timestamp,
+    );
+    Ok(())
+}
 
 /// Maximum liquidation penalty cap in basis points (20%).
 ///
@@ -333,423 +701,31 @@ pub fn liquidate(
     collateral_asset: Option<Address>,
     debt_amount: i128,
 ) -> Result<(i128, i128, i128), LiquidationError> {
-    // Validate amount
-    if debt_amount <= 0 {
-        return Err(LiquidationError::InvalidAmount);
-    }
-
-    // Check for reentrancy
-    let _guard =
-        crate::reentrancy::ReentrancyGuard::new(env).map_err(|_| LiquidationError::Reentrancy)?;
-
-    // Check circuit breaker - liquidations may be paused or restricted
-    let liquidation_allowed =
-        crate::circuit_breaker::is_liquidation_allowed(env, &liquidator).unwrap_or(true); // Default to allowed if circuit breaker not initialized
-
-    if !liquidation_allowed {
-        return Err(LiquidationError::LiquidationPaused);
-    }
-
-    // Check emergency pause
-    if is_emergency_paused(env) {
-        return Err(LiquidationError::LiquidationPaused);
-    }
-
-    // Check if liquidations are paused
-    require_operation_not_paused(env, Symbol::new(env, "pause_liquidate")).map_err(
-        |e| match e {
-            RiskManagementError::OperationPaused => LiquidationError::LiquidationPaused,
-            RiskManagementError::EmergencyPaused => LiquidationError::LiquidationPaused,
-            _ => LiquidationError::LiquidationPaused,
-        },
-    )?;
-
-    // Validate assets
-    if let Some(ref debt_addr) = debt_asset {
-        if debt_addr == &env.current_contract_address() {
-            return Err(LiquidationError::InvalidDebtAsset);
-        }
-    }
-
-    if let Some(ref collateral_addr) = collateral_asset {
-        if collateral_addr == &env.current_contract_address() {
-            return Err(LiquidationError::InvalidCollateralAsset);
-        }
-    }
-
-    // Get current timestamp
     let timestamp = env.ledger().timestamp();
-
-    // Get borrower position
-    let position_key = DepositDataKey::Position(borrower.clone());
-    let mut position = env
-        .storage()
-        .persistent()
-        .get::<DepositDataKey, Position>(&position_key)
-        .ok_or(LiquidationError::NotLiquidatable)?;
-
-    // Accrue compound interest before liquidation
-    accrue_interest(env, &borrower, &mut position)?;
-
-    // Batch the multi-asset flag once instead of re-reading the same storage
-    // slot three times throughout this function (issue #835).
-    let is_multi_asset = crate::multi_collateral::has_multi_asset_collateral(env, &borrower);
-
-    // Get collateral balance for the targeted collateral asset.
-    // For multi-asset users, use per-asset balance; fall back to aggregate for legacy users.
-    let collateral_balance = if let Some(ref collateral_addr) = collateral_asset {
-        if is_multi_asset {
-            crate::multi_collateral::get_user_asset_collateral(env, &borrower, collateral_addr)
-        } else {
-            let collateral_key = DepositDataKey::CollateralBalance(borrower.clone());
-            env.storage()
-                .persistent()
-                .get::<DepositDataKey, i128>(&collateral_key)
-                .unwrap_or(0)
-        }
-    } else {
-        let collateral_key = DepositDataKey::CollateralBalance(borrower.clone());
-        env.storage()
-            .persistent()
-            .get::<DepositDataKey, i128>(&collateral_key)
-            .unwrap_or(0)
-    };
-
-    // Oracle prices for the targeted assets, resolved once and shared between
-    // the collateral-value check and the collateral-seized computation
-    // (issue #835). Multi-asset users rely on an aggregate valuation for the
-    // check, so prices are only lazily fetched here and (if still needed) in
-    // the seized computation below. `None` means "not resolved yet".
-    let mut debt_price: Option<i128> = None;
-    let mut collateral_price: Option<i128> = None;
-
-    // Calculate total debt (principal + interest)
-    let total_debt = calculate_debt_value(position.debt, position.borrow_interest)?;
-
-    // Use oracle-priced total collateral value for multi-asset liquidation check;
-    // fall back to raw collateral_balance for legacy single-asset users.
-    let collateral_value_for_check = if is_multi_asset {
-        crate::multi_collateral::calculate_total_collateral_value(env, &borrower)
-            .map_err(|_| LiquidationError::Overflow)?
-    } else if debt_asset.is_none() && collateral_asset.is_none() {
-        collateral_balance
-    } else {
-        let d = if let Some(ref debt_addr) = debt_asset {
-            get_asset_price(env, debt_addr)?
-        } else {
-            1i128
-        };
-        let c = if let Some(ref collateral_addr) = collateral_asset {
-            get_asset_price(env, collateral_addr)?
-        } else {
-            1i128
-        };
-        debt_price = Some(d);
-        collateral_price = Some(c);
-        calculate_collateral_value(collateral_balance, c, d)?
-    };
-
-    // Check if position can be liquidated
-    let can_liquidate = can_be_liquidated(env, collateral_value_for_check, total_debt)
-        .map_err(|_| LiquidationError::NotLiquidatable)?;
-
-    if !can_liquidate {
-        return Err(LiquidationError::NotLiquidatable);
-    }
-
-    // Get maximum liquidatable amount (close factor)
-    let max_liquidatable =
-        get_max_liquidatable_amount(env, total_debt).map_err(|_| LiquidationError::Overflow)?;
-
-    // Validate liquidation amount doesn't exceed close factor
-    if debt_amount > max_liquidatable {
-        return Err(LiquidationError::ExceedsCloseFactor);
-    }
-
-    // Ensure we don't liquidate more than total debt
-    let actual_debt_liquidated = if debt_amount > total_debt {
-        total_debt
-    } else {
-        debt_amount
-    };
-
-    // Calculate liquidation incentive
-    let incentive_bps = calculate_dynamic_penalty(env, collateral_value_for_check, total_debt)?;
-    let incentive_amount =
-        apply_bps(actual_debt_liquidated, incentive_bps).map_err(map_math_error)?;
-
-    // Calculate collateral to seize
-    // Liquidator repays debt_liquidated amount of debt asset
-    // Liquidator receives collateral worth debt_liquidated (in debt terms) + incentive
-    // collateral_seized = (debt_liquidated * debt_price / collateral_price) * (1 + incentive_bps / 10000)
-    // Convert debt amount to collateral terms. Reuse the prices resolved in the
-    // value check when present; multi-asset users fetch them here for the first
-    // time (matching the original behaviour).
-    let collateral_value_liquidated = if debt_asset.is_none() && collateral_asset.is_none() {
-        // Both are native XLM - no price conversion needed
-        actual_debt_liquidated
-    } else {
-        let d = match debt_price {
-            Some(d) => d,
-            None => {
-                if let Some(ref debt_addr) = debt_asset {
-                    get_asset_price(env, debt_addr)?
-                } else {
-                    1i128 // Native XLM
-                }
-            }
-        };
-        let c = match collateral_price {
-            Some(c) => c,
-            None => {
-                if let Some(ref collateral_addr) = collateral_asset {
-                    get_asset_price(env, collateral_addr)?
-                } else {
-                    1i128 // Native XLM
-                }
-            }
-        };
-        math_debt_value_in_collateral(actual_debt_liquidated, d, c).map_err(map_math_error)?
-    };
-
-    // Apply incentive: collateral_seized = collateral_value_liquidated * (1 + incentive_bps / 10000)
-    let collateral_seized =
-        math_seize_amount(collateral_value_liquidated, incentive_bps).map_err(map_math_error)?;
-
-    // Ensure we don't seize more than available collateral
-    let actual_collateral_seized = if collateral_seized > collateral_balance {
-        collateral_balance
-    } else {
-        collateral_seized
-    };
-
-    // Calculate protocol fee on the liquidation bonus (retained in ProtocolReserve)
-    let fee_config = crate::treasury::get_fee_config(env);
-    let protocol_liquidation_fee =
-        apply_bps(incentive_amount, fee_config.liquidation_fee_bps).map_err(map_math_error)?;
-
-    // Liquidator receives seized collateral minus the protocol fee
-    let liquidator_collateral = actual_collateral_seized
-        .checked_sub(protocol_liquidation_fee)
-        .ok_or(LiquidationError::Overflow)?;
-
-    // Early-exit: abort when the liquidation would not cover the repaid debt
-    // plus a minimum profit floor (issue #723). Saves the gas-heavy transfer,
-    // storage-mutation and event path for unprofitable positions.
-    abort_if_unprofitable(
-        actual_debt_liquidated,
-        collateral_seized,
-        protocol_liquidation_fee,
-    )?;
-
-    // Check liquidator has sufficient balance to repay debt
-    if let Some(ref debt_addr) = debt_asset {
-        let liquidator_balance = if let Some(cached) =
-            crate::storage::get_temp_token_balance(env, debt_addr, &liquidator)
-        {
-            cached
-        } else {
-            let token_client = soroban_sdk::token::Client::new(env, debt_addr);
-            let balance = token_client.balance(&liquidator);
-            crate::storage::set_temp_token_balance(env, debt_addr, &liquidator, balance);
-            balance
-        };
-        if liquidator_balance < actual_debt_liquidated {
-            return Err(LiquidationError::InsufficientBalance);
-        }
-
-        // Transfer debt asset from liquidator to contract (liquidator repays debt)
-        let token_client = soroban_sdk::token::Client::new(env, debt_addr);
-        token_client.transfer_from(
-            &env.current_contract_address(), // spender (this contract)
-            &liquidator,                     // from (liquidator)
-            &env.current_contract_address(), // to (this contract)
-            &actual_debt_liquidated,
-        );
-    } else {
-        // Native XLM handling - placeholder for now
-    }
-
-    // Check contract has sufficient collateral to transfer
-    if let Some(ref collateral_addr) = collateral_asset {
-        let contract_balance = if let Some(cached) = crate::storage::get_temp_token_balance(
-            env,
-            collateral_addr,
-            &env.current_contract_address(),
-        ) {
-            cached
-        } else {
-            let token_client = soroban_sdk::token::Client::new(env, collateral_addr);
-            let balance = token_client.balance(&env.current_contract_address());
-            crate::storage::set_temp_token_balance(
-                env,
-                collateral_addr,
-                &env.current_contract_address(),
-                balance,
-            );
-            balance
-        };
-        if contract_balance < actual_collateral_seized {
-            return Err(LiquidationError::InsufficientBalance);
-        }
-
-        // Transfer collateral to liquidator (seized amount minus protocol fee)
-        let token_client = soroban_sdk::token::Client::new(env, collateral_addr);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &liquidator,
-            &liquidator_collateral,
-        );
-    } else {
-        // Native XLM handling - placeholder for now
-    }
-
-    // Credit protocol liquidation fee to protocol reserve
-    if protocol_liquidation_fee > 0 {
-        let reserve_key = DepositDataKey::ProtocolReserve(collateral_asset.clone());
-        let current_reserve = env
-            .storage()
-            .persistent()
-            .get::<DepositDataKey, i128>(&reserve_key)
-            .unwrap_or(0);
-        let new_reserve = current_reserve
-            .checked_add(protocol_liquidation_fee)
-            .ok_or(LiquidationError::Overflow)?;
-        env.storage().persistent().set(&reserve_key, &new_reserve);
-
-        emit_liquidation_fee_collected(
-            env,
-            LiquidationFeeCollectedEvent {
-                asset: collateral_asset.clone(),
-                fee_amount: protocol_liquidation_fee,
-                timestamp,
-            },
-        );
-    }
-
-    // Update borrower's debt (pay interest first, then principal)
-    let interest_to_pay = if actual_debt_liquidated <= position.borrow_interest {
-        actual_debt_liquidated
-    } else {
-        position.borrow_interest
-    };
-
-    let principal_to_pay = actual_debt_liquidated
-        .checked_sub(interest_to_pay)
-        .ok_or(LiquidationError::Overflow)?;
-
-    position.borrow_interest = position
-        .borrow_interest
-        .checked_sub(interest_to_pay)
-        .unwrap_or(0);
-    position.debt = position.debt.checked_sub(principal_to_pay).unwrap_or(0);
-    position.last_accrual_time = timestamp;
-
-    // Update borrower's aggregate collateral balance (reuse the already-read
-    // aggregate for legacy single-asset users to avoid a redundant storage read).
-    let aggregate_collateral_key = DepositDataKey::CollateralBalance(borrower.clone());
-    let aggregate_collateral = if is_multi_asset {
-        env.storage()
-            .persistent()
-            .get::<DepositDataKey, i128>(&aggregate_collateral_key)
-            .unwrap_or(0)
-    } else {
-        collateral_balance
-    };
-    let new_aggregate_collateral = aggregate_collateral
-        .checked_sub(actual_collateral_seized)
-        .unwrap_or(0);
-    env.storage()
-        .persistent()
-        .set(&aggregate_collateral_key, &new_aggregate_collateral);
-
-    // Also update per-asset tracking if the borrower has multi-asset collateral
-    if let Some(ref collateral_addr) = collateral_asset {
-        if is_multi_asset {
-            crate::deposit::record_asset_withdrawal(
-                env,
-                &borrower,
-                collateral_addr,
-                actual_collateral_seized,
-            )
-            .map_err(|_| LiquidationError::Overflow)?;
-        }
-    }
-
-    // Update position collateral
-    position.collateral = new_aggregate_collateral;
-
-    // Save updated position
-    env.storage().persistent().set(&position_key, &position);
-
-    // Update analytics
-    update_liquidation_analytics(
-        env,
-        &borrower,
-        &liquidator,
-        actual_debt_liquidated,
-        actual_collateral_seized,
+    let mut ctx = LiquidationContext {
+        liquidator,
+        borrower,
+        debt_asset,
+        collateral_asset,
+        debt_amount,
         timestamp,
-    )?;
-
-    // Add to activity log
-    add_activity_log(
-        env,
-        &borrower,
-        Symbol::new(env, "liquidate"),
-        actual_debt_liquidated,
-        debt_asset.clone(),
-        timestamp,
-    )
-    .map_err(|e| match e {
-        crate::deposit::DepositError::Overflow => LiquidationError::Overflow,
-        _ => LiquidationError::Overflow,
-    })?;
-
-    // Emit liquidation event
-    emit_liquidation(
-        env,
-        LiquidationEvent {
-            liquidator: liquidator.clone(),
-            borrower: borrower.clone(),
-            debt_asset: debt_asset.clone(),
-            collateral_asset: collateral_asset.clone(),
-            debt_liquidated: actual_debt_liquidated,
-            collateral_seized: actual_collateral_seized,
-            incentive_amount,
-            timestamp,
+        position: Position {
+            debt: 0,
+            borrow_interest: 0,
+            collateral: 0,
+            last_accrual_time: 0,
         },
-    );
-
-    // Update credit score for liquidation
-    let _ = crate::credit_score::update_score_on_liquidation(env, &borrower);
-
-    // Emit position updated event
-    emit_position_updated_event(env, &borrower, &position);
-
-    // Emit analytics updated event
-    emit_analytics_updated_event(
-        env,
-        &borrower,
-        "liquidate",
-        actual_debt_liquidated,
-        timestamp,
-    );
-
-    // Emit user activity tracked event
-    emit_user_activity_tracked_event(
-        env,
-        &borrower,
-        Symbol::new(env, "liquidate"),
-        actual_debt_liquidated,
-        timestamp,
-    );
-
-    Ok((
-        actual_debt_liquidated,
-        actual_collateral_seized,
-        incentive_amount,
-    ))
+        total_debt: 0,
+        collateral_balance: 0,
+        collateral_value: 0,
+        actual_debt_liquidated: 0,
+        actual_collateral_seized: 0,
+        incentive_amount: 0,
+        protocol_fee: 0,
+        is_multi_asset: false,
+    };
+    let outcome = run_liquidation_sm(env, &mut ctx)?;
+    Ok((outcome.debt_liquidated, outcome.collateral_seized, outcome.incentive_amount))
 }
 
 /// Update analytics after liquidation
