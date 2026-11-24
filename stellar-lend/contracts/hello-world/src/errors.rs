@@ -21,6 +21,7 @@ use crate::risk_params::RiskParamsError;
 use crate::treasury::TreasuryError;
 use crate::upgrade::UpgradeError;
 use crate::user_cap::UserCapError;
+use crate::fee_switch::FeeSwitchError;
 use crate::withdraw::WithdrawError;
 
 #[contracterror]
@@ -395,6 +396,17 @@ impl_from_error!(UserCapError, {
     UserCapError::ProviderNotAuthorized => LendingError::NotFound,
     UserCapError::InvalidExpiry => LendingError::InvalidParameter,
     UserCapError::Overflow => LendingError::Overflow,
+impl_from_error!(FeeSwitchError, {
+    FeeSwitchError::Unauthorized => LendingError::Unauthorized,
+    FeeSwitchError::InvalidFeeRate => LendingError::InvalidFee,
+    FeeSwitchError::InvalidShare => LendingError::InvalidParameter,
+    FeeSwitchError::SharesExceed100 => LendingError::LimitExceeded,
+    FeeSwitchError::RecipientNotFound => LendingError::NotFound,
+    FeeSwitchError::RecipientAlreadyExists => LendingError::AlreadyExists,
+    FeeSwitchError::NoRecipients => LendingError::NotFound,
+    FeeSwitchError::Overflow => LendingError::Overflow,
+    FeeSwitchError::FeeSwitchOff => LendingError::InvalidState,
+    FeeSwitchError::InvalidAmount => LendingError::InvalidAmount,
 });
 
 impl_from_error!(RebalancingError, {
@@ -530,3 +542,4 @@ impl_into_core!(TreasuryError, TreasuryError);
 impl_into_core!(WithdrawError, WithdrawError);
 impl_into_core!(GovernanceError, GovernanceError);
 impl_into_core!(UserCapError, UserCapError);
+impl_into_core!(FeeSwitchError, FeeSwitchError);
