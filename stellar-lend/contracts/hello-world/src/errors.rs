@@ -193,6 +193,9 @@ impl_from_error!(PauseGuardianError, {
     PauseGuardianError::InvalidOverride => LendingError::InvalidParameter,
     PauseGuardianError::BadNonce => LendingError::InvalidParameter,
     PauseGuardianError::Expired => LendingError::InvalidParameter,
+    PauseGuardianError::TargetNotAuthorized => LendingError::Unauthorized,
+    PauseGuardianError::RoleAlreadyAssigned => LendingError::AlreadyExists,
+    PauseGuardianError::RoleNotAssigned => LendingError::NotFound,
 });
 
 impl_from_error!(AnalyticsError, {

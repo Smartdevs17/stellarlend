@@ -186,6 +186,61 @@ pub fn add_pause_guardian(
     pause::add_guardian(&env, admin, guardian).map_err(Into::into)
 }
 
+// ── Role-scoped pause guardian (issue #1568) ────────────────────────────────
+
+#[no_mangle]
+pub fn assign_guardian_role(
+    env: Env,
+    admin: Address,
+    guardian: Address,
+    target: soroban_sdk::Symbol,
+) -> Result<(), errors::LendingError> {
+    pause::assign_guardian_role(&env, admin, guardian, target).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn revoke_guardian_role(
+    env: Env,
+    admin: Address,
+    guardian: Address,
+    target: soroban_sdk::Symbol,
+) -> Result<(), errors::LendingError> {
+    pause::revoke_guardian_role(&env, admin, guardian, target).map_err(Into::into)
+}
+
+#[no_mangle]
+pub fn get_guardian_targets(
+    env: Env,
+    guardian: Address,
+) -> soroban_sdk::Vec<soroban_sdk::Symbol> {
+    pause::get_guardian_targets(&env, &guardian)
+}
+
+#[no_mangle]
+pub fn is_guardian_for_target(
+    env: Env,
+    guardian: Address,
+    target: soroban_sdk::Symbol,
+) -> bool {
+    pause::is_guardian_for_target(&env, &guardian, &target)
+}
+
+#[no_mangle]
+pub fn require_guardian_target_override(
+    env: Env,
+    guardian: Address,
+    target: soroban_sdk::Symbol,
+    paused: bool,
+    nonce: u64,
+    expires_at: u64,
+    args: soroban_sdk::Vec<soroban_sdk::Val>,
+) -> Result<(), errors::LendingError> {
+    pause::require_guardian_override_for_target(
+        &env, &guardian, &target, paused, nonce, expires_at, args,
+    )
+    .map_err(Into::into)
+}
+
 // ── Per-pool withdrawal queue (issue #1586) ────────────────────────────────
 
 #[no_mangle]
