@@ -156,3 +156,51 @@ export interface PortfolioAnalyticsResponse {
   performance: PerformanceSummary;
   generatedAt: string;
 }
+
+/** A single simulated market shock applied to every asset in the portfolio. */
+export interface HealthHeatmapScenario {
+  /** Stable identifier for the scenario (e.g. "shock_-20"). */
+  id: string;
+  /** Human-readable label for the scenario (e.g. "-20%"). */
+  label: string;
+  /** Simulated price change applied to collateral, as a percentage (e.g. -20). */
+  priceShockPct: number;
+}
+
+/** Health of a single asset under one simulated market shock. */
+export interface HealthHeatmapCell {
+  scenarioId: string;
+  /** collateral / (debt * liquidationThreshold). Below 1.0 = liquidatable. */
+  healthFactor: string;
+  riskLevel: RiskLevel;
+  isLiquidated: boolean;
+}
+
+/** Per-asset row of the heatmap: one cell per scenario. */
+export interface HealthHeatmapAssetRow {
+  assetAddress?: string;
+  assetSymbol: string;
+  collateral: string;
+  debt: string;
+  /** Baseline health factor with no shock applied. */
+  currentHealthFactor: string;
+  currentRiskLevel: RiskLevel;
+  cells: HealthHeatmapCell[];
+}
+
+export interface HealthHeatmapSummary {
+  /** Worst (lowest) health factor across all assets and scenarios. */
+  worstHealthFactor: string;
+  worstRiskLevel: RiskLevel;
+  /** Number of asset/scenario combinations that become liquidatable. */
+  liquidatableCellCount: number;
+  totalCellCount: number;
+}
+
+export interface PortfolioHealthHeatmapResponse {
+  userAddress: string;
+  scenarios: HealthHeatmapScenario[];
+  assets: HealthHeatmapAssetRow[];
+  summary: HealthHeatmapSummary;
+  generatedAt: string;
+}

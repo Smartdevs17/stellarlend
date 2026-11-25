@@ -7,6 +7,7 @@ const DocsPage = lazy(() => import(/* webpackChunkName: "portal-docs" */ './page
 const ApiReferencePage = lazy(() => import(/* webpackChunkName: "portal-api-ref" */ './pages/ApiReference'));
 const ContractExplorerPage = lazy(() => import(/* webpackChunkName: "portal-explorer" */ './pages/ContractExplorer'));
 const SettingsPage = lazy(() => import(/* webpackChunkName: "portal-settings" */ './pages/Settings'));
+const HealthDashboardPage = lazy(() => import(/* webpackChunkName: "portal-health" */ '../app/dashboard/health/HealthDashboardPage'));
 
 export const RouteLoadingFallback: React.FC = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '300px' }}>
@@ -25,6 +26,7 @@ export const DeveloperPortalRouter: React.FC = () => {
         <Link to="/api">API Reference</Link>
         <Link to="/explorer">Contracts</Link>
         <Link to="/settings">Settings</Link>
+        <Link to="/dashboard/health">Portfolio Health</Link>
       </nav>
       <Suspense fallback={<RouteLoadingFallback />}>
         <Routes>
@@ -33,6 +35,7 @@ export const DeveloperPortalRouter: React.FC = () => {
           <Route path="/api" element={<ApiReferencePage />} />
           <Route path="/explorer" element={<ContractExplorerPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/dashboard/health" element={<HealthDashboardPage />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

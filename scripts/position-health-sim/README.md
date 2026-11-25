@@ -256,6 +256,115 @@ simulate against a stale constant, and a fabricated scenario must be rejected.
 | `report.ts` | `text` / `markdown` / JSON renderers |
 | `positions/*.json` | five example positions |
 
+## Portfolio health heatmap (#1552)
+
+The dashboard surface at `frontend/app/dashboard/health/` renders a portfolio
+health heatmap: one row per collateral asset, one column per simulated market
+shock, each cell the portfolio health factor under that shock. It reuses the
+contract arithmetic documented above rather than re-deriving it.
+
+### Shock model
+
+Shocks are applied to **collateral prices only**; debt is assumed fixed. Each
+shock is a percentage move applied to every collateral asset in the portfolio
+(the same grid used by `--grid`, so `flash_crash` is `-20/-30/-40/-50%`). A
+shock may be scoped to a single asset, in which case only that asset's price
+moves and the rest are held flat — that is the row-wise view.
+
+For a shock `s` and asset `i` with base price `p_i`, the shocked price is
+`p_i · (1 + s)`. Prices are carried as strings end-to-end and converted to the
+contract's integer scale (`PRICE_SCALE = 1e8`) before any arithmetic, so a
+shock never introduces float drift into a health factor.
+
+### Health factor computation
+
+Per cell:
+
+```
+cv_s = Σ_i collateral_i.amount · p_i · (1 + s_i) / PRICE_SCALE
+dv   = Σ_j debt_j.amount · p_j / PRICE_SCALE
+weighted = cv_s · liquidation_threshold_bps / 10000
+hf   = weighted · 10000 / dv
+```
+
+This is the same two-truncating-division port as `health-factor.ts`, including
+the sentinels: no oracle ⇒ `0`, debt-free ⇒ `100_000_000`, overflow ⇒ `0`. The
+heatmap therefore agrees with the contract at the boundary, and a cell showing
+`1.0000` is *not* liquidatable (`hf >= HEALTH_FACTOR_SCALE`).
+
+### API
+
+`GET /api/portfolio/health/heatmap?portfolioId=<id>&grid=<name>`
+
+| Query param | Default | Meaning |
+| --- | --- | --- |
+| `portfolioId` | — (required) | Portfolio to price |
+| `grid` | `flash_crash` | Shock grid: `gentle_downside`, `flash_crash`, `black_swan`, `both_sides` |
+| `thresholdBps` | contract default | Override `liquidation_threshold_bps` |
+
+Response:
+
+```jsonc
+{
+  "portfolioId": "pf_123",
+  "grid": "flash_crash",
+  "thresholdBps": 8000,
+  "generatedAt": "2025-01-01T00:00:00.000Z",
+  "shocks": [-20, -30, -40, -50],          // percent
+  "assets": [
+    {
+      "asset": "XLM",
+      "amount": "20000",
+      "price": "100000000",
+      "cells": [
+        { "shockPct": -20, "healthFactor": "8000", "risk": "liquidatable" },
+        { "shockPct": -30, "healthFactor": "7000", "risk": "liquidatable" },
+        { "shockPct": -40, "healthFactor": "6000", "risk": "liquidatable" },
+        { "shockPct": -50, "healthFactor": "5000", "risk": "liquidatable" }
+      ]
+    }
+  ],
+  "portfolio": {
+    "healthFactor": "10000",
+    "risk": "critical",
+    "distanceToLiquidationPct": "0.00",
+    "breakEvenMultiplier": "1.0000"
+  }
+}
+```
+
+`healthFactor` values are the contract's integer scale (`10000` = 1.0) as
+strings, so a client never rounds a boundary case. `risk` uses the bands in the
+section above. Errors: `400` for an unknown grid or malformed `thresholdBps`,
+`404` for an unknown portfolio, `422` when the portfolio has no priced
+collateral.
+
+### Dashboard route
+
+`/dashboard/health` — server component that fetches the endpoint above and
+renders the heatmap. Cells are colour-coded by `risk` band; hovering a cell
+shows the shocked price, the health factor and the distance to liquidation. The
+grid selector and threshold override are query params on the route, so a view
+is linkable. The route logs `portfolio_health_heatmap_rendered` with the
+portfolio id, grid and cell count, and emits a
+`portfolio_health_heatmap_render_ms` timing metric.
+
+### Tests
+
+```bash
+# heatmap math + API handler
+node --experimental-strip-types --test scripts/position-health-sim/*.test.ts
+
+# dashboard route (frontend)
+npm --prefix frontend test -- dashboard/health
+```
+
+The heatmap cases live in `simulation.test.ts` alongside the existing sweep
+tests: each shipped position is priced across every grid and pinned to the
+health factors its description claims, plus the no-oracle, debt-free and
+overflow sentinels, an unknown-grid rejection, and a monotonicity check that
+every cell's health factor falls as the shock deepens.
+
 ## Related
 
 - `docs/POSITION_HEALTH_SIMULATION.md` — describes an intended tool. The

@@ -25,6 +25,18 @@ const VALID_LOG_LEVELS = new Set(['debug', 'info', 'warn', 'error']);
 const MIN_STELLAR_FEE = 100;
 const DEFAULT_MAX_FEE = 1_000_000;
 
+/**
+ * TWAP fallback defaults (Issue #1546).
+ *
+ * A 5 minute observation window with a 60 second staleness bound keeps the
+ * fallback responsive while still smoothing out single-sample outliers.
+ * Deviations are expressed in basis points (1 bps = 0.01%).
+ */
+const DEFAULT_TWAP_WINDOW_SECONDS = 300;
+const DEFAULT_TWAP_MAX_STALENESS_SECONDS = 60;
+const DEFAULT_TWAP_MAX_DEVIATION_BPS = 500;
+const MAX_DEVIATION_BPS_LIMIT = 10_000;
+
 function getBootstrapLogLevel(): 'debug' | 'info' | 'warn' | 'error' {
   const level = process.env.LOG_LEVEL;
 
@@ -106,6 +118,20 @@ const envSchema = z
     CIRCUIT_BREAKER_BACKOFF_MS: z.coerce.number().positive().default(30_000),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
     METRICS_PORT: z.coerce.number().int().positive().optional(),
+    // Issue #1546 – time-weighted average price (TWAP) oracle fallback.
+    TWAP_ENABLED: booleanFlagSchema,
+    TWAP_WINDOW_SECONDS: z.coerce.number().int().positive().default(DEFAULT_TWAP_WINDOW_SECONDS),
+    TWAP_MAX_STALENESS_SECONDS: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(DEFAULT_TWAP_MAX_STALENESS_SECONDS),
+    TWAP_MAX_DEVIATION_BPS: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_DEVIATION_BPS_LIMIT)
+      .default(DEFAULT_TWAP_MAX_DEVIATION_BPS),
   })
   .superRefine((env, ctx) => {
     const networkDefaults = NETWORK_DEFAULTS[env.STELLAR_NETWORK as keyof typeof NETWORK_DEFAULTS];
@@ -116,6 +142,14 @@ const envSchema = z
         code: z.ZodIssueCode.custom,
         message: 'STELLAR_MAX_FEE must be greater than or equal to STELLAR_BASE_FEE',
         path: ['STELLAR_MAX_FEE'],
+      });
+    }
+
+    if (env.TWAP_MAX_STALENESS_SECONDS > env.TWAP_WINDOW_SECONDS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'TWAP_MAX_STALENESS_SECONDS must be less than or equal to TWAP_WINDOW_SECONDS',
+        path: ['TWAP_MAX_STALENESS_SECONDS'],
       });
     }
   });
@@ -282,6 +316,12 @@ export function loadConfig(): OracleServiceConfig {
       backoffMs: env.CIRCUIT_BREAKER_BACKOFF_MS,
     },
     metricsPort: env.METRICS_PORT,
+    twap: envOverrides.twap ?? {
+      enabled: env.TWAP_ENABLED,
+      windowSeconds: env.TWAP_WINDOW_SECONDS,
+      maxStalenessSeconds: env.TWAP_MAX_STALENESS_SECONDS,
+      maxDeviationBps: env.TWAP_MAX_DEVIATION_BPS,
+    },
   };
 }
 

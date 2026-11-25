@@ -298,3 +298,112 @@ in `oracle::adapter_tests` and run with:
 cd stellar-lend
 cargo test -p hello-world --lib oracle::adapter_tests
 ```
+
+
+## TWAP oracle fallback
+
+`oracle/twap/` provides a time-weighted average price (TWAP) that acts as a
+fallback when the primary spot feed is stale or errored. It is a pure,
+dependency-free module (`src/twap.ts`) with a thin service wrapper
+(`src/twap-service.ts`) that records observations and answers fallback reads.
+
+### Recording observations
+
+Every accepted spot quote is recorded with its source timestamp:
+
+```typescript
+import { createTwapOracle } from './src/twap.js';
+
+const twap = createTwapOracle({
+  windowSeconds: 300,        // averaging window
+  maxObservationAgeSeconds: 600, // staleness guard for the newest observation
+  maxDeviationBps: 500,      // 5% guard vs. the primary spot price
+  minObservations: 2,        // refuse to answer below this
+});
+
+twap.record({ asset: 'XLM', price: 0.1234, timestamp: 1_700_000_000 });
+```
+
+- Observations are keyed by asset and kept in timestamp order. Out-of-order
+  inserts are placed correctly; duplicates for the same timestamp replace the
+  earlier value.
+- Each asset retains at most `maxObservationsPerAsset` (default 1000) points;
+  the oldest are evicted first.
+- Non-finite, zero, or negative prices are rejected and never recorded.
+
+### Computing the time-weighted average
+
+The TWAP is the integral of price over time divided by the covered duration.
+Each observation is treated as holding until the next one, so a price that
+persists longer contributes proportionally more:
+
+```
+TWAP = Σ price_i * (t_{i+1} - t_i) / (t_last - t_first)
+```
+
+Only observations inside `[now - windowSeconds, now]` participate. The window
+is clamped to the newest observation so a quiet feed does not dilute the
+average with a long tail. With a single in-window observation the TWAP is that
+price. The result includes `twap`, `observations`, `windowStart`, `windowEnd`,
+and `coverageSeconds` so callers can reason about how much history backed it.
+
+### When the fallback activates
+
+`TwapService.getPrice(asset, primary)` takes the current primary spot quote and
+returns a `TwapFallbackResult`:
+
+| Primary state | Behaviour |
+|---|---|
+| Fresh and within deviation | Returns the primary price, `source: 'primary'` |
+| Stale (older than `maxObservationAgeSeconds`) | Returns TWAP, `source: 'twap'`, `reason: 'stale_primary'` |
+| Errored (fetch failed / no quote) | Returns TWAP, `source: 'twap'`, `reason: 'primary_error'` |
+| Missing primary and no TWAP history | Returns `null` with `reason: 'no_data'` |
+
+### Guards
+
+- **Staleness**: a primary quote older than `maxObservationAgeSeconds` is not
+  trusted; the TWAP is used instead. The TWAP itself must contain at least
+  `minObservations` in-window points, otherwise the fallback declines.
+- **Deviation**: when the TWAP differs from the last known primary price by more
+  than `maxDeviationBps`, the fallback is rejected (`reason: 'deviation_exceeded'`)
+  rather than serving a price that may be manipulated. The primary price is
+  still returned if it is fresh.
+- **Coverage**: if the in-window coverage is shorter than `minCoverageSeconds`
+  (default 0, i.e. disabled), the fallback declines with `reason: 'insufficient_coverage'`.
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `TWAP_WINDOW_SECONDS` | `300` | Averaging window length |
+| `TWAP_MAX_OBSERVATION_AGE_SECONDS` | `600` | Primary staleness threshold |
+| `TWAP_MAX_DEVIATION_BPS` | `500` | Max TWAP-vs-primary deviation (basis points) |
+| `TWAP_MIN_OBSERVATIONS` | `2` | Minimum in-window observations |
+| `TWAP_MIN_COVERAGE_SECONDS` | `0` | Minimum covered duration (0 disables) |
+| `TWAP_MAX_OBSERVATIONS_PER_ASSET` | `1000` | Retention cap per asset |
+
+### Observability
+
+On every fallback decision the service emits a structured log line and updates
+counters:
+
+- Log fields: `asset`, `source` (`primary`/`twap`), `reason`, `twap`,
+  `primaryPrice`, `deviationBps`, `coverageSeconds`, `observations`.
+- Metrics: `oracle_twap_fallback_total{asset,reason}` (counter),
+  `oracle_twap_deviation_bps{asset}` (gauge), and
+  `oracle_twap_coverage_seconds{asset}` (gauge). `reason` is one of
+  `stale_primary`, `primary_error`, `deviation_exceeded`,
+  `insufficient_coverage`, or `no_data`.
+
+### Tests
+
+```bash
+cd oracle
+npm test -- tests/twap.test.ts          # unit: recording, weighting, guards
+npm test -- tests/twap-service.test.ts  # integration: fallback activation + metrics
+```
+
+The unit suite pins window clamping, out-of-order and duplicate observations,
+retention eviction, and each guard. The integration suite drives the service
+with a fake primary provider to cover the fresh, stale, errored, deviation, and
+no-data paths, asserting the emitted log fields and metric counters.

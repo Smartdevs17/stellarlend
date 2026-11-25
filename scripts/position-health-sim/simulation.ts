@@ -315,3 +315,109 @@ export interface SimulationReport {
   /** The liquidation boundary as a function of threshold, for a one-line summary. */
   thresholdAtLiquidation: bigint | null;
 }
+
+/** One cell of the portfolio health heatmap: a single asset under a single shock. */
+export interface HeatmapCell {
+  /** The collateral asset this cell prices, or the debt asset for the debt row. */
+  asset: string;
+  /** `true` when the row is the debt leg rather than a collateral leg. */
+  isDebt: boolean;
+  /** Percent move applied to this asset's price. */
+  changePercent: number;
+  /** The shocked oracle price (8 decimals). */
+  shockedPrice: bigint;
+  /** The position's health factor with only this asset shocked. */
+  healthFactor: bigint;
+  /** `false` when the health factor could not be computed (e.g. missing oracle). */
+  healthFactorKnown: boolean;
+  /** Why the health factor is unknown, when it is. */
+  unknownReason: string | null;
+  risk: RiskLevel;
+  /** Did this single-asset shock make the position liquidatable? */
+  becameLiquidatable: boolean;
+}
+
+/** One row of the heatmap: a single asset across every shock in the grid. */
+export interface HeatmapRow {
+  asset: string;
+  isDebt: boolean;
+  cells: HeatmapCell[];
+}
+
+/** A heatmap-ready result: per-asset health factor and risk level per shock. */
+export interface HealthHeatmap {
+  /** The shock values, in the grid's order, shared by every row. */
+  shocks: number[];
+  /** Baseline (unshocked) health factor and risk, for the legend. */
+  baselineHealthFactor: bigint;
+  baselineRisk: RiskLevel;
+  /** One row per collateral leg, then one row for the debt leg. */
+  rows: HeatmapRow[];
+  /** `true` when the baseline position is already liquidatable. */
+  baselineLiquidatable: boolean;
+}
+
+/**
+ * Build a heatmap-ready result for a position across a shock grid.
+ *
+ * Each cell shocks exactly one asset at a time (the collateral legs and the debt
+ * leg), so the heatmap shows which asset is the position's weak point rather
+ * than only the aggregate effect of a uniform move. Every health factor goes
+ * through `evaluatePosition`, so the numbers are the contract's numbers.
+ *
+ * Failure modes are carried in the cells rather than thrown: an unknown health
+ * factor (missing oracle, zero debt) yields `healthFactorKnown: false` with a
+ * reason, and an already-liquidatable baseline is flagged on the result.
+ */
+export function buildHealthHeatmap(
+  position: Position,
+  grid: ShockGrid,
+  constants: ContractConstants,
+): HealthHeatmap {
+  const base = evaluatePosition(position, constants);
+  const baselineRisk = riskLevel(base.healthFactor, base.healthFactorKnown, constants);
+  const shocks = grid.changes.slice();
+
+  const rows: HeatmapRow[] = [];
+
+  const buildRow = (asset: string, isDebt: boolean): HeatmapRow => {
+    const cells = shocks.map((changePercent) => {
+      const overrides = new Map<string, number>([[asset, changePercent]]);
+      const shocked = isDebt
+        ? {
+            ...position,
+            debt: { ...position.debt, price: shockPrice(position.debt.price, changePercent) },
+          }
+        : shockedPosition(position, 0, overrides);
+      const health = evaluatePosition(shocked, constants);
+      const shockedPrice = isDebt
+        ? shocked.debt.price
+        : shocked.collateral.find((leg) => leg.asset === asset)?.price ?? 0n;
+      return {
+        asset,
+        isDebt,
+        changePercent,
+        shockedPrice,
+        healthFactor: health.healthFactor,
+        healthFactorKnown: health.healthFactorKnown,
+        unknownReason: health.healthFactorKnown ? null : health.unknownReason,
+        risk: riskLevel(health.healthFactor, health.healthFactorKnown, constants),
+        becameLiquidatable: health.isLiquidatable && !base.isLiquidatable,
+      };
+    });
+    return { asset, isDebt, cells };
+  };
+
+  for (const leg of position.collateral) {
+    rows.push(buildRow(leg.asset, false));
+  }
+  rows.push(buildRow(position.debt.asset, true));
+
+  return {
+    shocks,
+    baselineHealthFactor: base.healthFactor,
+    baselineRisk,
+    rows,
+    baselineLiquidatable: base.isLiquidatable,
+  };
+}

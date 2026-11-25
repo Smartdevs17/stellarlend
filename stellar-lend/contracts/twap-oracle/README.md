@@ -65,6 +65,69 @@ accept a fallback should check `used_fallback == false` and refuse otherwise;
 `get_liquidation_price` exists for consumers that explicitly want spot in that
 situation, and flags it for them.
 
+## Fallback integration
+
+The TWAP is the fallback price source for consumers whose primary feed can go
+dark or print a manipulated spot. The contract exposes everything such a
+consumer needs to decide, in one call, whether the average may be used:
+
+| Signal | Where | Meaning |
+| ------ | ----- | ------- |
+| `used_fallback` | `TwapResult` | `false` only when the average is trustworthy; treat `true` as "no TWAP available" |
+| `window_coverage_bps` | `TwapResult` | Share of `window_secs` the average spans; `10000` means fully covered |
+| `sample_count` | `TwapResult` | Accepted observations behind the average |
+| `last_update` | `TwapResult` | Ledger timestamp of the newest accepted observation |
+| `is_stale` | `HealthStatus` | Feed older than `max_staleness_secs` |
+| `manipulation_pending` | `HealthStatus` | A rejection has not been acknowledged yet |
+
+### Guarantees a fallback consumer can rely on
+
+- **Staleness.** A `TwapResult` with `used_fallback == false` was computed from
+  an observation no older than `max_staleness_secs` (default `2 × window_secs`,
+  i.e. one hour with the default 30-minute window). Past that bound the result
+  flips to `used_fallback == true` and `get_health` reports `is_stale`, so a
+  consumer never silently prices off a dead feed.
+- **Deviation.** Every accepted observation was within `max_deviation_bps`
+  (5 % by default) of the TWAP in effect when it arrived, and a rejected
+  observation contributes zero weight. A fallback price therefore cannot be
+  dragged beyond the configured band by a single spot print, in either
+  direction.
+- **Coverage.** `window_coverage_bps` is monotonic while the feed is live: it
+  only reaches `10000` after a full window of accepted observations, so a
+  consumer that requires a mature average can gate on it directly.
+
+### Consumer pattern
+
+```text
+let result = twap.get_twap(asset);
+if !result.used_fallback {
+    use result.twap;                       // trustworthy fallback price
+} else {
+    // no usable TWAP: refuse the operation, or fall back to spot explicitly
+    // via get_liquidation_price, which flags the substitution for you
+}
+```
+
+### Off-chain oracle service
+
+The off-chain oracle service treats the TWAP as its fallback source and polls
+two entry points:
+
+- `get_health(asset)` on every tick. It is a single cheap read that reports
+  `is_stale`, `manipulation_pending`, `sample_count`, and the last update, so
+  the service can raise an alert and stop publishing a fallback price the
+  moment the feed goes stale or a rejection lands unacknowledged.
+- `get_twap(asset)` when it needs the price itself. The service publishes the
+  average only when `used_fallback == false`, and otherwise reports the asset
+  as "fallback unavailable" rather than substituting spot — the same contract
+  the on-chain consumers honour.
+
+Because both calls are pure reads over the ring buffer and accumulator, the
+service can poll them every ledger without paying for writes, and can
+recompute the average independently from `get_observations` to cross-check the
+contract's arithmetic.
+=======
+
 `force_record_price` is the audited way to accept a real repricing: it seeds a
 fresh accumulator rather than blending the new price into the old average, so
 history is not rewritten, and it publishes both

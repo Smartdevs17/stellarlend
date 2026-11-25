@@ -571,6 +571,125 @@ fn test_health_snapshot_matches_the_result() {
     assert_eq!(health.rejected_count, 1);
 }
 
+// ── Fallback resolver ────────────────────────────────────────────────────────
+//
+// The off-chain service resolves a price in this order: trusted TWAP, then the
+// last accepted spot price, then nothing. These tests pin the signals the
+// resolver reads so a change in the contract cannot silently change the
+// fallback decision.
+
+#[test]
+fn test_fallback_resolver_uses_twap_when_trusted() {
+    let fx = setup();
+    let window = default_window();
+    seed_flat(&fx, 1000, window);
+
+    let result = fx.client.get_twap(&fx.asset);
+    // Nothing forces the resolver off the trusted average.
+    assert!(result.fresh);
+    assert!(!result.used_fallback);
+    assert!(!result.manipulation_detected);
+    assert_eq!(result.window_coverage_bps, 10_000);
+    assert_eq!(result.twap, 1000);
+}
+
+#[test]
+fn test_fallback_resolver_falls_back_on_insufficient_history() {
+    let fx = setup();
+    // A single observation is not enough history to trust.
+    at(&fx, 1_000, 0);
+
+    let result = fx.client.get_twap(&fx.asset);
+    assert!(result.used_fallback);
+    assert_eq!(result.sample_count, 1);
+    assert_eq!(result.coverage_secs, 1);
+    assert!(result.window_coverage_bps < 10_000);
+    // The last accepted price is still exposed for the resolver to use.
+    assert_eq!(result.spot_price, 1_000);
+    assert_eq!(result.twap, 1_000);
+}
+
+#[test]
+fn test_fallback_resolver_falls_back_on_stale_feed() {
+    let fx = setup();
+    let window = default_window();
+    seed_flat(&fx, 1000, window);
+
+    // Move past the staleness limit without recording anything new.
+    fx.env.ledger().set_timestamp(window * 3 + 1);
+
+    let result = fx.client.get_twap(&fx.asset);
+    assert!(!result.fresh);
+    assert!(result.used_fallback);
+    // The stale average is still reported so the resolver can decide how to
+    // degrade, but it is flagged as untrusted.
+    assert_eq!(result.twap, 1000);
+    assert_eq!(result.spot_price, 1000);
+}
+
+#[test]
+fn test_fallback_resolver_falls_back_on_deviation() {
+    let fx = setup();
+    let window = default_window();
+    seed_flat(&fx, 1000, window);
+
+    // A rejected spike must not become the spot price the resolver sees.
+    let accepted = fx.client.record_price(&fx.asset, &10_000i128);
+    assert!(!accepted);
+
+    let result = fx.client.get_twap(&fx.asset);
+    assert!(result.used_fallback);
+    assert!(result.manipulation_detected);
+    assert_eq!(result.rejected_count, 1);
+    // The spot price the resolver reads is the last accepted one, not the
+    // rejected print.
+    assert_eq!(result.spot_price, 1000);
+    assert_eq!(result.twap, 1000);
+}
+
+#[test]
+fn test_fallback_resolver_health_snapshot_is_consistent() {
+    let fx = setup();
+    let window = default_window();
+    seed_flat(&fx, 1000, window);
+    fx.client.record_price(&fx.asset, &10_000i128);
+    fx.env.ledger().set_timestamp(window + 10);
+
+    let health = fx.client.get_health(&fx.asset).unwrap();
+    let result = fx.client.get_twap(&fx.asset);
+    // The resolver reads the health snapshot; it must agree with get_twap.
+    assert_eq!(health.twap, result.twap);
+    assert_eq!(health.coverage_secs, result.coverage_secs);
+    assert_eq!(health.manipulation_pending, result.manipulation_detected);
+    assert_eq!(health.rejected_count, result.rejected_count);
+    assert!(health.manipulation_pending);
+    assert_eq!(health.age_secs, 10);
+}
+
+#[test]
+fn test_fallback_resolver_health_snapshot_reports_staleness() {
+    let fx = setup();
+    let window = default_window();
+    seed_flat(&fx, 1000, window);
+
+    let last_update = window - 1;
+    fx.env.ledger().set_timestamp(last_update + window * 2 + 1);
+
+    let health = fx.client.get_health(&fx.asset).unwrap();
+    assert_eq!(health.age_secs, window * 2 + 1);
+    // The resolver treats an age past the staleness limit as untrusted.
+    assert!(health.age_secs > fx.client.get_config().unwrap().max_staleness_secs);
+}
+
+#[test]
+fn test_fallback_resolver_health_snapshot_absent_for_unknown_asset() {
+    let fx = setup();
+    let other = Address::generate(&fx.env);
+    assert!(fx.client.get_health(&other).is_none());
+    // With no health snapshot the resolver has nothing to trust.
+    assert!(fx.client.get_twap(&other).used_fallback);
+}
+
 /// Whether the most recent contract call published an event with this name.
 ///
 /// The test host resets the event log on every top-level call, so this has to

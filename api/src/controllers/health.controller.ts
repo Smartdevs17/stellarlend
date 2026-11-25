@@ -12,11 +12,18 @@
 import { Request, Response } from 'express';
 import { protocolHealthScoreService } from '../services/protocol-health/healthScore.service';
 import { protocolHealthTrendService } from '../services/protocol-health/healthTrend.service';
+import { portfolioHealthHeatmapService } from '../services/protocol-health/portfolioHealthHeatmap.service';
 import { ValidationError } from '../utils/errors';
 import logger from '../utils/logger';
 
 /** Largest history window a caller may request, to bound the response. */
 const MAX_WINDOW = 365;
+
+/** Bounds for the simulated shock grid, so a caller cannot request an unbounded matrix. */
+const MAX_SHOCK_SCENARIOS = 20;
+const MAX_SHOCK_ASSETS = 50;
+const MIN_SHOCK_MAGNITUDE = -100;
+const MAX_SHOCK_MAGNITUDE = 100;
 
 /**
  * Parses a positive-integer query parameter.
@@ -157,6 +164,146 @@ export class HealthScoreController {
     } catch (error) {
       HealthScoreController.fail(res, error, 'Failed to update health score alert threshold');
     }
+  }
+
+  /**
+   * POST /api/health/heatmap/simulate
+   *
+   * Builds the portfolio health heatmap under simulated market shocks. The
+   * dashboard sends the shock scenarios it wants applied; the response is a
+   * grid of per-asset health deltas plus the aggregate impact per scenario.
+   *
+   * Body:
+   *   {
+   *     scenarios?: Array<{ id?: string; label?: string; shocks: Record<string, number> }>,
+   *     assets?: string[],
+   *     magnitude?: number
+   *   }
+   *
+   * When `scenarios` is omitted the service's default shock set is used.
+   */
+  async simulateHeatmap(req: Request, res: Response): Promise<void> {
+    const startedAt = Date.now();
+    try {
+      const body = req.body ?? {};
+      if (typeof body !== 'object' || Array.isArray(body)) {
+        throw new ValidationError('Request body must be an object');
+      }
+
+      const scenarios = HealthScoreController.parseScenarios(body.scenarios);
+      const assets = HealthScoreController.parseAssets(body.assets);
+      const magnitude = HealthScoreController.parseMagnitude(body.magnitude);
+
+      const heatmap = await portfolioHealthHeatmapService.simulate({
+        scenarios,
+        assets,
+        magnitude,
+      });
+
+      logger.info('Portfolio health heatmap simulated', {
+        scenarioCount: heatmap.scenarios.length,
+        assetCount: heatmap.assets.length,
+        durationMs: Date.now() - startedAt,
+      });
+
+      res.json({
+        success: true,
+        data: heatmap,
+        meta: {
+          scenarioCount: heatmap.scenarios.length,
+          assetCount: heatmap.assets.length,
+          durationMs: Date.now() - startedAt,
+        },
+      });
+    } catch (error) {
+      logger.warn('Portfolio health heatmap simulation failed', {
+        durationMs: Date.now() - startedAt,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      HealthScoreController.fail(res, error, 'Failed to simulate portfolio health heatmap');
+    }
+  }
+
+  /** Validates and normalises the optional shock scenario list. */
+  private static parseScenarios(
+    raw: unknown,
+  ): Array<{ id?: string; label?: string; shocks: Record<string, number> }> | undefined {
+    if (raw === undefined || raw === null) return undefined;
+    if (!Array.isArray(raw)) {
+      throw new ValidationError('scenarios must be an array');
+    }
+    if (raw.length === 0) {
+      throw new ValidationError('scenarios must not be empty');
+    }
+    if (raw.length > MAX_SHOCK_SCENARIOS) {
+      throw new ValidationError(`scenarios must not exceed ${MAX_SHOCK_SCENARIOS} entries`);
+    }
+
+    return raw.map((entry, index) => {
+      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+        throw new ValidationError(`scenarios[${index}] must be an object`);
+      }
+      const { id, label, shocks } = entry as Record<string, unknown>;
+      if (typeof shocks !== 'object' || shocks === null || Array.isArray(shocks)) {
+        throw new ValidationError(`scenarios[${index}].shocks must be an object of asset shocks`);
+      }
+      const normalisedShocks: Record<string, number> = {};
+      for (const [asset, value] of Object.entries(shocks as Record<string, unknown>)) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+          throw new ValidationError(`scenarios[${index}].shocks.${asset} must be a number`);
+        }
+        if (numeric < MIN_SHOCK_MAGNITUDE || numeric > MAX_SHOCK_MAGNITUDE) {
+          throw new ValidationError(
+            `scenarios[${index}].shocks.${asset} must be between ${MIN_SHOCK_MAGNITUDE} and ${MAX_SHOCK_MAGNITUDE}`,
+          );
+        }
+        normalisedShocks[asset] = numeric;
+      }
+      if (Object.keys(normalisedShocks).length === 0) {
+        throw new ValidationError(`scenarios[${index}].shocks must not be empty`);
+      }
+      return {
+        id: typeof id === 'string' ? id : undefined,
+        label: typeof label === 'string' ? label : undefined,
+        shocks: normalisedShocks,
+      };
+    });
+  }
+
+  /** Validates and normalises the optional asset filter. */
+  private static parseAssets(raw: unknown): string[] | undefined {
+    if (raw === undefined || raw === null) return undefined;
+    if (!Array.isArray(raw)) {
+      throw new ValidationError('assets must be an array of asset symbols');
+    }
+    if (raw.length === 0) {
+      throw new ValidationError('assets must not be empty');
+    }
+    if (raw.length > MAX_SHOCK_ASSETS) {
+      throw new ValidationError(`assets must not exceed ${MAX_SHOCK_ASSETS} entries`);
+    }
+    return raw.map((asset, index) => {
+      if (typeof asset !== 'string' || asset.trim() === '') {
+        throw new ValidationError(`assets[${index}] must be a non-empty string`);
+      }
+      return asset.trim();
+    });
+  }
+
+  /** Validates the optional global shock magnitude. */
+  private static parseMagnitude(raw: unknown): number | undefined {
+    if (raw === undefined || raw === null) return undefined;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) {
+      throw new ValidationError('magnitude must be a number');
+    }
+    if (value < MIN_SHOCK_MAGNITUDE || value > MAX_SHOCK_MAGNITUDE) {
+      throw new ValidationError(
+        `magnitude must be between ${MIN_SHOCK_MAGNITUDE} and ${MAX_SHOCK_MAGNITUDE}`,
+      );
+    }
+    return value;
   }
 
   private static fail(res: Response, error: unknown, fallbackMessage: string): void {

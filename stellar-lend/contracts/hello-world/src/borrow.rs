@@ -440,6 +440,13 @@ pub fn borrow_asset(
         return Err(BorrowError::MaxBorrowExceeded);
     }
 
+    // Enforce per-asset borrow cap at the pool boundary before mutating state.
+    // A missing asset or unconfigured cap is treated as "no cap".
+    if let Some(ref asset_addr) = asset {
+        crate::borrow_cap::check_borrow_cap(env, asset_addr, amount)
+            .map_err(|_| BorrowError::MaxBorrowExceeded)?;
+    }
+
     // Validate collateral ratio after borrow
     validate_collateral_ratio_after_borrow(env, &user, amount, collateral_factor)?;
 
@@ -469,6 +476,12 @@ pub fn borrow_asset(
     position.debt = new_debt;
     position.last_accrual_time = timestamp;
     env.storage().persistent().set(&position_key, &position);
+
+    // Record the borrow against the per-asset cap so subsequent borrows see it.
+    if let Some(ref asset_addr) = asset {
+        // Best-effort: a cap accounting failure must not revert a successful borrow.
+        let _ = crate::borrow_cap::record_borrow(env, asset_addr, amount);
+    }
 
     // Handle asset transfer - contract sends tokens to user
     if let Some(ref asset_addr) = asset {

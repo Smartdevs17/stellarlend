@@ -187,6 +187,75 @@ indexers see a single record for the whole repayment.
 
 ---
 
+## On-Chain Credit Scoring (`src/credit_score.rs`)
+
+The credit score module derives a per-borrower credit score from on-chain repayment history. The
+score is stored per `(borrower)` and is consumed by the lending flow to adjust the borrower's
+effective loan-to-value (LTV) ratio.
+
+### Score range and default
+
+- Scores are integers in the inclusive range `0..=1000`.
+- A borrower with no recorded history starts at the default score of `500`.
+- Every recorded event moves the score by a bounded delta; the result is always clamped to
+  `0..=1000`, so no sequence of events can push a score out of range.
+
+### Impact factors
+
+| Event | Delta | Notes |
+|---|---|---|
+| On-time repayment | `+10` | Applied by `record_repayment(borrower, on_time = true)` |
+| Late repayment | `-25` | Applied by `record_repayment(borrower, on_time = false)` |
+| Liquidation | `-100` | Applied by `record_liquidation(borrower)` |
+
+Deltas are applied to the stored score and clamped to `0..=1000`. Recording an event for a
+borrower with no prior history first materialises the default score, then applies the delta.
+
+### LTV adjustments
+
+The score maps to an LTV adjustment in basis points, applied on top of the asset's configured
+LTV:
+
+| Score band | LTV adjustment (bps) |
+|---|---|
+| `0..=299` | `-1000` |
+| `300..=499` | `-500` |
+| `500..=699` | `0` |
+| `700..=849` | `+250` |
+| `850..=1000` | `+500` |
+
+The adjusted LTV is clamped to the protocol's `0..=10_000` bps bounds, so a high score can never
+push LTV above 100% and a low score can never make it negative.
+
+### Entrypoints
+
+- `record_repayment(borrower, on_time)` — records a repayment event and updates the score.
+- `record_liquidation(borrower)` — records a liquidation event and updates the score.
+- `get_credit_score(borrower)` — returns the borrower's current score (default `500` if none).
+- `get_credit_ltv_adjustment(borrower)` — returns the LTV adjustment in bps for the borrower.
+- `get_credit_score_config()` — returns the current deltas, default score, and score bounds.
+
+### Events emitted
+
+| Topics | Payload | Trigger |
+|---|---|---|
+| `("credit", "repayment")` | `(borrower, on_time, old_score, new_score)` | `record_repayment` |
+| `("credit", "liquidation")` | `(borrower, old_score, new_score)` | `record_liquidation` |
+
+Off-chain indexers subscribe to the `credit` topic prefix to track score changes over time.
+
+### Running the tests
+
+The module carries unit tests covering the default score, each delta, clamping at both bounds,
+and the LTV band mapping. Run them with:
+
+```sh
+cd stellar-lend/contracts/hello-world
+cargo test credit_score
+```
+
+---
+
 Current note:
 
 - `HelloContract` does not currently expose dedicated upgrade entrypoints from `src/lib.rs`.

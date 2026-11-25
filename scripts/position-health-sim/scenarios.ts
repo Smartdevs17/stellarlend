@@ -197,6 +197,86 @@ export function shockGridNames(): string[] {
   return Object.keys(SHOCK_GRIDS).sort();
 }
 
+/** Options for {@link buildShockGrid}. */
+export interface ShockGridOptions {
+  /** Lowest percent move in the grid, e.g. `-50`. */
+  min: number;
+  /** Highest percent move in the grid, e.g. `50`. */
+  max: number;
+  /** Distance between adjacent moves, e.g. `10`. */
+  step: number;
+  /** Optional id; defaults to a slug derived from the bounds. */
+  id?: string;
+  /** Optional display name; defaults to a description of the bounds. */
+  name?: string;
+  /** Optional description; defaults to a generated one. */
+  description?: string;
+}
+
+/** Upper bound on grid points, so a typo cannot allocate an unbounded sweep. */
+const MAX_GRID_POINTS = 1000;
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Build a configurable shock grid for the portfolio health heatmap.
+ *
+ * The heatmap sweeps collateral prices across a range (e.g. -50% to +50% in
+ * 10% steps) and needs evenly spaced moves rather than a historical narrative.
+ * The result is a {@link ShockGrid}, so it flows through the same code path as
+ * the built-in grids and the committed scenario corpus.
+ *
+ * Throws on non-finite bounds, a non-positive step, `min > max`, or a grid that
+ * would exceed {@link MAX_GRID_POINTS} points — a silently truncated sweep would
+ * make the heatmap claim coverage it does not have.
+ */
+export function buildShockGrid(options: ShockGridOptions): ShockGrid {
+  const { min, max, step } = options;
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    throw new Error(`shock grid bounds must be finite numbers, got min=${min} max=${max}`);
+  }
+  if (!Number.isFinite(step) || step <= 0) {
+    throw new Error(`shock grid step must be a positive number, got ${step}`);
+  }
+  if (min > max) {
+    throw new Error(`shock grid min (${min}) must not exceed max (${max})`);
+  }
+
+  const span = max - min;
+  const points = Math.floor(span / step + 1e-9) + 1;
+  if (points > MAX_GRID_POINTS) {
+    throw new Error(
+      `shock grid would contain ${points} points, exceeding the ${MAX_GRID_POINTS} limit; increase step`,
+    );
+  }
+
+  const changes: number[] = [];
+  for (let i = 0; i < points; i += 1) {
+    // Round to avoid floating-point drift such as -49.99999999999999.
+    const value = Math.round((min + i * step) * 1e6) / 1e6;
+    changes.push(value);
+  }
+
+  const id = options.id ?? slugify(`grid-${min}-to-${max}-step-${step}`);
+  if (!SCENARIO_ID.test(id)) {
+    throw new Error(`shock grid id must be a lowercase slug, got ${JSON.stringify(id)}`);
+  }
+
+  return {
+    id,
+    name: options.name ?? `${min}% to ${max}% in ${step}% steps`,
+    changes,
+    description:
+      options.description ??
+      `Evenly spaced collateral moves from ${min}% to ${max}% in ${step}% steps.`,
+  };
+}
+
 /** Look a shock grid up by name. */
 export function getShockGrid(name: string): ShockGrid {
   const grid = SHOCK_GRIDS[name];

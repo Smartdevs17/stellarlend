@@ -273,3 +273,162 @@ export function healthFactorAtThreshold(
     constants,
   );
 }
+
+/** One axis of a shock grid: a label plus the price multiplier it applies. */
+export interface ShockStep {
+  /** Human-readable label, e.g. `-25%`. */
+  label: string;
+  /** Multiplier in basis points of the original price (10_000 = unchanged). */
+  multiplierBps: bigint;
+}
+
+/** A single cell of the shock grid. */
+export interface ShockCell {
+  /** The shock applied to the shocked asset. */
+  shock: ShockStep;
+  /** The shocked asset's price after the shock, in the oracle's 8 decimals. */
+  shockedPrice: bigint;
+  /** Health factor under this shock; `0` when the contract cannot compute one. */
+  healthFactor: bigint;
+  /** `true` when the contract would treat the position as liquidatable. */
+  isLiquidatable: boolean;
+  /** `false` when the health factor could not be computed. */
+  healthFactorKnown: boolean;
+  /** Why the health factor is unknown, when it is. */
+  unknownReason: string | null;
+  /** `get_max_liquidatable_amount` under this shock. */
+  maxLiquidatableAmount: bigint;
+}
+
+/** Health factors for one shocked asset across every shock step. */
+export interface ShockRow {
+  /** The asset whose price is being shocked. */
+  asset: string;
+  /** `true` when the shocked asset is the debt leg rather than a collateral leg. */
+  isDebt: boolean;
+  /** One cell per shock step, in the order the steps were supplied. */
+  cells: ShockCell[];
+}
+
+/** The full grid: one row per shocked asset, one cell per shock step. */
+export interface ShockGrid {
+  /** The shock axis, in the order supplied. */
+  shocks: ShockStep[];
+  /** One row per asset that appears in the position. */
+  rows: ShockRow[];
+  /** The unshocked evaluation, for reference against the grid. */
+  baseline: PositionHealth;
+}
+
+/**
+ * Apply a basis-point multiplier to an 8-decimal oracle price, truncating the
+ * way integer arithmetic does. A multiplier of `10_000` returns the price
+ * unchanged, so the grid's "no shock" column matches the baseline exactly.
+ */
+export function applyPriceShock(price: bigint, multiplierBps: bigint): bigint {
+  if (price <= 0n) return 0n;
+  if (multiplierBps <= 0n) return 0n;
+  return (price * multiplierBps) / 10_000n;
+}
+
+/**
+ * Compute the position's health factor across a grid of price shocks.
+ *
+ * Each shock is applied to exactly one asset at a time — the debt leg or one
+ * collateral leg — while every other price stays at its original value. That
+ * is the shape a heatmap needs: rows are assets, columns are shocks, and each
+ * cell is the health factor the contract would report under that scenario.
+ *
+ * The unshocked column (`multiplierBps === 10_000`) reproduces `baseline`
+ * exactly, because `applyPriceShock` is the identity at that multiplier and the
+ * health factor math is unchanged.
+ */
+export function computeShockGrid(
+  position: Position,
+  shocks: ShockStep[],
+  constants: ContractConstants,
+): ShockGrid {
+  const baseline = evaluatePosition(position, constants);
+
+  const rows: ShockRow[] = [];
+
+  const debtRow = buildShockRow(
+    position,
+    position.debt.asset,
+    true,
+    shocks,
+    constants,
+  );
+  if (debtRow) rows.push(debtRow);
+
+  for (const leg of position.collateral) {
+    const row = buildShockRow(position, leg.asset, false, shocks, constants);
+    if (row) rows.push(row);
+  }
+
+  return { shocks, rows, baseline };
+}
+
+/**
+ * Build one row of the grid by re-pricing a single asset at each shock step.
+ *
+ * Returns `null` when the asset does not appear in the position, so callers
+ * cannot accidentally emit an empty row.
+ */
+function buildShockRow(
+  position: Position,
+  asset: string,
+  isDebt: boolean,
+  shocks: ShockStep[],
+  constants: ContractConstants,
+): ShockRow | null {
+  const appears = isDebt
+    ? position.debt.asset === asset && position.debt.amount > 0n
+    : position.collateral.some((leg) => leg.asset === asset);
+  if (!appears) return null;
+
+  const cells: ShockCell[] = shocks.map((shock) => {
+    const shocked = shockPositionPrice(position, asset, isDebt, shock.multiplierBps);
+    const health = evaluatePosition(shocked, constants);
+    const shockedPrice = isDebt
+      ? shocked.debt.price
+      : (shocked.collateral.find((leg) => leg.asset === asset)?.price ?? 0n);
+    return {
+      shock,
+      shockedPrice,
+      healthFactor: health.healthFactor,
+      isLiquidatable: health.isLiquidatable,
+      healthFactorKnown: health.healthFactorKnown,
+      unknownReason: health.unknownReason,
+      maxLiquidatableAmount: health.maxLiquidatableAmount,
+    };
+  });
+
+  return { asset, isDebt, cells };
+}
+
+/** Return a copy of `position` with one asset's price scaled by `multiplierBps`. */
+function shockPositionPrice(
+  position: Position,
+  asset: string,
+  isDebt: boolean,
+  multiplierBps: bigint,
+): Position {
+  if (isDebt) {
+    return {
+      ...position,
+      debt: {
+        ...position.debt,
+        price: applyPriceShock(position.debt.price, multiplierBps),
+      },
+    };
+  }
+  return {
+    ...position,
+    collateral: position.collateral.map((leg) =>
+      leg.asset === asset
+        ? { ...leg, price: applyPriceShock(leg.price, multiplierBps) }
+        : leg,
+    ),
+  };
+}

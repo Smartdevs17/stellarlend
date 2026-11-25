@@ -1,7 +1,17 @@
-use soroban_sdk::{contracttype, Address, Env, Vec};
+use soroban_sdk::{contracttype, symbol_short, Address, Env, Symbol, Vec};
 
 use crate::errors::LendingError;
 use crate::storage;
+
+/// Event emitted whenever a borrower's credit score changes.
+///
+/// Topics: `("credit", "score_chg")`
+/// Data: `(user, old_score, new_score, reason)`
+pub const CREDIT_SCORE_CHANGED: Symbol = symbol_short!("score_chg");
+
+/// Maximum number of snapshots retained per borrower. Older entries are
+/// dropped from the front so storage stays bounded on-chain.
+pub const MAX_HISTORY_ENTRIES: u32 = 50;
 
 /// Credit score range: 0-1000
 pub const MIN_CREDIT_SCORE: i128 = 0;
@@ -54,6 +64,56 @@ pub enum CreditScoreChangeReason {
     NewUser,
 }
 
+/// Clamp a raw score into the valid `[MIN_CREDIT_SCORE, MAX_CREDIT_SCORE]` range.
+fn clamp_score(score: i128) -> i128 {
+    score.max(MIN_CREDIT_SCORE).min(MAX_CREDIT_SCORE)
+}
+
+/// Append a snapshot to the borrower's history, trimming the oldest entries
+/// once `MAX_HISTORY_ENTRIES` is exceeded.
+fn push_history(env: &Env, credit_score: &mut CreditScore, reason: CreditScoreChangeReason) {
+    credit_score.history.push_back(CreditScoreSnapshot {
+        score: credit_score.score,
+        timestamp: env.ledger().timestamp(),
+        reason,
+    });
+
+    while credit_score.history.len() > MAX_HISTORY_ENTRIES {
+        credit_score.history.remove(0);
+    }
+}
+
+/// Emit the score-change event and persist the updated record.
+fn commit_score(
+    env: &Env,
+    key: &storage::DataKey,
+    credit_score: &mut CreditScore,
+    old_score: i128,
+    reason: CreditScoreChangeReason,
+) {
+    credit_score.score = clamp_score(credit_score.score);
+    credit_score.last_updated = env.ledger().timestamp();
+    push_history(env, credit_score, reason.clone());
+
+    env.storage().persistent().set(key, credit_score);
+
+    env.events().publish(
+        (symbol_short!("credit"), CREDIT_SCORE_CHANGED),
+        (
+            credit_score.user.clone(),
+            old_score,
+            credit_score.score,
+            reason,
+        ),
+    );
+}
+
+/// Load a borrower's credit record, initializing it if absent.
+fn load_or_init(env: &Env, user: &Address) -> Result<CreditScore, LendingError> {
+    initialize_credit_score(env, user)?;
+    get_credit_score(env, user)
+}
+
 /// Initialize credit score for a new user
 pub fn initialize_credit_score(env: &Env, user: &Address) -> Result<(), LendingError> {
     let key = storage::DataKey::CreditScore(user.clone());
@@ -94,6 +154,14 @@ pub fn get_credit_score(env: &Env, user: &Address) -> Result<CreditScore, Lendin
         .ok_or(LendingError::NotFound)
 }
 
+/// Get the score-change history for a user (most recent last).
+pub fn get_credit_score_history(
+    env: &Env,
+    user: &Address,
+) -> Result<Vec<CreditScoreSnapshot>, LendingError> {
+    Ok(get_credit_score(env, user)?.history)
+}
+
 /// Update credit score after repayment
 pub fn update_score_on_repayment(
     env: &Env,
@@ -101,14 +169,13 @@ pub fn update_score_on_repayment(
     amount: i128,
     is_on_time: bool,
 ) -> Result<(), LendingError> {
-    initialize_credit_score(env, user)?;
+    if amount < 0 {
+        return Err(LendingError::InvalidAmount);
+    }
 
     let key = storage::DataKey::CreditScore(user.clone());
-    let mut credit_score: CreditScore = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .ok_or(LendingError::NotFound)?;
+    let mut credit_score = load_or_init(env, user)?;
+    let old_score = credit_score.score;
 
     credit_score.total_repaid += amount;
 
@@ -126,68 +193,43 @@ pub fn update_score_on_repayment(
         )
     };
 
-    credit_score.score = (credit_score.score + score_change)
-        .max(MIN_CREDIT_SCORE)
-        .min(MAX_CREDIT_SCORE);
-    credit_score.last_updated = env.ledger().timestamp();
-
-    // Add to history
-    credit_score.history.push_back(CreditScoreSnapshot {
-        score: credit_score.score,
-        timestamp: env.ledger().timestamp(),
-        reason,
-    });
-
-    env.storage().persistent().set(&key, &credit_score);
+    credit_score.score += score_change;
+    commit_score(env, &key, &mut credit_score, old_score, reason);
     Ok(())
 }
 
 /// Update credit score after liquidation
 pub fn update_score_on_liquidation(env: &Env, user: &Address) -> Result<(), LendingError> {
-    initialize_credit_score(env, user)?;
-
     let key = storage::DataKey::CreditScore(user.clone());
-    let mut credit_score: CreditScore = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .ok_or(LendingError::NotFound)?;
+    let mut credit_score = load_or_init(env, user)?;
+    let old_score = credit_score.score;
 
     credit_score.liquidations += 1;
-    credit_score.score = (credit_score.score - LIQUIDATION_PENALTY).max(MIN_CREDIT_SCORE);
-    credit_score.last_updated = env.ledger().timestamp();
-
-    credit_score.history.push_back(CreditScoreSnapshot {
-        score: credit_score.score,
-        timestamp: env.ledger().timestamp(),
-        reason: CreditScoreChangeReason::Liquidation,
-    });
-
-    env.storage().persistent().set(&key, &credit_score);
+    credit_score.score -= LIQUIDATION_PENALTY;
+    commit_score(
+        env,
+        &key,
+        &mut credit_score,
+        old_score,
+        CreditScoreChangeReason::Liquidation,
+    );
     Ok(())
 }
 
 /// Update credit score for maintaining healthy position
 pub fn update_score_on_healthy_position(env: &Env, user: &Address) -> Result<(), LendingError> {
-    initialize_credit_score(env, user)?;
-
     let key = storage::DataKey::CreditScore(user.clone());
-    let mut credit_score: CreditScore = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .ok_or(LendingError::NotFound)?;
+    let mut credit_score = load_or_init(env, user)?;
+    let old_score = credit_score.score;
 
-    credit_score.score = (credit_score.score + HEALTHY_POSITION_BONUS).min(MAX_CREDIT_SCORE);
-    credit_score.last_updated = env.ledger().timestamp();
-
-    credit_score.history.push_back(CreditScoreSnapshot {
-        score: credit_score.score,
-        timestamp: env.ledger().timestamp(),
-        reason: CreditScoreChangeReason::HealthyPosition,
-    });
-
-    env.storage().persistent().set(&key, &credit_score);
+    credit_score.score += HEALTHY_POSITION_BONUS;
+    commit_score(
+        env,
+        &key,
+        &mut credit_score,
+        old_score,
+        CreditScoreChangeReason::HealthyPosition,
+    );
     Ok(())
 }
 
@@ -250,21 +292,19 @@ pub fn calculate_adjusted_interest_rate(
 
 /// Record borrow for credit tracking
 pub fn record_borrow(env: &Env, user: &Address, amount: i128) -> Result<(), LendingError> {
-    initialize_credit_score(env, user)?;
+    if amount < 0 {
+        return Err(LendingError::InvalidAmount);
+    }
 
     let key = storage::DataKey::CreditScore(user.clone());
-    let mut credit_score: CreditScore = env
-        .storage()
-        .persistent()
-        .get(&key)
-        .ok_or(LendingError::NotFound)?;
+    let mut credit_score = load_or_init(env, user)?;
 
     credit_score.total_borrowed += amount;
     env.storage().persistent().set(&key, &credit_score);
     Ok(())
 }
 
-#[cfg(any())]
+#[cfg(test)]
 mod tests {
     use super::*;
     use soroban_sdk::testutils::Address as _;
@@ -362,5 +402,100 @@ mod tests {
 
         let ltv = calculate_adjusted_ltv(&env, &user).unwrap();
         assert!(ltv > BASE_LTV_BPS);
+    }
+
+    #[test]
+    fn test_empty_history_defaults() {
+        let env = Env::default();
+        let user = Address::generate(&env);
+
+        // Querying an uninitialized user must not panic; LTV/rate fall back to defaults.
+        let ltv = calculate_adjusted_ltv(&env, &user).unwrap();
+        assert_eq!(ltv, BASE_LTV_BPS);
+
+        let rate = calculate_adjusted_interest_rate(&env, &user, 1000).unwrap();
+        assert_eq!(rate, 1000);
+
+        // History is empty until the record is initialized.
+        assert!(get_credit_score_history(&env, &user).is_err());
+    }
+
+    #[test]
+    fn test_history_records_each_change() {
+        let env = Env::default();
+        let user = Address::generate(&env);
+
+        initialize_credit_score(&env, &user).unwrap();
+        update_score_on_repayment(&env, &user, 500, true).unwrap();
+        update_score_on_repayment(&env, &user, 500, false).unwrap();
+        update_score_on_liquidation(&env, &user).unwrap();
+
+        let history = get_credit_score_history(&env, &user).unwrap();
+        // NewUser + 3 changes
+        assert_eq!(history.len(), 4);
+        assert_eq!(
+            history.get(1).unwrap().reason,
+            CreditScoreChangeReason::OnTimeRepayment
+        );
+        assert_eq!(
+            history.get(2).unwrap().reason,
+            CreditScoreChangeReason::LateRepayment
+        );
+        assert_eq!(
+            history.get(3).unwrap().reason,
+            CreditScoreChangeReason::Liquidation
+        );
+    }
+
+    #[test]
+    fn test_history_is_bounded() {
+        let env = Env::default();
+        let user = Address::generate(&env);
+
+        initialize_credit_score(&env, &user).unwrap();
+        for _ in 0..(MAX_HISTORY_ENTRIES + 10) {
+            update_score_on_repayment(&env, &user, 1, true).unwrap();
+        }
+
+        let history = get_credit_score_history(&env, &user).unwrap();
+        assert_eq!(history.len(), MAX_HISTORY_ENTRIES);
+    }
+
+    #[test]
+    fn test_late_repayment_clamps_at_min() {
+        let env = Env::default();
+        let user = Address::generate(&env);
+
+        initialize_credit_score(&env, &user).unwrap();
+        for _ in 0..100 {
+            update_score_on_repayment(&env, &user, 1, false).unwrap();
+        }
+
+        let score = get_credit_score(&env, &user).unwrap();
+        assert_eq!(score.score, MIN_CREDIT_SCORE);
+        assert_eq!(score.late_repayments, 100);
+    }
+
+    #[test]
+    fn test_negative_amount_rejected() {
+        let env = Env::default();
+        let user = Address::generate(&env);
+
+        assert!(update_score_on_repayment(&env, &user, -1, true).is_err());
+        assert!(record_borrow(&env, &user, -1).is_err());
+    }
+
+    #[test]
+    fn test_score_change_event_emitted() {
+        use soroban_sdk::testutils::Events as _;
+
+        let env = Env::default();
+        let user = Address::generate(&env);
+
+        initialize_credit_score(&env, &user).unwrap();
+        update_score_on_repayment(&env, &user, 100, true).unwrap();
+
+        let events = env.events().all();
+        assert!(!events.is_empty());
     }
 }

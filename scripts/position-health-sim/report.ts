@@ -116,7 +116,71 @@ function gridTable(report: SimulationReport): string[] {
   return lines;
 }
 
+/**
+ * Heatmap of the shock grid: rows are collateral moves, columns are debt moves.
+ * Each cell shows the resulting health factor and a fill glyph so the shape of
+ * the risk surface is readable at a glance in a terminal or a markdown comment.
+ */
+function heatmapCells(report: SimulationReport): {
+  rows: string[];
+  cols: string[];
+  cells: Map<string, { healthFactor: bigint; risk: string; liquidatable: boolean }>;
+} {
+  const rows = report.heatmap.rowLabels;
+  const cols = report.heatmap.colLabels;
+  const cells = new Map<
+    string,
+    { healthFactor: bigint; risk: string; liquidatable: boolean }
+  >();
+  for (const cell of report.heatmap.cells) {
+    cells.set(`${cell.rowIndex}:${cell.colIndex}`, {
+      healthFactor: cell.healthFactor,
+      risk: cell.risk,
+      liquidatable: cell.isLiquidatable,
+    });
+  }
+  return { rows, cols, cells };
+}
+
+/** Single-glyph severity marker for a heatmap cell. */
+function heatGlyph(healthFactor: bigint): string {
+  const ratio = healthFactorToNumber(healthFactor);
+  if (!Number.isFinite(ratio) || ratio <= 0) return "?";
+  if (ratio < 1) return "X";
+  if (ratio < 1.1) return "!";
+  if (ratio < 1.5) return "~";
+  if (ratio < 2) return "=";
+  return "#";
+}
+
+function heatmapTable(report: SimulationReport): string[] {
+  const { rows, cols, cells } = heatmapCells(report);
+  const lines: string[] = [];
+  lines.push("");
+  lines.push(`Shock heatmap — ${report.heatmap.name}: ${report.heatmap.description}`);
+  lines.push("Rows: collateral price move · Columns: debt price move");
+  lines.push(`Legend: X liquidatable · ! <1.1x · ~ <1.5x · = <2.0x · # >=2.0x · ? unknown`);
+  const colWidth = 9;
+  const header = ["".padEnd(12), ...cols.map((c) => c.padStart(colWidth))].join(" ");
+  lines.push(header);
+  for (let r = 0; r < rows.length; r++) {
+    const parts: string[] = [rows[r].padStart(12)];
+    for (let c = 0; c < cols.length; c++) {
+      const cell = cells.get(`${r}:${c}`);
+      if (!cell) {
+        parts.push("—".padStart(colWidth));
+        continue;
+      }
+      const label = `${heatGlyph(cell.healthFactor)} ${hf(cell.healthFactor)}`;
+      parts.push(label.padStart(colWidth));
+    }
+    lines.push(parts.join(" "));
+  }
+  return lines;
+}
+
 function thresholdTable(report: SimulationReport): string[] {
+======
   const lines: string[] = [];
   lines.push("");
   lines.push(
@@ -146,6 +210,7 @@ export function renderText(report: SimulationReport): string {
   lines.push(...healthLine(report));
   if (report.scenarios.length > 0) lines.push(...scenarioTable(report));
   lines.push(...gridTable(report));
+  lines.push(...heatmapTable(report));
   lines.push(...thresholdTable(report));
   lines.push("");
   lines.push(
@@ -210,6 +275,36 @@ export function renderMarkdown(report: SimulationReport): string {
       `| ${step.label} | ${hf(step.health.healthFactor)} | ${step.risk} | ` +
         `${deltaPct === 0 ? "—" : `${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(2)}%`} | ` +
         `${step.becameLiquidatable ? "**yes**" : "no"} |`,
+    );
+  }
+
+  out.push("");
+  out.push(`### Shock heatmap — ${report.heatmap.name}`);
+  out.push("");
+  out.push(`_${report.heatmap.description}_`);
+  out.push("");
+  out.push("Rows: collateral price move · Columns: debt price move.");
+  out.push("");
+  {
+    const { rows, cols, cells } = heatmapCells(report);
+    out.push(`| Collateral \\ Debt | ${cols.join(" | ")} |`);
+    out.push(`| --- | ${cols.map(() => "---:").join(" | ")} |`);
+    for (let r = 0; r < rows.length; r++) {
+      const parts: string[] = [rows[r]];
+      for (let c = 0; c < cols.length; c++) {
+        const cell = cells.get(`${r}:${c}`);
+        if (!cell) {
+          parts.push("—");
+          continue;
+        }
+        const value = `${heatGlyph(cell.healthFactor)} ${hf(cell.healthFactor)}`;
+        parts.push(cell.liquidatable ? `**${value}**` : value);
+      }
+      out.push(`| ${parts.join(" | ")} |`);
+    }
+    out.push("");
+    out.push(
+      "Legend: **X** liquidatable · ! <1.1x · ~ <1.5x · = <2.0x · # >=2.0x · ? unknown",
     );
   }
 
@@ -302,5 +397,21 @@ export function toJson(report: SimulationReport): unknown {
       })),
     },
     thresholdAtLiquidation: report.thresholdAtLiquidation?.toString() ?? null,
+    heatmap: {
+      id: report.heatmap.id,
+      name: report.heatmap.name,
+      rowLabels: report.heatmap.rowLabels,
+      colLabels: report.heatmap.colLabels,
+      cells: report.heatmap.cells.map((cell) => ({
+        rowIndex: cell.rowIndex,
+        colIndex: cell.colIndex,
+        collateralChangePercent: cell.collateralChangePercent,
+        debtChangePercent: cell.debtChangePercent,
+        healthFactor: cell.healthFactor.toString(),
+        healthFactorRatio: healthFactorToNumber(cell.healthFactor),
+        risk: cell.risk,
+        isLiquidatable: cell.isLiquidatable,
+      })),
+    },
   };
 }

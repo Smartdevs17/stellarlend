@@ -29,6 +29,11 @@ import {
 } from './services/index.js';
 import type { ProviderConfig, AggregatedPrice, OracleMode } from './types/index.js';
 import { createQueryServer, type QueryServer } from './api/query-server.js';
+import {
+  createTWAPFallback,
+  type TWAPFallback,
+  type TWAPFallbackResult,
+} from '../twap/index.js';
 
 /**
  * Default assets to fetch prices for
@@ -69,6 +74,7 @@ export class OracleService {
   private priceHistory: ReturnType<typeof createPriceHistoryService>;
   private latestPrices: Map<string, AggregatedPrice> = new Map();
   private queryServer?: QueryServer;
+  private twapFallback: TWAPFallback;
 
   constructor(config: OracleServiceConfig) {
     this.validateConfig(config);
@@ -102,6 +108,18 @@ export class OracleService {
 
     this.aggregator = createAggregator(providers, validator, cache, priceHistory, {
       circuitBreaker: config.circuitBreaker,
+    });
+
+    // Issue #1546 – time-weighted average price fallback used when the
+    // primary oracle is stale or errors out.
+    this.twapFallback = createTWAPFallback({
+      windowSeconds: config.twapWindowSeconds,
+      maxStalenessSeconds: config.twapStalenessSeconds,
+      maxDeviationBps: config.twapMaxDeviationBps,
+      minObservations: config.twapMinObservations,
+      onFallback: (result) => {
+        this.metricsService.recordTWAPFallback(result.asset, result.reason);
+      },
     });
 
     this.contractUpdater = createContractUpdater({
@@ -247,6 +265,7 @@ export class OracleService {
       // or low-liquidity spot-price manipulation.
       const twapPrices = priceArray.map((p) => {
         this.twapService.recordObservation(p.asset, p.price);
+        this.twapFallback.recordObservation(p.asset, p.price, p.timestamp);
         const twapStatus = this.twapService.getTWAPStatus(p.asset, p.price);
         if (twapStatus?.manipulationDetected) {
           logger.warn('Spot-price manipulation detected, using TWAP for contract update', {
@@ -320,6 +339,68 @@ export class OracleService {
     } catch (error) {
       this.metricsService.recordError();
       logger.error('Price update cycle failed', { error });
+
+      // Issue #1546 – primary oracle failed; fall back to TWAP where possible.
+      await this.applyTWAPFallback(assets);
+    }
+  }
+
+  /**
+   * Issue #1546 – resolve prices from the TWAP fallback when the primary
+   * oracle is unavailable, and push the results to the contract.
+   */
+  private async applyTWAPFallback(assets: string[]): Promise<void> {
+    const resolved: AggregatedPrice[] = [];
+
+    for (const asset of assets) {
+      const result: TWAPFallbackResult | null = this.twapFallback.resolve(asset);
+      if (!result) {
+        logger.warn('TWAP fallback unavailable for asset', { asset });
+        continue;
+      }
+
+      logger.warn('Using TWAP fallback price', {
+        asset: result.asset,
+        price: result.price.toString(),
+        reason: result.reason,
+        observations: result.observations,
+        windowSeconds: result.windowSeconds,
+      });
+
+      resolved.push({
+        asset: result.asset,
+        price: result.price,
+        timestamp: result.timestamp,
+        confidence: result.confidence,
+        sources: [{ source: 'twap-fallback', weight: 1 }],
+      });
+    }
+
+    if (resolved.length === 0) {
+      logger.error('TWAP fallback produced no prices', { assets });
+      return;
+    }
+
+    for (const price of resolved) {
+      this.latestPrices.set(price.asset.toUpperCase(), price);
+    }
+
+    if (this.config.dryRun) {
+      logger.info('DRY RUN: Would update prices from TWAP fallback', {
+        prices: serializePricesForLog(resolved),
+      });
+      return;
+    }
+
+    try {
+      const results = await this.contractUpdater.updatePrices(resolved);
+      const successful = results.filter((r) => r.success);
+      if (successful.length > 0) {
+        this.lastSuccessfulUpdate = Date.now();
+        this.metricsService.recordUpdate();
+      }
+    } catch (error) {
+      logger.error('TWAP fallback contract update failed', { error });
     }
   }
 
@@ -337,6 +418,7 @@ export class OracleService {
       providers: this.providers.map((provider) => ({ ...provider })),
       aggregatorStats: this.aggregator.getStats(),
       circuitBreakers: this.aggregator.getCircuitBreakerMetrics?.() ?? [],
+      twapFallback: this.twapFallback.getStats(),
     };
   }
 
@@ -488,3 +570,5 @@ if (isExecutedDirectly()) {
 // Export for programmatic use
 export { loadConfig, maskSecret, getSafeConfig } from './config.js';
 export type { OracleServiceConfig } from './config.js';
+export { createTWAPFallback } from '../twap/index.js';
+export type { TWAPFallback, TWAPFallbackResult } from '../twap/index.js';
