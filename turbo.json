@@ -1,35 +1,22 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "ui": "stream",
-  "globalDependencies": [
-    "Cargo.toml",
-    "**/Cargo.toml",
-    "Cargo.lock",
-    "**/Cargo.lock",
-    ".cargo/config.toml",
-    "rust-toolchain.toml",
-    "scripts/cargo-check.sh"
-  ],
-  "tasks": {
-    "//#cargo-check": {
-      "dependsOn": [],
-      "inputs": [
-        "**/*.rs",
-        "**/Cargo.toml",
-        "**/Cargo.lock",
-        ".cargo/**",
-        "scripts/cargo-check.sh",
-        "turbo.json"
-      ],
-      "outputs": [".turbo/cargo-check/**"],
-      "env": [
-        "CARGO",
-        "CARGO_CHECK_CACHE_DIR",
-        "RUSTFLAGS",
-        "RUSTUP_TOOLCHAIN"
-      ],
-      "cache": true,
-      "persistent": false
+  "pipeline": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    },
+    "test": {
+      "dependsOn": ["build"],
+      "outputs": ["coverage/**"],
+      "inputs": ["src/**/*.tsx", "src/**/*.ts", "test/**/*.ts", "test/**/*.tsx"]
+    },
+    "lint": {
+      "outputs": []
+    },
+    "cargo-check": {
+      "inputs": ["Cargo.toml", "Cargo.lock", "contracts/**/*.rs", "contracts/**/Cargo.toml"],
+      "outputs": ["target/debug/.fingerprint/**", "target/debug/deps/**"],
+      "cache": true
     }
   }
 }
