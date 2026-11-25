@@ -5,7 +5,7 @@ function clock(block: number): BlockClock & { setBlock(next: number): void } {
   let current = block;
   return {
     block: () => current,
-    now: () => current * 1000,
+    nowMilliseconds: () => current * 1000,
     setBlock(next) {
       current = next;
     },

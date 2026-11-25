@@ -1,3 +1,5 @@
+import { systemClock, type Clock } from '../lib/clock';
+
 export interface MigrationStep {
   id: string;
   name: string;
@@ -19,6 +21,8 @@ export class TypedMigrationRunner {
   private registeredMigrations: MigrationStep[] = [];
   private executedHistory: Map<string, MigrationLog> = new Map();
 
+  constructor(private readonly clock: Clock = systemClock) {}
+
   public register(step: MigrationStep): void {
     if (this.registeredMigrations.some(m => m.id === step.id || m.version === step.version)) {
       throw new Error(`Duplicate migration ID or version detected: ${step.id} (v${step.version})`);
@@ -33,14 +37,14 @@ export class TypedMigrationRunner {
     for (const step of this.registeredMigrations) {
       if (this.executedHistory.has(step.id)) continue;
 
-      const startTime = Date.now();
+      const startTime = this.clock.nowMilliseconds();
       try {
         await step.up();
         const log: MigrationLog = {
           id: step.id,
           version: step.version,
-          executedAt: new Date(),
-          durationMs: Date.now() - startTime,
+          executedAt: this.clock.nowDate(),
+          durationMs: this.clock.nowMilliseconds() - startTime,
           status: 'SUCCESS',
         };
         this.executedHistory.set(step.id, log);
@@ -49,8 +53,8 @@ export class TypedMigrationRunner {
         const failureLog: MigrationLog = {
           id: step.id,
           version: step.version,
-          executedAt: new Date(),
-          durationMs: Date.now() - startTime,
+          executedAt: this.clock.nowDate(),
+          durationMs: this.clock.nowMilliseconds() - startTime,
           status: 'FAILED',
           error: err?.message || String(err),
         };

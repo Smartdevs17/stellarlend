@@ -8,6 +8,7 @@ crate-type = ["lib"]
 
 [dependencies]
 soroban-sdk = { workspace = true }
+stellarlend-clock = { path = "../../../contracts/clock" }
 
 [features]
 default = []

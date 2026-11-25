@@ -81,7 +81,7 @@ impl LendingError for CommonError {
 }
 
 pub fn current_timestamp(env: &Env) -> u64 {
-    env.ledger().timestamp()
+    stellarlend_clock::now_seconds(env)
 }
 
 pub fn calculate_health_factor(

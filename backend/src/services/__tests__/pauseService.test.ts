@@ -3,9 +3,15 @@ import { TimelockedPauseService } from '../pauseService';
 
 describe('TimelockedPauseService', () => {
   let service: TimelockedPauseService;
+  let now: number;
 
   beforeEach(() => {
-    service = new TimelockedPauseService(3600, 2);
+    now = 1_700_000_000_000;
+    service = new TimelockedPauseService(3600, 2, {
+      nowMilliseconds: () => now,
+      nowSeconds: () => Math.floor(now / 1000),
+      nowDate: () => new Date(now),
+    });
   });
 
   it('creates proposal with future execution timestamp', () => {
@@ -24,5 +30,8 @@ describe('TimelockedPauseService', () => {
     const check2 = service.canExecute('POOL_A');
     expect(check2.ready).toBe(false);
     expect(check2.reason).toContain('Timelock delay window');
+
+    now += 3_600_000;
+    expect(service.canExecute('POOL_A').ready).toBe(true);
   });
 });

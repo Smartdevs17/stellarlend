@@ -7,6 +7,8 @@
  * health factor 1.0 is liquidation, so warnings are sent at 1.5 / 1.2 / 1.0.
  */
 
+import { systemClock, type Clock } from '../lib/clock';
+
 export type HealthStage = 'safe' | 'warning' | 'grace' | 'critical';
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 export type NotificationChannel = 'push' | 'email' | 'webhook';
@@ -82,7 +84,7 @@ export interface GracePeriodConfig {
   cooldownMs?: number;
   /** Maximum alerts per position while the stage does not escalate. */
   maxAlertsPerPosition?: number;
-  now?: () => number;
+  clock?: Clock;
   logger?: Logger;
   metrics?: Metrics;
 }
@@ -192,9 +194,9 @@ export function buildGracePeriodAlert(
   position: PositionSnapshot,
   stage: Exclude<HealthStage, 'safe'>,
   thresholds: GracePeriodThresholds,
-  now: () => number = Date.now,
+  clock: Clock = systemClock,
 ): GracePeriodAlert {
-  const createdAt = now();
+  const createdAt = clock.nowMilliseconds();
   const dropToLiquidationBps =
     position.healthFactor > 0
       ? Math.max(
@@ -243,7 +245,7 @@ export class GracePeriodAlertService {
   private readonly thresholds: GracePeriodThresholds;
   private readonly cooldownMs: number;
   private readonly maxAlertsPerPosition: number;
-  private readonly now: () => number;
+  private readonly clock: Clock;
   private readonly logger: Logger;
   private readonly metrics: Metrics;
   private readonly states = new Map<string, GraceAlertState>();
@@ -256,7 +258,7 @@ export class GracePeriodAlertService {
     });
     this.cooldownMs = config.cooldownMs ?? 15 * 60 * 1000;
     this.maxAlertsPerPosition = config.maxAlertsPerPosition ?? 3;
-    this.now = config.now ?? Date.now;
+    this.clock = config.clock ?? systemClock;
     this.logger = config.logger ?? noOpLogger;
     this.metrics = config.metrics ?? noOpMetrics;
 
@@ -325,7 +327,7 @@ export class GracePeriodAlertService {
     if (
       state &&
       state.stageRank >= rank &&
-      this.now() - state.lastNotifiedAt < this.cooldownMs
+      this.clock.nowMilliseconds() - state.lastNotifiedAt < this.cooldownMs
     ) {
       this.metrics.increment('grace_period.suppressed', labels);
       return {
@@ -337,7 +339,7 @@ export class GracePeriodAlertService {
       };
     }
 
-    const alert = buildGracePeriodAlert(position, stage, this.thresholds, this.now);
+    const alert = buildGracePeriodAlert(position, stage, this.thresholds, this.clock);
     try {
       const result = await this.notifier.send(alert);
       if (!result.delivered) {

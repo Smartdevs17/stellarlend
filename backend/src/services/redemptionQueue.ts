@@ -1,3 +1,5 @@
+import { systemClock, type Clock } from '../lib/clock';
+
 export interface QueueItem {
   userAddress: string;
   assetAddress: string;
@@ -8,6 +10,8 @@ export interface QueueItem {
 export class RedemptionQueueService {
   private queue: Map<string, QueueItem> = new Map();
 
+  constructor(private readonly clock: Clock = systemClock) {}
+
   public enqueue(userAddress: string, assetAddress: string, amount: bigint, cooldownSeconds: number): QueueItem {
     if (amount <= 0n) throw new Error('Amount must be positive');
     const key = `${userAddress}:${assetAddress}`;
@@ -15,7 +19,7 @@ export class RedemptionQueueService {
       userAddress,
       assetAddress,
       amount,
-      unlockTimestamp: Date.now() + cooldownSeconds * 1000,
+      unlockTimestamp: this.clock.nowMilliseconds() + cooldownSeconds * 1000,
     };
     this.queue.set(key, item);
     return item;
@@ -25,7 +29,7 @@ export class RedemptionQueueService {
     const key = `${userAddress}:${assetAddress}`;
     const item = this.queue.get(key);
     if (!item) return false;
-    return Date.now() >= item.unlockTimestamp;
+    return this.clock.nowMilliseconds() >= item.unlockTimestamp;
   }
 
   public getQueueItem(userAddress: string, assetAddress: string): QueueItem | undefined {

@@ -34,6 +34,28 @@ describe('TypedMigrationRunner', () => {
     expect(logs[0].status).toBe('SUCCESS');
   });
 
+  it('uses the injected clock for execution time and duration', async () => {
+    let now = 1_700_000_000_000;
+    runner = new TypedMigrationRunner({
+      nowMilliseconds: () => now,
+      nowSeconds: () => Math.floor(now / 1000),
+      nowDate: () => new Date(now),
+    });
+    runner.register({
+      id: '001_clock',
+      name: 'clock',
+      version: 1,
+      up: async () => {
+        now += 25;
+      },
+      down: vi.fn(),
+    });
+
+    const [log] = await runner.runPending();
+    expect(log.durationMs).toBe(25);
+    expect(log.executedAt.getTime()).toBe(now);
+  });
+
   it('rejects duplicate versions', () => {
     runner.register({ id: 'a', name: 'a', version: 1, up: vi.fn(), down: vi.fn() });
     expect(() => {

@@ -5,7 +5,11 @@ describe('FlashloanSafelistManager', () => {
   let manager: FlashloanSafelistManager;
 
   beforeEach(() => {
-    manager = new FlashloanSafelistManager();
+    manager = new FlashloanSafelistManager({
+      nowMilliseconds: () => 1_700_000_000_000,
+      nowSeconds: () => 1_700_000_000,
+      nowDate: () => new Date(1_700_000_000_000),
+    });
   });
 
   it('approves registered contracts correctly', () => {
@@ -27,7 +31,7 @@ describe('FlashloanSafelistManager', () => {
   });
 
   it('handles expiration correctly', () => {
-    const past = new Date(Date.now() - 10000).toISOString();
+    const past = new Date(1_699_999_990_000).toISOString();
     const contract = 'C_EXPIRED';
     manager.registerContract(contract, 'ExpiredCallback', past);
     expect(manager.isApproved(contract)).toBe(false);

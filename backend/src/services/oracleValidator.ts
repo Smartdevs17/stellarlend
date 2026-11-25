@@ -1,3 +1,5 @@
+import { systemClock, type Clock } from '../lib/clock';
+
 export interface OraclePriceRecord {
   assetSymbol: string;
   priceUsd: number;
@@ -7,7 +9,7 @@ export interface OraclePriceRecord {
 export class OracleStalenessValidator {
   private defaultMaxStalenessMs: number;
 
-  constructor(maxStalenessSeconds: number = 300) {
+  constructor(maxStalenessSeconds: number = 300, private readonly clock: Clock = systemClock) {
     this.defaultMaxStalenessMs = maxStalenessSeconds * 1000;
   }
 
@@ -16,7 +18,7 @@ export class OracleStalenessValidator {
       throw new Error(`Invalid non-positive oracle price for ${record.assetSymbol}: ${record.priceUsd}`);
     }
 
-    const now = Date.now();
+    const now = this.clock.nowMilliseconds();
     if (record.publishedAt > now + 30000) {
       throw new Error(`Oracle price timestamp is in the future for ${record.assetSymbol}`);
     }

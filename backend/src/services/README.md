@@ -17,6 +17,10 @@ delivery are all injectable. Escalation bypasses the cooldown; repeated alerts
 at the same stage stop after `maxAlertsPerPosition` (3 by default). A failed
 delivery does not update state, so the next scan retries it.
 
+Backend services share the `Clock` abstraction from `src/lib/clock.ts`.
+`systemClock` is used by default; tests and time-sensitive services can inject
+a clock implementing millisecond, second, and `Date` accessors.
+
 ## Integration
 
 ```ts

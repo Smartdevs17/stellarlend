@@ -21,6 +21,7 @@
  */
 
 import { Counter, Gauge, Histogram, Registry } from 'prom-client';
+import { systemClock } from '../lib/clock';
 
 // ── Re-exports from the core api package ─────────────────────────────────────
 export {
@@ -65,11 +66,11 @@ export interface BusLogger {
 
 const defaultLogger: BusLogger = {
   info: (msg, meta) =>
-    console.log(JSON.stringify({ level: 'info', message: msg, ...meta, ts: Date.now() })),
+    console.log(JSON.stringify({ level: 'info', message: msg, ...meta, ts: systemClock.nowMilliseconds() })),
   warn: (msg, meta) =>
-    console.warn(JSON.stringify({ level: 'warn', message: msg, ...meta, ts: Date.now() })),
+    console.warn(JSON.stringify({ level: 'warn', message: msg, ...meta, ts: systemClock.nowMilliseconds() })),
   error: (msg, meta) =>
-    console.error(JSON.stringify({ level: 'error', message: msg, ...meta, ts: Date.now() })),
+    console.error(JSON.stringify({ level: 'error', message: msg, ...meta, ts: systemClock.nowMilliseconds() })),
 };
 
 // ── Prometheus metric names ───────────────────────────────────────────────────

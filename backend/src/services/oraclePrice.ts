@@ -7,6 +7,8 @@
  * staleness is bounded by one ledger rather than by wall-clock guessing.
  */
 
+import { systemClock, type Clock } from '../lib/clock';
+
 export interface PriceQuote {
   asset: string;
   price: number;
@@ -15,9 +17,8 @@ export interface PriceQuote {
   confidence: number;
 }
 
-export interface BlockClock {
+export interface BlockClock extends Pick<Clock, 'nowMilliseconds'> {
   block(): number;
-  now(): number;
 }
 
 export interface OraclePriceLogEvent {
@@ -30,9 +31,9 @@ export interface OraclePriceLogEvent {
 
 const DEFAULT_MAX_ENTRIES = 256;
 
-const systemClock: BlockClock = {
+const systemBlockClock: BlockClock = {
   block: () => 0,
-  now: () => Date.now(),
+  nowMilliseconds: () => systemClock.nowMilliseconds(),
 };
 
 interface CacheEntry {
@@ -45,7 +46,7 @@ export class OraclePriceCache {
   private readonly inFlight = new Map<string, Promise<PriceQuote>>();
 
   constructor(
-    private readonly clock: BlockClock = systemClock,
+    private readonly clock: BlockClock = systemBlockClock,
     private readonly maxEntries = DEFAULT_MAX_ENTRIES,
     private readonly logger: (event: OraclePriceLogEvent) => void = (event) =>
       console.info(JSON.stringify(event)),
@@ -72,7 +73,7 @@ export class OraclePriceCache {
     const pending = this.inFlight.get(asset);
     if (pending) return pending;
 
-    const startedAt = this.clock.now();
+    const startedAt = this.clock.nowMilliseconds();
     const promise = fetch().then(
       (quote) => {
         this.inFlight.delete(asset);
@@ -84,7 +85,7 @@ export class OraclePriceCache {
           asset,
           block,
           cacheHit: false,
-          durationMs: this.clock.now() - startedAt,
+          durationMs: this.clock.nowMilliseconds() - startedAt,
         });
         return quote;
       },

@@ -1,4 +1,5 @@
 import { Address } from '@stellar/stellar-sdk';
+import { systemClock, type Clock } from '../lib/clock';
 
 export interface SafelistRule {
   contractAddress: string;
@@ -11,6 +12,8 @@ export interface SafelistRule {
 export class FlashloanSafelistManager {
   private safelist: Map<string, SafelistRule> = new Map();
 
+  constructor(private readonly clock: Clock = systemClock) {}
+
   public registerContract(contractAddress: string, label: string, expiresAt?: string): void {
     if (!contractAddress || contractAddress.trim() === '') {
       throw new Error('Invalid contract address');
@@ -18,7 +21,7 @@ export class FlashloanSafelistManager {
     this.safelist.set(contractAddress, {
       contractAddress,
       label,
-      approvedAt: new Date().toISOString(),
+      approvedAt: this.clock.nowDate().toISOString(),
       expiresAt,
       active: true,
     });
@@ -34,7 +37,7 @@ export class FlashloanSafelistManager {
   public isApproved(contractAddress: string): boolean {
     const entry = this.safelist.get(contractAddress);
     if (!entry || !entry.active) return false;
-    if (entry.expiresAt && new Date(entry.expiresAt).getTime() < Date.now()) {
+    if (entry.expiresAt && new Date(entry.expiresAt).getTime() < this.clock.nowMilliseconds()) {
       return false;
     }
     return true;

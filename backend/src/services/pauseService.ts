@@ -1,3 +1,5 @@
+import { systemClock, type Clock } from '../lib/clock';
+
 export interface PauseProposal {
   poolId: string;
   proposer: string;
@@ -12,13 +14,17 @@ export class TimelockedPauseService {
   private readonly delayMs: number;
   private readonly requiredSignatures: number;
 
-  constructor(delaySeconds: number = 3600, requiredSignatures: number = 2) {
+  constructor(
+    delaySeconds: number = 3600,
+    requiredSignatures: number = 2,
+    private readonly clock: Clock = systemClock,
+  ) {
     this.delayMs = delaySeconds * 1000;
     this.requiredSignatures = requiredSignatures;
   }
 
   public propose(poolId: string, proposer: string): PauseProposal {
-    const now = Date.now();
+    const now = this.clock.nowMilliseconds();
     const proposal: PauseProposal = {
       poolId,
       proposer,
@@ -47,7 +53,7 @@ export class TimelockedPauseService {
     if (proposal.signatures.length < this.requiredSignatures) {
       return { ready: false, reason: `Insufficient signatures: ${proposal.signatures.length}/${this.requiredSignatures}` };
     }
-    if (Date.now() < proposal.executableAt) {
+    if (this.clock.nowMilliseconds() < proposal.executableAt) {
       return { ready: false, reason: 'Timelock delay window has not expired' };
     }
     return { ready: true };

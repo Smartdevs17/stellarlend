@@ -11,6 +11,14 @@ import {
 
 const thresholds = { warningHf: 1.5, graceHf: 1.2, liquidationHf: 1.0 };
 
+function clock(getNow) {
+  return {
+    nowMilliseconds: getNow,
+    nowSeconds: () => Math.floor(getNow() / 1000),
+    nowDate: () => new Date(getNow()),
+  };
+}
+
 function position(healthFactor, overrides = {}) {
   return {
     address: 'GUSER',
@@ -45,7 +53,7 @@ test('escalation bypasses cooldown but repeats are suppressed', async () => {
   const service = new GracePeriodAlertService(delivery, {
     thresholds,
     cooldownMs: 100,
-    now: () => now,
+    clock: clock(() => now),
   });
 
   assert.equal((await service.process(position(1.3))).reason, 'alert_sent');
@@ -64,7 +72,7 @@ test('safe positions clear previous state and alerts cap repeats', async () => {
     thresholds,
     cooldownMs: 0,
     maxAlertsPerPosition: 2,
-    now: () => now,
+    clock: clock(() => now),
   });
 
   await service.process(position(1.1));
