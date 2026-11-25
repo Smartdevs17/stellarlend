@@ -1,0 +1,14 @@
+[package]
+name = "stellarlend-errors"
+version = "0.1.0"
+edition = "2021"
+description = "Canonical no_std protocol error codes and domain mappings shared by StellarLend contracts"
+license = "MIT"
+
+# Standalone workspace, same convention as safe_math, pool_math, and params.
+[workspace]
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]

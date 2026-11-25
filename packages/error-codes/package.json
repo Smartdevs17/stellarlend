@@ -1,0 +1,22 @@
+{
+  "name": "@stellarlend/error-codes",
+  "version": "0.1.0",
+  "description": "Canonical error codes, contract/backend mappings, and observability hooks for StellarLend",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "node --test test/error-codes.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "typescript": "^5.3.3"
+  }
+}
