@@ -101,6 +101,9 @@ pub mod insurance;
 /// Collateral factor hot-swap with a rollback window (issue #1530)
 pub mod collateral;
 
+/// Cross-pool collateral migration with deferred interest (issue #1536)
+pub mod migrate;
+
 /// Pending-liquidation Dutch auction with configurable decay (issue #1566)
 pub mod auction;
 /// Per-user max-borrow hard cap with KYC attestation gate (issue #1562)

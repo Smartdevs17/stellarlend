@@ -44,6 +44,7 @@ protocol terms and the fixed-point conventions used across these documents.
 - **[Pool whitelisting gated by risk council](POOL_WHITELIST_COUNCIL.md)** - Pools are whitelisted only after a quorum of risk-council members approves them
 - **[Stablecoin peg monitor](STABLECOIN_PEG_MONITOR.md)** - Scheduled $1 peg checks for watched stablecoins that trigger a cooldown-guarded rebalance on depeg
 - **[Insurance fund, pool rate curves, treasury allocator and collateral hot-swap](INSURANCE_RATES_TREASURY_COLLATERAL.md)** - Per-asset insurance contribution split, per-pool borrow curves, quarterly vote-weighted treasury disbursement, and collateral-factor changes with a rollback window
+- **[Cross-pool collateral migration with deferred interest](CROSS_POOL_COLLATERAL_MIGRATION.md)** - Atomic migration of collateral between pools with snapshot and deferral of accrued interest, solvency checks, and settlement lifecycle (Issue #1536)
 - Interest rate model with smoothing
 - Risk config and scoring
 - Cross-asset positions and oracle support
