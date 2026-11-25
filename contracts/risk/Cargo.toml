@@ -1,0 +1,14 @@
+[package]
+name = "stellarlend-risk"
+version = "0.1.0"
+edition = "2021"
+description = "no_std risk helpers: collateral haircuts and per-block risk-weight memoization"
+license = "MIT"
+
+# Standalone workspace, same convention as params, pool and safe_math.
+[workspace]
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]

@@ -5,8 +5,6 @@
 //! to insulate the lending pool from sudden collateral value erosion before
 //! liquidations can settle.
 
-#![no_std]
-
 /// Basis points scale (10,000 bps = 100%).
 pub const BPS_SCALE: i128 = 10_000;
 

@@ -33,3 +33,32 @@ goes through `EventSink` and outcomes are recorded by `EventTelemetry`.
 ```bash
 cargo test --manifest-path contracts/pool/Cargo.toml
 ```
+
+## Memoized risk reads (#1774)
+
+Liquidation sweeps and multi-asset health checks used to resolve the same
+asset's parameters from the registry once per position. `PoolRiskView`
+(`src/risk.rs`) resolves each asset at most once per block height, backed by
+`RiskWeightCache` from `contracts/risk`:
+
+```rust
+use stellarlend_pool::PoolRiskView;
+
+let mut view = PoolRiskView::new(&config);
+for position in positions {
+    let limit = view.liquidation_limit(ledger_sequence, position.asset_id, position.value)?;
+    // ...
+}
+let stats = view.stats(); // hits, misses, resets, bypasses, failures
+```
+
+- Results are identical to `PoolConfig::borrow_capacity` / `liquidation_limit`.
+- The view borrows the config immutably, so parameters cannot change under it.
+- Reading at a different height (forward or rewound) drops every cached entry,
+  so a long-lived keeper never serves weights from an earlier ledger.
+- Unknown assets are cached as absent; if more distinct ids than slots are
+  probed in one block, extra reads are computed directly (`bypasses`).
+
+Observability: export `stats().hit_rate_bps()` and `stats().misses` (registry
+loads) as metrics; a falling hit rate or rising `bypasses` means a sweep is
+touching more distinct assets per block than expected.

@@ -217,16 +217,16 @@ mod tests {
     #[test]
     fn config_rejects_out_of_range_risk_parameters() {
         assert_eq!(
-            PoolConfig::new(1, false, 9_000, 8_000, 1_000, 5_000, 500, 1, 1),
-            Err(ConfigError::InvalidBps)
+            PoolConfig::new(1, false, 9_000, 8_000, 1_000, 5_000, 500, 1, 1).err(),
+            Some(ConfigError::InvalidBps)
         );
         assert_eq!(
-            PoolConfig::new(1, false, 7_000, 8_000, 6_000, 5_000, 500, 1, 1),
-            Err(ConfigError::InvalidBps)
+            PoolConfig::new(1, false, 7_000, 8_000, 6_000, 5_000, 500, 1, 1).err(),
+            Some(ConfigError::InvalidBps)
         );
         assert_eq!(
-            PoolConfig::new(1, false, 7_000, 8_000, 1_000, 5_000, 500, 0, 1),
-            Err(ConfigError::InvalidOracle)
+            PoolConfig::new(1, false, 7_000, 8_000, 1_000, 5_000, 500, 0, 1).err(),
+            Some(ConfigError::InvalidOracle)
         );
     }
 
