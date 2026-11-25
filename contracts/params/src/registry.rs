@@ -96,8 +96,7 @@ impl AssetParameters {
         if self.borrow_cap < 0 {
             return Err(ParameterError::InvalidAmount);
         }
-        if self.enabled
-            && (self.collateral_factor_bps == 0 || self.liquidation_threshold_bps == 0)
+        if self.enabled && (self.collateral_factor_bps == 0 || self.liquidation_threshold_bps == 0)
         {
             return Err(ParameterError::InvalidBps);
         }
@@ -169,7 +168,9 @@ impl AssetParametersUpdate {
             liquidation_threshold_bps: self
                 .liquidation_threshold_bps
                 .unwrap_or(current.liquidation_threshold_bps),
-            reserve_factor_bps: self.reserve_factor_bps.unwrap_or(current.reserve_factor_bps),
+            reserve_factor_bps: self
+                .reserve_factor_bps
+                .unwrap_or(current.reserve_factor_bps),
             borrow_cap: self.borrow_cap.unwrap_or(current.borrow_cap),
             price_feed_id: self.price_feed_id.unwrap_or(current.price_feed_id),
             enabled: self.enabled.unwrap_or(current.enabled),
@@ -216,7 +217,10 @@ impl ParameterRegistry {
 
     /// Look up one asset.
     pub fn get(&self, asset_id: u64) -> Option<&AssetParameters> {
-        self.entries.iter().flatten().find(|entry| entry.asset_id == asset_id)
+        self.entries
+            .iter()
+            .flatten()
+            .find(|entry| entry.asset_id == asset_id)
     }
 
     /// Iterate over all registered assets.
@@ -341,19 +345,11 @@ impl ParameterRegistry {
 
 /// Apply basis points with an overflow-safe product, truncating remainder.
 fn mul_bps(value: i128, bps: i128) -> Result<i128, ParameterError> {
-    if value < 0 || bps < 0 {
-        return Err(ParameterError::InvalidAmount);
-    }
-    match value.checked_mul(bps) {
-        Some(product) => Ok(product / BPS_DIVISOR),
-        None => {
-            let quotient = value / BPS_DIVISOR;
-            let remainder = value % BPS_DIVISOR;
-            let high = quotient.checked_mul(bps).ok_or(ParameterError::Overflow)?;
-            let low = remainder.checked_mul(bps).ok_or(ParameterError::Overflow)? / BPS_DIVISOR;
-            high.checked_add(low).ok_or(ParameterError::Overflow)
-        }
-    }
+    use stellarlend_safe_math::{apply_bps, SafeMathError};
+    apply_bps(value, bps).map_err(|e| match e {
+        SafeMathError::InvalidInput => ParameterError::InvalidAmount,
+        SafeMathError::Overflow | SafeMathError::DivisionByZero => ParameterError::Overflow,
+    })
 }
 
 #[cfg(test)]
@@ -370,8 +366,14 @@ mod tests {
         assert!(registry.is_empty());
         registry.register(entry(1, 7_500, 8_300)).unwrap();
         assert_eq!(registry.len(), 1);
-        assert_eq!(registry.get(1).map(|item| item.collateral_factor_bps), Some(7_500));
-        assert_eq!(registry.register(entry(1, 7_000, 8_000)), Err(ParameterError::AssetExists));
+        assert_eq!(
+            registry.get(1).map(|item| item.collateral_factor_bps),
+            Some(7_500)
+        );
+        assert_eq!(
+            registry.register(entry(1, 7_000, 8_000)),
+            Err(ParameterError::AssetExists)
+        );
         assert_eq!(registry.get(2), None);
     }
 

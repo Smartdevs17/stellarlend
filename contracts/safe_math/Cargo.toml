@@ -1,0 +1,14 @@
+[package]
+name = "stellarlend-safe-math"
+version = "0.1.0"
+edition = "2021"
+description = "no_std checked and saturating i128 arithmetic shared by StellarLend contracts"
+license = "MIT"
+
+# Standalone workspace, same convention as pool_math and params.
+[workspace]
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]

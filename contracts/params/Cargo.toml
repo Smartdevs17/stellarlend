@@ -12,3 +12,4 @@ license = "MIT"
 crate-type = ["rlib"]
 
 [dependencies]
+stellarlend-safe-math = { path = "../safe_math" }

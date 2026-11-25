@@ -3,6 +3,7 @@
 
 pub mod config;
 pub mod events;
+pub mod math;
 
 pub use config::{ConfigError, PoolConfig};
 pub use events::{context, deposit, liquidation, repay};

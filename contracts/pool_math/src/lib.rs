@@ -6,58 +6,16 @@
 //! factor calculations disagree between the pool and the liquidation path.
 //! No `soroban_sdk::Env`, storage or host object is used in this crate.
 
-/// Basis-point divisor (`100% == 10_000 bps`).
-pub const BPS_DIVISOR: i128 = 10_000;
+pub use stellarlend_safe_math::{
+    apply_bps, checked_mul_div, SafeMathError as MathError, BPS_DIVISOR,
+};
+
 /// Seconds in a 365-day year, used by all rate helpers.
 pub const SECONDS_PER_YEAR: i128 = 365 * 86_400;
 /// Scale used by lending indexes.
 pub const INDEX_SCALE: i128 = 1_000_000_000_000;
 /// Health factor reported for a position with no debt.
 pub const NO_DEBT_HEALTH_FACTOR: i128 = i128::MAX;
-
-/// Errors returned by the arithmetic helpers.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum MathError {
-    /// A denominator was zero or a division could not be represented.
-    DivisionByZero,
-    /// The operation overflowed or underflowed `i128`.
-    Overflow,
-    /// An amount, rate or threshold was outside its documented range.
-    InvalidInput,
-}
-
-/// Calculate `a * b / d` without losing the intermediate product to overflow.
-///
-/// When `a * b` overflows, the division is performed first and the remainder
-/// is added back, which keeps the truncating semantics identical to the
-/// direct calculation.
-pub fn checked_mul_div(a: i128, b: i128, d: i128) -> Result<i128, MathError> {
-    if d == 0 {
-        return Err(MathError::DivisionByZero);
-    }
-
-    match a.checked_mul(b) {
-        Some(product) => product.checked_div(d).ok_or(MathError::Overflow),
-        None => {
-            let quotient = a.checked_div(d).ok_or(MathError::Overflow)?;
-            let remainder = a.checked_rem(d).ok_or(MathError::Overflow)?;
-            let high = quotient.checked_mul(b).ok_or(MathError::Overflow)?;
-            let low = remainder
-                .checked_mul(b)
-                .and_then(|value| value.checked_div(d))
-                .ok_or(MathError::Overflow)?;
-            high.checked_add(low).ok_or(MathError::Overflow)
-        }
-    }
-}
-
-/// Apply `bps` basis points to a non-negative `amount`, truncating remainder.
-pub fn apply_bps(amount: i128, bps: i128) -> Result<i128, MathError> {
-    if amount < 0 || bps < 0 {
-        return Err(MathError::InvalidInput);
-    }
-    checked_mul_div(amount, bps, BPS_DIVISOR)
-}
 
 /// Express `numerator / denominator` in basis points.
 ///
@@ -85,7 +43,11 @@ pub fn utilization_bps(total_borrows: i128, total_supply: i128) -> Result<i128, 
 }
 
 /// Simple accrued interest using the contract's 365-day year.
-pub fn simple_interest(principal: i128, rate_bps: i128, elapsed_seconds: i128) -> Result<i128, MathError> {
+pub fn simple_interest(
+    principal: i128,
+    rate_bps: i128,
+    elapsed_seconds: i128,
+) -> Result<i128, MathError> {
     if principal < 0 || rate_bps < 0 || elapsed_seconds < 0 {
         return Err(MathError::InvalidInput);
     }
@@ -160,7 +122,12 @@ pub fn seize_amount(repaid: i128, incentive_bps: i128) -> Result<i128, MathError
     if repaid < 0 || incentive_bps < 0 {
         return Err(MathError::InvalidInput);
     }
-    apply_bps(repaid, BPS_DIVISOR.checked_add(incentive_bps).ok_or(MathError::Overflow)?)
+    apply_bps(
+        repaid,
+        BPS_DIVISOR
+            .checked_add(incentive_bps)
+            .ok_or(MathError::Overflow)?,
+    )
 }
 
 /// Repayment capped by both the close factor and the requested amount.
@@ -184,14 +151,6 @@ pub fn max_repayable(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn checked_mul_div_handles_large_products() {
-        let a = i128::MAX / 4;
-        assert_eq!(checked_mul_div(a, 3, 3), Ok(a));
-        assert_eq!(checked_mul_div(a, a, a), Ok(a));
-        assert_eq!(checked_mul_div(1, 1, 0), Err(MathError::DivisionByZero));
-    }
 
     #[test]
     fn bps_helpers_use_the_10_000_scale() {
@@ -233,7 +192,10 @@ mod tests {
     #[test]
     fn interest_helpers_use_one_year() {
         assert_eq!(simple_interest(1_000, 1_000, SECONDS_PER_YEAR), Ok(100));
-        assert_eq!(accrue_index(INDEX_SCALE, 1_000, SECONDS_PER_YEAR), Ok(INDEX_SCALE + INDEX_SCALE / 10));
+        assert_eq!(
+            accrue_index(INDEX_SCALE, 1_000, SECONDS_PER_YEAR),
+            Ok(INDEX_SCALE + INDEX_SCALE / 10)
+        );
         assert_eq!(accrue_index(0, 100, 0), Err(MathError::InvalidInput));
     }
 }

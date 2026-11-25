@@ -14,3 +14,4 @@ crate-type = ["rlib"]
 [dependencies]
 stellarlend-events = { path = "../events" }
 stellarlend-params = { path = "../params" }
+stellarlend-safe-math = { path = "../safe_math" }
