@@ -1,0 +1,11 @@
+[package]
+name = "position-checks"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib"]
+path = "src/check.rs"
+
+[dependencies]
+health-guards = { path = "../health" }
