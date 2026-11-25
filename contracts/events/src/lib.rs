@@ -7,6 +7,9 @@
 
 use core::cell::Cell;
 
+pub mod encode;
+pub use encode::{encode_event, EncodeError};
+
 /// Current envelope version. Bump only when a field is added or removed.
 pub const SCHEMA_VERSION: u32 = 1;
 

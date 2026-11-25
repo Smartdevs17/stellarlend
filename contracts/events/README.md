@@ -51,6 +51,29 @@ let event = new_event(
 modules. The `EventSink` and `EventTelemetry` traits let the contract layer
 decide how to publish and how to expose counters, while validation stays here.
 
+## Compact wire format
+
+`encode_event` writes a versioned byte payload into a caller-owned buffer. It
+uses numeric tags for module/action/severity/payload, omits the topic (which is
+derived from module and action), omits field names, and uses varints for
+integers. This keeps contract event payloads smaller than a named-field
+representation while preserving exact `i128` values.
+
+Version 1 field order:
+
+```
+schema_version:u8, module:u8, action:u8, severity:u8,
+actor:string, asset?:string, counterparty?:string, trace_id:string,
+timestamp:u64-varint, amount:i128-zigzag-varint, health_factor_bps?:i128,
+payload_tag:u8, payload_fields:i128-zigzag-varint...
+```
+
+Strings are UTF-8 prefixed by an unsigned varint byte length. Optional values
+start with a `0`/`1` presence byte. Payload tags are `0` pool, `1` risk,
+`2` liquidation, and `3` config. The matching strict decoder is
+`backend/src/services/eventDecoder.ts`; it rejects unknown tags, malformed
+values, and trailing bytes rather than guessing.
+
 ## Validation
 
 ```bash
